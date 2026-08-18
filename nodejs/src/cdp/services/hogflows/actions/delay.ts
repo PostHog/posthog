@@ -85,7 +85,13 @@ function maxDelaySeconds(value: string): number | null {
 function instantFromHogValue(value: unknown, zone: string): DateTime | null {
     if (value && typeof value === 'object' && '__hogDateTime__' in (value as Record<string, unknown>)) {
         const seconds = (value as { dt?: unknown }).dt
-        return typeof seconds === 'number' ? DateTime.fromSeconds(seconds, { zone: 'UTC' }) : null
+        if (typeof seconds !== 'number' || !Number.isFinite(seconds)) {
+            // HogQL hands back a HogDateTime holding whatever it managed to parse, so toDateTime('not a date')
+            // arrives here as NaN seconds. Left alone that becomes an instant the queue cannot schedule.
+            return null
+        }
+        const asHogDateTime = DateTime.fromSeconds(seconds, { zone: 'UTC' })
+        return asHogDateTime.isValid ? asHogDateTime : null
     }
     if (typeof value === 'number') {
         // Unix seconds, matching toUnixTimestamp(). A millisecond timestamp — what Date.now() and most SDKs

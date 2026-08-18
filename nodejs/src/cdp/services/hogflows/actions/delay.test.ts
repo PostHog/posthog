@@ -374,6 +374,18 @@ describe('DelayHandler with delay_until', () => {
         expect(invocation.state.currentAction!.delayUntilUnresolved).toBeUndefined()
     })
 
+    // HogQL returns a HogDateTime holding whatever it parsed, so toDateTime('not a date') arrives as NaN
+    // seconds. Without a check that becomes an instant the queue cannot schedule, rather than a wait that
+    // could not work out its date.
+    it.each([
+        ['NaN', NaN],
+        ['Infinity', Infinity],
+    ])('fails on a HogDateTime holding %s', async (_label, seconds) => {
+        await expect(
+            runDelay(delayUntil(), { trial_expiration_at: { __hogDateTime__: true, dt: seconds, zone: 'UTC' } })
+        ).rejects.toThrow('The date to wait for did not evaluate to a date')
+    })
+
     it('still delays by a fixed duration when that is what is configured', async () => {
         const result = await runDelay({ delay_duration: '2h' })
 
