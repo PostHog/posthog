@@ -433,7 +433,13 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                 setFilters: (_, { filters }) => filters,
                 setLocalFilters: (currentFilters, { filters }) => {
                     if (equal(toFilters(currentFilters), filters)) {
-                        return currentFilters
+                        // toFilters renumbers order on the way out, so a filter list whose orders
+                        // drifted from their index (e.g. after a remove) still compares equal here.
+                        // Realign order with index, keeping uuids, so later edits keyed off order
+                        // stay correct instead of the skew surviving the session.
+                        return currentFilters.map((filter, order) =>
+                            filter.order === order ? filter : { ...filter, order }
+                        )
                     }
                     const newFilters = toLocalFilters(filters)
                     const usedUuids = new Set<string>()
@@ -482,9 +488,21 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
 
             await breakpoint(100)
 
+            // updateFilter targets a step by its array position. A step's `order` can drift from
+            // its index after a remove, so resolve the position by uuid, which stays stable, to
+            // keep the rename on the step the user selected.
+            const selectedUuid = (values.selectedFilter as LocalFilter).uuid
+            const index =
+                selectedUuid !== undefined
+                    ? values.localFilters.findIndex((filter) => filter.uuid === selectedUuid)
+                    : (values.selectedFilter.order ?? -1)
+            if (index === -1) {
+                return
+            }
+
             actions.updateFilter({
                 ...values.selectedFilter,
-                index: values.selectedFilter?.order,
+                index,
                 custom_name,
             } as EntityFilter & {
                 index: number

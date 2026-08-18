@@ -889,6 +889,23 @@ export const insightDataLogic = kea<insightDataLogicType>([
         if (!cachedQueryChanged) {
             return
         }
+        // A dashboard tile and its editor share this logic instance, so a tile results refresh
+        // pushes a fresh cached query through props. If the user has locally edited the query since
+        // the last prop value (e.g. removed a funnel step in the editor), syncing the incoming one
+        // over it would silently revert those unsaved edits. Only sync when the live query still
+        // matches the previous cached query, i.e. there is no local divergence to protect.
+        try {
+            if (
+                props.dashboardId != null &&
+                oldProps?.cachedInsight?.query != null &&
+                !objectsEqual(values.query, oldProps.cachedInsight.query)
+            ) {
+                return
+            }
+        } catch {
+            // values.query can throw if the logic's state isn't in the store yet; fall through to
+            // the sync below, which already handles that case.
+        }
         // On dashboard tiles props.setQuery persists edits, and `setQuery` is shared with
         // insightVizDataLogic whose listener calls props.setQuery — so re-syncing a stale incoming
         // cached query (e.g. from a tile results refresh) via setQuery loops back and PATCHes it,

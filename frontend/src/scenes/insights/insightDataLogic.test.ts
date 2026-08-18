@@ -255,7 +255,42 @@ describe('insightDataLogic', () => {
         // props.setQuery (persistDisplayOptions). If a tile re-render re-syncs the incoming cached
         // query via setQuery, it loops back into a PATCH of that (stale) query, reverting a display
         // option the user just saved. propsChanged must use syncQueryFromProps on dashboard tiles.
-        it('syncs a changed cached query via syncQueryFromProps, not setQuery, on a dashboard tile', async () => {
+        it('syncs a changed cached query via syncQueryFromProps, not setQuery, without local edits', async () => {
+            const updatedCachedQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    dateRange: {
+                        ...baseQuery.source.dateRange,
+                        date_from: '-14d',
+                    },
+                },
+            }
+
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                dashboardId: 99,
+                cachedInsight: { short_id: Insight123, query: baseQuery } as any,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                insightDataLogic({
+                    dashboardItemId: Insight123,
+                    dashboardId: 99,
+                    cachedInsight: { short_id: Insight123, query: updatedCachedQuery } as any,
+                    loadPriority: 1,
+                }).mount()
+            })
+                .toDispatchActions(['syncQueryFromProps'])
+                .toNotHaveDispatchedActions(['setQuery'])
+                .toMatchValues({ query: updatedCachedQuery })
+        })
+
+        // The editor and a dashboard tile share this logic instance. A tile results refresh pushes a
+        // fresh cached query through props; syncing it must not overwrite edits the user has not saved
+        // yet (e.g. a removed funnel step), or the change silently disappears from the live query.
+        it('keeps unsaved local edits when a stale cached query arrives on a dashboard tile', async () => {
             const localUpdatedQuery = buildLocalUpdatedQuery()
             const staleCachedQuery: InsightVizNode = {
                 ...baseQuery,
@@ -286,10 +321,7 @@ describe('insightDataLogic', () => {
                     cachedInsight: { short_id: Insight123, query: staleCachedQuery } as any,
                     loadPriority: 1,
                 }).mount()
-            })
-                .toDispatchActions(['syncQueryFromProps'])
-                .toNotHaveDispatchedActions(['setQuery'])
-                .toMatchValues({ query: staleCachedQuery })
+            }).toMatchValues({ query: localUpdatedQuery })
         })
     })
 

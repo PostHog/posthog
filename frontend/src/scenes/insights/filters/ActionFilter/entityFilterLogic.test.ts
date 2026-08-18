@@ -67,6 +67,31 @@ describe('entityFilterLogic', () => {
             )
         })
 
+        it('renames the selected step when order has drifted from its index', async () => {
+            // A remove can leave a step's `order` ahead of its array index. The rename must still
+            // land on the step the user selected, resolved by uuid, not on the stale order.
+            logic.actions.setFilters([
+                { id: '$pageview', name: '$pageview', type: 'events', order: 1, uuid: 'uuid-first' },
+                { id: 'signed_up', name: 'signed_up', type: 'events', order: 2, uuid: 'uuid-second' },
+            ] as LocalFilter[])
+
+            logic.actions.selectFilter({
+                id: 'signed_up',
+                name: 'signed_up',
+                type: 'events',
+                order: 2,
+                uuid: 'uuid-second',
+            } as LocalFilter)
+
+            await expectLogic(logic, () => {
+                logic.actions.renameFilter('Signed up')
+            }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
+
+            const lastCall = (logic.props.setFilters as jest.Mock).mock.calls.at(-1)![0]
+            expect(lastCall.events[0].custom_name).toBeUndefined()
+            expect(lastCall.events[1]).toMatchObject({ id: 'signed_up', custom_name: 'Signed up' })
+        })
+
         it('closes modal after renaming', () => {
             expectLogic(logic, () => {
                 logic.actions.renameFilter('Custom event name')
@@ -146,6 +171,16 @@ describe('entityFilterLogic', () => {
             expect(newFilters).toHaveLength(2)
             expect(originalUuids).toContain(newFilters[0].uuid)
             expect(originalUuids).toContain(newFilters[1].uuid)
+        })
+
+        it('realigns filter order with index after a step is removed', async () => {
+            // Removing a step must not leave later steps with an order ahead of their index, or
+            // edits keyed off order land on the wrong step for the rest of the session.
+            await expectLogic(logic, () => {
+                logic.actions.removeLocalFilter({ type: 'events', index: 0 })
+            }).toDispatchActions(['removeLocalFilter', 'setLocalFilters'])
+
+            expect(logic.values.localFilters.map((f) => f.order)).toEqual([0, 1])
         })
     })
 
