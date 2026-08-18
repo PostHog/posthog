@@ -40,7 +40,7 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
-from posthog.event_usage import get_request_analytics_properties
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
@@ -240,12 +240,34 @@ class PersonBulkDeleteRequestSerializer(serializers.Serializer):
         default=False,
         help_text="If true, keep the person records but delete their events and recordings.",
     )
+    dry_run = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="If true, delete nothing. Return the persons that a real call would delete, so you "
+        "can review them first. Person deletion is permanent and cannot be undone.",
+    )
+
+
+class PersonBulkDeletePreviewSerializer(serializers.Serializer):
+    person_uuid = serializers.CharField(help_text="UUID of a person that a real delete call would remove.")
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Distinct IDs attached to the person.",
+    )
 
 
 class PersonBulkDeleteResponseSerializer(serializers.Serializer):
     persons_found = serializers.IntegerField(help_text="Number of persons matched by the provided IDs or distinct IDs.")
     persons_deleted = serializers.IntegerField(
-        help_text="Number of person records deleted from the database. 0 if keep_person was true."
+        help_text="Number of person records deleted from the database. 0 if keep_person or dry_run was true."
+    )
+    dry_run = serializers.BooleanField(
+        help_text="Whether this was a dry run. If true, no persons, events, or recordings were deleted."
+    )
+    preview = serializers.ListField(
+        child=PersonBulkDeletePreviewSerializer(),
+        required=False,
+        help_text="On a dry run, the persons a real call would delete. Absent on a real deletion.",
     )
     events_queued_for_deletion = serializers.BooleanField(
         help_text="Whether event deletion was requested for the matched persons. "
@@ -692,6 +714,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         delete_events = bool(request.data.get("delete_events"))
         delete_recordings = bool(request.data.get("delete_recordings"))
         keep_person = bool(request.data.get("keep_person"))
+        dry_run = bool(request.data.get("dry_run"))
 
         summary = self._bulk_delete_persons(
             request=request,
@@ -700,9 +723,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             delete_events=delete_events,
             delete_recordings=delete_recordings,
             keep_person=keep_person,
+            dry_run=dry_run,
         )
 
-        return response.Response(data=summary, status=202)
+        return response.Response(data=summary, status=200 if dry_run else 202)
 
     def _bulk_delete_persons(
         self,
@@ -712,6 +736,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         delete_events: bool = False,
         delete_recordings: bool = False,
         keep_person: bool = False,
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         if distinct_ids and ids:
             raise ValidationError("You must provide either distinct_ids or ids, not both")
@@ -723,6 +748,19 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("You need to specify either distinct_ids or ids")
 
         persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
+
+        if dry_run:
+            return {
+                "persons_found": len(persons),
+                "persons_deleted": 0,
+                "events_queued_for_deletion": False,
+                "recordings_queued_for_deletion": False,
+                "deletion_errors": [],
+                "dry_run": True,
+                "preview": [
+                    {"person_uuid": str(person.uuid), "distinct_ids": list(person.distinct_ids)} for person in persons
+                ],
+            }
 
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
@@ -742,12 +780,26 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if delete_recordings:
             queue_person_recording_deletion(self.team_id, persons, actor=cast(User, request.user))
 
+        report_user_action(
+            cast(User, request.user),
+            "person deleted",
+            {
+                "persons_found": len(persons),
+                "persons_deleted": persons_deleted,
+                "delete_events": delete_events,
+                "delete_recordings": delete_recordings,
+                "keep_person": keep_person,
+            },
+            team=self.team,
+        )
+
         return {
             "persons_found": len(persons),
             "persons_deleted": persons_deleted,
             "events_queued_for_deletion": delete_events and len(persons) > 0,
             "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
             "deletion_errors": errors,
+            "dry_run": False,
         }
 
     @extend_schema(

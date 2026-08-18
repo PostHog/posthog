@@ -12,7 +12,12 @@ import structlog
 from temporalio import common
 
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, bulk_log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    Detail,
+    LogActivityEntry,
+    bulk_log_activity,
+)
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.util import (
@@ -34,6 +39,18 @@ logger = structlog.get_logger(__name__)
 class PersonProfileDeletionResult:
     deleted_count: int
     errors: list[uuid_lib.UUID] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PersonDeletionContext(ActivityContextBase):
+    """Snapshot of a person kept in the activity log after the row is hard-deleted.
+
+    The Postgres row is gone after deletion, so this is the only record that lets
+    support tell a customer which distinct IDs and properties were removed.
+    """
+
+    distinct_ids: builtins.list[str]
+    properties: dict
 
 
 def resolve_persons_for_deletion(
@@ -104,7 +121,13 @@ def delete_persons_profile(
                     item_id=person.pk,
                     scope="Person",
                     activity="deleted",
-                    detail=Detail(name=str(person.uuid)),
+                    detail=Detail(
+                        name=str(person.uuid),
+                        context=PersonDeletionContext(
+                            distinct_ids=[d.id for d in distinct_ids_by_person.get(person.pk, [])],
+                            properties=person.properties or {},
+                        ),
+                    ),
                 )
                 for person in deleted
             ]

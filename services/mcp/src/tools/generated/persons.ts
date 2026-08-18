@@ -40,6 +40,9 @@ const personsBulkDelete = (): ToolBase<typeof PersonsBulkDeleteSchema, unknown> 
         if (params.keep_person !== undefined) {
             body['keep_person'] = params.keep_person
         }
+        if (params.dry_run !== undefined) {
+            body['dry_run'] = params.dry_run
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/bulk_delete/`,

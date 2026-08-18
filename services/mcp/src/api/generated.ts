@@ -63472,6 +63472,13 @@ export namespace Schemas {
       timestamp: string;
     }
 
+    export interface PersonBulkDeletePreview {
+      /** UUID of a person that a real delete call would remove. */
+      person_uuid: string;
+      /** Distinct IDs attached to the person. */
+      distinct_ids: string[];
+    }
+
     export interface PersonBulkDeleteRequest {
       /** A list of PostHog person UUIDs to delete (max 1000). */
       ids?: string[];
@@ -63483,6 +63490,8 @@ export namespace Schemas {
       delete_recordings?: boolean;
       /** If true, keep the person records but delete their events and recordings. */
       keep_person?: boolean;
+      /** If true, delete nothing. Return the persons that a real call would delete, so you can review them first. Person deletion is permanent and cannot be undone. */
+      dry_run?: boolean;
     }
 
     export type PersonBulkDeleteResponseDeletionErrorsItem = { [key: string]: unknown };
@@ -63490,8 +63499,12 @@ export namespace Schemas {
     export interface PersonBulkDeleteResponse {
       /** Number of persons matched by the provided IDs or distinct IDs. */
       persons_found: number;
-      /** Number of person records deleted from the database. 0 if keep_person was true. */
+      /** Number of person records deleted from the database. 0 if keep_person or dry_run was true. */
       persons_deleted: number;
+      /** Whether this was a dry run. If true, no persons, events, or recordings were deleted. */
+      dry_run: boolean;
+      /** On a dry run, the persons a real call would delete. Absent on a real deletion. */
+      preview?: PersonBulkDeletePreview[];
       /** Whether event deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
       events_queued_for_deletion: boolean;
       /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */

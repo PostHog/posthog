@@ -1,8 +1,11 @@
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.http import HttpRequest
+
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.bulk_delete import (
@@ -99,6 +102,26 @@ class DeletePersonsProfileTests(BaseTest):
         assert result.errors == []
         assert ch_delete.call_args.kwargs["distinct_ids"] is None
         pg_delete.assert_called_once_with(self.team.pk, [p])
+
+    def test_records_distinct_ids_and_properties_in_activity_log(self):
+        # The Postgres row is hard-deleted, so this snapshot is the only record of what was removed.
+        p = create_person(team=self.team, distinct_ids=["a", "b"], properties={"$os": "Chrome"})
+        with (
+            patch("posthog.models.person.bulk_delete.delete_person"),
+            patch("posthog.models.person.bulk_delete.delete_persons_from_postgres"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            delete_persons_profile(
+                self.team.pk,
+                [p],
+                actor=self.user,
+                request=HttpRequest(),
+                organization_id=self.organization.id,
+            )
+        log = ActivityLog.objects.get(team_id=self.team.pk, scope="Person", activity="deleted")
+        assert log.detail["name"] == str(p.uuid)
+        assert sorted(log.detail["context"]["distinct_ids"]) == ["a", "b"]
+        assert log.detail["context"]["properties"] == {"$os": "Chrome"}
 
     def test_collects_errors_and_skips_failed_persons_in_pg_batch(self):
         p1 = create_person(team=self.team, distinct_ids=["a"], properties={})

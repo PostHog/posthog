@@ -221,6 +221,7 @@ export const PersonsBulkDeleteCreateQueryParams = /* @__PURE__ */ zod.object({
 export const personsBulkDeleteCreateBodyDeleteEventsDefault = false
 export const personsBulkDeleteCreateBodyDeleteRecordingsDefault = false
 export const personsBulkDeleteCreateBodyKeepPersonDefault = false
+export const personsBulkDeleteCreateBodyDryRunDefault = false
 
 export const PersonsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
     ids: zod.array(zod.string()).optional().describe('A list of PostHog person UUIDs to delete (max 1000).'),
@@ -240,6 +241,12 @@ export const PersonsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(personsBulkDeleteCreateBodyKeepPersonDefault)
         .describe('If true, keep the person records but delete their events and recordings.'),
+    dry_run: zod
+        .boolean()
+        .default(personsBulkDeleteCreateBodyDryRunDefault)
+        .describe(
+            'If true, delete nothing. Return the persons that a real call would delete, so you can review them first. Person deletion is permanent and cannot be undone.'
+        ),
 })
 
 /**

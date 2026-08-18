@@ -17,11 +17,22 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'deleted') {
+        const context = logItem.detail.context
+        const distinctIds = Array.isArray(context?.distinct_ids)
+            ? context.distinct_ids.filter((id: unknown): id is string => typeof id === 'string')
+            : []
         return {
             description: (
                 <>
                     <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the person:{' '}
                     {logItem.detail.name}
+                    {distinctIds.length > 0 && (
+                        <>
+                            {' '}
+                            with distinct {distinctIds.length === 1 ? 'ID' : 'IDs'}{' '}
+                            <span className="ph-no-capture">{distinctIds.join(', ')}</span>
+                        </>
+                    )}
                 </>
             ),
         }

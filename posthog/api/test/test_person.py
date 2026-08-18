@@ -630,6 +630,39 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertTrue(data["recordings_queued_for_deletion"])
         self.assertEqual(data["deletion_errors"], [])
 
+    @mock.patch("posthog.api.person.report_user_action")
+    def test_bulk_delete_dry_run_previews_without_deleting(self, mock_capture):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1", "anonymous_id"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+
+        response = self.client.post(f"/api/person/bulk_delete/", {"ids": [person.uuid], "dry_run": True})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertTrue(data["dry_run"])
+        self.assertEqual(data["persons_found"], 1)
+        self.assertEqual(data["persons_deleted"], 0)
+        self.assertEqual(len(data["preview"]), 1)
+        self.assertEqual(data["preview"][0]["person_uuid"], str(person.uuid))
+        self.assertEqual(sorted(data["preview"][0]["distinct_ids"]), ["anonymous_id", "person_1"])
+        self.assertIsNotNone(get_person_by_uuid(self.team.pk, str(person.uuid)))
+        mock_capture.assert_not_called()
+
+    @mock.patch("posthog.api.person.report_user_action")
+    def test_bulk_delete_captures_analytics_event(self, mock_capture):
+        person = _create_person(team=self.team, distinct_ids=["person_1"], properties={"$os": "Chrome"}, immediate=True)
+
+        response = self.client.post(f"/api/person/bulk_delete/", {"ids": [person.uuid]})
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
+        mock_capture.assert_called_once()
+        self.assertEqual(mock_capture.call_args.args[1], "person deleted")
+        self.assertEqual(mock_capture.call_args.args[2]["persons_deleted"], 1)
+
     def test_bulk_delete_validation_too_many_ids(self):
         """Test that bulk_delete rejects more than 1000 IDs"""
         # Test with ids
