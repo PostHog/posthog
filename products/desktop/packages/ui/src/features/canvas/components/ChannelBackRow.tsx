@@ -40,9 +40,9 @@ function RowStar({ channel }: { channel: Channel }) {
         });
         toggleStar();
       }}
-      // Parks in the row's reserved well: 8px padding + 6px gap = 14px from the
+      // Parks in the row's reserved well: 8px padding + 3px gap = 11px from the
       // right edge.
-      className="-translate-y-1/2 absolute top-1/2 right-[6px] text-muted-foreground"
+      className="-translate-y-1/2 absolute top-1/2 right-[3px] text-muted-foreground"
     >
       <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
     </Button>
