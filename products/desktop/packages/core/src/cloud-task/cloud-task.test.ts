@@ -181,6 +181,47 @@ describe("CloudTaskEngine", () => {
     expect(reconnectSpy).toHaveBeenCalledWith("task-1", "run-1");
   });
 
+  it("opens no second stream when nudged while bootstrap fetches the run", async () => {
+    let releaseRun: ((response: Response) => void) | undefined;
+    mockNetFetch
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseRun = resolve;
+          }),
+      )
+      .mockResolvedValue(
+        createJsonResponse([], 200, { "X-Has-More": "false" }),
+      );
+    mockStreamFetch.mockResolvedValue(createOpenSseResponse(""));
+
+    service.watch({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    });
+    await waitFor(() => releaseRun !== undefined);
+
+    service.reconnectAllIfDisconnected();
+    expect(mockStreamFetch).not.toHaveBeenCalled();
+
+    releaseRun?.(
+      createJsonResponse({
+        id: "run-1",
+        status: "in_progress",
+        stage: null,
+        output: null,
+        error_message: null,
+        branch: null,
+        updated_at: "2026-01-01T00:00:00Z",
+      }),
+    );
+    await waitFor(() => mockStreamFetch.mock.calls.length > 0);
+
+    expect(mockStreamFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("emits a replayed permission_request frame only once", async () => {
     const updates: unknown[] = [];
     service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));

@@ -8,7 +8,13 @@ function makeSession(taskId: string, runId: string): AgentSession {
     taskId,
     taskTitle: taskId,
     channel: "",
-    events: [{ jsonrpc: "2.0", method: "noop" }],
+    events: [
+      {
+        type: "acp_message",
+        ts: 1,
+        message: { jsonrpc: "2.0", method: "noop" },
+      },
+    ],
     processedLineCount: 1,
     startedAt: 1,
     status: "connected",
@@ -23,7 +29,7 @@ function makeSession(taskId: string, runId: string): AgentSession {
     isTaskAuthor: true,
     adapter: "claude",
     cloudStatus: "in_progress",
-  } as unknown as AgentSession;
+  };
 }
 
 function createHarness() {

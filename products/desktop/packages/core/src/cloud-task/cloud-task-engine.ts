@@ -152,6 +152,10 @@ interface WatcherState {
   connSentLastEventId: string | null;
   connDataEventsReceived: number;
   isBootstrapping: boolean;
+  // True for the whole of bootstrapWatcher, including the leading task-run
+  // fetch that runs before isBootstrapping is set. Bootstrap owns the stream
+  // for that span, so nothing else may open one.
+  isBootstrapInFlight: boolean;
   hasEmittedSnapshot: boolean;
   bufferedLogBatches: StoredLogEntry[][];
   // Live entries emitted since the last snapshot, retained so a re-subscribe snapshot can reconcile
@@ -801,6 +805,10 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       watcher.failed ||
       watcher.sseAbortController ||
       watcher.reconnectTimeoutId ||
+      // Covers the window before isBootstrapping is set, while bootstrap is
+      // still awaiting the task-run fetch: connecting there would leave a
+      // second stream alongside the one bootstrap is about to open.
+      watcher.isBootstrapInFlight ||
       watcher.isBootstrapping ||
       isTerminalStatus(watcher.lastStatus)
     ) {
@@ -1058,6 +1066,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       connSentLastEventId: null,
       connDataEventsReceived: 0,
       isBootstrapping: false,
+      isBootstrapInFlight: false,
       hasEmittedSnapshot: false,
       bufferedLogBatches: [],
       emittedLogEntries: [],
@@ -1109,6 +1118,18 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     const watcher = this.watchers.get(key);
     if (!watcher) return;
 
+    watcher.isBootstrapInFlight = true;
+    try {
+      await this.runBootstrap(key, watcher);
+    } finally {
+      watcher.isBootstrapInFlight = false;
+    }
+  }
+
+  private async runBootstrap(
+    key: string,
+    watcher: WatcherState,
+  ): Promise<void> {
     watcher.failed = false;
     watcher.needsPostBootstrapReconnect = false;
     watcher.needsStopAfterBootstrap = false;
