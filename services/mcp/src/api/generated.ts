@@ -15346,10 +15346,10 @@ export namespace Schemas {
      * * `10` - 10
      * * `12` - 12
      */
-    export type ColumnsEnum = typeof ColumnsEnum[keyof typeof ColumnsEnum];
+    export type CanvasGridColumnsEnum = typeof CanvasGridColumnsEnum[keyof typeof CanvasGridColumnsEnum];
 
 
-    export const ColumnsEnum = {
+    export const CanvasGridColumnsEnum = {
       Number4: 4,
       Number6: 6,
       Number8: 8,
@@ -15368,7 +15368,7 @@ export namespace Schemas {
        * * `8` - 8
        * * `10` - 10
        * * `12` - 12 */
-      columns: ColumnsEnum;
+      columns: CanvasGridColumnsEnum;
       /**
          * Height of one grid row, in pixels.
          * @minimum 24
@@ -15386,10 +15386,10 @@ export namespace Schemas {
     /**
      * * `1` - 1
      */
-    export type SchemaVersionEnum = typeof SchemaVersionEnum[keyof typeof SchemaVersionEnum];
+    export type CanvasLayoutSchemaVersionEnum = typeof CanvasLayoutSchemaVersionEnum[keyof typeof CanvasLayoutSchemaVersionEnum];
 
 
-    export const SchemaVersionEnum = {
+    export const CanvasLayoutSchemaVersionEnum = {
       Number1: 1,
     } as const;
 
@@ -15487,10 +15487,10 @@ export namespace Schemas {
       /** Layout schema version. Currently always 1.
        *
        * * `1` - 1 */
-      schemaVersion: SchemaVersionEnum;
+      schemaVersion: CanvasLayoutSchemaVersionEnum;
       /** The grid placements are laid out on. */
       grid: CanvasGrid;
-      /** The placed widgets. Placements may not overlap or extend past the grid. */
+      /** The placed widgets, at most 24. Placements may not overlap or extend past the grid. */
       placements: CanvasPlacement[];
     }
 
@@ -15603,7 +15603,7 @@ export namespace Schemas {
      * Payload for applying surgical operations to the canvas's current layout.
      */
     export interface CanvasLayoutPatch {
-      /** Operations applied in order to the canvas's current layout. */
+      /** Operations applied in order to the canvas's current layout, at most 64. */
       operations: CanvasLayoutPatchOperation[];
       /** Short description of the change, stored on the appended version history entry. */
       prompt?: string;

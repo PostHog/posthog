@@ -773,9 +773,10 @@ export interface CanvasPublishConflictApi {
 /**
  * * `1` - 1
  */
-export type SchemaVersionEnumApi = (typeof SchemaVersionEnumApi)[keyof typeof SchemaVersionEnumApi]
+export type CanvasLayoutSchemaVersionEnumApi =
+    (typeof CanvasLayoutSchemaVersionEnumApi)[keyof typeof CanvasLayoutSchemaVersionEnumApi]
 
-export const SchemaVersionEnumApi = {
+export const CanvasLayoutSchemaVersionEnumApi = {
     Number1: 1,
 } as const
 
@@ -786,9 +787,9 @@ export const SchemaVersionEnumApi = {
  * * `10` - 10
  * * `12` - 12
  */
-export type ColumnsEnumApi = (typeof ColumnsEnumApi)[keyof typeof ColumnsEnumApi]
+export type CanvasGridColumnsEnumApi = (typeof CanvasGridColumnsEnumApi)[keyof typeof CanvasGridColumnsEnumApi]
 
-export const ColumnsEnumApi = {
+export const CanvasGridColumnsEnumApi = {
     Number4: 4,
     Number6: 6,
     Number8: 8,
@@ -807,7 +808,7 @@ export interface CanvasGridApi {
      * * `8` - 8
      * * `10` - 10
      * * `12` - 12 */
-    columns: ColumnsEnumApi
+    columns: CanvasGridColumnsEnumApi
     /**
      * Height of one grid row, in pixels.
      * @minimum 24
@@ -916,10 +917,10 @@ export interface CanvasLayoutApi {
     /** Layout schema version. Currently always 1.
      *
      * * `1` - 1 */
-    schemaVersion: SchemaVersionEnumApi
+    schemaVersion: CanvasLayoutSchemaVersionEnumApi
     /** The grid placements are laid out on. */
     grid: CanvasGridApi
-    /** The placed widgets. Placements may not overlap or extend past the grid. */
+    /** The placed widgets, at most 24. Placements may not overlap or extend past the grid. */
     placements: CanvasPlacementApi[]
 }
 
@@ -1046,7 +1047,7 @@ export interface CanvasLayoutPatchOperationApi {
  * Payload for applying surgical operations to the canvas's current layout.
  */
 export interface CanvasLayoutPatchApi {
-    /** Operations applied in order to the canvas's current layout. */
+    /** Operations applied in order to the canvas's current layout, at most 64. */
     operations: CanvasLayoutPatchOperationApi[]
     /** Short description of the change, stored on the appended version history entry. */
     prompt?: string

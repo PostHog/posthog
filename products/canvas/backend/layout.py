@@ -11,6 +11,7 @@ visibility, config-vs-schema) live in ``validate_layout_references``.
 """
 
 import re
+import json
 from collections import Counter
 from typing import Any, TypeGuard
 from uuid import UUID
@@ -33,6 +34,15 @@ MAX_GAP = 48
 # Rows a layout may extend to; bounds y so a placement cannot claim an
 # effectively unbounded scroll area.
 MAX_GRID_ROWS = 400
+# A legitimate patch edits a layout bounded by maxGridPlacements, so rewriting
+# every placement plus the grid stays well inside this. The cap exists because a
+# patch's transient placements never show up in the published document, so the
+# document's own limits cannot bound the work an operation set costs.
+MAX_LAYOUT_PATCH_OPERATIONS = 64
+# Serialized ceiling for a persisted layout. Placement configs are free-form, so
+# without this a grid publish (which consumes no build capacity) is an unbounded
+# append-only write into object storage.
+MAX_LAYOUT_BYTES = 256 * 1024
 
 DEFAULT_LAYOUT: dict[str, Any] = {
     "schemaVersion": CANVAS_LAYOUT_SCHEMA_VERSION,
@@ -92,8 +102,21 @@ def _is_uuid(value: Any) -> bool:
     return True
 
 
+def _placement_label(placement: Any, index: int) -> str:
+    """Name a placement by index and, when it has a usable one, by id.
+
+    The index shifts as placements come and go, so the id is what makes two
+    placements with the same field error distinguishable — which is what keeps
+    ``subtract_preexisting_diagnostics`` from cancelling one against the other.
+    """
+    identifier = placement.get("id") if isinstance(placement, dict) else None
+    if isinstance(identifier, str) and PLACEMENT_ID_RE.match(identifier):
+        return f'layout.placements[{index}] ("{identifier}")'
+    return f"layout.placements[{index}]"
+
+
 def _validate_placement(placement: Any, index: int, columns: int) -> list[dict[str, Any]]:
-    label = f"layout.placements[{index}]"
+    label = _placement_label(placement, index)
     if not isinstance(placement, dict):
         return [diagnostic("error", "invalid_placement", f"{label} must be an object")]
     diagnostics: list[dict[str, Any]] = []
@@ -191,6 +214,15 @@ def validate_layout(layout: Any) -> list[dict[str, Any]]:
     """
     if not isinstance(layout, dict):
         return [diagnostic("error", "invalid_layout", "the layout must be an object")]
+    size = len(json.dumps(layout, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    if size > MAX_LAYOUT_BYTES:
+        return [
+            diagnostic(
+                "error",
+                "layout_too_large",
+                f"the layout is {size} bytes; a grid canvas may store at most {MAX_LAYOUT_BYTES} bytes of layout",
+            )
+        ]
     diagnostics: list[dict[str, Any]] = []
     if layout.get("schemaVersion") != CANVAS_LAYOUT_SCHEMA_VERSION:
         diagnostics.append(
@@ -202,9 +234,12 @@ def validate_layout(layout: Any) -> list[dict[str, Any]]:
         return [*diagnostics, diagnostic("error", "invalid_layout", "layout.placements must be a list")]
     max_placements = contract_limits()["maxGridPlacements"]
     if len(placements) > max_placements:
-        diagnostics.append(
-            diagnostic("error", "too_many_placements", f"a grid canvas may hold at most {max_placements} placements")
-        )
+        # Overlap detection below compares every placement against every earlier
+        # one, so an over-cap document must never reach it.
+        return [
+            *diagnostics,
+            diagnostic("error", "too_many_placements", f"a grid canvas may hold at most {max_placements} placements"),
+        ]
 
     columns = layout.get("grid", {}).get("columns") if isinstance(layout.get("grid"), dict) else None
     effective_columns = columns if columns in GRID_COLUMN_CHOICES else max(GRID_COLUMN_CHOICES)
@@ -245,6 +280,7 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
     """
     from products.canvas.backend.models import (  # noqa: PLC0415 — keeps this module import-light for the pure validators
         Canvas,
+        CanvasBuild,
         CanvasSourceVersion,
     )
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — same reason
@@ -268,12 +304,28 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
             .select_related("current_source_version")
         }
         version_ids = {str(placement["version"]) for placement in referenced if _is_uuid(placement.get("version"))}
+        # A pinned placement renders that version's artifact against that
+        # version's contract, so both have to be read per version; the
+        # component's head answers only for "latest" placements.
         pinned_versions = (
             {
-                (str(version.canvas_id), str(version.id))
+                (str(version.canvas_id), str(version.id)): version
                 for version in CanvasSourceVersion.objects.for_team(team_id).filter(id__in=version_ids, draft=False)
             }
             if version_ids
+            else {}
+        )
+        renderable_versions = (
+            set(
+                CanvasBuild.objects.for_team(team_id)
+                .filter(
+                    source_version_id__in=[version.id for version in pinned_versions.values()],
+                    status=CanvasBuild.STATUS_READY,
+                    artifact_object_prefix__isnull=False,
+                )
+                .values_list("source_version_id", flat=True)
+            )
+            if pinned_versions
             else set()
         )
 
@@ -287,7 +339,8 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
             )
             continue
         version = placement.get("version")
-        if _is_uuid(version) and (component_id, str(version)) not in pinned_versions:
+        pinned = pinned_versions.get((component_id, str(version))) if _is_uuid(version) else None
+        if _is_uuid(version) and pinned is None:
             diagnostics.append(
                 diagnostic(
                     "error",
@@ -295,8 +348,9 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
                     f"{label} pins a version that is not one of the component's published versions",
                 )
             )
-        head = component.current_source_version
-        meta = head.component_meta if head else None
+            continue
+        source_version = pinned or component.current_source_version
+        meta = source_version.component_meta if source_version else None
         if not isinstance(meta, dict):
             diagnostics.append(
                 diagnostic(
@@ -306,16 +360,27 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
                 )
             )
             continue
-        # A live placement renders the component's built artifact; without a
-        # ready build there is nothing to render, so going live must wait for it.
-        if placement.get("status") == "live" and component.published_build_id is None:
-            diagnostics.append(
-                diagnostic(
-                    "error",
-                    "component_build_not_ready",
-                    f"{label} cannot go live: the component has no ready build yet — wait for its build to finish",
+        # A live placement renders a built artifact; without a ready build there
+        # is nothing to render, so going live must wait for it. A pin is asked
+        # about its own build, whose artifact may since have aged out.
+        if placement.get("status") == "live":
+            if pinned is not None and pinned.id not in renderable_versions:
+                diagnostics.append(
+                    diagnostic(
+                        "error",
+                        "component_build_not_ready",
+                        f"{label} cannot go live: the version it pins has no build to render. "
+                        "Pin a version whose build is still retained, or follow the latest one.",
+                    )
                 )
-            )
+            elif pinned is None and component.published_build_id is None:
+                diagnostics.append(
+                    diagnostic(
+                        "error",
+                        "component_build_not_ready",
+                        f"{label} cannot go live: the component has no ready build yet. Wait for its build to finish.",
+                    )
+                )
         size = meta.get("size") or {}
         for axis in ("W", "H"):
             value = placement.get(axis.lower())
@@ -398,6 +463,7 @@ def apply_layout_ops(
     """
     layout = {**layout, "placements": [dict(placement) for placement in layout.get("placements", [])]}
     diagnostics: list[dict[str, Any]] = []
+    max_placements = contract_limits()["maxGridPlacements"]
     by_id = {placement.get("id"): placement for placement in layout["placements"]}
     for operation in operations:
         op = operation["op"]
@@ -411,6 +477,18 @@ def apply_layout_ops(
                     diagnostic("error", "edit_target_conflict", f'a placement with id "{identifier}" already exists')
                 )
                 continue
+            if len(layout["placements"]) >= max_placements:
+                # Bound the intermediate document too: an operation set that adds
+                # and removes its way past the cap costs the same work as an
+                # over-cap publish while ending inside the limit.
+                diagnostics.append(
+                    diagnostic(
+                        "error",
+                        "too_many_placements",
+                        f"a grid canvas may hold at most {max_placements} placements",
+                    )
+                )
+                break
             layout["placements"].append(dict(placement))
             by_id[identifier] = layout["placements"][-1]
         elif op in ("update_placement", "remove_placement"):

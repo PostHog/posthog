@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from unittest.mock import patch
 
@@ -9,10 +9,17 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 
 from products.canvas.backend import welcome
-from products.canvas.backend.layout import apply_layout_ops, default_layout, validate_layout
+from products.canvas.backend.layout import (
+    MAX_LAYOUT_PATCH_OPERATIONS,
+    apply_layout_ops,
+    default_layout,
+    validate_layout,
+)
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasState
+from products.canvas.backend.presentation.views import CanvasViewSet
 from products.canvas.backend.source import has_errors, validate_source_project
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.canvas.backend.tests.test_component_store import COMPONENT_META
@@ -65,6 +72,23 @@ class GridLayoutAPIBaseTest(CanvasAPIBaseTest):
 
     def _get_layout(self, canvas_id: str):
         return self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/layout/")
+
+    def _publish_component_version(self, component_id: str, *, config_schema: dict[str, Any]) -> str:
+        meta = {**COMPONENT_META, "configSchema": config_schema}
+        response = self._publish(component_id, self._project(component=meta))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return cast(str, response.json()["current_version_id"])
+
+    def _mark_head_build_ready(self, component_id: str) -> None:
+        with team_scope(self.team.id):
+            component = Canvas.objects.for_team(self.team.id).get(pk=component_id)
+            build = CanvasBuild.objects.for_team(self.team.id).get(
+                source_version_id=component.current_source_version_id
+            )
+            build.status = CanvasBuild.STATUS_READY
+            build.artifact_object_prefix = f"canvas_artifact/team_{self.team.id}/{component_id}/{build.id}"
+            build.save(update_fields=["status", "artifact_object_prefix"])
+            Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(published_build=build)
 
 
 class TestGridLayoutApi(GridLayoutAPIBaseTest):
@@ -242,6 +266,109 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert any(entry["code"] == "placement_config_invalid" for entry in response.json()["diagnostics"])
 
+    @parameterized.expand(
+        [("publish", "layout__placements__non_field_errors"), ("patch", "operations__non_field_errors")]
+    )
+    def test_oversized_layout_writes_are_rejected_at_the_request_boundary(self, route: str, rejected_attr: str):
+        # Per-placement and per-operation validation is itself work an attacker
+        # pays nothing for, so the count has to be refused before any of it runs
+        # rather than reported as a layout diagnostic afterwards.
+        grid_id = self._create_grid()
+        if route == "publish":
+            doc = layout(placements=[placement(id=f"p{index}") for index in range(400)])
+            response = self._publish_layout(grid_id, doc)
+        else:
+            operations = [
+                {"op": "add_placement", "placement": placement(id=f"p{index}")}
+                for index in range(MAX_LAYOUT_PATCH_OPERATIONS + 1)
+            ]
+            response = self._patch_layout(grid_id, operations, expected=None)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "max_length", response.json()
+        assert response.json()["attr"] == rejected_attr, response.json()
+
+    def test_pinned_version_is_validated_against_its_own_config_schema(self):
+        grid_id = self._create_grid()
+        component_id = self._create_component()
+        pinned_version = self._publish_component_version(
+            component_id, config_schema={"type": "object", "properties": {"location": {"type": "string"}}}
+        )
+        # The component republishes with an incompatible contract; the pinned
+        # placement still renders the version it named, so it answers to that
+        # version's schema and not to the head's.
+        self._publish_component_version(
+            component_id,
+            config_schema={"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]},
+        )
+        doc = layout(
+            placements=[
+                placement(
+                    status="generating",
+                    component=component_id,
+                    version=pinned_version,
+                    config={"location": "Lisbon"},
+                )
+            ]
+        )
+        response = self._publish_layout(grid_id, doc)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_live_placement_pinned_to_a_version_without_a_ready_build_rejected(self):
+        grid_id = self._create_grid()
+        component_id = self._create_component()
+        # The pinned version's own build never went ready; only the head's did,
+        # which is what a placement pinned to the older version cannot render.
+        pinned_version = self._publish_component_version(
+            component_id, config_schema={"type": "object", "properties": {"location": {"type": "string"}}}
+        )
+        self._publish_component_version(
+            component_id, config_schema={"type": "object", "properties": {"location": {"type": "string"}}}
+        )
+        self._mark_head_build_ready(component_id)
+
+        doc = layout(placements=[placement(status="live", component=component_id, version=pinned_version)])
+        response = self._publish_layout(grid_id, doc)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert any(entry["code"] == "component_build_not_ready" for entry in response.json()["diagnostics"])
+
+    def test_placement_pinned_to_an_unknown_version_rejected(self):
+        grid_id = self._create_grid()
+        component_id = self._create_component()
+        doc = layout(
+            placements=[
+                placement(status="generating", component=component_id, version="00000000-0000-4000-8000-000000000000")
+            ]
+        )
+        response = self._publish_layout(grid_id, doc)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert any(entry["code"] == "component_version_not_found" for entry in response.json()["diagnostics"])
+
+    @parameterized.expand(
+        [
+            ("config_omitted", None, status.HTTP_400_BAD_REQUEST),
+            ("config_empty", {}, status.HTTP_400_BAD_REQUEST),
+            ("config_complete", {"location": "Lisbon"}, status.HTTP_200_OK),
+        ]
+    )
+    def test_required_config_properties_are_enforced(self, _name: str, config: dict[str, Any] | None, expected: int):
+        # Omitting `config` hands the component the same empty object as
+        # `config: {}`, so both must answer for the schema's required keys.
+        grid_id = self._create_grid()
+        component_id = self._create_component()
+        self._publish_component_version(
+            component_id,
+            config_schema={
+                "type": "object",
+                "properties": {"location": {"type": "string"}},
+                "required": ["location"],
+            },
+        )
+        overrides: dict[str, Any] = {"status": "generating", "component": component_id}
+        if config is not None:
+            overrides["config"] = config
+        response = self._publish_layout(grid_id, layout(placements=[placement(**overrides)]))
+        assert response.status_code == expected, response.json()
+
     def test_placement_size_outside_component_contract_is_advisory(self):
         # The user sizes their own grid; a size outside the component's
         # suggested range must not block the publish.
@@ -304,6 +431,26 @@ class TestHomeProvisioning(GridLayoutAPIBaseTest):
             )
         assert state.value == {"download-desktop": True, "connect-github": github_connected}
 
+    def test_losing_a_provisioning_race_returns_the_winners_home(self):
+        # Two first opens (two tabs, or desktop plus web) both miss the pointer.
+        # The loser must hand back the winner's canvas instead of provisioning a
+        # second Home that nothing points at.
+        first = self._home()
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+        unlocked_read = CanvasViewSet._home_canvas_for
+        reads = {"count": 0}
+
+        def missed_once(view: CanvasViewSet, user: User) -> Canvas | None:
+            reads["count"] += 1
+            return None if reads["count"] == 1 else unlocked_read(view, user)
+
+        with patch.object(CanvasViewSet, "_home_canvas_for", missed_once):
+            raced = self._home()
+        assert raced.status_code == status.HTTP_200_OK, raced.json()
+        assert raced.json()["id"] == first.json()["id"]
+        with team_scope(self.team.id):
+            assert Canvas.objects.for_team(self.team.id).filter(kind=Canvas.KIND_GRID, deleted=False).count() == 1
+
     def test_home_provisions_even_when_seeding_fails(self):
         with patch.object(welcome, "seed_home_canvas", side_effect=RuntimeError("storage down")):
             response = self._home()
@@ -361,3 +508,20 @@ class TestLayoutValidation(CanvasAPIBaseTest):
         assert diagnostics == []
         assert edited["placements"] == []
         assert original["placements"] == [placement()]
+
+    def test_oversized_layout_is_not_walked_for_overlaps(self):
+        # Overlap detection compares every placement against every earlier one,
+        # so an over-cap document must be rejected before that scan runs.
+        doc = layout(placements=[placement(id=f"p{index}") for index in range(400)])
+        diagnostics = validate_layout(doc)
+        assert [entry["code"] for entry in diagnostics] == ["too_many_placements"]
+
+    def test_apply_ops_rejects_growing_past_the_placement_cap(self):
+        operations = [{"op": "add_placement", "placement": placement(id=f"p{index}")} for index in range(40)]
+        _, diagnostics = apply_layout_ops(default_layout(), operations)
+        assert any(entry["code"] == "too_many_placements" for entry in diagnostics)
+
+    def test_layout_larger_than_the_persisted_cap_is_rejected(self):
+        doc = layout(placements=[placement(config={"blob": "x" * 300_000})])
+        diagnostics = validate_layout(doc)
+        assert any(entry["code"] == "layout_too_large" for entry in diagnostics)

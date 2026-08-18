@@ -13,7 +13,12 @@ from products.canvas.backend.contract import (
     canvas_sdk_version,
     contract_limits,
 )
-from products.canvas.backend.layout import CANVAS_LAYOUT_SCHEMA_VERSION, PLACEMENT_ID_RE, PLACEMENT_STATUSES
+from products.canvas.backend.layout import (
+    CANVAS_LAYOUT_SCHEMA_VERSION,
+    MAX_LAYOUT_PATCH_OPERATIONS,
+    PLACEMENT_ID_RE,
+    PLACEMENT_STATUSES,
+)
 from products.canvas.backend.models import Canvas, CanvasState
 from products.canvas.backend.source import GRID_COLUMN_CHOICES
 
@@ -398,7 +403,15 @@ class CanvasLayoutSerializer(serializers.Serializer):
     )
     grid = CanvasGridSerializer(help_text="The grid placements are laid out on.")
     placements = CanvasPlacementSerializer(
-        many=True, help_text="The placed widgets. Placements may not overlap or extend past the grid."
+        many=True,
+        # drf-stubs types many=True against the child serializer and misses ListSerializer's max_length
+        max_length=contract_limits()["maxGridPlacements"],  # type: ignore[call-arg]
+        # drf-spectacular drops a nested list serializer's max_length, so the
+        # limit only reaches generated clients and MCP tools through the text.
+        help_text=(
+            "The placed widgets, at most "
+            f"{contract_limits()['maxGridPlacements']}. Placements may not overlap or extend past the grid."
+        ),
     )
 
 
@@ -471,7 +484,11 @@ class CanvasLayoutPatchSerializer(serializers.Serializer):
     operations = CanvasLayoutPatchOperationSerializer(
         many=True,
         allow_empty=False,
-        help_text="Operations applied in order to the canvas's current layout.",
+        # drf-stubs types many=True against the child serializer and misses ListSerializer's max_length
+        max_length=MAX_LAYOUT_PATCH_OPERATIONS,  # type: ignore[call-arg]
+        help_text=(
+            f"Operations applied in order to the canvas's current layout, at most {MAX_LAYOUT_PATCH_OPERATIONS}."
+        ),
     )
     prompt = serializers.CharField(
         required=False,

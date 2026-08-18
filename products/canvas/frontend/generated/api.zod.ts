@@ -554,7 +554,7 @@ export const CanvasesLayoutPatchCreateBody = /* @__PURE__ */ zod
                     })
                     .describe('One surgical layout operation.')
             )
-            .describe("Operations applied in order to the canvas's current layout."),
+            .describe("Operations applied in order to the canvas's current layout, at most 64."),
         prompt: zod
             .string()
             .optional()
@@ -682,7 +682,7 @@ export const CanvasesLayoutPublishCreateBody = /* @__PURE__ */ zod
                             })
                             .describe('One placed widget on a grid canvas.')
                     )
-                    .describe('The placed widgets. Placements may not overlap or extend past the grid.'),
+                    .describe('The placed widgets, at most 24. Placements may not overlap or extend past the grid.'),
             })
             .describe("A grid canvas's layout document — its entire 'source'.")
             .describe('The complete layout document to publish.'),

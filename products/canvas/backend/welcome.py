@@ -29,7 +29,9 @@ WELCOME_STATE_KEY = "checked"
 _CHECKLIST_CODE = """\
 import { useEffect, useState } from "react";
 import {
+  Button,
   Checkbox,
+  Label,
   SkeletonText,
   Text,
   Tooltip,
@@ -130,20 +132,36 @@ export default function WelcomeChecklist() {
           {ITEMS.map((item) => (
             <div key={item.id} className="flex items-center gap-2">
               <Checkbox
+                id={"checklist-" + item.id}
                 checked={!!checked[item.id]}
                 onCheckedChange={(value) => toggle(item.id, value === true)}
               />
-              <Text
-                size="sm"
-                className={checked[item.id] ? "text-muted-foreground line-through" : ""}
+              <Label
+                htmlFor={"checklist-" + item.id}
+                className={
+                  "text-sm" +
+                  (checked[item.id] ? " text-muted-foreground line-through" : "")
+                }
               >
                 {item.label}
-              </Text>
+              </Label>
               {item.hint ? (
                 <Tooltip>
+                  {/* A focusable button, not a bare icon: the tooltip carries the
+                      only instructions for the step, so it has to be reachable
+                      by keyboard and have a name a screen reader can announce. */}
                   <TooltipTrigger
-                    render={<Info size={13} className="shrink-0 text-muted-foreground" />}
-                  />
+                    render={
+                      <Button
+                        variant="link-muted"
+                        size="icon-xs"
+                        className="shrink-0"
+                        aria-label={"More about " + item.label}
+                      />
+                    }
+                  >
+                    <Info />
+                  </TooltipTrigger>
                   <TooltipContent>
                     <div className="max-w-60">{item.hint}</div>
                   </TooltipContent>
