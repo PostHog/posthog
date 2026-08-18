@@ -9,10 +9,20 @@ export type UpdateUiStatus =
   | "ready"
   | "installing";
 
+/**
+ * Deferred install ("restart when idle") lifecycle: `off` until the user arms
+ * it, `waiting` while local agents are still working, `countdown` once the app
+ * is idle and a cancellable restart timer is running.
+ */
+export type DeferredInstallPhase = "off" | "waiting" | "countdown";
+
+export const DEFERRED_INSTALL_COUNTDOWN_SECONDS = 10;
+
 interface UpdateState {
   status: UpdateUiStatus;
   version: string | null;
   availableVersion: string | null;
+  currentVersion: string | null;
   releaseNotes: string | null;
   releaseDate: string | null;
   downloadPercent: number | null;
@@ -20,12 +30,20 @@ interface UpdateState {
   downloadSizeBytes: number | null;
   isEnabled: boolean;
   menuCheckPending: boolean;
+  deferredInstallPhase: DeferredInstallPhase;
+  deferredInstallCountdown: number | null;
 
   setStatus: (status: UpdateUiStatus) => void;
   setVersion: (version: string | null) => void;
+  setCurrentVersion: (currentVersion: string | null) => void;
   setEnabled: (isEnabled: boolean) => void;
   setMenuCheckPending: (menuCheckPending: boolean) => void;
   setReady: (version: string | null) => void;
+  armDeferredInstall: () => void;
+  disarmDeferredInstall: () => void;
+  beginDeferredInstallCountdown: (seconds: number) => void;
+  tickDeferredInstallCountdown: (seconds: number) => void;
+  returnDeferredInstallToWaiting: () => void;
   applyStatusUpdate: (update: UpdateStatusUpdate) => void;
 }
 
@@ -33,6 +51,7 @@ export const updateStore = createStore<UpdateState>((set) => ({
   status: "idle",
   version: null,
   availableVersion: null,
+  currentVersion: null,
   releaseNotes: null,
   releaseDate: null,
   downloadPercent: null,
@@ -40,12 +59,28 @@ export const updateStore = createStore<UpdateState>((set) => ({
   downloadSizeBytes: null,
   isEnabled: false,
   menuCheckPending: false,
+  deferredInstallPhase: "off",
+  deferredInstallCountdown: null,
 
   setStatus: (status) => set({ status }),
   setVersion: (version) => set({ version }),
+  setCurrentVersion: (currentVersion) => set({ currentVersion }),
   setEnabled: (isEnabled) => set({ isEnabled }),
   setMenuCheckPending: (menuCheckPending) => set({ menuCheckPending }),
   setReady: (version) => set({ status: "ready", version }),
+  armDeferredInstall: () =>
+    set({ deferredInstallPhase: "waiting", deferredInstallCountdown: null }),
+  disarmDeferredInstall: () =>
+    set({ deferredInstallPhase: "off", deferredInstallCountdown: null }),
+  beginDeferredInstallCountdown: (seconds) =>
+    set({
+      deferredInstallPhase: "countdown",
+      deferredInstallCountdown: seconds,
+    }),
+  tickDeferredInstallCountdown: (seconds) =>
+    set({ deferredInstallCountdown: seconds }),
+  returnDeferredInstallToWaiting: () =>
+    set({ deferredInstallPhase: "waiting", deferredInstallCountdown: null }),
   applyStatusUpdate: (update) =>
     set((state) => ({
       status: update.status ?? state.status,
@@ -190,6 +225,40 @@ export interface MenuCheckResult {
   success: boolean;
   errorCode?: string;
   errorMessage?: string;
+}
+
+export type DeferredInstallTransition =
+  | "begin-countdown"
+  | "return-to-waiting"
+  | "disarm";
+
+/**
+ * Decides how an armed "restart when idle" install reacts to update-status and
+ * agent-activity changes. Cloud runs continue server-side across a restart, so
+ * `busyLocalSessions` counts only local agents mid-turn. The arm survives a
+ * newer update arriving (ready → downloading → ready); it is only dropped when
+ * an install is already underway or updates shut off entirely.
+ */
+export function deriveDeferredInstallTransition(input: {
+  phase: DeferredInstallPhase;
+  updateStatus: UpdateUiStatus;
+  busyLocalSessions: number;
+}): DeferredInstallTransition | null {
+  const { phase, updateStatus, busyLocalSessions } = input;
+  if (phase === "off") {
+    return null;
+  }
+  if (updateStatus === "installing" || updateStatus === "idle") {
+    return "disarm";
+  }
+  if (phase === "waiting") {
+    return updateStatus === "ready" && busyLocalSessions === 0
+      ? "begin-countdown"
+      : null;
+  }
+  return updateStatus !== "ready" || busyLocalSessions > 0
+    ? "return-to-waiting"
+    : null;
 }
 
 export function resolveMenuCheckResult(

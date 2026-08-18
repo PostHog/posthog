@@ -65,6 +65,49 @@ export function mergeReleaseNotes(releases: ReleaseLike[]): CategorizedNotes {
   };
 }
 
+// Desktop versions are dotted numerics ("0.60.249"), optionally with a
+// prerelease suffix ("0.61.0-beta.1"). Numeric segments compare numerically;
+// a release without a suffix sorts above the same version with one.
+export function compareVersions(a: string, b: string): number {
+  const [aBase, aSuffix = ""] = a.split("-", 2);
+  const [bBase, bSuffix = ""] = b.split("-", 2);
+  const aParts = aBase.split(".");
+  const bParts = bBase.split(".");
+  for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+    const aNum = Number(aParts[i] ?? 0);
+    const bNum = Number(bParts[i] ?? 0);
+    if (Number.isNaN(aNum) || Number.isNaN(bNum)) {
+      const cmp = (aParts[i] ?? "").localeCompare(bParts[i] ?? "");
+      if (cmp !== 0) return cmp;
+      continue;
+    }
+    if (aNum !== bNum) return aNum - bNum;
+  }
+  if (aSuffix === bSuffix) return 0;
+  if (aSuffix === "") return 1;
+  if (bSuffix === "") return -1;
+  return aSuffix.localeCompare(bSuffix);
+}
+
+// Everything the user gains by restarting: releases newer than what they run,
+// up to and including the pending update. Order is preserved (the feed is
+// newest-first). Without a known current version, fall back to just the
+// pending release so the peek still shows something.
+export function releasesBetween(
+  releases: ReleaseLike[],
+  currentVersion: string | null,
+  targetVersion: string,
+): ReleaseLike[] {
+  if (!currentVersion) {
+    return releases.filter((release) => release.version === targetVersion);
+  }
+  return releases.filter(
+    (release) =>
+      compareVersions(release.version, currentVersion) > 0 &&
+      compareVersions(release.version, targetVersion) <= 0,
+  );
+}
+
 function dayLabel(date: Date): string {
   return date.toLocaleDateString(undefined, {
     year: "numeric",

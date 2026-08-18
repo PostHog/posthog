@@ -1,12 +1,14 @@
 import { ArrowsClockwise, Gift, Spinner, X } from "@phosphor-icons/react";
+import { updateStore } from "@posthog/core/updates/updateStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { UpdateReadyPeek } from "@posthog/ui/features/updates/UpdateReadyPeek";
 import { useUpdateBannerStore } from "@posthog/ui/features/updates/updateBannerStore";
 import { useUpdateModalStore } from "@posthog/ui/features/updates/updateModalStore";
 import {
   useInstallUpdate,
   useUpdateView,
 } from "@posthog/ui/features/updates/updateStore";
-import { Box } from "@radix-ui/themes";
+import { Box, Popover } from "@radix-ui/themes";
 import { AnimatePresence, motion } from "framer-motion";
 
 interface UpdateBannerProps {
@@ -14,8 +16,16 @@ interface UpdateBannerProps {
 }
 
 export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
-  const { status, version, availableVersion, downloadPercent, isEnabled } =
-    useUpdateView();
+  const {
+    status,
+    version,
+    availableVersion,
+    currentVersion,
+    downloadPercent,
+    isEnabled,
+    deferredInstallPhase,
+    deferredInstallCountdown,
+  } = useUpdateView();
   const installUpdate = useInstallUpdate();
   const openModal = useUpdateModalStore((state) => state.open);
   const canDismiss = useSettingsStore(
@@ -38,6 +48,16 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
       status === "installing");
 
   const percent = Math.round(downloadPercent ?? 0);
+
+  const isDeferredArmed = deferredInstallPhase !== "off";
+  const readySubline =
+    deferredInstallPhase === "countdown" && deferredInstallCountdown !== null
+      ? `Restarting in ${deferredInstallCountdown}s…`
+      : deferredInstallPhase === "waiting"
+        ? "Restarting once agents finish"
+        : currentVersion
+          ? `You're on ${currentVersion} — restart to apply`
+          : "Restart to apply";
 
   if (variant === "compact") {
     return (
@@ -177,45 +197,63 @@ export function UpdateBanner({ variant = "sidebar" }: UpdateBannerProps) {
 
             {status === "ready" && (
               <BannerCard key="ready">
-                <div className="group relative flex w-full items-center gap-3 rounded-md border border-[var(--green-a5)] bg-[var(--green-a3)] px-3 py-2.5 text-[13px] text-[var(--green-11)]">
-                  <motion.div
-                    className="shrink-0"
-                    animate={{ rotate: [0, -12, 12, -8, 8, -4, 0] }}
-                    transition={{
-                      duration: 0.6,
-                      repeat: Infinity,
-                      repeatDelay: 4,
-                      ease: "easeInOut",
-                    }}
-                  >
-                    <Gift size={20} weight="duotone" />
-                  </motion.div>
-                  <button
-                    type="button"
-                    onClick={openModal}
-                    className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
-                  >
-                    <span className="font-medium">
-                      {version ? `${version} ready` : "Update ready"}
-                    </span>
-                    <span className="text-[11px] text-[var(--green-a11)]">
-                      Restart to apply
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="shrink-0 rounded-2 bg-[var(--green-a4)] px-2 py-1 font-medium text-[12px] text-[var(--green-11)] transition-colors hover:bg-[var(--green-a5)]"
-                    onClick={() => void installUpdate()}
-                  >
-                    Restart
-                  </button>
-                  {canDismiss && (
-                    <DismissButton
-                      variant="overlay"
-                      onClick={() => dismissBanner(dismissKey)}
-                    />
-                  )}
-                </div>
+                <Popover.Root>
+                  <div className="group relative flex w-full items-center gap-3 rounded-md border border-[var(--green-a5)] bg-[var(--green-a3)] px-3 py-2.5 text-[13px] text-[var(--green-11)]">
+                    <motion.div
+                      className="shrink-0"
+                      animate={{ rotate: [0, -12, 12, -8, 8, -4, 0] }}
+                      transition={{
+                        duration: 0.6,
+                        repeat: Infinity,
+                        repeatDelay: 4,
+                        ease: "easeInOut",
+                      }}
+                    >
+                      <Gift size={20} weight="duotone" />
+                    </motion.div>
+                    <Popover.Trigger>
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+                      >
+                        <span className="font-medium">
+                          {version ? `${version} ready` : "Update ready"}
+                        </span>
+                        <span className="truncate text-[11px] text-[var(--green-a11)]">
+                          {readySubline}
+                        </span>
+                      </button>
+                    </Popover.Trigger>
+                    {isDeferredArmed ? (
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-2 bg-[var(--green-a4)] px-2 py-1 font-medium text-[12px] text-[var(--green-11)] transition-colors hover:bg-[var(--green-a5)]"
+                        onClick={() =>
+                          updateStore.getState().disarmDeferredInstall()
+                        }
+                      >
+                        Cancel
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-2 bg-[var(--green-a4)] px-2 py-1 font-medium text-[12px] text-[var(--green-11)] transition-colors hover:bg-[var(--green-a5)]"
+                        onClick={() => void installUpdate()}
+                      >
+                        Restart
+                      </button>
+                    )}
+                    {canDismiss && (
+                      <DismissButton
+                        variant="overlay"
+                        onClick={() => dismissBanner(dismissKey)}
+                      />
+                    )}
+                  </div>
+                  <Popover.Content side="top" align="start" sideOffset={8}>
+                    <UpdateReadyPeek />
+                  </Popover.Content>
+                </Popover.Root>
               </BannerCard>
             )}
 

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  compareVersions,
   groupReleases,
   mergeReleaseNotes,
   parseReleaseNotes,
+  releasesBetween,
 } from "./releaseNotes";
 
 describe("parseReleaseNotes", () => {
@@ -95,5 +97,59 @@ describe("groupReleases", () => {
     );
 
     expect(groups[0].isLatest).toBe(true);
+  });
+});
+
+describe("compareVersions", () => {
+  it.each([
+    { a: "0.60.249", b: "0.60.231", expected: 1 },
+    { a: "0.60.231", b: "0.60.249", expected: -1 },
+    { a: "0.60.249", b: "0.60.249", expected: 0 },
+    { a: "0.61.0", b: "0.60.999", expected: 1 },
+    { a: "1.0.0", b: "0.99.99", expected: 1 },
+    { a: "0.60", b: "0.60.0", expected: 0 },
+    { a: "0.61.0", b: "0.61.0-beta.1", expected: 1 },
+    { a: "0.61.0-beta.1", b: "0.61.0-beta.2", expected: -1 },
+  ])("compares $a vs $b", ({ a, b, expected }) => {
+    expect(Math.sign(compareVersions(a, b))).toBe(expected);
+  });
+});
+
+describe("releasesBetween", () => {
+  const release = (version: string) => ({
+    name: `v${version}`,
+    version,
+    notes: "",
+    date: null,
+  });
+  const feed = [
+    release("0.60.249"),
+    release("0.60.240"),
+    release("0.60.231"),
+    release("0.60.220"),
+  ];
+
+  it("returns releases newer than current up to and including the target", () => {
+    expect(releasesBetween(feed, "0.60.231", "0.60.249")).toEqual([
+      release("0.60.249"),
+      release("0.60.240"),
+    ]);
+  });
+
+  it("returns nothing when already on the target", () => {
+    expect(releasesBetween(feed, "0.60.249", "0.60.249")).toEqual([]);
+  });
+
+  it("falls back to just the target release without a current version", () => {
+    expect(releasesBetween(feed, null, "0.60.240")).toEqual([
+      release("0.60.240"),
+    ]);
+  });
+
+  it("excludes releases beyond the pending update", () => {
+    expect(releasesBetween(feed, "0.60.220", "0.60.240")).toEqual([
+      release("0.60.240"),
+      release("0.60.231"),
+    ]);
   });
 });

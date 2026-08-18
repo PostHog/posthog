@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  deriveDeferredInstallTransition,
   deriveUpdateUiStatus,
   resolveMenuCheckFromStatus,
   resolveMenuCheckResult,
@@ -146,6 +147,82 @@ describe("resolveMenuCheckFromStatus", () => {
 
   it("keeps pending while still checking", () => {
     expect(resolveMenuCheckFromStatus({ checking: true }, true)).toBeNull();
+  });
+});
+
+describe("deriveDeferredInstallTransition", () => {
+  it.each([
+    {
+      name: "does nothing while off",
+      phase: "off" as const,
+      updateStatus: "ready" as const,
+      busyLocalSessions: 0,
+      expected: null,
+    },
+    {
+      name: "waits while local agents are busy",
+      phase: "waiting" as const,
+      updateStatus: "ready" as const,
+      busyLocalSessions: 2,
+      expected: null,
+    },
+    {
+      name: "begins the countdown once idle",
+      phase: "waiting" as const,
+      updateStatus: "ready" as const,
+      busyLocalSessions: 0,
+      expected: "begin-countdown",
+    },
+    {
+      name: "stays armed while a newer update downloads",
+      phase: "waiting" as const,
+      updateStatus: "downloading" as const,
+      busyLocalSessions: 0,
+      expected: null,
+    },
+    {
+      name: "aborts the countdown when an agent starts working",
+      phase: "countdown" as const,
+      updateStatus: "ready" as const,
+      busyLocalSessions: 1,
+      expected: "return-to-waiting",
+    },
+    {
+      name: "aborts the countdown when the update stops being ready",
+      phase: "countdown" as const,
+      updateStatus: "downloading" as const,
+      busyLocalSessions: 0,
+      expected: "return-to-waiting",
+    },
+    {
+      name: "keeps counting down while idle and ready",
+      phase: "countdown" as const,
+      updateStatus: "ready" as const,
+      busyLocalSessions: 0,
+      expected: null,
+    },
+    {
+      name: "disarms when a manual install starts",
+      phase: "waiting" as const,
+      updateStatus: "installing" as const,
+      busyLocalSessions: 0,
+      expected: "disarm",
+    },
+    {
+      name: "disarms when updates shut off",
+      phase: "countdown" as const,
+      updateStatus: "idle" as const,
+      busyLocalSessions: 0,
+      expected: "disarm",
+    },
+  ])("$name", ({ phase, updateStatus, busyLocalSessions, expected }) => {
+    expect(
+      deriveDeferredInstallTransition({
+        phase,
+        updateStatus,
+        busyLocalSessions,
+      }),
+    ).toBe(expected);
   });
 });
 

@@ -42,6 +42,15 @@ void client
     log.error("Failed to get update enabled status", { error });
   });
 
+// The banner and peek panel compare the running version against the pending
+// update ("You're on X — N releases behind").
+void hostTrpcClient.os.getAppVersion
+  .query()
+  .then((version) => store().setCurrentVersion(version))
+  .catch((error: unknown) => {
+    log.error("Failed to get current app version", { error });
+  });
+
 void client
   .getStatus()
   .then((status) => {

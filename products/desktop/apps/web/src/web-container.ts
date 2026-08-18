@@ -262,6 +262,7 @@ import {
   SHELL_CLIENT,
   type ShellClient,
 } from "@posthog/ui/features/terminal/shellClient";
+import { updatesUiModule } from "@posthog/ui/features/updates/updates.module";
 import {
   UPDATES_CLIENT,
   type UpdatesClient,
@@ -671,7 +672,9 @@ container.bind(ARCHIVE_CLIENT).toConstantValue({
 
 // ── Updates (UpdateAvailableModal / WhatsNewModal at __root) ──
 // Auto-update is a desktop (Electron) capability; a web app updates on reload.
-// Report disabled/up-to-date and never emit update events.
+// Report disabled/up-to-date and never emit update events. The module's
+// deferred-install contribution stays dormant: the phase never leaves "off".
+container.load(updatesUiModule);
 container.bind(UPDATES_CLIENT).toConstantValue({
   install: () => Promise.resolve({ installed: false }),
   check: () => Promise.resolve({ success: true }),
