@@ -237,6 +237,222 @@ export interface ManagedWarehouseDataStatusResponseApi {
     generated_at: string
 }
 
+export interface ManagedWarehouseMonitoringWarehouseApi {
+    /** Current managed warehouse lifecycle state, such as ready, provisioning, or resharding. */
+    state: string
+}
+
+export interface ManagedWarehouseMonitoringLimitsApi {
+    /**
+     * Maximum concurrent workers for the organization. Zero means no organization-specific limit.
+     * @minimum 0
+     */
+    max_workers: number
+    /**
+     * Maximum active session vCPUs admitted for the organization. Zero means no organization-specific limit.
+     * @minimum 0
+     */
+    max_vcpus: number
+    /** Default worker CPU as a Kubernetes resource quantity, such as 2 or 500m. */
+    default_worker_cpu: string
+    /** Default worker memory as a Kubernetes resource quantity, such as 8Gi. */
+    default_worker_memory: string
+    /**
+     * Default number of seconds an idle worker remains available for reuse.
+     * @minimum 0
+     */
+    default_worker_ttl_seconds: number
+    /**
+     * Minimum number of idle workers the organization keeps warm.
+     * @minimum 0
+     */
+    default_worker_min_hot_idle: number
+}
+
+export interface ManagedWarehouseMonitoringTotalsApi {
+    /**
+     * Number of current non-terminal workers.
+     * @minimum 0
+     */
+    workers: number
+    /**
+     * Total CPU cores allocated to current workers.
+     * @minimum 0
+     */
+    allocated_cpu_cores: number
+    /**
+     * Total memory bytes allocated to current workers.
+     * @minimum 0
+     */
+    allocated_memory_bytes: number
+    /**
+     * Number of active database sessions across the organization's control planes.
+     * @minimum 0
+     */
+    active_sessions: number
+    /**
+     * Number of sessions currently executing a query.
+     * @minimum 0
+     */
+    running_queries: number
+    /**
+     * Number of connections waiting for worker capacity.
+     * @minimum 0
+     */
+    queued_connections: number
+}
+
+export interface ManagedWarehouseMonitoringWorkerSessionApi {
+    /** Connection protocol, such as pg or flight. */
+    protocol: string
+    /** Current database session state. */
+    state: string
+    /**
+     * Milliseconds elapsed for the current query, or zero when the session is idle.
+     * @minimum 0
+     */
+    elapsed_ms: number
+    /**
+     * Best-effort query progress percentage, or null when DuckDB cannot estimate progress.
+     * @minimum 0
+     * @nullable
+     */
+    percentage: number | null
+    /**
+     * Rows processed by the current query.
+     * @minimum 0
+     */
+    rows: number
+    /**
+     * Estimated total rows for the current query when available.
+     * @minimum 0
+     */
+    total_rows: number
+    /** Whether the current query appears stalled. */
+    stalled: boolean
+}
+
+export interface ManagedWarehouseMonitoringWorkerApi {
+    /** Opaque identifier for the worker. */
+    id: string
+    /** Current worker lifecycle state. */
+    state: string
+    /** Worker CPU as a Kubernetes resource quantity, such as 2 or 500m. Blank when unavailable. */
+    cpu: string
+    /** Worker memory as a Kubernetes resource quantity, such as 8Gi. Blank when unavailable. */
+    memory: string
+    /**
+     * Number of seconds the worker remains available while idle.
+     * @minimum 0
+     */
+    ttl_seconds: number
+    /** UTC timestamp when the worker was created. */
+    created_at: string
+    /** UTC timestamp of the worker's latest heartbeat. */
+    last_heartbeat_at: string
+    /** Sanitized live session assigned to the worker, when one exists. */
+    session?: ManagedWarehouseMonitoringWorkerSessionApi | null
+}
+
+export interface ManagedWarehouseMonitoringCoverageApi {
+    /**
+     * Number of control planes that contributed live data.
+     * @minimum 0
+     */
+    cp_responders: number
+    /**
+     * Number of control planes queried for live data.
+     * @minimum 0
+     */
+    cp_total: number
+    /** Whether one or more control planes failed to contribute live data. */
+    partial: boolean
+}
+
+export interface ManagedWarehouseMonitoringSnapshotResponseApi {
+    /**
+     * Version of the managed warehouse monitoring response schema.
+     * @minimum 1
+     * @maximum 1
+     */
+    schema_version: number
+    /** Organization whose managed warehouse is represented. */
+    org_id: string
+    /** UTC timestamp when this snapshot was assembled. */
+    as_of: string
+    /** Managed warehouse lifecycle details. */
+    warehouse: ManagedWarehouseMonitoringWarehouseApi
+    /** Organization-level worker limits and defaults. */
+    limits: ManagedWarehouseMonitoringLimitsApi
+    /** Current organization-level activity totals. */
+    totals: ManagedWarehouseMonitoringTotalsApi
+    /** Current non-terminal workers with tenant-safe runtime details. */
+    workers: ManagedWarehouseMonitoringWorkerApi[]
+    /** Completeness of the cross-control-plane live data. */
+    coverage: ManagedWarehouseMonitoringCoverageApi
+}
+
+export interface ManagedWarehouseMonitoringErrorResponseApi {
+    /** Human-readable managed warehouse monitoring error. */
+    error?: string
+    /** Machine-readable validation error type. */
+    type?: string
+    /** Machine-readable validation error code. */
+    code?: string
+    /** Human-readable validation error detail. */
+    detail?: string
+    /**
+     * Query parameter associated with an error.
+     * @nullable
+     */
+    attr?: string | null
+}
+
+export interface ManagedWarehouseMonitoringPointApi {
+    /** UTC timestamp of the sample. */
+    timestamp: string
+    /** Metric value at the sample timestamp. */
+    value: number
+}
+
+/**
+ * Allow-listed labels distinguishing this series, such as query outcome or acquisition source.
+ */
+export type ManagedWarehouseMonitoringSeriesApiLabels = { [key: string]: string }
+
+export interface ManagedWarehouseMonitoringSeriesApi {
+    /** Allow-listed labels distinguishing this series, such as query outcome or acquisition source. */
+    labels: ManagedWarehouseMonitoringSeriesApiLabels
+    /** Chronologically ordered metric samples. */
+    points: ManagedWarehouseMonitoringPointApi[]
+}
+
+export interface ManagedWarehouseMonitoringSeriesResponseApi {
+    /**
+     * Version of the managed warehouse monitoring response schema.
+     * @minimum 1
+     * @maximum 1
+     */
+    schema_version: number
+    /** Organization whose managed warehouse is represented. */
+    org_id: string
+    /** Allow-listed metric returned by this response. */
+    metric: string
+    /** Unit for every value in the response. */
+    unit: string
+    /** Inclusive UTC start of the returned time window. */
+    start: string
+    /** Inclusive UTC end of the returned time window. */
+    end: string
+    /**
+     * Number of seconds between requested samples.
+     * @minimum 1
+     */
+    step_seconds: number
+    /** Metric series grouped by their allow-listed labels. */
+    series: ManagedWarehouseMonitoringSeriesApi[]
+}
+
 /**
  * * `copy` - copy
  * * `register` - register
@@ -4620,6 +4836,61 @@ export type DataWarehouseCheckSchemaNameRetrieveParams = {
      */
     name: string
 }
+
+export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams = {
+    /**
+     * Allow-listed managed warehouse metric to retrieve.
+     *
+     * * `query_rate` - query_rate
+     * * `error_ratio` - error_ratio
+     * * `duration_p50` - duration_p50
+     * * `duration_p95` - duration_p95
+     * * `sessions_active` - sessions_active
+     * * `acquire_p95` - acquire_p95
+     * * `acquire_by_source` - acquire_by_source
+     * * `storage_bytes` - storage_bytes
+     * * `worker_crash_rate` - worker_crash_rate
+     * @minLength 1
+     */
+    metric: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric
+    /**
+     * Trailing time window to retrieve. Defaults to 24h.
+     *
+     * * `1h` - 1h
+     * * `6h` - 6h
+     * * `24h` - 24h
+     * * `7d` - 7d
+     * * `30d` - 30d
+     * @minLength 1
+     */
+    window?: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow
+}
+
+export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric =
+    (typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric)[keyof typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric]
+
+export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric = {
+    QueryRate: 'query_rate',
+    ErrorRatio: 'error_ratio',
+    DurationP50: 'duration_p50',
+    DurationP95: 'duration_p95',
+    SessionsActive: 'sessions_active',
+    AcquireP95: 'acquire_p95',
+    AcquireBySource: 'acquire_by_source',
+    StorageBytes: 'storage_bytes',
+    WorkerCrashRate: 'worker_crash_rate',
+} as const
+
+export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow =
+    (typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow)[keyof typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow]
+
+export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow = {
+    '1h': '1h',
+    '6h': '6h',
+    '24h': '24h',
+    '7d': '7d',
+    '30d': '30d',
+} as const
 
 export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
     /**

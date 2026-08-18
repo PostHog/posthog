@@ -18,6 +18,7 @@ import { logger } from '~/common/utils/logger'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService } from './email-suppression.service'
 import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
@@ -188,7 +189,8 @@ export class EmailService {
         const addLog = createAddLogFunction(result.logs)
 
         const params = invocation.queueParameters
-        const integration = await this.integrationManager.get(params.from.integrationId)
+        const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
+        const integration = await this.integrationManager.get(integrationId)
 
         let success: boolean = false
         let throttled: boolean = false
@@ -275,7 +277,7 @@ export class EmailService {
                 assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
-            addLog('info', `Email sent to ${params.to.email}${viewEmailToken}`)
+            addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
             success = true
         } catch (error) {
             if (error instanceof SESThrottleError) {
