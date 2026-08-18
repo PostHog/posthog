@@ -226,6 +226,10 @@ export interface TaskRunSessionLogsResult {
   truncatedHeadCount: number;
 }
 
+type SessionLogsPage =
+  | { ok: true; entries: StoredLogEntry[]; headers: Headers }
+  | { ok: false; status: number; statusText: string };
+
 export interface TaskListOptions {
   repository?: string;
   createdBy?: number;
@@ -3679,11 +3683,11 @@ export class PostHogAPIClient {
 
   // AbortController + setTimeout because Hermes, which runs this client on
   // mobile, has no AbortSignal.timeout.
-  private async fetchSessionLogsPageResponse(
+  private async fetchSessionLogsPage(
     url: URL,
     path: string,
     offset: number,
-  ): Promise<Response> {
+  ): Promise<SessionLogsPage> {
     for (let attempt = 0; ; attempt++) {
       const controller = new AbortController();
       const timer = setTimeout(
@@ -3692,12 +3696,23 @@ export class PostHogAPIClient {
         SESSION_LOGS_PAGE_TIMEOUT_MS,
       );
       try {
-        return await this.api.fetcher.fetch({
+        const response = await this.api.fetcher.fetch({
           method: "get",
           url,
           path,
           overrides: { signal: controller.signal },
         });
+        if (!response.ok) {
+          return {
+            ok: false,
+            status: response.status,
+            statusText: response.statusText,
+          };
+        }
+        // Read the body here, while the timer is still armed: fetch resolves on
+        // headers, and a page body stalling after them is what wedges hydration.
+        const entries = (await response.json()) as StoredLogEntry[];
+        return { ok: true, entries, headers: response.headers };
       } catch (err) {
         const status = requestErrorStatus(err);
         const retryable = status === undefined || status >= 500;
@@ -3736,25 +3751,18 @@ export class PostHogAPIClient {
         if (options?.after) {
           url.searchParams.set("after", options.after);
         }
-        const response = await this.fetchSessionLogsPageResponse(
-          url,
-          path,
-          offset,
-        );
+        const page = await this.fetchSessionLogsPage(url, path, offset);
 
-        if (!response.ok) {
+        if (!page.ok) {
           log.warn(
-            `Failed to fetch session logs page at offset ${offset}: ${response.status} ${response.statusText}`,
+            `Failed to fetch session logs page at offset ${offset}: ${page.status} ${page.statusText}`,
           );
           return { entries, complete: false, truncatedHeadCount };
         }
 
-        const page = (await response.json()) as StoredLogEntry[];
         if (isFirstPage) {
           isFirstPage = false;
-          const matchingCount = Number(
-            response.headers.get("X-Matching-Count"),
-          );
+          const matchingCount = Number(page.headers.get("X-Matching-Count"));
           if (Number.isFinite(matchingCount) && matchingCount > maxEntries) {
             // Restart from the tail so the newest maxEntries survive the cap.
             truncatedHeadCount = matchingCount - maxEntries;
@@ -3762,12 +3770,12 @@ export class PostHogAPIClient {
             continue;
           }
         }
-        entries.push(...page);
-        const hasMore = response.headers.get("X-Has-More") === "true";
-        if (!hasMore || page.length === 0) {
+        entries.push(...page.entries);
+        const hasMore = page.headers.get("X-Has-More") === "true";
+        if (!hasMore || page.entries.length === 0) {
           return { entries, complete: true, truncatedHeadCount };
         }
-        offset += page.length;
+        offset += page.entries.length;
       }
       // A deliberate tail fetch is complete; capping out without a matching
       // count means unknown loss.

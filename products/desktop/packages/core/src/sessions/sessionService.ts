@@ -4679,7 +4679,10 @@ export class SessionService {
         // task get a 404 (not a 403) here, so on a task the app can already read
         // it means the control gate. 404s from the upload or run fetch above
         // mean a missing resource, so those keep their real error.
-        if (requestErrorStatus(error) === 404 && session.isTaskAuthor === false) {
+        if (
+          requestErrorStatus(error) === 404 &&
+          session.isTaskAuthor === false
+        ) {
           throw new Error(
             "Only the person who created this task can send it messages. Start a new session to continue the work yourself.",
           );

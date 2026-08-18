@@ -5,6 +5,7 @@ import {
   CloudUsageLimitError,
   DESKTOP_BILLING_LIMIT_ERROR_CODE,
   PostHogAPIClient,
+  SESSION_LOGS_PAGE_TIMEOUT_MS,
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
@@ -2251,6 +2252,65 @@ describe("PostHogAPIClient", () => {
       expect(result.complete).toBe(false);
       expect(result.entries).toHaveLength(50);
       expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it("retries a page whose body read fails", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => {
+            throw new Error("terminated");
+          },
+          headers: new Headers({ "X-Has-More": "true" }),
+        })
+        .mockResolvedValueOnce(page(makeEntries(10, "a"), false));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 100000 },
+      );
+
+      expect(result.complete).toBe(true);
+      expect(result.entries).toHaveLength(10);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("aborts a page whose body stalls after the headers arrive", async () => {
+      vi.useFakeTimers();
+      try {
+        const fetch = vi
+          .fn()
+          .mockImplementation((call: { overrides: { signal: AbortSignal } }) =>
+            Promise.resolve({
+              ok: true,
+              json: () =>
+                new Promise((_resolve, reject) => {
+                  call.overrides.signal.addEventListener("abort", () =>
+                    reject(call.overrides.signal.reason),
+                  );
+                }),
+              headers: new Headers({ "X-Has-More": "false" }),
+            }),
+          );
+        const client = makeClient(fetch);
+
+        const pending = client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 100000,
+        });
+        // Once for the first attempt, once for its retry.
+        await vi.advanceTimersByTimeAsync(SESSION_LOGS_PAGE_TIMEOUT_MS);
+        await vi.advanceTimersByTimeAsync(SESSION_LOGS_PAGE_TIMEOUT_MS);
+
+        const result = await pending;
+        expect(result.complete).toBe(false);
+        expect(result.entries).toHaveLength(0);
+        expect(fetch).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("marks entries collected before a failed page as incomplete", async () => {
