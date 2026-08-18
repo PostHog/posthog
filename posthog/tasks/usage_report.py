@@ -325,9 +325,9 @@ class UsageReportCounters:
     workflow_billable_invocations_in_period: int
 
     # Logs and traces share one billing product, one meter and one free tier, so the billable metric is
-    # the combined MB. It is floored once off the summed bytes, so it can come out 1 MB above
-    # logs_mb_in_period + traces_mb_in_period, which each drop their own sub-MB remainder.
-    logs_and_traces_mb_in_period: int
+    # their combined volume. It stays in bytes and billing converts, because a per-team per-day MB
+    # figure drops every sub-MB remainder and those never come back over a month.
+    logs_and_traces_bytes_in_period: int
 
     # Logs. The per-signal MB is report-only — it exists so we can see the logs/traces split without
     # billing the two apart.
@@ -3329,7 +3329,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         workflow_billable_invocations_in_period=all_data["teams_with_workflow_billable_invocations_in_period"].get(
             team.id, 0
         ),
-        logs_and_traces_mb_in_period=int((logs_bytes_in_period + traces_bytes_in_period) // 1_000_000),
+        logs_and_traces_bytes_in_period=logs_bytes_in_period + traces_bytes_in_period,
         logs_bytes_in_period=logs_bytes_in_period,
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
         logs_mb_in_period=int(logs_bytes_in_period // 1_000_000),

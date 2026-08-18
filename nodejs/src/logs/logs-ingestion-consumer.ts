@@ -294,6 +294,11 @@ export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
     protected quotaResource: QuotaResource = 'logs_mb_ingested'
+    // Logs and traces bill against one shared bucket, so each consumer honours the combined limit as
+    // well as its own. The per-signal limits stay until billing meters only the combined one.
+    protected get quotaResources(): QuotaResource[] {
+        return [this.quotaResource, 'logs_and_traces_bytes_ingested']
+    }
     protected appSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
@@ -675,11 +680,14 @@ export class LogsIngestionConsumer {
         const quotaLimitedTokens = new Set(
             (
                 await Promise.all(
-                    uniqueTokens.map(async (token) =>
-                        (await this.deps.quotaLimiting.isTeamTokenQuotaLimited(token, this.quotaResource))
-                            ? token
-                            : null
-                    )
+                    uniqueTokens.map(async (token) => {
+                        const limits = await Promise.all(
+                            this.quotaResources.map((resource) =>
+                                this.deps.quotaLimiting.isTeamTokenQuotaLimited(token, resource)
+                            )
+                        )
+                        return limits.some(Boolean) ? token : null
+                    })
                 )
             ).filter((token): token is string => token !== null)
         )

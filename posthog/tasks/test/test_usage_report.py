@@ -3259,7 +3259,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_bytes_in_period": 1_500_000_000,
                     "logs_records_in_period": 1000,
                     "logs_mb_in_period": 1500,
-                    "logs_and_traces_mb_in_period": 1500,
+                    "logs_and_traces_bytes_in_period": 1_500_000_000,
                     "logs_retention_14d_mb_in_period": 500,
                     "logs_retention_30d_mb_in_period": 1000,
                     "logs_retention_90d_mb_in_period": 0,
@@ -3277,7 +3277,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_bytes_in_period": 2_500_000_000,
                     "logs_records_in_period": 2000,
                     "logs_mb_in_period": 2500,
-                    "logs_and_traces_mb_in_period": 2500,
+                    "logs_and_traces_bytes_in_period": 2_500_000_000,
                     "logs_retention_14d_mb_in_period": 0,
                     "logs_retention_30d_mb_in_period": 0,
                     "logs_retention_90d_mb_in_period": 2500,
@@ -3298,7 +3298,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_bytes_in_period": 1_200_000,
                     "logs_records_in_period": 5,
                     "logs_mb_in_period": 1,
-                    "logs_and_traces_mb_in_period": 1,
+                    "logs_and_traces_bytes_in_period": 1_200_000,
                     "logs_retention_14d_mb_in_period": 0,
                     "logs_retention_30d_mb_in_period": 0,
                     "logs_retention_90d_mb_in_period": 0,
@@ -3418,8 +3418,8 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
     @parameterized.expand(
         [
-            # Per-signal MB is floored to whole decimal MB, and the billable combined metric is
-            # floored once off the summed bytes: 77_000_000 + 2_500_000 -> 79 MB.
+            # The report-only per-signal MB floors to whole decimal MB. The billable combined metric
+            # stays in bytes and carries both signals: 77_000_000 + 2_500_000.
             (
                 "with_usage",
                 {"bytes_ingested": 2_500_000, "records_ingested": 40},
@@ -3429,9 +3429,11 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "traces_spans_in_period": 40,
                     "traces_mb_in_period": 2,
                     "logs_mb_in_period": 77,
-                    "logs_and_traces_mb_in_period": 79,
+                    "logs_and_traces_bytes_in_period": 79_500_000,
                 },
             ),
+            # Sub-MB traces still bill: the per-signal MB floors to 0 while the combined metric keeps
+            # every byte the team sent.
             (
                 "sub_mb_traces_floors_to_zero",
                 {"bytes_ingested": 999_999, "records_ingested": 5},
@@ -3441,21 +3443,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "traces_spans_in_period": 5,
                     "traces_mb_in_period": 0,
                     "logs_mb_in_period": 77,
-                    "logs_and_traces_mb_in_period": 77,
-                },
-            ),
-            # Both signals sub-MB on their own but a whole MB together. Flooring each signal before
-            # adding them would bill 0 MB here.
-            (
-                "sub_mb_signals_add_up_to_a_billable_mb",
-                {"bytes_ingested": 600_000, "records_ingested": 2},
-                600_000,
-                {
-                    "traces_bytes_in_period": 600_000,
-                    "traces_spans_in_period": 2,
-                    "traces_mb_in_period": 0,
-                    "logs_mb_in_period": 0,
-                    "logs_and_traces_mb_in_period": 1,
+                    "logs_and_traces_bytes_in_period": 77_999_999,
                 },
             ),
         ]
