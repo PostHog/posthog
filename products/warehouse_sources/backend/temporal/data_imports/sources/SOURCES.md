@@ -76,6 +76,7 @@ the row lists both.
 | appdynamics                      | HTTP                        | requests                                                        | ✅                          |
 | appfigures                       | HTTP                        | requests                                                        | ✅                          |
 | appfollow                        | HTTP                        | requests                                                        | ✅                          |
+| apple_search_ads                 | HTTP                        | requests                                                        | ✅                          |
 | applovin                         | HTTP                        | requests                                                        | ✅                          |
 | appsflyer                        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | appsignal                        | HTTP (REST + GraphQL)       | requests                                                        | ✅                          |
@@ -511,6 +512,7 @@ the row lists both.
 | postgres                         | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | postscript                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| power_bi_admin                   | HTTP                        | requests                                                        | ✅                          |
 | prefect_cloud                    | HTTP                        | requests                                                        | ✅                          |
 | pretix                           | HTTP                        | requests                                                        | ✅                          |
 | printify                         | HTTP                        | requests                                                        | ✅                          |
@@ -782,7 +784,6 @@ doesn't conflict with concurrent PRs.
 - appcues
 - appdirect
 - appfolio
-- apple_search_ads
 - apptivo
 - appwrite
 - arxiv
@@ -1238,7 +1239,6 @@ doesn't conflict with concurrent PRs.
 - podium
 - polygon
 - poplar
-- power_bi_admin
 - practicepanther
 - preset
 - prestashop
