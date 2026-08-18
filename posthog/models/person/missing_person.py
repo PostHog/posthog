@@ -1,6 +1,8 @@
 from uuid import UUID, uuid5
 
 PERSON_UUIDV5_NAMESPACE = UUID("932979b4-65c3-4424-8467-0b66ec27bc22")
+# uuid5 always stamps version 5; a person UUID with this version was derived from a distinct ID.
+PERSON_UUIDV5_VERSION = 5
 
 
 def uuidFromDistinctId(team_id: int, distinct_id: str) -> UUID:

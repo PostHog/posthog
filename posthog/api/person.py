@@ -55,7 +55,7 @@ from posthog.models.person.bulk_delete import (
     resolve_persons_for_deletion,
 )
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
-from posthog.models.person.missing_person import MissingPerson
+from posthog.models.person.missing_person import PERSON_UUIDV5_VERSION, MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
     get_person_by_pk_or_uuid,
@@ -506,8 +506,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_object(self, queryset):
         person_id = self.kwargs[self.lookup_field]
 
+        parsed_uuid: uuid.UUID | None = None
         try:
-            uuid.UUID(str(person_id))
+            parsed_uuid = uuid.UUID(str(person_id))
         except ValueError:
             try:
                 int(person_id)
@@ -517,9 +518,22 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         with personhog_caller_tag(f"persons/{self.action.replace('_', '-')}"):
-            return get_person_by_pk_or_uuid(
+            person = get_person_by_pk_or_uuid(
                 self.team_id, str(person_id), distinct_id_limit=_GET_OBJECT_DISTINCT_ID_LIMITS.get(self.action)
             )
+
+        # PostHog derives a placeholder UUIDv5 from the distinct ID for events captured without a
+        # person profile (see uuidFromDistinctId). That value is what the UI shows as the "person",
+        # so users copy it here to delete such events and get a bare 404. Recognize the version-5
+        # shape on a miss and explain why there is no person to act on.
+        if person is None and parsed_uuid is not None and parsed_uuid.version == PERSON_UUIDV5_VERSION:
+            raise NotFound(
+                detail="No person profile exists for this ID. PostHog builds the ID from a distinct ID. "
+                "Events captured without a person profile do not create a person, so there is no record to delete. "
+                "This is common for error tracking and other anonymous events."
+            )
+
+        return person
 
     @extend_schema(
         parameters=[
@@ -663,6 +677,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request: request.Request, pk=None, **kwargs):
         """
         Use this endpoint to delete individual persons. For bulk deletion, use the bulk_delete endpoint instead.
+
+        Events captured without a person profile (for example most error tracking events) have no person
+        record. Their ID is a placeholder that PostHog derives from the distinct ID, so this endpoint
+        cannot delete them and returns a 404.
         """
         try:
             person = self.get_object()
@@ -1310,6 +1328,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         [DEPRECATED] Queue deletion of all events for a person without deleting the person record itself.
         The deletion task runs during non-peak hours.
+
+        This route needs a person record. Events captured without a person profile (for example most
+        error tracking events) have no person, so it cannot delete them and returns a 404.
         """
         try:
             person = self.get_object()

@@ -484,6 +484,21 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(async_deletion.key, str(person.uuid))
         self.assertIsNone(async_deletion.delete_verified_at)
 
+    def test_delete_personless_placeholder_uuid_explains_no_profile(self):
+        # Events captured without a person profile surface a deterministic UUIDv5 as their "person".
+        # Deleting by that placeholder must explain there is no person record, not return a bare 404.
+        placeholder_uuid = uuidFromDistinctId(self.team.pk, "personless_distinct_id")
+
+        response = self.client.delete(f"/api/person/{placeholder_uuid}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("no person profile exists", response.json()["detail"].lower())
+
+    def test_delete_unknown_uuid_keeps_generic_not_found(self):
+        # A random (non-placeholder) UUID must not claim the ID belongs to a personless event.
+        response = self.client.delete(f"/api/person/{uuid4()}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertNotIn("no person profile exists", response.json()["detail"].lower())
+
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_bulk_delete_ids(self):
         person = _create_person(
