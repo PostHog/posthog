@@ -25,7 +25,7 @@ from posthog.schema import (
     MaxExperimentVariantResultFrequentist,
 )
 
-from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryData
+from products.experiments.backend.facade.contracts import ExperimentSummaryData
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.backend.models.assistant import Conversation

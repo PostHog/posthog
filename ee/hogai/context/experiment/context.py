@@ -3,7 +3,7 @@ from posthog.schema import MaxExperimentMetricResult
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.experiments.backend.experiment_summary_data_service import MAX_METRICS_TO_SUMMARIZE
+from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARIZE
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import Experiment
 

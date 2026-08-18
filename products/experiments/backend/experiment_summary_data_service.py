@@ -29,11 +29,11 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARIZE, ExperimentSummaryData
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -55,15 +55,6 @@ class ExposureQueryResult:
     pending: bool
 
 
-@frozen
-class ExperimentSummaryData:
-    context: MaxExperimentSummaryContext
-    last_refresh: datetime | None
-    pending_calculation: bool
-    omitted_metric_count: int
-
-
-MAX_METRICS_TO_SUMMARIZE = 50
 MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES = 10
 
 # This threshold is just to avoid minor discrepancies in timestamps.
