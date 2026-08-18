@@ -2,6 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.cdc_open_data import (
     CdcOpenDataResumeConfig,
@@ -27,8 +29,12 @@ class TestCdcOpenDataSource:
     def test_config_exposes_dataset_ids_and_app_token_fields(self) -> None:
         fields = self.source.get_source_config.fields
         assert [f.name for f in fields] == ["dataset_ids", "app_token"]
-        assert next(f for f in fields if f.name == "dataset_ids").required is True
-        assert next(f for f in fields if f.name == "app_token").required is False
+        dataset_ids_field = next(f for f in fields if f.name == "dataset_ids")
+        app_token_field = next(f for f in fields if f.name == "app_token")
+        assert isinstance(dataset_ids_field, SourceFieldInputConfig)
+        assert isinstance(app_token_field, SourceFieldInputConfig)
+        assert dataset_ids_field.required is True
+        assert app_token_field.required is False
 
     def test_ships_released_on_alpha(self) -> None:
         # A finished source must not carry `unreleasedSource=True` (that hides it entirely);
