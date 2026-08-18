@@ -6,10 +6,11 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import type { OpportunityApi } from './generated/api.schemas'
+import type { OpportunityApi, ProposedExperimentApi } from './generated/api.schemas'
 import { OpportunityKindEnumApi, OpportunityStatusEnumApi } from './generated/api.schemas'
-import { opportunitiesLogic, transitionsForStatus } from './opportunitiesLogic'
+import { type OpportunityRowAction, opportunitiesLogic, transitionsForStatus } from './opportunitiesLogic'
 
 // Exhaustive over the enums so a new backend value fails compilation here instead of rendering unstyled.
 const STATUS_TAG_TYPES: Record<OpportunityStatusEnumApi, LemonTagType> = {
@@ -117,32 +118,91 @@ export function OpportunitiesPanel(): JSX.Element {
 
 function OpportunityRowActions({ opportunity }: { opportunity: OpportunityApi }): JSX.Element | null {
     const { transitionsInFlight } = useValues(opportunitiesLogic)
-    const { transitionOpportunity } = useActions(opportunitiesLogic)
+    const { transitionOpportunity, createExperimentFromOpportunity } = useActions(opportunitiesLogic)
 
     const available = transitionsForStatus(opportunity.status)
-    if (available.length === 0) {
+    const proposal = opportunity.proposed_experiment
+    if (available.length === 0 && !proposal) {
         return null
     }
+    // Creating an experiment rides the acted transition, so the button is offered exactly when
+    // that transition is; elsewhere the proposal stays visible read-only.
+    const canCreateExperiment = proposal !== null && available.some(({ transition }) => transition === 'acted')
     const inFlightTransition = transitionsInFlight[opportunity.id]
+    // A row's other actions disable while any one of them is mid-flight — same rule for every button.
+    const waitingReason = (self: OpportunityRowAction): string | undefined =>
+        inFlightTransition && inFlightTransition !== self ? 'Waiting for the current update' : undefined
 
     return (
-        <div className="flex gap-1">
-            {available.map(({ label, transition }) => (
+        <div className="flex items-center gap-1">
+            {proposal && canCreateExperiment && (
                 <LemonButton
-                    key={transition}
                     size="small"
-                    type="secondary"
-                    loading={inFlightTransition === transition}
-                    disabledReason={
-                        inFlightTransition && inFlightTransition !== transition
-                            ? 'Waiting for the current update'
-                            : undefined
+                    type="primary"
+                    loading={inFlightTransition === 'create_experiment'}
+                    disabledReason={waitingReason('create_experiment')}
+                    tooltip={
+                        <ProposedExperimentSummary
+                            proposal={proposal}
+                            footer="Marks the opportunity as acted, copies the proposal, and opens a new experiment."
+                        />
                     }
-                    onClick={() => transitionOpportunity(opportunity.id, transition)}
+                    onClick={() => createExperimentFromOpportunity(opportunity.id)}
                 >
-                    {label}
+                    Create experiment
                 </LemonButton>
-            ))}
+            )}
+            {proposal && !canCreateExperiment && (
+                <Tooltip title={<ProposedExperimentSummary proposal={proposal} />}>
+                    <LemonTag type="completion">Proposed experiment</LemonTag>
+                </Tooltip>
+            )}
+            {available
+                // "Create experiment" IS the acted action for proposal rows — one action per outcome.
+                .filter(({ transition }) => !(canCreateExperiment && transition === 'acted'))
+                .map(({ label, transition }) => (
+                    <LemonButton
+                        key={transition}
+                        size="small"
+                        type="secondary"
+                        loading={inFlightTransition === transition}
+                        disabledReason={waitingReason(transition)}
+                        onClick={() => transitionOpportunity(opportunity.id, transition)}
+                    >
+                        {label}
+                    </LemonButton>
+                ))}
+        </div>
+    )
+}
+
+function ProposedExperimentSummary({
+    proposal,
+    footer,
+}: {
+    proposal: ProposedExperimentApi
+    footer?: string
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <span>
+                <strong>Hypothesis:</strong> {proposal.hypothesis}
+            </span>
+            <span>
+                <strong>Variants:</strong> {proposal.variant_sketch}
+            </span>
+            <span>
+                <strong>Flag key:</strong> {proposal.flag_key_suggestion}
+            </span>
+            {proposal.target_metric?.insight_short_id && (
+                <span>
+                    {/* Plain text, not a link: this summary renders inside a non-interactive tooltip
+                        where a link is unreachable by keyboard and mouse. The short ID travels to the
+                        experiment form via the clipboard handoff. */}
+                    <strong>Target metric insight:</strong> {proposal.target_metric.insight_short_id}
+                </span>
+            )}
+            {footer && <span className="text-muted">{footer}</span>}
         </div>
     )
 }
