@@ -295,32 +295,38 @@ def filter_action_ids(filters: Optional[dict]) -> list[int]:
         return []
 
 
-def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
-    """Cohort ids referenced by the filters' property tree, for save-time eligibility validation."""
-    if not filters:
-        return []
-
+def collect_property_cohort_ids(node: Any) -> set[int]:
+    """Cohort ids in a property tree (lists, AND/OR groups, and cohort leaves)."""
     ids: set[int] = set()
 
-    def _walk(node: Any) -> None:
-        if isinstance(node, list):
-            for item in node:
+    def _walk(current: Any) -> None:
+        if isinstance(current, list):
+            for item in current:
                 _walk(item)
             return
-        if not isinstance(node, dict):
+        if not isinstance(current, dict):
             return
-        if node.get("type") in ("AND", "OR"):
-            _walk(node.get("values") or [])
+        if current.get("type") in ("AND", "OR"):
+            _walk(current.get("values") or [])
             return
-        if _is_cohort_filter(node):
-            value = node.get("value")
+        if _is_cohort_filter(current):
+            value = current.get("value")
             if isinstance(value, str | int) and not isinstance(value, bool):
                 try:
                     ids.add(int(value))
                 except ValueError:
                     pass
 
-    _walk(filters.get("properties") or [])
+    _walk(node)
+    return ids
+
+
+def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
+    """Cohort ids referenced by the filters' property tree, for save-time eligibility validation."""
+    if not filters:
+        return []
+
+    ids = collect_property_cohort_ids(filters.get("properties") or [])
     # Each event/action entry carries its own `properties`, which the compiler compiles too
     # (hog_function_filters_to_expr), so a cohort leaf there must be eligibility-validated and
     # must enable cohort compilation, exactly like a top-level one.
@@ -329,7 +335,7 @@ def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
         if isinstance(entries, list):
             for entry in entries:
                 if isinstance(entry, dict):
-                    _walk(entry.get("properties") or [])
+                    ids |= collect_property_cohort_ids(entry.get("properties") or [])
     return sorted(ids)
 
 

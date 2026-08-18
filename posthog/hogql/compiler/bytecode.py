@@ -464,7 +464,7 @@ class BytecodeCompiler(Visitor):
             # Hand-authored calls (e.g. inCohort(42) in a HogQL expression filter) would skip the
             # save-time cohort eligibility validation, which only sees cohort property filters —
             # an ineligible cohort id would then silently evaluate as a non-member for everyone
-            raise QueryError(f"Can't call {node.name}() directly in filters. Use a cohort property filter instead.")
+            raise QueryError(f"Can't call {node.name}() directly. Use a cohort property filter instead.")
         if node.name == "not" and len(node.args) == 1:
             return [*self.visit(node.args[0]), Operation.NOT]
         if node.name == "and" and len(node.args) > 1:

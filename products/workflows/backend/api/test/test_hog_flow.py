@@ -1299,7 +1299,33 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
         assert response.status_code == 400, response.json()
-        assert "Can't call inCohort() directly in filters" in response.json()["detail"]
+        assert "Can't call inCohort() directly" in response.json()["detail"]
+
+    @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_rejects_ineligible_cohorts_inside_referenced_actions(self, _mock_flag):
+        # action_to_expr inlines a referenced Action's step properties into the compiled
+        # condition, so a cohort hiding there must be eligibility-validated like any other.
+        eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        static_cohort = Cohort.objects.create(team=self.team, name="static-in-action", is_static=True)
+        action = Action.objects.create(
+            team=self.team,
+            name="action with cohort step",
+            steps_json=[
+                {"event": "$pageview", "properties": [{"key": "id", "type": "cohort", "value": static_cohort.id}]}
+            ],
+        )
+        hog_flow = self._hog_flow_with_condition_filters(
+            "conditional_branch",
+            {
+                "properties": [{"key": "id", "type": "cohort", "value": eligible.id}],
+                "actions": [{"id": action.id, "type": "actions"}],
+            },
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert "is a static cohort" in response.json()["detail"]
 
     def test_hog_flow_wait_until_condition_rejects_cohort_filters(self):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)

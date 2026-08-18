@@ -14,10 +14,17 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr, filter_cohort_ids
+from posthog.cdp.filters import (
+    collect_property_cohort_ids,
+    compile_filters_bytecode,
+    compile_filters_expr,
+    filter_action_ids,
+    filter_cohort_ids,
+)
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
+from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
     TYPES_WITH_TRANSPILED_FILTERS,
@@ -916,7 +923,16 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
     def _validate_realtime_cohorts(self, data: dict, team: Team) -> None:
         """A cohort without maintained cohort_membership rows would evaluate everyone as a non-member."""
-        cohort_ids = filter_cohort_ids(data)
+        collected = set(filter_cohort_ids(data))
+        # A referenced Action's stored steps can carry cohort properties too, which
+        # action_to_expr inlines into the same compiled expression
+        action_ids = filter_action_ids(data)
+        if action_ids:
+            # nosemgrep: idor-lookup-without-team (scoped by team__project_id)
+            for action in Action.objects.filter(id__in=action_ids, team__project_id=team.project_id, deleted=False):
+                for step in action.steps:
+                    collected |= collect_property_cohort_ids(step.properties or [])
+        cohort_ids = sorted(collected)
         if not cohort_ids:
             return
 
