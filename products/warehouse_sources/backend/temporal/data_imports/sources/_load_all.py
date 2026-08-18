@@ -570,6 +570,7 @@ from .honeybadger.source import HoneybadgerSource
 from .honeycomb.source import HoneycombSource
 from .hookdeck.source import HookdeckSource
 from .hoorayhr.source import HoorayHRSource
+from .hootsuite.source import HootsuiteSource
 from .hostaway.source import HostawaySource
 from .housecall_pro.source import HousecallProSource
 from .hubplanner.source import HubplannerSource
@@ -997,6 +998,7 @@ from .salesforce.source import SalesforceSource
 from .salesforce_marketing_cloud.source import SalesforceMarketingCloudSource
 from .salesloft.source import SalesLoftSource
 from .salestrics.source import SalestricsSource
+from .samcart.source import SamCartSource
 from .sanity.source import SanitySource
 from .sap_concur.source import SapConcurSource
 from .sap_erp.source import SapErpSource
@@ -1244,6 +1246,7 @@ from .whop.source import WhopSource
 from .wikipedia_pageviews.source import WikipediaPageviewsSource
 from .windmill.source import WindmillSource
 from .windsor_ai.source import WindsorAiSource
+from .wisprflow.source import WisprFlowSource
 from .wix.source import WixSource
 from .wiz.source import WizSource
 from .wompi.source import WompiSource

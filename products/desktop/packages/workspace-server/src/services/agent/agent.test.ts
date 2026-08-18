@@ -742,6 +742,98 @@ describe("AgentService", () => {
     });
   });
 
+  describe("session event subscriptions", () => {
+    function serviceLog(svc: AgentService) {
+      return (
+        svc as unknown as {
+          log: {
+            info: ReturnType<typeof vi.fn>;
+            warn: ReturnType<typeof vi.fn>;
+          };
+        }
+      ).log;
+    }
+
+    function seedPendingSession(svc: AgentService, taskRunId: string) {
+      (svc as unknown as { sessions: Map<string, unknown> }).sessions.set(
+        taskRunId,
+        { taskRunId, taskId: `task-for-${taskRunId}`, promptPending: true },
+      );
+    }
+
+    function warnIfNoRendererListening(svc: AgentService, taskRunId: string) {
+      (
+        svc as unknown as { warnIfNoRendererListening(id: string): void }
+      ).warnIfNoRendererListening(taskRunId);
+    }
+
+    it("delivers only the subscribed run's events and reports the close", async () => {
+      const controller = new AbortController();
+      const received: unknown[] = [];
+      const consumed = (async () => {
+        for await (const payload of service.subscribeSessionEvents(
+          "run-1",
+          controller.signal,
+        )) {
+          received.push(payload);
+        }
+      })();
+
+      service.emit(AgentServiceEvent.SessionEvent, {
+        taskRunId: "run-2",
+        payload: "other",
+      });
+      service.emit(AgentServiceEvent.SessionEvent, {
+        taskRunId: "run-1",
+        payload: "mine",
+      });
+      controller.abort();
+      await consumed;
+
+      expect(received).toEqual(["mine"]);
+      expect(serviceLog(service).info).toHaveBeenCalledWith(
+        "Renderer session event subscription closed",
+        expect.objectContaining({
+          taskRunId: "run-1",
+          delivered: 1,
+          remainingSubscribers: 0,
+        }),
+      );
+    });
+
+    it("warns once a minute when a pending turn streams with nobody subscribed", () => {
+      seedPendingSession(service, "run-1");
+
+      warnIfNoRendererListening(service, "run-1");
+      warnIfNoRendererListening(service, "run-1");
+
+      expect(serviceLog(service).warn).toHaveBeenCalledTimes(1);
+      expect(serviceLog(service).warn).toHaveBeenCalledWith(
+        "Session events emitted while a prompt is pending but no renderer is subscribed",
+        { taskRunId: "run-1", taskId: "task-for-run-1" },
+      );
+    });
+
+    it("stays quiet while a renderer is subscribed", () => {
+      seedPendingSession(service, "run-1");
+      const controller = new AbortController();
+      const consumed = (async () => {
+        for await (const _ of service.subscribeSessionEvents(
+          "run-1",
+          controller.signal,
+        )) {
+          // drain
+        }
+      })();
+
+      warnIfNoRendererListening(service, "run-1");
+      controller.abort();
+
+      expect(serviceLog(service).warn).not.toHaveBeenCalled();
+      return consumed;
+    });
+  });
+
   describe("idle timeout", () => {
     function injectSession(
       svc: AgentService,

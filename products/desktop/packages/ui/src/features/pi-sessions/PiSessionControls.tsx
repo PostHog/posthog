@@ -308,7 +308,7 @@ export function PiMessagingModeSelector({
           onValueChange={(value) => onModeChange(value as MessagingMode)}
         >
           <DropdownMenuRadioItem value="steer">
-            Steer at the next tool boundary
+            Steer after the current tool finishes
           </DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="queue">
             Queue for the next turn

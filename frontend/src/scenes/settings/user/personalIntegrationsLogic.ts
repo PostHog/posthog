@@ -161,6 +161,7 @@ export interface personalIntegrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -214,6 +215,7 @@ export interface personalIntegrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     } // integrationsLogic
