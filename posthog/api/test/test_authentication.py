@@ -1667,15 +1667,49 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertIn("Google, GitHub", html_message)
         self.assertIn("https://my.posthog.net/login", html_message)  # CTA link
 
-    def test_success_response_even_on_invalid_email(self):
+    @patch("posthoganalytics.capture")
+    def test_unknown_email_gets_no_account_email(self, mock_capture):
         set_instance_setting("EMAIL_HOST", "localhost")
 
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        # No emails should be sent
-        self.assertEqual(len(mail.outbox), 0)
+        # The address owner gets told there is no account, instead of a silent success screen
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["i_dont_exist@posthog.com"])
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        self.assertIn("could not find an account", html_message)
+        self.assertNotIn("https://my.posthog.net/reset/", html_message)  # no reset link
+
+        mock_capture.assert_any_call(
+            distinct_id="password_reset_request",
+            event="password reset requested",
+            properties={"outcome": "no_account", "$process_person_profile": False},
+            groups={"instance": ANY},
+        )
+
+    @patch("posthoganalytics.capture")
+    def test_deactivated_account_gets_no_account_email(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        deactivated = User.objects.create_and_join(self.organization, "deactivated@posthog.com", None)
+        deactivated.is_active = False
+        deactivated.save()
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": "deactivated@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.assertEqual(len(mail.outbox), 1)
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        self.assertNotIn("https://my.posthog.net/reset/", html_message)  # no reset link
+
+        mock_capture.assert_any_call(
+            distinct_id="password_reset_request",
+            event="password reset requested",
+            properties={"outcome": "inactive", "$process_person_profile": False},
+            groups={"instance": ANY},
+        )
 
     def test_cant_reset_if_email_is_not_configured(self):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):

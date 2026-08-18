@@ -508,6 +508,24 @@ def send_password_reset(user_id: int, token: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
+def send_password_reset_no_account(email: str) -> None:
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"password-reset-no-account-{timezone.now().timestamp()}",
+        subject="Reset your PostHog password",
+        template_name="password_reset_no_account",
+        template_context={
+            "preheader": "We could not find an account for this email address.",
+            "cloud": is_cloud(),
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_recipient(email)
+    message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
 def send_password_changed_email(user_id: int) -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
