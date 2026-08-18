@@ -61,26 +61,10 @@ def post_posthog_code_repo_picker_activity(
     workflow_id: str,
     guidance: str,
     allow_no_repo: bool,
-    user_id: int | None = None,
+    user_id: int,
 ) -> None:
-    """Post the repository picker block in the Slack thread.
-
-    ``user_id`` is appended last and defaults to ``None`` so a worker draining an
-    activity task scheduled by a pre-2026-06 workflow (recorded with 8 positional
-    args) still binds: the eight legacy slots align by position and ``user_id``
-    falls through to the default. The body short-circuits in that case rather than
-    posting a picker with a missing ``mentioning_user_id``, which would break the
-    downstream external-select handler. New workflows go through the patched call
-    site at the workflow body and pass ``user_id`` as the final positional arg.
-    """
+    """Post the repository picker block in the Slack thread."""
     inputs = coerce_mention_workflow_inputs(inputs)
-    if user_id is None:
-        logger.warning(
-            "posthog_code_picker_legacy_call_skipped",
-            integration_id=inputs.integration_id,
-            slack_team_id=inputs.slack_team_id,
-        )
-        return
 
     from products.slack_app.backend.api import _post_repo_picker_message
 
