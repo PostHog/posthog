@@ -24,7 +24,7 @@ import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 import {
     generatedExternalDataSchemas,
     generatedExternalDataSources,
-} from 'products/warehouse_sources/frontend/generatedApi'
+} from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 export const SCHEMA_SCENE_TABS = ['configuration', 'syncs', 'metrics', 'history'] as const
 export type SchemaSceneTab = (typeof SCHEMA_SCENE_TABS)[number]

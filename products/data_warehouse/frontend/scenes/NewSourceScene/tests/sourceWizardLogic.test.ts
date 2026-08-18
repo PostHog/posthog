@@ -4,7 +4,7 @@ import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { ExternalDataSourceSyncSchema } from '~/types'
 
-import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/generatedApi'
+import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import {
     buildKeaFormDefaultFromSourceDetails,

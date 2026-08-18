@@ -10,7 +10,7 @@ import type {
     SetupPlanResponseApi,
     SuggestionApi,
 } from 'products/marketing_analytics/frontend/generated/api.schemas'
-import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/generatedApi'
+import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { utmAuditLogic } from './utmAuditLogic'

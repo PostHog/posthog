@@ -31,7 +31,7 @@ import {
     externalDataSourcesRepairCdcCreate,
     externalDataSourcesResumeCdcCreate,
 } from 'products/warehouse_sources/frontend/generated/api'
-import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/generatedApi'
+import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { CDC_SOURCE_TYPES } from '../../../shared/cdc'
 import { sourceSettingsLogic } from './sourceSettingsLogic'

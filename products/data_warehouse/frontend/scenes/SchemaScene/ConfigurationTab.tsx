@@ -51,7 +51,7 @@ import {
 import {
     generatedExternalDataSchemas,
     generatedExternalDataSources,
-} from 'products/warehouse_sources/frontend/generatedApi'
+} from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'

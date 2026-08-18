@@ -9,7 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { ExternalDataSource, WebhookInfo } from '~/types'
 
-import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/generatedApi'
+import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
 import { getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'

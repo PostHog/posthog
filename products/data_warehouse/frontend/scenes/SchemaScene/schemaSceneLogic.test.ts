@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSchemaStatus, ExternalDataSchemaWithSource } from '~/types'
 
-import { generatedExternalDataSchemas } from 'products/warehouse_sources/frontend/generatedApi'
+import { generatedExternalDataSchemas } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { schemaSceneLogic } from './schemaSceneLogic'
 

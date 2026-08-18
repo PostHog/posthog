@@ -27,7 +27,7 @@ import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend
 import {
     generatedExternalDataSchemas,
     generatedExternalDataSources,
-} from 'products/warehouse_sources/frontend/generatedApi'
+} from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import type { SignalSourceTypeApi } from '../generated/api.schemas'
 import { generatedSignalSourceConfigsApi } from '../signalsApi'

@@ -40,7 +40,7 @@ import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehous
 import {
     generatedExternalDataSchemas,
     generatedExternalDataSources,
-} from 'products/warehouse_sources/frontend/generatedApi'
+} from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'

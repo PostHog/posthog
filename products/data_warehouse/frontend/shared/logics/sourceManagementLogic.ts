@@ -32,7 +32,7 @@ import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/wa
 import {
     generatedExternalDataSchemas,
     generatedExternalDataSources,
-} from 'products/warehouse_sources/frontend/generatedApi'
+} from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type {

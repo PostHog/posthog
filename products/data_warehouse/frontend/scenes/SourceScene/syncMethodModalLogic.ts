@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { ExternalDataSourceSchema, SchemaIncrementalFieldsResponse } from '~/types'
 
-import { generatedExternalDataSchemas } from 'products/warehouse_sources/frontend/generatedApi'
+import { generatedExternalDataSchemas } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 
