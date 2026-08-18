@@ -45,6 +45,27 @@ Both paths must preserve these rules:
 8. **Frontend data is normalized at the product boundary.** Shared editor components render normalized definitions, destinations, advanced options, schedules, and history. Product API calls, payloads, and evaluation-specific fields stay in the product adapter.
 9. **Defaults remain backward compatible.** New platform options must preserve existing adopters until they explicitly opt in.
 
+## Review shared changes as one alert system
+
+When a change touches shared alerting, review every contract that can consume it, not only the product that motivated
+the change. Start with the reference adopters and inspect the affected dimensions:
+
+- **Lifecycle:** product adapters, control-plane actions, persisted state, and notification edges.
+- **Delivery and destinations:** event producers and consumers, acknowledgement and rollback behavior, templates, and
+  product and generic management APIs.
+- **Scheduling:** create and update paths, due eligibility, retries, cadence, quiet hours, and timezone behavior.
+- **Authorization:** product, project, and organization boundaries at destination creation, management, and dispatch.
+- **Frontend and API contracts:** generated clients, pending-destination retries, existing-destination visibility, and
+  every UI that uses the shared data.
+
+For event, destination, query, or authorization changes, map all matching products and clients by exact event IDs,
+template IDs, model types, generic APIs, UIs, and regex or prefix matches. A new product can own its destination
+lifecycle while another product still intentionally uses a generic HogFunction path.
+
+When generic access violates an ownership or authorization boundary, restrict it immediately. Preserve generic access
+only for explicitly safe, supported paths, and migrate those paths to product-owned APIs deliberately. Add
+public-interface tests for the new ownership boundary and every existing path that remains supported.
+
 ## Current limits
 
 There is no generic alert base model, product registry, push-mode `submit_check(...)`, generic scheduler runner, or generic Temporal harness. Do not invent a parallel framework around those missing pieces. For non-insight products, keep evaluation, persistence, due queries, history, and orchestration in the product until a shared contract lands.
