@@ -462,6 +462,24 @@ export function validateFeatureFlagVariantKey(key: string): string | undefined {
             : undefined
 }
 
+/** Sum variant rollout percentages the way the API does, so both agree on what reaches 100. */
+function getVariantRolloutSum(variants: MultivariateFlagVariant[] = []): number {
+    return variants.reduce((sum, { rollout_percentage }) => sum + (rollout_percentage || 0), 0)
+}
+
+/** Check whether variant rollouts add up. If not, a reason string is returned - otherwise undefined.
+ * Boolean flags carry no variants and are exempt. Removing a variant leaves the remainder short
+ * because nothing redistributes it, so the shortfall has to be corrected before saving. */
+export function validateVariantRolloutSum(variants?: MultivariateFlagVariant[]): string | undefined {
+    if (!variants?.length) {
+        return undefined
+    }
+    const rolloutSum = getVariantRolloutSum(variants)
+    return rolloutSum === 100
+        ? undefined
+        : `Percentage rollouts for variants must sum to 100 (currently ${rolloutSum}).`
+}
+
 function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
     if (!is_remote_configuration) {
         return undefined
@@ -2082,6 +2100,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
             },
             errors: ({ key, filters, is_remote_configuration }) => {
+                // The sum is a property of the whole variant set, so every percentage carries the
+                // error: each one is a valid place to fix it, and each becomes a scroll target.
+                const rolloutSumError = validateVariantRolloutSum(filters?.multivariate?.variants)
                 return {
                     key: validateFeatureFlagKey(key),
                     filters: {
@@ -2089,6 +2110,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             variants: filters?.multivariate?.variants?.map(
                                 ({ key: variantKey }: MultivariateFlagVariant) => ({
                                     key: validateFeatureFlagVariantKey(variantKey),
+                                    rollout_percentage: rolloutSumError,
                                 })
                             ),
                         },
@@ -3455,11 +3477,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const formErrors = values.featureFlagErrors as DeepPartialMap<FeatureFlagType, ValidationErrorType>
             const filtersErrors = formErrors?.filters as any
             const variantErrorsList = filtersErrors?.multivariate?.variants as
-                | Array<{ key?: string } | undefined>
+                | Array<{ key?: string; rollout_percentage?: string } | undefined>
                 | undefined
             const variantKeysWithErrors =
                 variantErrorsList
-                    ?.map((err, index) => (err?.key ? `variant-${index}` : null))
+                    ?.map((err, index) => (err?.key || err?.rollout_percentage ? `variant-${index}` : null))
                     .filter((key): key is string => key !== null) ?? []
             if (variantKeysWithErrors.length) {
                 actions.setOpenVariants(Array.from(new Set([...values.openVariants, ...variantKeysWithErrors])))

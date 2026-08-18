@@ -2735,6 +2735,66 @@ describe('validateFeatureFlagVariantKey', () => {
     })
 })
 
+describe('variant rollout sum validation', () => {
+    let logic: ReturnType<typeof featureFlagLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG,
+                ],
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG_STATUS,
+                ],
+            },
+        })
+        initKeaTests()
+        logic = featureFlagLogic({ id: 1 })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    // The API rejects a multivariate flag whose percentages miss 100, and removing a variant
+    // leaves the rest short without redistributing, so the form has to block the save itself.
+    it.each([
+        { desc: 'sums to 100', percentages: [50, 50], hasErrors: false },
+        { desc: 'falls short after a variant is removed', percentages: [50], hasErrors: true },
+        { desc: 'exceeds 100', percentages: [60, 60], hasErrors: true },
+    ])('$desc: hasErrors=$hasErrors', ({ percentages, hasErrors }) => {
+        logic.actions.setFeatureFlag({
+            ...MOCK_FEATURE_FLAG,
+            filters: {
+                groups: [],
+                multivariate: {
+                    variants: percentages.map((rollout_percentage, index) => ({
+                        key: `variant-${index}`,
+                        name: '',
+                        rollout_percentage,
+                    })),
+                },
+                payloads: {},
+            },
+        })
+
+        expect(logic.values.featureFlagHasErrors).toBe(hasErrors)
+    })
+
+    it('does not block a boolean flag, which carries no variants', () => {
+        logic.actions.setFeatureFlag({
+            ...MOCK_FEATURE_FLAG,
+            filters: { groups: [], multivariate: null, payloads: {} },
+        })
+
+        expect(logic.values.featureFlagHasErrors).toBe(false)
+    })
+})
+
 describe('variant reordering', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
