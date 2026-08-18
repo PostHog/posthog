@@ -334,6 +334,26 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_logs_json_rejects_too_many_raw_records() {
+        let body = Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "resourceLogs": [{
+                    "scopeLogs": [{
+                        "logRecords": vec![serde_json::json!({}); 1001]
+                    }]
+                }]
+            }))
+            .unwrap(),
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+
+        let error = parse_logs_request(&body, &headers, 1024 * 1024, 1000).unwrap_err();
+
+        assert!(error.to_string().contains("Too many log records"));
+    }
+
+    #[test]
     fn test_parse_protobuf() {
         let request = make_protobuf_request();
         let body = Bytes::from(request.encode_to_vec());
