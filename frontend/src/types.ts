@@ -2702,7 +2702,12 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     breakdown_colors?: BreakdownColorConfig[]
     data_color_theme_id?: number | null
     quick_filter_ids?: string[] | null
+    customization?: {
+        tile_spacing?: DashboardTileSpacing
+    }
 }
+
+export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'
 
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',
@@ -5522,6 +5527,7 @@ export const INTEGRATION_KINDS = [
     'aws-s3',
     's3-compatible',
     'snowflake',
+    'youtube-analytics',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
