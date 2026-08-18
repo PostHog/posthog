@@ -4710,9 +4710,11 @@ class TestInstagramIntegrationModel(BaseTest):
     def test_oauth_config(self):
         config = OauthIntegration.oauth_config_for_kind("instagram")
 
-        assert config.authorize_url == "https://www.facebook.com/v23.0/dialog/oauth"
-        assert config.token_url == "https://graph.facebook.com/v23.0/oauth/access_token"
-        assert config.token_info_url == "https://graph.facebook.com/v23.0/me"
+        # Same Graph version as the other Meta kinds: an older pin here makes the OAuth dialog
+        # reject the permission set before anyone reaches a consent screen.
+        assert config.authorize_url == "https://www.facebook.com/v25.0/dialog/oauth"
+        assert config.token_url == "https://graph.facebook.com/v25.0/oauth/access_token"
+        assert config.token_info_url == "https://graph.facebook.com/v25.0/me"
         assert config.client_id == "instagram-client-id"
         assert config.client_secret == "instagram-client-secret"
         assert config.id_path == "id"
@@ -4720,9 +4722,9 @@ class TestInstagramIntegrationModel(BaseTest):
         # Instagram is reached through the Facebook page it is linked to, so the page scopes
         # are as load-bearing as the Instagram ones.
         assert set(config.scope.split(" ")) == {
-            "instagram_basic",
-            "instagram_manage_insights",
-            "instagram_manage_comments",
+            "instagram_business_basic",
+            "instagram_business_manage_insights",
+            "instagram_business_manage_comments",
             "pages_show_list",
             "pages_read_engagement",
         }
