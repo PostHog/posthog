@@ -618,7 +618,7 @@ class TestTable(APIBaseTest):
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
         return_value={"id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True}},
     )
-    @patch("posthog.tasks.warehouse.get_client")
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
     def test_create_records_the_surface_the_request_came_from(
         self, _: str, headers: dict[str, str], expected_created_via: str, patch_get_client, patch_get_columns
     ):
@@ -641,7 +641,7 @@ class TestTable(APIBaseTest):
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
         return_value={"id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True}},
     )
-    @patch("posthog.tasks.warehouse.get_client")
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
     def test_create_ignores_a_client_supplied_created_via(self, patch_get_client, patch_get_columns):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
