@@ -263,6 +263,7 @@ the row lists both.
 | financial_modelling              | HTTP                        | requests                                                        | ✅                          |
 | finnhub                          | HTTP                        | requests                                                        | ✅                          |
 | finnworlds                       | HTTP                        | requests                                                        | ✅                          |
+| firebase                         | HTTP                        | requests + `pyjwt`                                              | ✅                          |
 | firecrawl                        | HTTP                        | requests                                                        | ✅                          |
 | fireworks_ai                     | HTTP                        | requests                                                        | ✅                          |
 | fleetio                          | HTTP                        | requests                                                        | ✅                          |
@@ -655,6 +656,7 @@ the row lists both.
 | tvmaze                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twelve_data                      | HTTP                        | requests                                                        | ✅                          |
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
+| twenty                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twilio                           | HTTP                        | requests                                                        | ✅                          |
 | tyntec_sms                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -694,6 +696,7 @@ the row lists both.
 | wufoo                            | HTTP                        | requests                                                        | ✅                          |
 | xendit                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | xmatters                         | HTTP                        | requests                                                        | ✅                          |
+| yoco                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | yousign                          | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | youtube_analytics                | HTTP                        | requests                                                        | ✅                          |
 | zapier_supported_storage         | HTTP                        | requests                                                        | ✅                          |
@@ -973,7 +976,6 @@ doesn't conflict with concurrent PRs.
 - filevine
 - finout
 - fintoc
-- firebase
 - firebolt
 - five9
 - flagsmith
@@ -1398,7 +1400,6 @@ doesn't conflict with concurrent PRs.
 - triple_whale
 - trustradius
 - turso
-- twenty
 - twitch
 - twitter
 - twitter_ads
@@ -1450,7 +1451,6 @@ doesn't conflict with concurrent PRs.
 - yahoo_finance
 - yandex_metrica
 - ynab
-- yoco
 - yotpo
 - younium
 - youtube_data
