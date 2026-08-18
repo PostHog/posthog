@@ -11,8 +11,8 @@ import type { BatchWritingPersonsStore } from './batch-writing-person-store'
 
 /**
  * PersonsStoreTransaction that delegates to the Postgres store with a
- * transaction. Transactional verbs are the pg world's own surface: the
- * cross-world PersonsStore interface has no transactional member.
+ * transaction. Transactional verbs are the pg backend's own surface: the
+ * cross-backend PersonsStore interface has no transactional member.
  */
 export class PersonsStoreTransaction {
     constructor(

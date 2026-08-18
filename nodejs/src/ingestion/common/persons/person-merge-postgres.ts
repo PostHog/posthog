@@ -115,7 +115,7 @@ export interface MergeEventsConfig {
     isTeamEnabled: ValueMatcher<number>
 }
 
-/** The Postgres world's merge policy, derived from config at store construction. */
+/** The Postgres backend's merge policy, derived from config at store construction. */
 export interface PostgresMergePolicy {
     /** When true, all property changes trigger person updates; mirrors the store option of the same name. */
     updateAllProperties: boolean
