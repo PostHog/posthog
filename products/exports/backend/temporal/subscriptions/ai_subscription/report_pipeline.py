@@ -19,6 +19,7 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
+from products.exports.backend.temporal.subscriptions.ai_subscription.charts import ValidatedChart, validate_chart
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     AI_SUBSCRIPTION_SYNTHESIS_PROMPT,
     HOGQL_FIX_PROMPT,
@@ -28,6 +29,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_CHARTS_PER_REPORT,
     MAX_QUERY_PLAN_STEPS,
     EnrichedPromptSpec,
     HogQLFix,
@@ -129,6 +131,9 @@ class QueryStepDiagnostic:
     error_type: Optional[str]
     # Safe-to-surface failure reason; set only for query-structure errors (see _safe_error_message), else None.
     human_readable_error: Optional[str] = None
+    # Why this step's chart was dropped, when the planner asked for one. None when it charted, or
+    # when the planner asked for no chart.
+    chart_dropped_reason: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -183,7 +188,7 @@ async def generate_ai_report(
             else:
                 spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
                 freshly_planned = True
-            rendered_results, failed_count, diagnostics = await _execute_plan(
+            rendered_results, failed_count, diagnostics, charts = await _execute_plan(
                 spec, team, user, window, trace_correlation_id
             )
             report = await _synthesize(spec, rendered_results, team, user, trace_correlation_id)
@@ -308,7 +313,7 @@ async def _execute_plan(
     user: User,
     window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]],
-) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
+) -> tuple[list[str], int, list[QueryStepDiagnostic], list[ValidatedChart]]:
     try:
         return await _run_steps(spec, team, user, window, trace_correlation_id)
     except Exception as exc:
@@ -378,7 +383,7 @@ async def _run_steps(
     user: User,
     window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]],
-) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
+) -> tuple[list[str], int, list[QueryStepDiagnostic], list[ValidatedChart]]:
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
     # Cap simultaneous ClickHouse scans per report; excess steps queue until a slot frees.
     step_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_STEPS)
@@ -390,7 +395,9 @@ async def _run_steps(
         max(_MIN_STEP_RESULT_CHARS, _SYNTHESIS_RESULTS_CHAR_BUDGET // len(spec.plan.steps)),
     )
 
-    async def run_step(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
+    async def run_step(
+        step: QueryPlanStep, step_index: int
+    ) -> tuple[str, QueryStepDiagnostic, Optional[ValidatedChart]]:
         # `current_hogql` keeps the window-agnostic form (the `{{date_range}}` placeholder) so it round-trips
         # through the fix LLM unchanged; the run's fresh bounds are substituted into `executable_hogql` on
         # every attempt. The diagnostic records the executed SQL (placeholder resolved) for debugging.
@@ -403,8 +410,8 @@ async def _run_steps(
             executable_hogql = window.render_window_filter(current_hogql)
             try:
                 query = AssistantHogQLQuery(query=executable_hogql)
-                formatted, _ = await asyncio.wait_for(
-                    executor.arun_and_format_query(query),
+                formatted, _, response = await asyncio.wait_for(
+                    executor.arun_format_and_capture(query),
                     timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
                 )
                 # result values are attacker-influenceable (public project tokens) — strip framing markers
@@ -413,9 +420,27 @@ async def _run_steps(
                 # the step so `_plan_to_freeze` freezes what actually ran — a no-op unless the fix LLM
                 # rewrote it. A failed step keeps the planner's original, never a broken rewrite.
                 step.hogql = current_hogql
+                chart, chart_dropped_reason = (
+                    validate_chart(
+                        step.chart,
+                        response,
+                        hogql=executable_hogql,
+                        title=safe_description,
+                        step_index=step_index,
+                    )
+                    if step.chart is not None
+                    else (None, None)
+                )
                 return (
                     f"### {safe_description}\n\n{safe_formatted}",
-                    QueryStepDiagnostic(description=safe_description, hogql=executable_hogql, ok=True, error_type=None),
+                    QueryStepDiagnostic(
+                        description=safe_description,
+                        hogql=executable_hogql,
+                        ok=True,
+                        error_type=None,
+                        chart_dropped_reason=chart_dropped_reason,
+                    ),
+                    chart,
                 )
             except Exception as exc:
                 last_exc = exc
@@ -468,18 +493,24 @@ async def _run_steps(
                 error_type=undisclosed_type or type_name,
                 human_readable_error=safe_error_message(last_exc) if last_exc is not None else None,
             ),
+            None,
         )
 
-    async def run_step_bounded(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
+    async def run_step_bounded(
+        step: QueryPlanStep, step_index: int
+    ) -> tuple[str, QueryStepDiagnostic, Optional[ValidatedChart]]:
         # Hold a slot for the whole step (query + any fix/rerun) so concurrent ClickHouse load stays bounded.
         async with step_semaphore:
-            return await run_step(step)
+            return await run_step(step, step_index)
 
-    step_results = await asyncio.gather(*(run_step_bounded(step) for step in spec.plan.steps))
-    rendered = [text for text, _ in step_results]
-    diagnostics = [diag for _, diag in step_results]
+    step_results = await asyncio.gather(*(run_step_bounded(step, index) for index, step in enumerate(spec.plan.steps)))
+    rendered = [text for text, _, _ in step_results]
+    diagnostics = [diag for _, diag, _ in step_results]
+    # The planner is told to mark at most MAX_CHARTS_PER_REPORT steps; this is the backstop when it
+    # marks more, keeping plan order so the cap is predictable.
+    charts = [chart for _, _, chart in step_results if chart is not None][:MAX_CHARTS_PER_REPORT]
     failed_count = sum(1 for diag in diagnostics if not diag.ok)
-    return rendered, failed_count, diagnostics
+    return rendered, failed_count, diagnostics, charts
 
 
 def _fix_project_context_block(context_blob: str) -> str:
