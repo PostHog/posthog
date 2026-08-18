@@ -82,6 +82,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
             "ok": True,
             "error_type": None,
             "human_readable_error": None,
+            "chart_dropped_reason": None,
         },
         {
             "description": "reliability",
@@ -89,6 +90,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
             "ok": False,
             "error_type": "ResolutionError",
             "human_readable_error": None,
+            "chart_dropped_reason": None,
         },
     ]
     # The generating prompt is captured so the delivery is reproducible and the viewer can show it.

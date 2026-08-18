@@ -8,6 +8,7 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, Resoluti
 
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 
+from products.exports.backend.temporal.subscriptions.ai_subscription.charts import ValidatedChart
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
@@ -799,3 +800,65 @@ async def test_charts_are_capped_in_plan_order(mock_executor_cls: MagicMock) -> 
     )
 
     assert [chart.step_index for chart in charts] == list(range(MAX_CHARTS_PER_REPORT))
+
+
+def _charted_run(chart_dropped_reason: str | None = None):
+    return (
+        ["### s0\n\nok"],
+        0,
+        [QueryStepDiagnostic("s0", "SELECT 1", True, None, chart_dropped_reason=chart_dropped_reason)],
+        [
+            ValidatedChart(
+                spec=StepChart(display="ActionsBar", x_column="a", y_columns=["b"]),
+                hogql="SELECT 1",
+                title="s0",
+                step_index=0,
+            )
+        ],
+    )
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_a_report_ships_when_every_chart_render_fails(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_render: AsyncMock, mock_chat: MagicMock, _capture: MagicMock
+) -> None:
+    # Charts are an addition. Losing them must never cost the report.
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = _charted_run()
+    mock_render.return_value = ([], [(0, "render_failed")])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    assert result.markdown == "# Report"
+    assert result.charts == ()
+    # The failure is recorded on the step whose picture went missing, not silently swallowed.
+    assert result.diagnostics[0].chart_dropped_reason == "render_failed"
+    assert result.diagnostics[0].ok is True
+    # Browserless being down is transient infrastructure, not a bad plan — still freeze.
+    assert result.plan_to_persist is not None
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_a_plan_whose_chart_spec_failed_validation_is_not_frozen(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_render: AsyncMock, mock_chat: MagicMock, _capture: MagicMock
+) -> None:
+    # Freezing it would replay the bad spec every delivery, leaving the subscription permanently
+    # chart-degraded; re-planning gives the planner another attempt at the right column.
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = _charted_run(chart_dropped_reason="missing_columns")
+    mock_render.return_value = ([], [])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    assert result.markdown == "# Report"
+    assert result.plan_to_persist is None

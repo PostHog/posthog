@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -19,7 +20,12 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
-from products.exports.backend.temporal.subscriptions.ai_subscription.charts import ValidatedChart, validate_chart
+from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
+    RenderedChart,
+    ValidatedChart,
+    render_charts,
+    validate_chart,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     AI_SUBSCRIPTION_SYNTHESIS_PROMPT,
     HOGQL_FIX_PROMPT,
@@ -144,6 +150,8 @@ class AiReportResult:
     window_end_utc: str
     # Set only when the run planned from scratch; the caller freezes it onto the subscription.
     plan_to_persist: Optional[dict] = None
+    # ExportedAsset ids only — PNG bytes would blow Temporal's ~2 MiB payload cap.
+    charts: tuple[RenderedChart, ...] = ()
 
 
 async def generate_ai_report(
@@ -199,6 +207,15 @@ async def generate_ai_report(
             raise
 
         total_steps = len(spec.plan.steps)
+        # Count chart specs the result couldn't support before the render phase writes its own
+        # reasons onto these diagnostics — only a validation failure should block freezing.
+        chart_validation_failures = sum(1 for diagnostic in diagnostics if diagnostic.chart_dropped_reason)
+        rendered_charts, chart_failures = await render_charts(charts, team=team, user=user)
+        # A render failure is as diagnosable as a validation failure: both mean the reader got no
+        # picture, and only the diagnostic says which.
+        for step_index, reason in chart_failures:
+            if 0 <= step_index < len(diagnostics):
+                diagnostics[step_index] = dataclasses.replace(diagnostics[step_index], chart_dropped_reason=reason)
         # A degraded report (a step failed but synthesis still shipped) is an SLO success, tagged so the
         # coverage signal survives. A raised stage error is recorded as a failure by slo_operation itself.
         slo.tag(
@@ -206,6 +223,11 @@ async def generate_ai_report(
             failed_steps=failed_count,
             query_coverage=(total_steps - failed_count) / total_steps if total_steps else 0.0,
             degraded=bool(failed_count),
+            # Keeps "the planner chose no charts" distinguishable from "every render failed", which
+            # look identical in the delivered report.
+            charts_requested=len(charts),
+            charts_rendered=len(rendered_charts),
+            chart_failures=len(chart_failures),
         )
         if failed_count:
             logger.warning(
@@ -226,12 +248,14 @@ async def generate_ai_report(
             total_steps=total_steps,
             relevant_events=spec.relevant_events,
             trace_correlation_id=trace_correlation_id,
+            chart_failure_count=chart_validation_failures,
         )
         return AiReportResult(
             markdown=report,
             diagnostics=tuple(diagnostics),
             window_end_utc=window.end.astimezone(UTC).isoformat(),
             plan_to_persist=plan_to_persist,
+            charts=tuple(rendered_charts),
         )
 
 
@@ -243,6 +267,7 @@ def _plan_to_freeze(
     total_steps: int,
     relevant_events: Sequence[str],
     trace_correlation_id: Optional[Union[int, str]],
+    chart_failure_count: int = 0,
 ) -> Optional[dict]:
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
@@ -260,6 +285,17 @@ def _plan_to_freeze(
             trace_correlation_id=trace_correlation_id,
             failed_count=failed_count,
             total_steps=total_steps,
+        )
+        return None
+    # A chart spec the result couldn't support would replay every run, leaving the subscription
+    # silently chart-degraded forever. Re-plan instead — the same trade the failed-step guard makes.
+    # Render failures are deliberately excluded: those are transient infrastructure, and re-planning
+    # every subscription through a browserless outage would burn a planner call per delivery.
+    if chart_failure_count:
+        logger.warning(
+            "ai_report.plan_had_chart_failures_not_frozen",
+            trace_correlation_id=trace_correlation_id,
+            chart_failure_count=chart_failure_count,
         )
         return None
     if not all(any(token in step.hogql for token in WINDOW_PLACEHOLDERS) for step in plan.steps):

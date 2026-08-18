@@ -1,7 +1,18 @@
+import time
+
+from unittest.mock import MagicMock, patch
+
 from parameterized import parameterized
 
-from products.exports.backend.temporal.subscriptions.ai_subscription.charts import validate_chart
+from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
+    ValidatedChart,
+    build_export_context,
+    render_charts,
+    validate_chart,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import StepChart
+
+_CHARTS = "products.exports.backend.temporal.subscriptions.ai_subscription.charts"
 
 _LINE = StepChart(display="ActionsLineGraph", x_column="day", y_columns=["signups"])
 _BAR = StepChart(display="ActionsBar", x_column="day", y_columns=["signups"])
@@ -66,3 +77,83 @@ def test_shapes_that_chart_fine(_name, spec, response):
 
     assert reason is None
     assert chart is not None
+
+
+def _chart(spec=_LINE, hogql="SELECT 1", step_index=0) -> ValidatedChart:
+    return ValidatedChart(spec=spec, hogql=hogql, title="signups", step_index=step_index)
+
+
+def test_the_export_context_wraps_the_executed_sql_for_the_renderer():
+    source = build_export_context(_chart())["source"]
+
+    assert source["kind"] == "DataVisualizationNode"
+    assert source["source"] == {"kind": "HogQLQuery", "query": "SELECT 1"}
+    assert source["display"] == "ActionsLineGraph"
+    # Without explicit axes every point collapses onto one x position.
+    assert source["chartSettings"]["xAxis"] == {"column": "day"}
+    assert source["chartSettings"]["yAxis"] == [{"column": "signups"}]
+
+
+@parameterized.expand(
+    [
+        # The exporter's own legend is Trends-only, so a multi-series SQL chart needs this or it
+        # draws unlabeled colored lines.
+        ("multi_series", ["signups", "activations"], True),
+        ("single_series", ["signups"], False),
+    ]
+)
+def test_the_legend_is_on_only_when_there_is_more_than_one_series(_name, y_columns, expected):
+    spec = StepChart(display="ActionsLineGraph", x_column="day", y_columns=y_columns)
+
+    settings = build_export_context(_chart(spec))["source"]["chartSettings"]
+
+    assert settings.get("showLegend", False) is expected
+
+
+async def test_a_rendered_chart_carries_its_asset_id():
+    with patch(f"{_CHARTS}.render_png_export", return_value=(MagicMock(id=4321), b"png")):
+        rendered, failures = await render_charts([_chart()], team=MagicMock(), user=MagicMock())
+
+    assert failures == []
+    assert rendered[0].export_asset_id == 4321
+    assert rendered[0].title == "signups"
+
+
+async def test_a_failed_render_drops_that_chart_and_keeps_the_rest():
+    charts = [_chart(hogql="SELECT 1", step_index=0), _chart(hogql="SELECT 2", step_index=1)]
+
+    # Renders run concurrently, so key the outcome off the query rather than call order.
+    def _render(**kwargs):
+        if kwargs["export_context"]["source"]["source"]["query"] == "SELECT 1":
+            return MagicMock(id=1, exception="boom"), None
+        return MagicMock(id=2, exception=None), b"png"
+
+    with patch(f"{_CHARTS}.render_png_export", side_effect=_render):
+        rendered, failures = await render_charts(charts, team=MagicMock(), user=MagicMock())
+
+    assert [chart.export_asset_id for chart in rendered] == [2]
+    assert failures == [(0, "render_failed")]
+
+
+async def test_a_raising_render_never_escapes():
+    # A chart is an addition to a report. Nothing here may fail a delivery.
+    with patch(f"{_CHARTS}.render_png_export", side_effect=RuntimeError("browserless down")):
+        rendered, failures = await render_charts([_chart()], team=MagicMock(), user=MagicMock())
+
+    assert rendered == []
+    assert failures == [(0, "render_error")]
+
+
+async def test_the_phase_budget_bounds_the_whole_render():
+    def _hang(**kwargs):
+        time.sleep(5)
+        return MagicMock(id=1, exception=None), b"png"
+
+    with (
+        patch(f"{_CHARTS}._CHART_PHASE_BUDGET_SECONDS", 0.1),
+        patch(f"{_CHARTS}.render_png_export", side_effect=_hang),
+    ):
+        rendered, failures = await render_charts([_chart()], team=MagicMock(), user=MagicMock())
+
+    assert rendered == []
+    assert failures == [(0, "budget_exhausted")]
