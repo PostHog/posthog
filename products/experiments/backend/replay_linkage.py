@@ -205,6 +205,7 @@ def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | N
         only_count_matured_users=False,
         cuped_config=CupedQueryConfig(),
         activation_config=exposure_params.activation_config,
+        exclude_bot_traffic=exposure_params.exclude_bot_traffic,
     )
     read = _resolve_exposure_read(team, experiment, context)
     return ExperimentExposureLinkage(

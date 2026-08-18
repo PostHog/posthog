@@ -10,7 +10,12 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureQuery
+from posthog.schema import (
+    ActionsNode,
+    ExperimentEventExposureConfig,
+    ExperimentExposureQuery,
+    ExperimentExposureQueryResponse,
+)
 
 from posthog.test.test_journeys import journeys_for
 
@@ -1810,3 +1815,98 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         date_to = runner._get_date_range().date_to
         assert date_to is not None
         assert datetime.fromisoformat(date_to) == query_end
+
+    def _create_exposure_with_user_agent(self, distinct_id, variant, user_agent, timestamp="2024-01-02"):
+        properties = {
+            "$feature_flag_response": variant,
+            f"$feature/{self.feature_flag.key}": variant,
+            "$feature_flag": self.feature_flag.key,
+        }
+        # A missing $raw_user_agent is exactly the server-side / crawler signal isLikelyBot keys on.
+        if user_agent is not None:
+            properties["$raw_user_agent"] = user_agent
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp=timestamp,
+            properties=properties,
+        )
+
+    def test_exposure_query_excludes_bot_traffic(self):
+        real_ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        for i in range(3):
+            self._create_exposure_with_user_agent(f"real_control_{i}", "control", real_ua)
+        for i in range(2):
+            self._create_exposure_with_user_agent(f"real_test_{i}", "test", real_ua)
+        # Botlike exposures: no user agent at all (server-side / crawler traffic)
+        for i in range(2):
+            self._create_exposure_with_user_agent(f"bot_control_{i}", "control", None)
+        self._create_exposure_with_user_agent("bot_test_0", "test", None)
+
+        flush_persons_and_events()
+
+        def run(exclude_bot_traffic: bool) -> ExperimentExposureQueryResponse:
+            self.experiment.exposure_criteria = {"exclude_bot_traffic": exclude_bot_traffic}
+            self.experiment.save()
+            query = ExperimentExposureQuery(
+                kind="ExperimentExposureQuery",
+                experiment_id=self.experiment.id,
+                experiment_name=self.experiment.name,
+                feature_flag=model_to_dict(self.feature_flag),
+                start_date=self.experiment.start_date.isoformat(),
+                end_date=self.experiment.end_date.isoformat(),
+                exposure_criteria=self.experiment.exposure_criteria,
+            )
+            return ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        # Off (the resolve-time default that keeps running experiments unchanged): bots still count.
+        off = run(False)
+        self.assertEqual(off.total_exposures["control"], 5)
+        self.assertEqual(off.total_exposures["test"], 3)
+
+        # On: exposures with no user agent are dropped from the split.
+        on = run(True)
+        self.assertEqual(on.total_exposures["control"], 3)
+        self.assertEqual(on.total_exposures["test"], 2)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_exposure_composition_warning_explains_skewed_split(self):
+        real_ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+        # 130 control vs 40 test on a 50/50 flag trips SRM; 90 of the control exposures are
+        # server-side traffic with no user agent, which is what pulled the split off.
+        for i in range(40):
+            self._create_exposure_with_user_agent(f"real_control_{i}", "control", real_ua)
+        for i in range(90):
+            self._create_exposure_with_user_agent(f"bot_control_{i}", "control", None)
+        for i in range(40):
+            self._create_exposure_with_user_agent(f"real_test_{i}", "test", real_ua)
+
+        flush_persons_and_events()
+
+        def run(exclude_bot_traffic: bool) -> ExperimentExposureQueryResponse:
+            self.experiment.exposure_criteria = {"exclude_bot_traffic": exclude_bot_traffic}
+            self.experiment.save()
+            query = ExperimentExposureQuery(
+                kind="ExperimentExposureQuery",
+                experiment_id=self.experiment.id,
+                experiment_name=self.experiment.name,
+                feature_flag=model_to_dict(self.feature_flag),
+                start_date=self.experiment.start_date.isoformat(),
+                end_date=None,  # running experiment
+                exposure_criteria=self.experiment.exposure_criteria,
+            )
+            return ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        contaminated = run(False)
+        assert contaminated.sample_ratio_mismatch is not None
+        self.assertLess(contaminated.sample_ratio_mismatch.p_value, 0.001)
+        warning = contaminated.exposure_composition_warning
+        assert warning is not None
+        self.assertAlmostEqual(warning.missing_user_agent_percentage, 90 / 170 * 100, places=1)
+
+        # Excluding bot traffic evens the split, so the mismatch clears and the warning goes away.
+        cleaned = run(True)
+        self.assertIsNone(cleaned.exposure_composition_warning)

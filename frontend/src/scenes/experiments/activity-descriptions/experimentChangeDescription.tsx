@@ -251,6 +251,15 @@ export const getExperimentChangeDescription = (
                         }
                         return null
                     })
+                    .with('exclude_bot_traffic', () => {
+                        if (typedAfter?.exclude_bot_traffic === typedBefore?.exclude_bot_traffic) {
+                            return null
+                        }
+
+                        return typedAfter?.exclude_bot_traffic
+                            ? 'added the bot traffic filter'
+                            : 'removed the bot traffic filter'
+                    })
                     .exhaustive()
             )
 

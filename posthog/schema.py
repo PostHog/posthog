@@ -1468,6 +1468,22 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
     key: str
 
 
+class ExposureCompositionWarning(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    missing_device_type_percentage: float = Field(
+        ...,
+        description=(
+            "Share of exposed entities with no `$device_type` on their first exposure, as a percentage (0-100)."
+        ),
+    )
+    missing_user_agent_percentage: float = Field(
+        ...,
+        description=("Share of exposed entities with no user agent on their first exposure, as a percentage (0-100)."),
+    )
+
+
 class FailureMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4982,6 +4998,7 @@ class ExperimentExposureQueryResponse(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    exposure_composition_warning: ExposureCompositionWarning | None = None
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -6325,6 +6342,7 @@ class QueryResponseAlternative19(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    exposure_composition_warning: ExposureCompositionWarning | None = None
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -11228,6 +11246,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     date_range: DateRange
+    exposure_composition_warning: ExposureCompositionWarning | None = None
     is_cached: bool
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     last_refresh: AwareDatetime
@@ -25451,6 +25470,14 @@ class ExperimentExposureCriteria(BaseModel):
             " default exposure event before they count as exposed; exposure time"
             " becomes this event's timestamp. Only valid with the default exposure"
             " event, not a custom `exposure_config`."
+        ),
+    )
+    exclude_bot_traffic: bool | None = Field(
+        default=None,
+        description=(
+            "Exclude likely-bot traffic (empty or bot user agents) from exposures, via"
+            " `isLikelyBot`. Defaults on for new experiments; when absent it stays off"
+            " so running experiments keep the exposures they already counted."
         ),
     )
     exposure_config: ExperimentEventExposureConfig | ActionsNode | None = None

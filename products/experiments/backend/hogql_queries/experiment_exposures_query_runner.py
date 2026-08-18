@@ -13,6 +13,7 @@ from posthog.schema import (
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
+    ExposureCompositionWarning,
     IntervalType,
     SampleRatioMismatch,
 )
@@ -32,7 +33,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
-from products.experiments.backend.analysis_health import evaluate_bias_risk
+from products.experiments.backend.analysis_health import evaluate_bias_risk, evaluate_exposure_composition
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -53,6 +54,7 @@ logger = structlog.get_logger(__name__)
 
 QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * variants)
 SRM_MINIMUM_SAMPLE_SIZE = 100  # Minimum total exposures required for SRM calculation
+SRM_SIGNIFICANCE_LEVEL = 0.001  # p below this is a real mismatch; matches the frontend gate
 
 
 class ExperimentExposuresQueryRunner(QueryRunner):
@@ -132,12 +134,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             spill_to_disk=True,
         )
 
-    def _get_exposure_query(self) -> ast.SelectQuery:
+    def _build_query_builder(self) -> ExperimentQueryBuilder:
         exposure_params = get_exposure_config_params_for_builder(
             self.exposure_criteria, self.team, self.experiment.start_date
         )
-
-        builder = ExperimentQueryBuilder(
+        return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
             exposure_config=exposure_params.exposure_config,
@@ -147,7 +148,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             date_range_query=self.date_range_query,
             entity_key=get_entity_key(self.group_type_index),
             activation_config=exposure_params.activation_config,
+            exclude_bot_traffic=exposure_params.exclude_bot_traffic,
         )
+
+    def _get_exposure_query(self) -> ast.SelectQuery:
+        builder = self._build_query_builder()
 
         # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery.
         # Until then, the duration gate here is unconditional — the main runner
@@ -289,6 +294,38 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             total_exposures=total_exposures,
         )
 
+    def _evaluate_exposure_composition(
+        self, sample_ratio_mismatch: SampleRatioMismatch | None
+    ) -> ExposureCompositionWarning | None:
+        # Gate the extra scan on a running experiment with a real mismatch: the diagnostic only
+        # helps while the split is off, and a legitimate server-side experiment (no user agents,
+        # clean split) must not be warned. Reading end from the query keeps this on the cached
+        # window, same as _evaluate_bias_risk.
+        if self.window_end_date is not None:
+            return None
+        if sample_ratio_mismatch is None or sample_ratio_mismatch.p_value >= SRM_SIGNIFICANCE_LEVEL:
+            return None
+
+        query = self._build_query_builder().get_exposure_composition_query()
+        response = execute_hogql_query(
+            query_type="ExperimentExposuresCompositionQuery",
+            query=query,
+            team=self.team,
+            user=self.user,
+            timings=self.timings,
+            modifiers=create_default_modifiers_for_team(self.team),
+            settings=HogQLGlobalSettings(max_execution_time=600),
+        )
+        if not response.results:
+            return None
+
+        total, missing_user_agent, missing_device_type = response.results[0]
+        return evaluate_exposure_composition(
+            total_exposed=int(total or 0),
+            missing_user_agent=int(missing_user_agent or 0),
+            missing_device_type=int(missing_device_type or 0),
+        )
+
     @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
         # Adding experiment specific tags to the tag collection
@@ -362,6 +399,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
         bias_risk = self._evaluate_bias_risk(total_exposures)
+        exposure_composition_warning = self._evaluate_exposure_composition(sample_ratio_mismatch)
 
         return ExperimentExposureQueryResponse(
             timeseries=ordered_timeseries,
@@ -369,6 +407,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             date_range=self.date_range,
             sample_ratio_mismatch=sample_ratio_mismatch,
             bias_risk=bias_risk,
+            exposure_composition_warning=exposure_composition_warning,
         )
 
     def to_query(self) -> ast.SelectQuery:
@@ -415,7 +454,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-        payload["experiment_exposures_response_version"] = 2
+        payload["experiment_exposures_response_version"] = 3
         return payload
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:

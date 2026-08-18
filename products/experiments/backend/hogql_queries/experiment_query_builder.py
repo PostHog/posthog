@@ -77,6 +77,7 @@ class ExposureQueryParams:
     activation_config: ExperimentEventExposureConfig | ActionsNode | None
     multiple_variant_handling: MultipleVariantHandling
     filter_test_accounts: bool
+    exclude_bot_traffic: bool
 
 
 def get_exposure_config_params_for_builder(
@@ -94,6 +95,9 @@ def get_exposure_config_params_for_builder(
         )
         filter_test_accounts = True
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
+        # Off by default at resolve time so experiments that stored no value (every running one)
+        # keep counting the exposures they already had. New experiments opt in at creation.
+        exclude_bot_traffic = False
     else:
         if criteria.exposure_config is None:
             exposure_config = ExperimentEventExposureConfig(
@@ -116,12 +120,14 @@ def get_exposure_config_params_for_builder(
             activation_config = criteria.activation_config
         filter_test_accounts = bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else True
         multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.EXCLUDE
+        exclude_bot_traffic = bool(criteria.exclude_bot_traffic)
 
     return ExposureQueryParams(
         exposure_config=exposure_config,
         activation_config=activation_config,
         multiple_variant_handling=multiple_variant_handling,
         filter_test_accounts=filter_test_accounts,
+        exclude_bot_traffic=exclude_bot_traffic,
     )
 
 
@@ -143,6 +149,7 @@ class ExperimentQueryBuilder:
         only_count_matured_users: bool = False,
         cuped_config: CupedQueryConfig | None = None,
         activation_config: ExperimentEventExposureConfig | ActionsNode | None = None,
+        exclude_bot_traffic: bool = False,
     ):
         self.team = team
         self.metric = metric
@@ -155,6 +162,7 @@ class ExperimentQueryBuilder:
         self.activation_config = activation_config
         self.filter_test_accounts = filter_test_accounts
         self.multiple_variant_handling = multiple_variant_handling
+        self.exclude_bot_traffic = exclude_bot_traffic
         self.breakdowns = breakdowns or []
         self.breakdown_injector = BreakdownInjector(self.breakdowns, metric) if metric else None
         self.preaggregation_job_ids: list[str] | None = None
@@ -183,6 +191,7 @@ class ExperimentQueryBuilder:
             only_count_matured_users=self.only_count_matured_users,
             cuped_config=self.cuped_config,
             activation_config=self.activation_config,
+            exclude_bot_traffic=self.exclude_bot_traffic,
         )
 
     # Experiment queries group by (variant, breakdown_values), so the row count is
@@ -277,6 +286,13 @@ class ExperimentQueryBuilder:
         Used by the Exposures tab in the experiment UI.
         """
         return self._exposure_query_builder().daily_exposures_from_precomputed(job_ids)
+
+    def get_exposure_composition_query(self) -> ast.SelectQuery:
+        """
+        Returns per-entity counts of exposures missing a user agent or ``$device_type``.
+        Diagnostic for a skewed split; see ExposureQueryBuilder.exposure_composition_query.
+        """
+        return self._exposure_query_builder().exposure_composition_query()
 
     def _get_conversion_window_seconds(self) -> int:
         """

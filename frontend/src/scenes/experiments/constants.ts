@@ -121,6 +121,7 @@ export const NEW_EXPERIMENT: Experiment = {
     holdout_id: null,
     exposure_criteria: {
         filterTestAccounts: true,
+        exclude_bot_traffic: true,
     },
     user_access_level: AccessControlLevel.Editor,
 }

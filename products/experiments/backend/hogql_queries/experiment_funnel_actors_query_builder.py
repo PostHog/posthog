@@ -43,6 +43,7 @@ class ExperimentFunnelActorsQueryBuilder:
         funnel_step_breakdown: str | int | float,
         include_recordings: bool,
         activation_config: ExperimentEventExposureConfig | ActionsNode | None = None,
+        exclude_bot_traffic: bool = False,
     ):
         self.team = team
         self.metric = metric
@@ -67,6 +68,7 @@ class ExperimentFunnelActorsQueryBuilder:
             entity_key=entity_key,
             metric=metric,
             activation_config=activation_config,
+            exclude_bot_traffic=exclude_bot_traffic,
         )
 
     def build_actors_query(self) -> ast.SelectQuery:

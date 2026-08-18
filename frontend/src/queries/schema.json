@@ -7809,6 +7809,9 @@
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "exposure_composition_warning": {
+                    "$ref": "#/definitions/ExposureCompositionWarning"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -22796,6 +22799,10 @@
                     "$ref": "#/definitions/ExperimentExposureConfig",
                     "description": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`."
                 },
+                "exclude_bot_traffic": {
+                    "description": "Exclude likely-bot traffic (empty or bot user agents) from exposures, via `isLikelyBot`. Defaults on for new experiments; when absent it stays off so running experiments keep the exposures they already counted.",
+                    "type": "boolean"
+                },
                 "exposure_config": {
                     "$ref": "#/definitions/ExperimentExposureConfig"
                 },
@@ -22889,6 +22896,9 @@
                 },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "exposure_composition_warning": {
+                    "$ref": "#/definitions/ExposureCompositionWarning"
                 },
                 "kind": {
                     "const": "ExperimentExposureQuery",
@@ -24385,6 +24395,22 @@
                 }
             },
             "required": ["key", "count", "exposure", "absolute_exposure"],
+            "type": "object"
+        },
+        "ExposureCompositionWarning": {
+            "additionalProperties": false,
+            "description": "Botlike exposure composition behind a sample-ratio mismatch: the share of exposed entities whose first exposure carried no user agent or no `$device_type`. Present on the response only when the split is off and that share is large enough to explain it.",
+            "properties": {
+                "missing_device_type_percentage": {
+                    "description": "Share of exposed entities with no `$device_type` on their first exposure, as a percentage (0-100).",
+                    "type": "number"
+                },
+                "missing_user_agent_percentage": {
+                    "description": "Share of exposed entities with no user agent on their first exposure, as a percentage (0-100).",
+                    "type": "number"
+                }
+            },
+            "required": ["missing_user_agent_percentage", "missing_device_type_percentage"],
             "type": "object"
         },
         "ExternalDataSourceType": {
@@ -39614,6 +39640,9 @@
                         },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
+                        },
+                        "exposure_composition_warning": {
+                            "$ref": "#/definitions/ExposureCompositionWarning"
                         },
                         "kind": {
                             "const": "ExperimentExposureQuery",

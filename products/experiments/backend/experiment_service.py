@@ -1743,10 +1743,16 @@ class ExperimentService:
         return result
 
     def _apply_exposure_criteria_defaults(self, exposure_criteria: dict | None) -> dict:
-        """Apply default exposure criteria if not provided."""
+        """Apply default exposure criteria if not provided.
+
+        Only called from create_experiment, so defaulting `exclude_bot_traffic` on here starts new
+        experiments bot-free without changing the exposures a running one already counted.
+        """
         result = dict(exposure_criteria or {})
         if result.get("filterTestAccounts") is None:
             result["filterTestAccounts"] = True
+        if result.get("exclude_bot_traffic") is None:
+            result["exclude_bot_traffic"] = True
         return result
 
     def _apply_web_variants(self, experiment: Experiment, variants: list[dict]) -> None:

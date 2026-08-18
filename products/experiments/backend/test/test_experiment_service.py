@@ -126,7 +126,7 @@ class TestExperimentService(APIBaseTest):
         assert experiment.secondary_metrics_ordered_uuids is None
         assert experiment.stats_config is not None
         assert experiment.stats_config["method"] == "bayesian"
-        assert experiment.exposure_criteria == {"filterTestAccounts": True}
+        assert experiment.exposure_criteria == {"filterTestAccounts": True, "exclude_bot_traffic": True}
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_create_experiment_defers_analytics_until_after_commit(self, mock_report_user_action):

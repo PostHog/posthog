@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment, FilterType } from '~/types'
 
+import { BotTrafficFilterSwitch } from '../components/BotTrafficFilterSwitch'
 import { SelectableCard } from '../components/SelectableCard'
 import {
     EXPERIMENT_EXPOSURE_EVENT,
@@ -234,6 +235,19 @@ function ExposureCriteriaFields({
                     className="p-0"
                 />
             </div>
+
+            {/* Bot Traffic Filtering */}
+            <div>
+                <BotTrafficFilterSwitch
+                    checked={!!experiment.exposure_criteria?.exclude_bot_traffic}
+                    onChange={(checked: boolean) => {
+                        onChange({ exclude_bot_traffic: checked })
+                    }}
+                    bordered={false}
+                    fullWidth
+                    className="p-0"
+                />
+            </div>
         </div>
     )
 }
@@ -379,6 +393,17 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                     checked={hasFilters && !!experiment.exposure_criteria?.filterTestAccounts}
                     onChange={(checked: boolean) => {
                         onChange({ filterTestAccounts: checked })
+                    }}
+                    bordered={false}
+                    fullWidth
+                    labelClassName="text-secondary font-normal"
+                    className="p-0"
+                />
+
+                <BotTrafficFilterSwitch
+                    checked={!!experiment.exposure_criteria?.exclude_bot_traffic}
+                    onChange={(checked: boolean) => {
+                        onChange({ exclude_bot_traffic: checked })
                     }}
                     bordered={false}
                     fullWidth

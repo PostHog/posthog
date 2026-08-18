@@ -32,6 +32,7 @@ import { ExperimentHeader } from './ExperimentHeader'
 import { EditConclusionModal } from './ExperimentModals'
 import { ExperimentReplayTab } from './ExperimentReplayTab'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
+import { ExposureCompositionWarning } from './ExposureCompositionWarning'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Hypothesis } from './Hypothesis'
@@ -60,6 +61,7 @@ const MetricsTab = (): JSX.Element => {
                 <div>
                     <Exposures />
                     <MultiVariantBiasWarning />
+                    <ExposureCompositionWarning />
                 </div>
             </div>
 

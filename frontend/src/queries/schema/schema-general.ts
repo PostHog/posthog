@@ -4934,6 +4934,10 @@ export interface ExperimentExposureCriteria {
      *  Only valid with the default exposure event, not a custom `exposure_config`. */
     activation_config?: ExperimentExposureConfig
     multiple_variant_handling?: 'exclude' | 'first_seen'
+    /** Exclude likely-bot traffic (empty or bot user agents) from exposures, via `isLikelyBot`.
+     *  Defaults on for new experiments; when absent it stays off so running experiments keep
+     *  the exposures they already counted. */
+    exclude_bot_traffic?: boolean
 }
 
 export interface ExperimentEventExposureConfig extends Node {
@@ -5421,6 +5425,18 @@ export interface BiasRisk {
     multiple_variant_percentage: number
 }
 
+/**
+ * Botlike exposure composition behind a sample-ratio mismatch: the share of exposed entities
+ * whose first exposure carried no user agent or no `$device_type`. Present on the response only
+ * when the split is off and that share is large enough to explain it.
+ */
+export interface ExposureCompositionWarning {
+    /** Share of exposed entities with no user agent on their first exposure, as a percentage (0-100). */
+    missing_user_agent_percentage: number
+    /** Share of exposed entities with no `$device_type` on their first exposure, as a percentage (0-100). */
+    missing_device_type_percentage: number
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
@@ -5428,6 +5444,7 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
     bias_risk?: BiasRisk
+    exposure_composition_warning?: ExposureCompositionWarning
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }

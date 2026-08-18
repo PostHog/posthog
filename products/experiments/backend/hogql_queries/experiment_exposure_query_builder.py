@@ -108,6 +108,43 @@ class ExposureQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
         return query
 
+    def exposure_composition_query(self) -> ast.SelectQuery:
+        """
+        Returns per-entity counts of exposures whose first exposure event carried no user agent
+        or no ``$device_type``. Attribution is from the first exposure via ``argMin`` so it lines
+        up with variant assignment, one row per entity.
+
+        Diagnostic only: it explains a skewed split by naming how much of the counted population
+        is server-side, edge, or crawler traffic. It reuses the exposure predicate, so once bot
+        exclusion is on these shares fall toward zero.
+
+        Returns:
+            SelectQuery with columns: total, missing_user_agent, missing_device_type
+        """
+        query = parse_select(
+            """
+            SELECT
+                count() AS total,
+                countIf(missing_user_agent) AS missing_user_agent,
+                countIf(missing_device_type) AS missing_device_type
+            FROM (
+                SELECT
+                    {entity_key} AS entity_id,
+                    argMin(ifNull(toString(properties.`$raw_user_agent`), '') = '', timestamp) AS missing_user_agent,
+                    argMin(ifNull(toString(properties.`$device_type`), '') = '', timestamp) AS missing_device_type
+                FROM events
+                WHERE {exposure_predicate}
+                GROUP BY entity_id
+            )
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.context.entity_key),
+                "exposure_predicate": self.build_exposure_predicate(),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def _build_first_exposures_day_select(self) -> ast.SelectQuery:
         """Per-entity (entity_id, variant, day-of-first-exposure) select feeding the timeseries."""
         if self.context.activation_config is not None:
@@ -233,6 +270,17 @@ class ExposureQueryBuilder:
 
         return ast.Field(chain=["properties", f"$feature/{self.context.feature_flag_key}"])
 
+    def build_bot_exclusion_filter(self) -> ast.Expr | None:
+        """`NOT isLikelyBot(...)` when the criteria exclude bot traffic, else None.
+
+        isLikelyBot treats an empty or missing user agent as automation, so this also drops the
+        server-side and prerendered traffic that has no user agent at all — the population that
+        skews the split because a shared distinct_id hashes wholly into one variant.
+        """
+        if not self.context.exclude_bot_traffic:
+            return None
+        return parse_expr("NOT isLikelyBot(properties.`$raw_user_agent`)")
+
     def build_exposure_event_predicate(self) -> ast.Expr:
         """
         Builds the event predicate for exposure filtering (without timestamp conditions).
@@ -240,6 +288,7 @@ class ExposureQueryBuilder:
         This handles:
         - Custom exposure events via event_or_action_to_filter
         - Special $feature_flag_called filtering (matching the flag key)
+        - Optional bot exclusion via isLikelyBot
 
         Used by both _build_exposure_predicate() and get_exposure_query_for_precomputation().
         """
@@ -265,6 +314,10 @@ class ExposureQueryBuilder:
                     ),
                 ]
             )
+
+        bot_exclusion_filter = self.build_bot_exclusion_filter()
+        if bot_exclusion_filter is not None:
+            event_predicate = ast.And(exprs=[event_predicate, bot_exclusion_filter])
 
         return event_predicate
 

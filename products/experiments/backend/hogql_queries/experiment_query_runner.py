@@ -534,6 +534,7 @@ class ExperimentQueryRunner(QueryRunner):
             only_count_matured_users=self.experiment.only_count_matured_users,
             cuped_config=self.cuped_config,
             activation_config=exposure_params.activation_config,
+            exclude_bot_traffic=exposure_params.exclude_bot_traffic,
         )
 
         should_precompute = self._should_precompute()
@@ -966,6 +967,7 @@ class ExperimentQueryRunner(QueryRunner):
             funnel_step_breakdown=funnel_step_breakdown,
             include_recordings=self.actors_query.includeRecordings or False,
             activation_config=activation_config,
+            exclude_bot_traffic=bool((self.experiment.exposure_criteria or {}).get("exclude_bot_traffic")),
         )
 
         # Step 0 is the exposure step: return everyone exposed to the variant,

@@ -13,6 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
+import { BotTrafficFilterSwitch } from '../components/BotTrafficFilterSwitch'
 import { SelectableCard } from '../components/SelectableCard'
 import { experimentLogic } from '../experimentLogic'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig } from '../exposureContract'
@@ -246,6 +247,17 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         })
                     }}
                     fullWidth
+                />
+                <BotTrafficFilterSwitch
+                    className="mt-2"
+                    fullWidth
+                    checked={!!exposureCriteria?.exclude_bot_traffic}
+                    onChange={(checked: boolean) => {
+                        setExposureCriteria({
+                            ...exposureCriteria,
+                            exclude_bot_traffic: checked,
+                        })
+                    }}
                 />
             </div>
         </LemonModal>

@@ -32,6 +32,9 @@ class ExperimentQueryContext:
     # When set, an entity only counts as exposed once it emits this event at/after its first
     # default exposure event, and that activation event's timestamp becomes the exposure time.
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
+    # When set, exposure events whose user agent is empty or matches a known bot are dropped
+    # via isLikelyBot, keeping server-side and crawler traffic out of the split.
+    exclude_bot_traffic: bool = False
 
 
 @dataclass(frozen=True)
