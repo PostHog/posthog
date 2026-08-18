@@ -470,6 +470,10 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(context.primary_metrics_results), 1)
         self.assertEqual(len(context.secondary_metrics_results), 1)
 
+        # Saved metrics must surface under their display name, not an event-derived fallback
+        self.assertEqual(context.primary_metrics_results[0].name, "1. Team Growth NSM")
+        self.assertEqual(context.secondary_metrics_results[0].name, "1. Onboarding Completion")
+
         # Verify the saved metric queries were actually passed to the query runner
         query_runner_calls = mock_query_runner_class.call_args_list
         self.assertEqual(len(query_runner_calls), 2)
