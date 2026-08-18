@@ -17,7 +17,7 @@ export const dataQualityChecksCreateBodyNameMax = 128
 export const dataQualityChecksCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataQualityChecksCreateBodyColumnNameMax = 400
 
-export const dataQualityChecksCreateBodyScheduleIntervalMinutesMin = -2147483648
+export const dataQualityChecksCreateBodyScheduleIntervalMinutesMin = 5
 export const dataQualityChecksCreateBodyScheduleIntervalMinutesMax = 2147483647
 
 export const dataQualityChecksCreateBodyAiModelMax = 128
@@ -75,7 +75,7 @@ export const DataQualityChecksCreateBody = /* @__PURE__ */ zod.object({
         .min(dataQualityChecksCreateBodyScheduleIntervalMinutesMin)
         .max(dataQualityChecksCreateBodyScheduleIntervalMinutesMax)
         .nullish()
-        .describe('Independent cadence in minutes. Omit for no schedule of its own.'),
+        .describe('Independent cadence in minutes, minimum 5. Omit for no schedule of its own.'),
     created_source: zod
         .enum(['user', 'ai_generated'])
         .describe('\* `user` - user\n\* `ai_generated` - ai_generated')
@@ -105,7 +105,7 @@ export const dataQualityChecksUpdateBodyNameMax = 128
 export const dataQualityChecksUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataQualityChecksUpdateBodyColumnNameMax = 400
 
-export const dataQualityChecksUpdateBodyScheduleIntervalMinutesMin = -2147483648
+export const dataQualityChecksUpdateBodyScheduleIntervalMinutesMin = 5
 export const dataQualityChecksUpdateBodyScheduleIntervalMinutesMax = 2147483647
 
 export const dataQualityChecksUpdateBodyAiModelMax = 128
@@ -163,7 +163,7 @@ export const DataQualityChecksUpdateBody = /* @__PURE__ */ zod.object({
         .min(dataQualityChecksUpdateBodyScheduleIntervalMinutesMin)
         .max(dataQualityChecksUpdateBodyScheduleIntervalMinutesMax)
         .nullish()
-        .describe('Independent cadence in minutes. Omit for no schedule of its own.'),
+        .describe('Independent cadence in minutes, minimum 5. Omit for no schedule of its own.'),
     created_source: zod
         .enum(['user', 'ai_generated'])
         .describe('\* `user` - user\n\* `ai_generated` - ai_generated')
@@ -193,7 +193,7 @@ export const dataQualityChecksPartialUpdateBodyNameMax = 128
 export const dataQualityChecksPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataQualityChecksPartialUpdateBodyColumnNameMax = 400
 
-export const dataQualityChecksPartialUpdateBodyScheduleIntervalMinutesMin = -2147483648
+export const dataQualityChecksPartialUpdateBodyScheduleIntervalMinutesMin = 5
 export const dataQualityChecksPartialUpdateBodyScheduleIntervalMinutesMax = 2147483647
 
 export const dataQualityChecksPartialUpdateBodyAiModelMax = 128
@@ -253,7 +253,7 @@ export const DataQualityChecksPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(dataQualityChecksPartialUpdateBodyScheduleIntervalMinutesMin)
         .max(dataQualityChecksPartialUpdateBodyScheduleIntervalMinutesMax)
         .nullish()
-        .describe('Independent cadence in minutes. Omit for no schedule of its own.'),
+        .describe('Independent cadence in minutes, minimum 5. Omit for no schedule of its own.'),
     created_source: zod
         .enum(['user', 'ai_generated'])
         .describe('\* `user` - user\n\* `ai_generated` - ai_generated')

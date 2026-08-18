@@ -20068,8 +20068,8 @@ export namespace Schemas {
       /** Run after the view materializes. Never delays or fails the materialization itself. */
       run_on_materialization?: boolean;
       /**
-         * Independent cadence in minutes. Omit for no schedule of its own.
-         * @minimum -2147483648
+         * Independent cadence in minutes, minimum 5. Omit for no schedule of its own.
+         * @minimum 5
          * @maximum 2147483647
          * @nullable
          */
@@ -56395,8 +56395,8 @@ export namespace Schemas {
       /** Run after the view materializes. Never delays or fails the materialization itself. */
       run_on_materialization?: boolean;
       /**
-         * Independent cadence in minutes. Omit for no schedule of its own.
-         * @minimum -2147483648
+         * Independent cadence in minutes, minimum 5. Omit for no schedule of its own.
+         * @minimum 5
          * @maximum 2147483647
          * @nullable
          */
