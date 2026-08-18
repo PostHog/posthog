@@ -10,12 +10,19 @@ from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.query_cache.failures import Budget, FailureKind, QueryFailureCache, QueryFailureRecord
 from posthog.query_cache.freshness_index import remove_last_refresh, update_target_age
 from posthog.query_cache.metrics import count_cache_write_data
-from posthog.query_cache.results import fetch_entry
+from posthog.query_cache.results import EntryFreshness, fetch_entry, fetch_entry_freshness
 from posthog.query_cache.serialization import CachedEntry, encode_split_cached_response
 from posthog.query_cache.size_tracker import TeamCacheSizeTracker
-from posthog.query_cache.storage import encode_stored_value
+from posthog.query_cache.storage import encode_inline_value, upload_for_pointer
 
 logger = structlog.get_logger(__name__)
+
+
+def _last_refresh_iso(response: dict) -> Optional[str]:
+    value = response.get("last_refresh")
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value if isinstance(value, str) else None
 
 
 @dataclass(frozen=True)
@@ -50,6 +57,10 @@ class QueryCache:
         failure = QueryFailureCache(self.cache_key).get_open() if include_failure else None
         return CacheLookup(entry=fetch_entry(self.cache_key, self.team_id), failure=failure)
 
+    def freshness(self) -> Optional[EntryFreshness]:
+        """Existence and last_refresh of the entry from Redis alone, without resolving S3 blobs."""
+        return fetch_entry_freshness(self.cache_key, self.team_id)
+
     def open_failure(self) -> Optional[QueryFailureRecord]:
         """The open breaker record alone, for paths that skip the result cache entirely."""
         return QueryFailureCache(self.cache_key).get_open()
@@ -76,11 +87,20 @@ class QueryCache:
         # below keep counting the uncompressed payload. Caching is an optimization: the query has
         # already run, so an encoding or bookkeeping failure here must not fail the response.
         try:
-            storage_bytes = encode_stored_value(
-                team_id=self.team_id, cache_key=self.cache_key, payload=fresh_response_serialized
-            )
+            storage_bytes = encode_inline_value(fresh_response_serialized)
             tracker = TeamCacheSizeTracker(self.team_id)
             tracker.set(self.cache_key, storage_bytes, settings.CACHED_RESULTS_TTL)
+            # The S3 upload runs after the inline write, so the fresh result serves reads for
+            # the upload's duration and a failed upload has nothing to undo. The pointer swap
+            # is last-write-wins, the semantics two concurrent store_results already have.
+            pointer = upload_for_pointer(
+                team_id=self.team_id,
+                cache_key=self.cache_key,
+                inline_value=storage_bytes,
+                last_refresh=_last_refresh_iso(response),
+            )
+            if pointer is not None:
+                tracker.set(self.cache_key, pointer, settings.CACHED_RESULTS_TTL)
         except Exception:
             logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)
             return

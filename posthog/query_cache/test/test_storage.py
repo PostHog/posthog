@@ -141,7 +141,12 @@ class TestStoredValueFormats(BaseTest):
     def test_inline_values_are_stored_compressed_and_round_trip(self):
         cache_key = f"storage_inline_{self.team.pk}"
         cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
-        response = {"is_cached": False, "results": [{"data": _incompressible_rows(10)}], "cache_key": "k"}
+        response = {
+            "is_cached": False,
+            "results": [{"data": _incompressible_rows(10)}],
+            "cache_key": "k",
+            "last_refresh": "2026-08-01T00:00:00+00:00",
+        }
 
         cache.store_result(response=response, target_age=None)
 
@@ -151,6 +156,9 @@ class TestStoredValueFormats(BaseTest):
         entry = cache.lookup().entry
         assert entry is not None
         assert entry.as_full_response() == response
+        freshness = cache.freshness()
+        assert freshness is not None
+        assert freshness.last_refresh == "2026-08-01T00:00:00+00:00"
 
     def test_compression_kill_switch_stores_raw_and_round_trips(self):
         cache_key = f"storage_kill_switch_{self.team.pk}"
@@ -230,6 +238,43 @@ class TestQueryCacheS3Routing(BaseTest):
         entry = cache.lookup().entry
         assert entry is not None
         assert entry.as_full_response() == response
+
+    def test_inline_value_is_readable_during_the_upload(self):
+        cache_key = f"s3_during_upload_{self.team.pk}"
+        cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
+        observed: dict[str, bytes | None] = {}
+        original_write = self.storage.write
+
+        def write_and_peek(bucket: str, key: str, content: bytes, extras: dict | None = None) -> None:
+            observed["during_upload"] = _redis_raw(cache_key)
+            original_write(bucket, key, content, extras)
+
+        with (
+            patch.object(self.storage, "write", side_effect=write_and_peek),
+            patch("posthog.query_cache.storage.s3_write_mode", return_value="on"),
+        ):
+            cache.store_result(response=self._large_response(), target_age=None)
+
+        # Uploading before the inline write would reopen the window where concurrent
+        # requests miss and recompute a result that just finished computing.
+        assert observed["during_upload"] is not None
+        assert observed["during_upload"].startswith(ZSTD_FRAME_MAGIC)
+        assert self._redis_holds_pointer(cache_key)
+
+    def test_freshness_probe_reads_pointer_without_s3(self):
+        cache_key = f"s3_probe_{self.team.pk}"
+        cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
+        assert cache.freshness() is None
+        response = {**self._large_response(), "last_refresh": "2026-08-01T00:00:00+00:00"}
+
+        with patch("posthog.query_cache.storage.s3_write_mode", return_value="on"):
+            cache.store_result(response=response, target_age=None)
+
+        assert self._redis_holds_pointer(cache_key)
+        self.storage.fail_reads = True
+        freshness = cache.freshness()
+        assert freshness is not None
+        assert freshness.last_refresh == "2026-08-01T00:00:00+00:00"
 
     def test_small_result_stays_inline_when_flag_on(self):
         cache_key = f"s3_on_small_{self.team.pk}"

@@ -1,13 +1,15 @@
 """The bytes stored in Redis for each query cache entry.
 
-encode_stored_value picks the bytes to store for a serialized result; decode_stored_value
-turns stored bytes back into the result. Everything else in this module serves those two.
+encode_inline_value picks the bytes stored inline for a serialized result; upload_for_pointer
+uploads large frames to S3 and returns the pointer record that replaces them in Redis;
+decode_stored_value turns stored bytes back into the result. Everything else serves those.
 
 A Redis value is a bare byte string shared with older pods during rolling deploys, so each
 storage format announces itself in its first bytes:
 
 - S3_POINTER_MAGIC: a small pointer record naming the S3 bucket and key that hold the
-  zstd-compressed result. Written for large results when the team's rollout flag is on.
+  zstd-compressed result, plus the result's last_refresh so freshness probes stay a single
+  Redis read. Written for large results when the team's rollout flag is on.
 - ZSTD_FRAME_MAGIC: the zstd-compressed result, stored inline. The default format for
   results over COMPRESSION_FLOOR_BYTES.
 - PICKLE_PROTO_MARKER: a result pickled by django_redis before this module owned the value
@@ -152,29 +154,39 @@ def _delete_entry_silently(cache_key: str) -> None:
         pass
 
 
-def encode_stored_value(*, team_id: int, cache_key: str, payload: bytes) -> bytes:
-    """The exact bytes to store in Redis: the raw payload, an S3 pointer record, or the zstd blob.
+def encode_inline_value(payload: bytes) -> bytes:
+    """The bytes stored inline in Redis for a serialized result: the payload or its zstd frame.
 
-    Only a fully qualified S3 write returns the pointer (blob large enough, flag "on", upload
-    succeeded); every other path falls through to the inline blob, including "shadow", which
-    uploads but deliberately discards the pointer. Compression happens here, once: the same
-    compressed bytes serve as the inline Redis value, the S3 routing decision, and the S3
-    upload body.
+    Compression happens here, once: the same frame serves as the inline value, the S3 routing
+    decision, and the S3 upload body.
     """
-    # USE_REDIS_COMPRESSION is the fleet-wide compression kill switch; honoring it here also
-    # bypasses S3, which routes on compressed size.
+    # USE_REDIS_COMPRESSION is the fleet-wide compression kill switch; skipping the frame also
+    # keeps the value off the S3 route, which only takes zstd frames.
     if len(payload) <= COMPRESSION_FLOOR_BYTES or not settings.USE_REDIS_COMPRESSION:
         return payload
-    blob = zstd.compress(payload, ZSTD_PRESET, ZSTD_THREADS)
-    if len(blob) >= settings.QUERY_CACHE_S3_MIN_COMPRESSED_BYTES:
-        mode = s3_write_mode(team_id)
-        if mode != "off":
-            # "on" stores the pointer so the blob stops counting against the team's Redis
-            # cache budget.
-            pointer = write_blob(team_id=team_id, cache_key=cache_key, blob=blob, mode=mode)
-            if mode == "on" and pointer is not None:
-                return pointer
-    return blob
+    return zstd.compress(payload, ZSTD_PRESET, ZSTD_THREADS)
+
+
+def upload_for_pointer(
+    *, team_id: int, cache_key: str, inline_value: bytes, last_refresh: Optional[str]
+) -> Optional[bytes]:
+    """The pointer bytes to replace an already-stored inline value with, or None to keep it.
+
+    Only zstd frames of at least QUERY_CACHE_S3_MIN_COMPRESSED_BYTES route to S3, gated by the
+    team's flag. "shadow" uploads but returns None, so Redis keeps the blob; "on" returns the
+    pointer once the upload succeeded, so the blob stops counting against the team's Redis
+    cache budget. Never raises.
+    """
+    if (
+        not inline_value.startswith(ZSTD_FRAME_MAGIC)
+        or len(inline_value) < settings.QUERY_CACHE_S3_MIN_COMPRESSED_BYTES
+    ):
+        return None
+    mode = s3_write_mode(team_id)
+    if mode == "off":
+        return None
+    pointer = write_blob(team_id=team_id, cache_key=cache_key, blob=inline_value, mode=mode, last_refresh=last_refresh)
+    return pointer if mode == "on" else None
 
 
 def decode_stored_value(value: bytes, *, team_id: int, cache_key: str) -> Optional[bytes]:
@@ -203,18 +215,23 @@ def decode_stored_value(value: bytes, *, team_id: int, cache_key: str) -> Option
 
 @frozen
 class S3BlobPointer:
-    """Location of a cache entry's blob in object storage.
+    """Location of a cache entry's blob in object storage, plus the result's last_refresh.
 
     The bucket is embedded rather than read from settings at resolve time, so entries written
-    before a bucket change keep resolving until they expire.
+    before a bucket change keep resolving until they expire. last_refresh rides along so
+    freshness probes (cache warming) can answer from Redis without fetching the blob.
     """
 
     bucket: str
     key: str
+    last_refresh: Optional[str] = None
 
 
 def encode_pointer(pointer: S3BlobPointer) -> bytes:
-    return S3_POINTER_MAGIC + OrjsonJsonSerializer({}).dumps({"v": 1, "b": pointer.bucket, "k": pointer.key})
+    record: dict[str, str | int] = {"v": 1, "b": pointer.bucket, "k": pointer.key}
+    if pointer.last_refresh is not None:
+        record["lr"] = pointer.last_refresh
+    return S3_POINTER_MAGIC + OrjsonJsonSerializer({}).dumps(record)
 
 
 def is_s3_pointer(data: bytes) -> bool:
@@ -230,7 +247,12 @@ def decode_pointer(data: bytes) -> Optional[S3BlobPointer]:
         # not decode into a bogus pointer that is retried against S3 for its whole TTL.
         if payload.get("v") != 1 or not isinstance(payload.get("b"), str) or not isinstance(payload.get("k"), str):
             return None
-        return S3BlobPointer(bucket=payload["b"], key=payload["k"])
+        last_refresh = payload.get("lr")
+        return S3BlobPointer(
+            bucket=payload["b"],
+            key=payload["k"],
+            last_refresh=last_refresh if isinstance(last_refresh, str) else None,
+        )
     except Exception:
         return None
 
@@ -280,7 +302,9 @@ def s3_write_mode(team_id: int) -> QueryCacheS3Mode:
     return "off"
 
 
-def write_blob(*, team_id: int, cache_key: str, blob: bytes, mode: QueryCacheS3Mode) -> Optional[bytes]:
+def write_blob(
+    *, team_id: int, cache_key: str, blob: bytes, mode: QueryCacheS3Mode, last_refresh: Optional[str] = None
+) -> Optional[bytes]:
     """Upload a cache entry's compressed blob, returning encoded pointer bytes, or None on failure.
 
     Never raises: on failure the caller stores the blob inline in Redis, so S3 problems degrade
@@ -300,7 +324,7 @@ def write_blob(*, team_id: int, cache_key: str, blob: bytes, mode: QueryCacheS3M
         logger.warning("query_cache_s3_write_failed", team_id=team_id, cache_key=cache_key, exc_info=True)
         return None
     _record_s3_write(mode, "success", time.perf_counter() - upload_start)
-    return encode_pointer(S3BlobPointer(bucket=bucket, key=object_key))
+    return encode_pointer(S3BlobPointer(bucket=bucket, key=object_key, last_refresh=last_refresh))
 
 
 def _read_blob(pointer_bytes: bytes, *, team_id: int, cache_key: str) -> Optional[bytes]:
