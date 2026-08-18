@@ -16153,6 +16153,28 @@ export namespace Schemas {
     }
 
     /**
+     * * `not_null` - not_null
+     * * `unique` - unique
+     * * `accepted_values` - accepted_values
+     * * `relationships` - relationships
+     * * `row_count` - row_count
+     * * `freshness` - freshness
+     * * `custom_sql` - custom_sql
+     */
+    export type CheckTypeEnum = typeof CheckTypeEnum[keyof typeof CheckTypeEnum];
+
+
+    export const CheckTypeEnum = {
+      NotNull: 'not_null',
+      Unique: 'unique',
+      AcceptedValues: 'accepted_values',
+      Relationships: 'relationships',
+      RowCount: 'row_count',
+      Freshness: 'freshness',
+      CustomSql: 'custom_sql',
+    } as const;
+
+    /**
      * * `abandoned` - Abandoned
      * * `off-topic` - Off-topic
      */
@@ -19961,6 +19983,248 @@ export namespace Schemas {
          * @nullable
          */
       readonly rows_expected: number | null;
+    }
+
+    /**
+     * Type-specific configuration, validated against the check type's JSON schema.
+     */
+    export type DataQualityCheckConfig = { [key: string]: unknown };
+
+    /**
+     * * `table` - table
+     * * `view` - view
+     */
+    export type SubjectTypeEnum = typeof SubjectTypeEnum[keyof typeof SubjectTypeEnum];
+
+
+    export const SubjectTypeEnum = {
+      Table: 'table',
+      View: 'view',
+    } as const;
+
+    /**
+     * * `error` - error
+     * * `warn` - warn
+     */
+    export type DataQualityCheckSeverityEnum = typeof DataQualityCheckSeverityEnum[keyof typeof DataQualityCheckSeverityEnum];
+
+
+    export const DataQualityCheckSeverityEnum = {
+      Error: 'error',
+      Warn: 'warn',
+    } as const;
+
+    /**
+     * The subject is implied by the URL (the parent saved query or table), never part of the body.
+     */
+    export interface DataQualityCheck {
+      readonly id: string;
+      /**
+         * Optional identifier-safe handle, unique per project. Omit to address the check by id.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name?: string;
+      /** Why this check exists and what a failure means. */
+      description?: string;
+      /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+       *
+       * * `table` - table
+       * * `view` - view */
+      readonly subject_type: SubjectTypeEnum;
+      /**
+         * Id of the table or view being checked -- the parent resource in the URL.
+         * @nullable
+         */
+      readonly subject_uuid: string | null;
+      /** Queryable name of the subject, refreshed on every run. */
+      readonly subject_name: string;
+      /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+      readonly subject_status: string;
+      /**
+         * Column the check applies to. Omit for table-scoped types like row_count.
+         * @maxLength 400
+         */
+      column_name?: string;
+      /** Which assertion to make. Determines the shape of config; see /check_types/.
+       *
+       * * `not_null` - not_null
+       * * `unique` - unique
+       * * `accepted_values` - accepted_values
+       * * `relationships` - relationships
+       * * `row_count` - row_count
+       * * `freshness` - freshness
+       * * `custom_sql` - custom_sql */
+      check_type: CheckTypeEnum;
+      /** Type-specific configuration, validated against the check type's JSON schema. */
+      config?: DataQualityCheckConfig;
+      /** 'error' failures mark the subject failing and notify; 'warn' failures only surface.
+       *
+       * * `error` - error
+       * * `warn` - warn */
+      severity?: DataQualityCheckSeverityEnum;
+      /** Disabled checks are never run by any trigger. */
+      enabled?: boolean;
+      /** Free-form string labels for grouping and filtering. */
+      tags?: string[];
+      /**
+         * Email of the human accountable for this check, or null.
+         * @nullable
+         */
+      readonly owner: string | null;
+      /**
+         * When the check last executed.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
+      readonly last_status: string;
+      /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
+      readonly fingerprint: string;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this check.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the check, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the check, 0-1.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this check. */
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface DataQualityCheckRun {
+      readonly id: string;
+      /**
+         * The definition executed. Nulled rather than cascaded so history outlives hard deletes.
+         * @nullable
+         */
+      readonly quality_check: string | null;
+      readonly suite_run: string;
+      readonly subject_type: SubjectTypeEnum;
+      readonly subject_uuid: string;
+      readonly subject_name: string;
+      /** Which assertion this run made.
+       *
+       * * `not_null` - not_null
+       * * `unique` - unique
+       * * `accepted_values` - accepted_values
+       * * `relationships` - relationships
+       * * `row_count` - row_count
+       * * `freshness` - freshness
+       * * `custom_sql` - custom_sql */
+      readonly check_type: CheckTypeEnum;
+      readonly column_name: string;
+      /** passed, failed, errored, or skipped. */
+      readonly status: string;
+      /**
+         * Rows violating the assertion. Null for bounds checks like row_count.
+         * @nullable
+         */
+      readonly failed_row_count: number | null;
+      /**
+         * The check's headline number, recorded on passes too.
+         * @nullable
+         */
+      readonly observed_value: number | null;
+      /** The HogQL that ran. Re-run it to see the offending rows. */
+      readonly compiled_query: string;
+      /** Compilation or execution failure, when status is 'errored'. */
+      readonly error: string;
+      /** @nullable */
+      readonly duration_ms: number | null;
+      /** @nullable */
+      readonly started_at: string | null;
+      /** @nullable */
+      readonly finished_at: string | null;
+      readonly created_at: string;
+    }
+
+    /**
+     * JSON schema the config object is validated against.
+     */
+    export type DataQualityCheckTypeConfigSchema = { [key: string]: unknown };
+
+    /**
+     * One entry of the check-type catalog, so an agent can author config without guessing.
+     */
+    export interface DataQualityCheckType {
+      /** Value to pass as check_type. */
+      check_type: string;
+      /** What the check asserts and what counts as a failure. */
+      description: string;
+      /** Whether column_name must be set for this type. */
+      requires_column: boolean;
+      /** JSON schema the config object is validated against. */
+      config_schema: DataQualityCheckTypeConfigSchema;
+    }
+
+    /**
+     * The team-level materialization gate. Checks always run and warn; this only toggles blocking.
+     */
+    export interface DataQualityGateConfig {
+      /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
+      gate_materialization_on_checks: boolean;
+    }
+
+    /**
+     * Per-subject rollup, the same rule the information_schema.data_quality_health table uses.
+     */
+    export interface DataQualitySubjectHealth {
+      /** 'table' or 'view'. */
+      subject_type: string;
+      /** Id of the table or view. */
+      subject_uuid: string;
+      /** failing (an error-severity check failed), erroring (a check could not run), warn (only warn-severity failures), healthy, or unknown (nothing has run yet). */
+      health: string;
+      /** How many enabled, non-deleted checks cover this subject. */
+      checks_total: number;
+      /** How many of those checks last reported a failure. */
+      checks_failing: number;
+    }
+
+    export interface DataQualitySuiteRun {
+      readonly id: string;
+      /** manual, materialization, or source_sync. */
+      readonly trigger: string;
+      /** running, completed, failed, or empty (nothing matched the trigger). */
+      readonly status: string;
+      /**
+         * 'table' or 'view' when the run targets exactly one subject; null for a check-scoped or multi-subject run.
+         * @nullable
+         */
+      readonly subject_type: string | null;
+      /**
+         * Set when the run targets exactly one subject.
+         * @nullable
+         */
+      readonly subject_uuid: string | null;
+      readonly workflow_id: string;
+      readonly checks_passed: number;
+      readonly checks_failed: number;
+      readonly checks_errored: number;
+      readonly checks_skipped: number;
+      /** @nullable */
+      readonly started_at: string | null;
+      /** @nullable */
+      readonly finished_at: string | null;
+      /** Why the suite itself failed, as opposed to an individual check. */
+      readonly error: string;
+      readonly created_at: string;
     }
 
     export interface RequiredTableStatus {
@@ -49468,6 +49732,24 @@ export namespace Schemas {
       results: DataModelingJob[];
     }
 
+    export interface PaginatedDataQualityCheckList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataQualityCheck[];
+    }
+
+    export interface PaginatedDataQualitySuiteRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataQualitySuiteRun[];
+    }
+
     export interface PaginatedDataWarehouseExpressionList {
       count: number;
       /** @nullable */
@@ -56129,6 +56411,112 @@ export namespace Schemas {
       /** @nullable */
       readonly created_at?: string | null;
       readonly created_by?: UserBasic;
+    }
+
+    /**
+     * Type-specific configuration, validated against the check type's JSON schema.
+     */
+    export type PatchedDataQualityCheckConfig = { [key: string]: unknown };
+
+    /**
+     * The subject is implied by the URL (the parent saved query or table), never part of the body.
+     */
+    export interface PatchedDataQualityCheck {
+      readonly id?: string;
+      /**
+         * Optional identifier-safe handle, unique per project. Omit to address the check by id.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name?: string;
+      /** Why this check exists and what a failure means. */
+      description?: string;
+      /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+       *
+       * * `table` - table
+       * * `view` - view */
+      readonly subject_type?: SubjectTypeEnum;
+      /**
+         * Id of the table or view being checked -- the parent resource in the URL.
+         * @nullable
+         */
+      readonly subject_uuid?: string | null;
+      /** Queryable name of the subject, refreshed on every run. */
+      readonly subject_name?: string;
+      /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+      readonly subject_status?: string;
+      /**
+         * Column the check applies to. Omit for table-scoped types like row_count.
+         * @maxLength 400
+         */
+      column_name?: string;
+      /** Which assertion to make. Determines the shape of config; see /check_types/.
+       *
+       * * `not_null` - not_null
+       * * `unique` - unique
+       * * `accepted_values` - accepted_values
+       * * `relationships` - relationships
+       * * `row_count` - row_count
+       * * `freshness` - freshness
+       * * `custom_sql` - custom_sql */
+      check_type?: CheckTypeEnum;
+      /** Type-specific configuration, validated against the check type's JSON schema. */
+      config?: PatchedDataQualityCheckConfig;
+      /** 'error' failures mark the subject failing and notify; 'warn' failures only surface.
+       *
+       * * `error` - error
+       * * `warn` - warn */
+      severity?: DataQualityCheckSeverityEnum;
+      /** Disabled checks are never run by any trigger. */
+      enabled?: boolean;
+      /** Free-form string labels for grouping and filtering. */
+      tags?: string[];
+      /**
+         * Email of the human accountable for this check, or null.
+         * @nullable
+         */
+      readonly owner?: string | null;
+      /**
+         * When the check last executed.
+         * @nullable
+         */
+      readonly last_run_at?: string | null;
+      /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
+      readonly last_status?: string;
+      /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
+      readonly fingerprint?: string;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this check.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the check, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the check, 0-1.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this check. */
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
+    /**
+     * The team-level materialization gate. Checks always run and warn; this only toggles blocking.
+     */
+    export interface PatchedDataQualityGateConfig {
+      /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
+      gate_materialization_on_checks?: boolean;
     }
 
     export interface PatchedDataWarehouseExpression {
@@ -92416,6 +92804,28 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type WarehouseSavedQueriesCheckSuiteRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WarehouseSavedQueriesChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type WarehouseSavedQueryDraftsListParams = {
     /**
      * Number of results to return per page.
@@ -92440,6 +92850,28 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type WarehouseTablesCheckSuiteRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WarehouseTablesChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     /**
