@@ -513,3 +513,24 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert patched.status_code == status.HTTP_200_OK
         assert patched.json() == {"gate_materialization_on_checks": True}
         assert self.client.get(url).json() == {"gate_materialization_on_checks": True}
+
+    def test_writing_the_team_wide_gate_needs_resource_level_editor_access(self) -> None:
+        # The gate is a project-wide setting, so an object-level editor grant on a single view must
+        # not be enough to flip it -- writing needs resource-level warehouse editor access. Reading
+        # stays open to a warehouse viewer.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="viewer")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(self.view.id),
+            organization_member=self.organization_membership,
+            access_level="editor",
+        )
+        url = self._gate_url()
+
+        assert self.client.get(url).status_code == status.HTTP_200_OK
+        assert self.client.patch(url, {"gate_materialization_on_checks": True}).status_code == status.HTTP_403_FORBIDDEN

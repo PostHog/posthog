@@ -12,6 +12,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_seriali
 from opentelemetry import trace
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -899,6 +900,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["GET", "PATCH"], detail=False, required_scopes=["warehouse_view:write"])
     def data_quality_gate(self, request: Request, **kwargs) -> Response:
+        # This is a project-wide setting, so writing it needs project-wide warehouse editor access.
+        # The generic warehouse_view:write permission is otherwise satisfied by an object-level editor
+        # grant on a single view, which must not be enough to flip a team-wide gate.
+        if request.method == "PATCH" and not self.user_access_control.check_access_level_for_resource(
+            "warehouse_view", "editor"
+        ):
+            raise PermissionDenied("You need editor access to data warehouse views to change this setting.")
         # Owned by the data_quality product; this viewset only lends it the warehouse surface.
         return data_quality_gate_response(self.team, request)
 
