@@ -3388,6 +3388,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }: { item: QueryBasedInsightModel }) => {
+            const targetDashboards = (item.dashboard_tiles || []).map((tile) => tile.dashboard_id)
+            if (!targetDashboards.includes(props.id)) {
+                // this update is not for this dashboard
+                return
+            }
+
             const tileIndex = values.tiles.findIndex((t) => !!t.insight && t.insight.short_id === item.short_id)
 
             if (tileIndex === -1) {
