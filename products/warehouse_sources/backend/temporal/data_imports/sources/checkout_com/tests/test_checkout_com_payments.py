@@ -452,8 +452,7 @@ def _derived_partition_value(response, payment: dict[str, Any]) -> Optional[str]
     )
     if result is None:
         return None
-    partitioned_table = result[0]
-    return partitioned_table.column(PARTITION_KEY).to_pylist()[0]
+    return result.table.column(PARTITION_KEY).to_pylist()[0]
 
 
 class TestPaymentsPartitionStability:
