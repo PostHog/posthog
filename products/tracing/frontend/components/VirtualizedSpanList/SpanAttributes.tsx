@@ -1,6 +1,7 @@
 import { useActions } from 'kea'
+import { useEffect, useRef, useState } from 'react'
 
-import { IconMinusSquare, IconPlusSquare } from '@posthog/icons'
+import { IconCheck, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -10,10 +11,14 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { tracingFiltersLogic } from 'products/tracing/frontend/tracingFiltersLogic'
 
+const APPLIED_INDICATOR_MS = 2000
+
 interface AttributeRow {
     key: string
     value: string
 }
+
+type FilterDirection = 'include' | 'exclude'
 
 export interface SpanAttributesProps {
     attributes: Record<string, string>
@@ -33,6 +38,25 @@ export function SpanAttributes({
     propertyType,
 }: SpanAttributesProps): JSX.Element {
     const { addFilter } = useActions(tracingFiltersLogic)
+    const [appliedFilter, setAppliedFilter] = useState<{ key: string; direction: FilterDirection } | null>(null)
+    const appliedFilterTimeoutRef = useRef<number | null>(null)
+
+    useEffect(
+        () => () => {
+            if (appliedFilterTimeoutRef.current !== null) {
+                window.clearTimeout(appliedFilterTimeoutRef.current)
+            }
+        },
+        []
+    )
+
+    const showApplied = (key: string, direction: FilterDirection): void => {
+        if (appliedFilterTimeoutRef.current !== null) {
+            window.clearTimeout(appliedFilterTimeoutRef.current)
+        }
+        setAppliedFilter({ key, direction })
+        appliedFilterTimeoutRef.current = window.setTimeout(() => setAppliedFilter(null), APPLIED_INDICATOR_MS)
+    }
 
     const rows: AttributeRow[] = Object.entries(attributes).map(([key, value]) => ({ key, value }))
 
@@ -44,26 +68,40 @@ export function SpanAttributes({
                       width: 0,
                       render: (_: unknown, record: AttributeRow) => (
                           <div className="flex gap-x-0">
-                              <LemonButton
-                                  tooltip="Add as filter"
-                                  size="xsmall"
-                                  onClick={(e) => {
-                                      e.stopPropagation()
-                                      addFilter(record.key, record.value, PropertyOperator.Exact, propertyType)
-                                  }}
-                              >
-                                  <IconPlusSquare />
-                              </LemonButton>
-                              <LemonButton
-                                  tooltip="Exclude as filter"
-                                  size="xsmall"
-                                  onClick={(e) => {
-                                      e.stopPropagation()
-                                      addFilter(record.key, record.value, PropertyOperator.IsNot, propertyType)
-                                  }}
-                              >
-                                  <IconMinusSquare />
-                              </LemonButton>
+                              {appliedFilter?.key === record.key && appliedFilter.direction === 'include' ? (
+                                  <LemonButton size="xsmall" tooltip="Filter added">
+                                      <IconCheck className="text-success" />
+                                  </LemonButton>
+                              ) : (
+                                  <LemonButton
+                                      tooltip="Add as filter"
+                                      size="xsmall"
+                                      onClick={(e) => {
+                                          e.stopPropagation()
+                                          addFilter(record.key, record.value, PropertyOperator.Exact, propertyType)
+                                          showApplied(record.key, 'include')
+                                      }}
+                                  >
+                                      <IconPlusSquare />
+                                  </LemonButton>
+                              )}
+                              {appliedFilter?.key === record.key && appliedFilter.direction === 'exclude' ? (
+                                  <LemonButton size="xsmall" tooltip="Filter added">
+                                      <IconCheck className="text-success" />
+                                  </LemonButton>
+                              ) : (
+                                  <LemonButton
+                                      tooltip="Exclude as filter"
+                                      size="xsmall"
+                                      onClick={(e) => {
+                                          e.stopPropagation()
+                                          addFilter(record.key, record.value, PropertyOperator.IsNot, propertyType)
+                                          showApplied(record.key, 'exclude')
+                                      }}
+                                  >
+                                      <IconMinusSquare />
+                                  </LemonButton>
+                              )}
                           </div>
                       ),
                   },

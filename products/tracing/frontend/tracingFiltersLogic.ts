@@ -178,6 +178,7 @@ export interface tracingFiltersLogicValues {
     dateRange: DateRange
     filterGroup: UniversalFiltersGroup
     filters: TracingFilters
+    hasDeferredFilterRefresh: boolean
     orderBy: TracingOrderBy
     orderDirection: TracingOrderDirection
     pinnedFilters: UniversalFiltersGroup | undefined
@@ -185,6 +186,7 @@ export interface tracingFiltersLogicValues {
     queryFilterGroup: UniversalFiltersGroup
     serviceNames: string[]
     sparklineWindowMs: OverlayWindow
+    suppressAutoOpenFilter: UniversalFiltersGroupValue | null
     timeComparison: TimeComparison | null
     timezone: string
     utcDateRange: {
@@ -203,9 +205,12 @@ export interface tracingFiltersLogicActions {
         propertyType?: PropertyFilterType
     ) => {
         key: string
-        value: string
         operator: PropertyOperator
         propertyType: PropertyFilterType
+        value: string
+    }
+    refreshDeferredFilters: () => {
+        value: true
     }
     setChartType: (chartType: TracingChartType) => {
         chartType: TracingChartType
@@ -216,8 +221,12 @@ export interface tracingFiltersLogicActions {
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     }
-    setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
+    setFilterGroup: (
+        filterGroup: UniversalFiltersGroup,
+        skipQuery?: boolean
+    ) => {
         filterGroup: UniversalFiltersGroup
+        skipQuery: boolean
     }
     setFilters: (filters: Partial<TracingFilters>) => {
         filters: Partial<TracingFilters>
@@ -240,6 +249,9 @@ export interface tracingFiltersLogicActions {
     }
     setViewMode: (viewMode: TracingViewMode) => {
         viewMode: TracingViewMode
+    }
+    suppressAutoOpenForFilter: (filter: UniversalFiltersGroupValue) => {
+        filter: UniversalFiltersGroupValue
     }
     updateComparisonWindows: (
         current: OverlayWindow,
@@ -300,7 +312,10 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setTimezone: (timezone: string) => ({ timezone }),
         setServiceNames: (serviceNames: string[]) => ({ serviceNames }),
-        setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
+        setFilterGroup: (filterGroup: UniversalFiltersGroup, skipQuery: boolean = false) => ({
+            filterGroup,
+            skipQuery,
+        }),
         setSort: (orderBy: TracingOrderBy, orderDirection: TracingOrderDirection) => ({ orderBy, orderDirection }),
         setViewMode: (viewMode: TracingViewMode) => ({ viewMode }),
         setChartType: (chartType: TracingChartType) => ({ chartType }),
@@ -321,6 +336,12 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
             operator: PropertyOperator = PropertyOperator.Exact,
             propertyType: PropertyFilterType = PropertyFilterType.SpanAttribute
         ) => ({ key, value, operator, propertyType }),
+        // The attribute row buttons insert a filter with a value already set (unlike the manual
+        // "add filter" search flow, which inserts a bare property and expects its popover to stay
+        // open for editing) — the UI marks that exact filter so its popover doesn't auto-open.
+        suppressAutoOpenForFilter: (filter: UniversalFiltersGroupValue) => ({ filter }),
+        // Fired once the trace drawer closes, if a filter was added while it was open.
+        refreshDeferredFilters: true,
     }),
 
     reducers({
@@ -405,6 +426,21 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
             undefined as UniversalFiltersGroup | undefined,
             {
                 setPinnedFilters: (_, { pinnedFilters }) => pinnedFilters,
+            },
+        ],
+        suppressAutoOpenFilter: [
+            null as UniversalFiltersGroupValue | null,
+            {
+                suppressAutoOpenForFilter: (_, { filter }) => filter,
+            },
+        ],
+        // Set when a filter is added while the trace drawer is open (so its query is deferred);
+        // cleared once that deferred query has actually run.
+        hasDeferredFilterRefresh: [
+            false,
+            {
+                addFilter: () => true,
+                refreshDeferredFilters: () => false,
             },
         ],
     }),
@@ -518,21 +554,17 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
     listeners(({ actions, values }) => ({
         addFilter: ({ key, value, operator, propertyType }) => {
             const currentGroup = values.filterGroup.values[0] as UniversalFiltersGroup
+            const newFilterValue = { key, value: [value], operator, type: propertyType } as UniversalFiltersGroupValue
 
             const newGroup: UniversalFiltersGroup = {
                 ...currentGroup,
-                values: [
-                    ...currentGroup.values,
-                    {
-                        key,
-                        value: [value],
-                        operator,
-                        type: propertyType,
-                    } as UniversalFiltersGroupValue,
-                ],
+                values: [...currentGroup.values, newFilterValue],
             }
 
-            actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] })
+            actions.suppressAutoOpenForFilter(newFilterValue)
+            // Update the chips immediately, but defer the actual query — added from inside the
+            // trace drawer, so re-querying now would only change data the drawer is covering.
+            actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, true)
         },
     })),
 
