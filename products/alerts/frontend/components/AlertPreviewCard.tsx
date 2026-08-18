@@ -106,7 +106,13 @@ export function AlertPreviewCard({
 
     let body: JSX.Element | null = null
     if (forecast) {
-        body = <ForecastPreview result={forecast.result} thresholdBounds={forecast.thresholdBounds} />
+        body = (
+            <ForecastPreview
+                result={forecast.result}
+                thresholdBounds={forecast.thresholdBounds}
+                forecastConfig={alertForm.forecast_config ?? null}
+            />
+        )
     } else if (isUnconfiguredAbsoluteThreshold) {
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">

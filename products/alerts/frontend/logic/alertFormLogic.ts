@@ -561,7 +561,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
             {
                 simulateForecast: async (): Promise<ForecastSimulateResponseApi | null> => {
                     const forecastConfig = values.alertForm.forecast_config
-                    if (!forecastConfig || !props.insightId) {
+                    // An unresolved team would build /api/projects/null/... and 404.
+                    if (!forecastConfig || !props.insightId || !values.currentTeamId) {
                         return null
                     }
                     const formConfig = values.alertForm.config

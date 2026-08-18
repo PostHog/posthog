@@ -1,4 +1,4 @@
-import { InsightsThresholdBounds } from '~/queries/schema/schema-general'
+import { ForecastTargetDirection, InsightsThresholdBounds } from '~/queries/schema/schema-general'
 
 import { hasThresholdBounds, valueBreachesBounds } from 'products/alerts/frontend/logic/alertPreviewShared'
 
@@ -19,12 +19,19 @@ export function findFirstCrossing(forecastYhat: number[], bounds: InsightsThresh
 
 /** What the forecast says about a target, in one line. Both crossings are shown because the choice
  *  between the two sensitivities is easier to make by seeing the gap than by reading about it. */
-export function targetSummary(projection: { misses_on_forecast: boolean; misses_on_best_case: boolean }): string {
+export function targetSummary(
+    projection: { misses_on_forecast: boolean; misses_on_best_case: boolean },
+    direction: ForecastTargetDirection | undefined
+): string {
+    // "Falls short" only reads correctly for a goal. For a budget the same miss is an overshoot.
+    const miss = direction === ForecastTargetDirection.AT_MOST ? 'Goes over' : 'Falls short'
     if (projection.misses_on_best_case) {
-        return 'Falls short, and misses even in the best case'
+        return `${miss}, and misses even in the best case`
     }
     if (projection.misses_on_forecast) {
-        return 'Falls short on the current forecast'
+        return `${miss} on the current forecast`
     }
-    return 'On track to reach the target'
+    return direction === ForecastTargetDirection.AT_MOST
+        ? 'On track to stay under the target'
+        : 'On track to reach the target'
 }

@@ -6,7 +6,7 @@ import { Chart } from 'lib/Chart'
 import { useChart } from 'lib/hooks/useChart'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
-import { InsightsThresholdBounds } from '~/queries/schema/schema-general'
+import { ForecastConfig, InsightsThresholdBounds } from '~/queries/schema/schema-general'
 
 import {
     ForecastSimulateResponseApi,
@@ -195,9 +195,11 @@ function ForecastChart({
 export function ForecastPreview({
     result,
     thresholdBounds,
+    forecastConfig,
 }: {
     result: ForecastSimulateResponseApi
     thresholdBounds: InsightsThresholdBounds | null
+    forecastConfig: ForecastConfig | null
 }): JSX.Element {
     const hasBounds = !!thresholdBounds && (thresholdBounds.upper != null || thresholdBounds.lower != null)
     const crossingIndex = hasBounds ? findFirstCrossing(result.forecast_yhat, thresholdBounds) : null
@@ -215,9 +217,9 @@ export function ForecastPreview({
             <div className="text-sm text-muted">
                 {projection ? (
                     <span>
-                        {targetSummary(projection)}. Projected {humanFriendlyNumber(projection.predicted)} on{' '}
-                        {formatSimDate(projection.target_date)} against a target of{' '}
-                        {humanFriendlyNumber(projection.target)}.
+                        {targetSummary(projection, forecastConfig?.target_direction)}. Projected{' '}
+                        {humanFriendlyNumber(projection.predicted)} on {formatSimDate(projection.target_date)} against a
+                        target of {humanFriendlyNumber(projection.target)}.
                     </span>
                 ) : hasBounds ? (
                     crossingIndex != null ? (

@@ -1,4 +1,12 @@
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    ForecastConditionType,
+    ForecastTargetDirection,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 
 import { intervalDropdownPhrase } from 'products/alerts/frontend/components/editAlertModalUtils'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
@@ -93,6 +101,24 @@ function detectorSummary(): string {
 /** Build a one-line human summary of what an alert does. Pure (no React) so it can feed a header
  *  string, a wizard review step, or a tooltip. Returns empty parts when the form is too incomplete
  *  to summarize — the caller decides whether to render them at all. */
+/** A forecast alert fires on a prediction, not on the latest value, so the threshold phrasing below
+ *  would describe the wrong thing. Each condition reads a different part of the config. */
+function forecastSummary(config: AlertFormType['forecast_config']): string {
+    if (!config) {
+        return 'the forecast says so'
+    }
+    if (config.condition === ForecastConditionType.BAND_DEVIATION) {
+        return 'a value falls outside its expected range'
+    }
+    if (config.condition === ForecastConditionType.TARGET_BY_DATE) {
+        const target = config.target != null ? humanFriendlyNumber(config.target) : 'a target'
+        const direction = config.target_direction === ForecastTargetDirection.AT_MOST ? 'above' : 'below'
+        const on = config.target_date ? ` on ${config.target_date}` : ''
+        return `the forecast is ${direction} ${target}${on}`
+    }
+    return 'the forecast is predicted to cross the threshold'
+}
+
 export function buildAlertSummary(
     alertForm: AlertFormType | AlertType,
     subscribedCount: number,
@@ -103,6 +129,8 @@ export function buildAlertSummary(
     let fires = ''
     if (alertMode === 'detector') {
         fires = detectorSummary()
+    } else if (alertMode === 'forecast') {
+        fires = forecastSummary(alertForm.forecast_config)
     } else {
         const bounds = alertForm.threshold?.configuration?.bounds
         fires = formatThresholdSummary(

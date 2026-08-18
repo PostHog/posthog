@@ -9,6 +9,7 @@ import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { getDefaultAnomalyDetectorConfig } from 'products/alerts/frontend/logic/detectorConfigDefaults'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
+import { thresholdForConditionChange } from 'products/alerts/frontend/logic/thresholdPercent'
 import {
     AlertMode,
     AlertSimulationResult,
@@ -202,10 +203,22 @@ export function AlertDefinitionSection({
                                     'forecast_config',
                                     value === 'forecast' ? getDefaultForecastConfig() : null
                                 )
+                                // The previous mode's simulation no longer describes the config.
+                                onClearSimulation()
+                                onClearSimulationOverlay()
                                 if (value === 'forecast') {
                                     // A predicted breach compares the forecast against a fixed value, so a
                                     // relative condition carried over from threshold mode would not apply.
+                                    // Convert the bounds with it: a relative threshold stores a fraction, so
+                                    // switching the type alone turns "more than 20%" into "more than 0.2".
                                     onSetAlertFormValue('condition', { type: AlertConditionType.ABSOLUTE_VALUE })
+                                    onSetAlertFormValue('threshold', {
+                                        configuration: thresholdForConditionChange(
+                                            alertForm.threshold.configuration,
+                                            AlertConditionType.ABSOLUTE_VALUE,
+                                            isFunnelAlert
+                                        ),
+                                    })
                                 }
                             }}
                             options={alertModeOptions({

@@ -1,3 +1,5 @@
+import { ForecastTargetDirection } from '~/queries/schema/schema-general'
+
 import { findFirstCrossing, targetSummary } from './forecastPreviewUtils'
 
 describe('findFirstCrossing', () => {
@@ -30,8 +32,16 @@ describe('targetSummary', () => {
         ['misses on the forecast only', true, false, 'Falls short on the current forecast'],
         ['on track', false, false, 'On track to reach the target'],
     ])('%s', (_name, missesOnForecast, missesOnBestCase, expected) => {
-        expect(targetSummary({ misses_on_forecast: missesOnForecast, misses_on_best_case: missesOnBestCase })).toBe(
-            expected
-        )
+        expect(
+            targetSummary(
+                { misses_on_forecast: missesOnForecast, misses_on_best_case: missesOnBestCase },
+                ForecastTargetDirection.AT_LEAST
+            )
+        ).toBe(expected)
+    })
+    it('reads as an overshoot for an at-most target', () => {
+        expect(
+            targetSummary({ misses_on_forecast: true, misses_on_best_case: false }, ForecastTargetDirection.AT_MOST)
+        ).toBe('Goes over on the current forecast')
     })
 })

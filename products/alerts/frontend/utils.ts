@@ -116,5 +116,7 @@ export function isTargetDatePassed(alert: AlertType, today: Date): boolean {
     if (config?.condition !== ForecastConditionType.TARGET_BY_DATE || !config.target_date) {
         return false
     }
-    return !alert.enabled && new Date(config.target_date) < today
+    // Compare calendar days. A date-only string parses as UTC midnight, so a raw Date comparison
+    // disagrees with the backend on the boundary day in most timezones.
+    return !alert.enabled && dayjs(config.target_date).isBefore(dayjs(today), 'day')
 }
