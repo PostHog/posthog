@@ -68,12 +68,12 @@ describe("CanvasApplicationService", () => {
     const result = await service.generateCanvas(input(), gateway);
 
     expect(result).toEqual({ ok: true, taskId: "task-1" });
-    // No caller pick: prefer the fast Luna tier over the gateway's default,
-    // validated by the resolver against the gateway's model list.
+    // No caller pick: prefer Sonnet 5 over the gateway's default, validated
+    // by the resolver against the gateway's model list.
     expect(resolveDefaultModel).toHaveBeenCalledWith(
       "https://us.posthog.com",
-      "codex",
-      "gpt-5.6-luna",
+      "claude",
+      "claude-sonnet-5",
     );
     const [taskInput] = createTask.mock.calls[0];
     expect(taskInput.content).toContain("`building-canvases` skill");
@@ -81,7 +81,7 @@ describe("CanvasApplicationService", () => {
     expect(taskInput).toMatchObject({
       executionMode: "bypassPermissions",
       workspaceMode: "cloud",
-      adapter: "codex",
+      adapter: "claude",
       model: "model-1",
       allowNoRepo: true,
     });
@@ -140,6 +140,24 @@ describe("CanvasApplicationService", () => {
     // The whole-canvas conversation is recorded so it can be reopened.
     expect(gateway.setGenerationTask).toHaveBeenCalledWith("dash-1", "task-1");
   });
+
+  // The effort default must follow the model: "high" sent alongside a
+  // fallback model that doesn't support it makes the task API reject the run.
+  it.each([
+    ["claude-sonnet-5", "high"],
+    ["model-1", undefined],
+  ])(
+    "defaults reasoning effort only when the preferred model resolved (%s)",
+    async (resolved, expectedEffort) => {
+      const { service, createTask } = makeDeps({
+        resolveDefaultModel: vi.fn().mockResolvedValue(resolved),
+      });
+
+      await service.generateCanvas(input(), makeGateway());
+
+      expect(createTask.mock.calls[0][0].reasoningLevel).toBe(expectedEffort);
+    },
+  );
 
   it.each([
     ["no signed-in region", input({ cloudRegion: null })],

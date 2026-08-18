@@ -70,13 +70,14 @@ export interface CanvasGenerationGateway {
   onAutoNamed?(taskId: string, title: string): void;
 }
 
-// Unattended canvas runs default to GPT-5.6 Luna on the codex adapter: it is
-// markedly faster than the Claude tiers for canvas work, and speed is what a
-// user staring at a generating tile feels. The resolver validates the id
-// against the gateway's model list, so when it's absent the run falls back to
-// the server default instead of failing.
-const CANVAS_PREFERRED_ADAPTER = "codex" as const;
-const CANVAS_PREFERRED_MODEL = "gpt-5.6-luna";
+// Unattended canvas runs default to Claude Sonnet 5 at high reasoning effort.
+// The resolver validates the id against the gateway's model list, so when it's
+// absent the run falls back to the server default instead of failing — and the
+// effort default follows the model: it only applies when the preferred model
+// actually resolved, because other models may not support that effort tier.
+const CANVAS_PREFERRED_ADAPTER = "claude" as const;
+const CANVAS_PREFERRED_MODEL = "claude-sonnet-5";
+const CANVAS_PREFERRED_REASONING = "high";
 
 const TASK_TITLE_MAX = 80;
 
@@ -205,7 +206,11 @@ export class CanvasApplicationService {
         workspaceMode,
         adapter,
         model,
-        reasoningLevel: input.reasoningLevel,
+        reasoningLevel:
+          input.reasoningLevel ??
+          (model === CANVAS_PREFERRED_MODEL
+            ? CANVAS_PREFERRED_REASONING
+            : undefined),
         allowNoRepo: true,
         channelContext: input.channelContext,
         channelName: input.channelName,
