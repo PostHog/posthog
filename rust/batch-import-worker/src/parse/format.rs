@@ -60,7 +60,6 @@ impl FormatConfig {
 
                 let event_transform = MixpanelEvent::parse_fn(
                     transform_context,
-                    config.skip_no_distinct_id,
                     config
                         .timestamp_offset_seconds
                         .map(Duration::seconds)
@@ -71,15 +70,14 @@ impl FormatConfig {
                 let parser = move |data| {
                     let parsed: Parsed<Vec<MixpanelEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
-                    let result: Result<_, Error> = parsed
-                        .data
-                        .into_par_iter()
-                        .map(&event_transform)
-                        .filter_map(|x| x.transpose())
-                        .collect();
+                    // Each event may produce the event itself plus an optional
+                    // identify event, so collect into Vec<Vec<_>> and flatten
+                    // after the error check.
+                    let result: Result<Vec<Vec<_>>, Error> =
+                        parsed.data.into_par_iter().map(&event_transform).collect();
 
                     Ok(Parsed {
-                        data: result?,
+                        data: result?.into_iter().flatten().collect(),
                         consumed,
                     })
                 };

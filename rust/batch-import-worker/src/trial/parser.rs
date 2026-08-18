@@ -74,7 +74,6 @@ pub fn trial_parser(
         ContentType::Mixpanel(config) => {
             let transform = MixpanelEvent::parse_fn(
                 transform_context,
-                config.skip_no_distinct_id,
                 config
                     .timestamp_offset_seconds
                     .map(Duration::seconds)
@@ -83,9 +82,7 @@ pub fn trial_parser(
             );
             Box::new(newline_delim_lines(
                 *skip_blanks,
-                trial_line_fn::<MixpanelEvent, _>(move |e| {
-                    transform(e).map(|o| o.into_iter().collect())
-                }),
+                trial_line_fn::<MixpanelEvent, _>(transform),
             ))
         }
         ContentType::Amplitude => {

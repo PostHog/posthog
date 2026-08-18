@@ -13,6 +13,8 @@ pub const TEMP_BUCKET_READ_DURATION_SECONDS: &str =
 pub const STAGED_PLAINTEXT_CEILING_TRIPPED: &str =
     "batch_import_staged_plaintext_ceiling_tripped_total";
 pub const PART_CLEANUP_TOTAL: &str = "batch_import_part_cleanup_total";
+pub const MIXPANEL_EVENTS_SKIPPED_NO_DISTINCT_ID: &str =
+    "batch_import_mixpanel_events_skipped_no_distinct_id_total";
 
 use metrics::{counter, gauge, histogram};
 
@@ -64,4 +66,11 @@ pub fn staged_plaintext_ceiling_tripped() {
 /// A failed cleanup leaks only transient storage (reclaimed by job cleanup / bucket TTL).
 pub fn part_cleanup(outcome: &'static str) {
     counter!(PART_CLEANUP_TOTAL, "outcome" => outcome).increment(1);
+}
+
+/// Count a Mixpanel event skipped because no distinct id could be resolved.
+/// The importer used to mint a random id per such event, creating a throwaway
+/// person each time; this counter surfaces how much data lacks identity instead.
+pub fn mixpanel_event_skipped_no_distinct_id() {
+    counter!(MIXPANEL_EVENTS_SKIPPED_NO_DISTINCT_ID).increment(1);
 }

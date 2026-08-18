@@ -232,18 +232,14 @@ fn build_parser(provider: Provider, job_id: Uuid) -> ParserFn {
         Provider::Mixpanel => {
             let format_parse = json_nd::<MixpanelEvent>(true);
             let transform =
-                MixpanelEvent::parse_fn(context, false, chrono::Duration::zero(), skip_geoip());
+                MixpanelEvent::parse_fn(context, chrono::Duration::zero(), skip_geoip());
             Box::new(move |data| {
                 let parsed = format_parse(data)?;
                 let consumed = parsed.consumed;
-                let result: Result<Vec<_>, Error> = parsed
-                    .data
-                    .into_par_iter()
-                    .map(&transform)
-                    .filter_map(|x| x.transpose())
-                    .collect();
+                let result: Result<Vec<Vec<_>>, Error> =
+                    parsed.data.into_par_iter().map(&transform).collect();
                 Ok(Parsed {
-                    data: result?,
+                    data: result?.into_iter().flatten().collect(),
                     consumed,
                 })
             })
@@ -271,7 +267,6 @@ fn minimal_job_config(provider: Provider) -> JobConfig {
     let content = match provider {
         Provider::Mixpanel => serde_json::json!({
             "type": "mixpanel",
-            "skip_no_distinct_id": false,
             "timestamp_offset_seconds": null,
         }),
         Provider::Amplitude => serde_json::json!({ "type": "amplitude" }),
