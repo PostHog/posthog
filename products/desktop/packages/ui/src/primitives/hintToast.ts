@@ -25,6 +25,9 @@ export function hintToast(
 ): void {
   const store = useSettingsStore.getState();
   if (!store.shouldShowHint(key, max)) return;
+  // Toasts off means this never reaches the screen, so don't spend the hint's
+  // offer count on it; it is offered again once toasts come back on.
+  if (!store.toastNotifications) return;
   store.recordHintShown(key);
   const options: ToastOptions =
     typeof detail === "string" ? { description: detail } : (detail ?? {});
