@@ -482,6 +482,30 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
 
     @parameterized.expand(
         [
+            ("repo_less_loop_gets_read_only_github", False, True),
+            ("repo_pinned_loop_uses_repository_integration", True, False),
+        ]
+    )
+    def test_fire_grants_github_read_access_only_to_repo_less_loops(self, _name, pin_repository, expected_flag):
+        repositories = []
+        if pin_repository:
+            integration = Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
+            repositories = [{"github_integration_id": integration.id, "full_name": "acme/repo"}]
+        loop = self.create_loop(repositories=repositories)
+        trigger = self.create_trigger(loop)
+
+        result = fire_loop(loop, trigger, f"fire-{_name}", "rendered context")
+
+        self.assertTrue(result.created)
+        assert result.task_run_id is not None
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        if expected_flag:
+            self.assertIs(task_run.state["github_read_access"], True)
+        else:
+            self.assertNotIn("github_read_access", task_run.state)
+
+    @parameterized.expand(
+        [
             ("claude_default_resolves_to_sonnet_5", "claude", "", None, "claude-sonnet-5", None),
             ("codex_default_resolves_to_gpt5", "codex", "", None, "gpt-5", None),
             ("supported_effort_on_default_model_is_kept", "claude", "", "high", "claude-sonnet-5", "high"),
