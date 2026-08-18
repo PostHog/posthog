@@ -57,6 +57,24 @@ const parsePricingNumber = (value: unknown): number | undefined => {
     }
 }
 
+/** OpenRouter charges these at the same price on a promotional route as on its
+ * undiscounted sibling, so there is no rate to divide out. */
+export const FLAT_FEE_FIELDS: ReadonlySet<keyof ModelCost> = new Set(['request', 'web_search'])
+
+/** A field added here and not to `FLAT_FEE_FIELDS` is de-discounted by default. */
+export const OPTIONAL_PRICING_FIELDS: ReadonlyArray<[keyof ModelCost, string]> = [
+    ['cache_read_token', 'input_cache_read'],
+    ['cache_write_token', 'input_cache_write'],
+    ['request', 'request'],
+    ['web_search', 'web_search'],
+    ['image', 'image'],
+    ['image_output', 'image_output'],
+    ['audio', 'audio'],
+    ['audio_output', 'audio_output'],
+    ['input_audio_cache', 'input_audio_cache'],
+    ['internal_reasoning', 'internal_reasoning'],
+]
+
 /** A provider key means what that provider charges a direct caller, so whatever
  * OpenRouter applied is divided back out. A negative `discount_to_user` is a
  * markup and the same division recovers list; only a rate at or above 1 is
@@ -109,8 +127,6 @@ export const buildModelCost = (pricing: Record<string, unknown> | undefined, con
         return null
     }
 
-    // The rate applies to every field, flat fees included: a 50%-off route serves
-    // web_search at 0.005 against 0.01 on its undiscounted sibling.
     const discount = parseDiscountRate(pricing, context)
     const toListPrice = (value: number): number =>
         discount === 0 ? value : parseFloat((value / (1 - discount)).toPrecision(10))
@@ -120,23 +136,10 @@ export const buildModelCost = (pricing: Record<string, unknown> | undefined, con
         completion_token: toListPrice(completionToken),
     }
 
-    const optionalPricingFields: Array<[keyof ModelCost, string]> = [
-        ['cache_read_token', 'input_cache_read'],
-        ['cache_write_token', 'input_cache_write'],
-        ['request', 'request'],
-        ['web_search', 'web_search'],
-        ['image', 'image'],
-        ['image_output', 'image_output'],
-        ['audio', 'audio'],
-        ['audio_output', 'audio_output'],
-        ['input_audio_cache', 'input_audio_cache'],
-        ['internal_reasoning', 'internal_reasoning'],
-    ]
-
-    for (const [targetField, sourceField] of optionalPricingFields) {
+    for (const [targetField, sourceField] of OPTIONAL_PRICING_FIELDS) {
         const parsedValue = parsePricingNumber(pricing[sourceField])
         if (parsedValue !== undefined && parsedValue !== 0) {
-            cost[targetField] = toListPrice(parsedValue)
+            cost[targetField] = FLAT_FEE_FIELDS.has(targetField) ? parsedValue : toListPrice(parsedValue)
         }
     }
 
@@ -199,7 +202,12 @@ export const sanitizeReportCell = (value: string): string =>
 
 /** Renders promotions as line items in the generated PR. `uncheckedModels` is
  * reported too, so a bare "no discounts" cannot read as a verified negative. */
-export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedModels = 0): string => {
+export const renderDiscountReport = (
+    entries: DiscountReportEntry[],
+    uncheckedModels = 0,
+    /** Injectable so a test can prove the sentence is derived, not retyped. */
+    flatFeeFields: ReadonlySet<keyof ModelCost> = FLAT_FEE_FIELDS
+): string => {
     const unchecked =
         uncheckedModels > 0
             ? `\n${uncheckedModels} model(s) could not be checked (endpoint pricing unavailable); their prices may still carry a promotion.\n`
@@ -215,12 +223,19 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
     const checkable = verdicts.filter((v) => v.some((c) => c !== 'not-checkable')).length
     const endpointCount = rows.reduce((total, row) => total + row.endpoints.length, 0)
 
+    const flatFeeList = [...flatFeeFields]
+        .sort()
+        .map((field) => `\`${field}\``)
+        .join(', ')
+
     const lines = [
         '## Discounts',
         '',
         `OpenRouter is running a promotion on **${endpointCount} endpoint(s)** across **${rows.length} model(s)**.`,
         'Per-provider keys below are stored at list rate, with the promotion divided back',
         'out, so a provider key keeps meaning what that provider charges a direct caller.',
+        `Per-call fees (${flatFeeList}) carry across untouched: OpenRouter charges the`,
+        'same for them on a promotional route as on its undiscounted sibling.',
         'The `default` key is left as OpenRouter serves it.',
         '',
         `Independently confirmed against an undiscounted sibling route: ${confirmed}/${checkable} checkable model(s).`,
