@@ -15,7 +15,7 @@ import {
   orderedNavItems,
 } from "@posthog/ui/features/sidebar/constants";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
-import { useSupportUnreadCount } from "@posthog/ui/features/support/hooks/useSupportUnreadCount";
+import { useSupportMyOpenCount } from "@posthog/ui/features/support/hooks/useSupportMyOpenCount";
 import {
   navigateToActivity,
   navigateToCommandCenter,
@@ -108,7 +108,7 @@ export function SidebarNavSection({
   });
   const inboxPullRequestCount = inboxCounts.pulls;
 
-  const { data: supportUnreadCount } = useSupportUnreadCount({
+  const supportUnreadCount = useSupportMyOpenCount({
     enabled: supportEnabled,
   });
 

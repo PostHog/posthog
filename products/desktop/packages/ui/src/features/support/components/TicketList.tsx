@@ -3,7 +3,6 @@ import {
   MagnifyingGlassIcon,
   SpinnerGapIcon,
 } from "@phosphor-icons/react";
-import type { Schemas } from "@posthog/api-client";
 import type {
   SupportAssigneeFilter,
   SupportTicket,
@@ -35,6 +34,7 @@ import { TicketRow } from "@posthog/ui/features/support/components/TicketRow";
 import { useSupportTickets } from "@posthog/ui/features/support/hooks/useSupportTickets";
 import { useSupportTicketViews } from "@posthog/ui/features/support/hooks/useSupportTicketViews";
 import {
+  QUEUE_STATUSES,
   type SupportAssigneeScope,
   useSupportQueueStore,
 } from "@posthog/ui/features/support/supportQueueStore";
@@ -47,13 +47,6 @@ const SCOPE_LABELS: Record<SupportAssigneeScope, string> = {
   unassigned: "Unassigned",
   all: "All tickets",
 };
-
-const QUEUE_STATUSES: Schemas.TicketStatusEnum[] = [
-  "new",
-  "open",
-  "pending",
-  "on_hold",
-];
 
 const SEARCH_DEBOUNCE_MS = 300;
 

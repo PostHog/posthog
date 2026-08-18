@@ -59,9 +59,10 @@ export function TicketThread({
 }
 
 function TicketMessageRow({ message }: { message: SupportTicketMessage }) {
-  const fromCustomer = message.author_type !== "support";
   const isNote = message.is_private;
-  const fromUs = !fromCustomer && !isNote;
+  const fromUs =
+    message.author_type === "support" || message.author_type === "AI";
+  const fromCustomer = !fromUs;
 
   return (
     <div className={cn("flex", fromUs ? "justify-end" : "justify-start")}>
@@ -91,7 +92,7 @@ function TicketMessageRow({ message }: { message: SupportTicketMessage }) {
             "rounded-(--radius-3) border px-3 py-2",
             isNote && "border-warning/40 bg-warning/10",
             fromUs && !isNote && "border-transparent bg-fill-selected",
-            fromCustomer && !isNote && "border-border bg-card",
+            fromCustomer && "border-border bg-card",
           )}
         >
           {isNote && (

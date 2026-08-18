@@ -1,6 +1,14 @@
+import type { Schemas } from "@posthog/api-client";
 import type { SupportTicketOrderBy } from "@posthog/api-client/posthog-client";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+
+export const QUEUE_STATUSES: Schemas.TicketStatusEnum[] = [
+  "new",
+  "open",
+  "pending",
+  "on_hold",
+];
 
 export type SupportAssigneeScope = "me" | "unassigned" | "all";
 export type SupportSidebarTab = "ticket" | "agent";

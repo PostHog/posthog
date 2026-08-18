@@ -31,7 +31,7 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { useSupportFlag } from "@posthog/ui/features/feature-flags/useSupportFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import { useSupportUnreadCount } from "@posthog/ui/features/support/hooks/useSupportUnreadCount";
+import { useSupportMyOpenCount } from "@posthog/ui/features/support/hooks/useSupportMyOpenCount";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
@@ -194,9 +194,7 @@ export function ChannelNav() {
     refetchIntervalMs: INBOX_REFETCH_INTERVAL_MS,
   });
   const { unreadCount: unseenActivity } = useTaskActivity();
-  const { data: supportUnread } = useSupportUnreadCount({
-    enabled: supportEnabled,
-  });
+  const supportUnread = useSupportMyOpenCount({ enabled: supportEnabled });
   const commandCenterCount = useCommandCenterActiveCount();
 
   const withTrack = (item: SidebarNavItem, action: () => void) => () => {

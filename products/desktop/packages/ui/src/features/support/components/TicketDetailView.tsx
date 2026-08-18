@@ -66,7 +66,6 @@ export function TicketDetailView({
       return;
     }
     queryClient.invalidateQueries({ queryKey: supportKeys.ticketLists() });
-    queryClient.invalidateQueries({ queryKey: supportKeys.unreadCount() });
   }, [readTicketId, queryClient]);
 
   if (isPending && !ticket) {

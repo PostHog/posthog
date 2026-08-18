@@ -7593,18 +7593,6 @@ export class PostHogAPIClient {
     return (await response.json()) as SupportTicket;
   }
 
-  async getSupportTicketUnreadCount(): Promise<number> {
-    const teamId = await this.getTeamId();
-    const path = `/api/projects/${teamId}/conversations/tickets/unread_count/`;
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url: new URL(`${this.api.baseUrl}${path}`),
-      path,
-    });
-    const data = (await response.json()) as { count?: number };
-    return data.count ?? 0;
-  }
-
   async listSupportTicketViews(): Promise<SupportTicketView[]> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/conversations/views/`;

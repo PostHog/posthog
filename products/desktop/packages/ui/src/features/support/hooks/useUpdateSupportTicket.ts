@@ -22,7 +22,6 @@ export function useUpdateSupportTicket() {
       onSuccess: (ticket) => {
         queryClient.setQueryData(supportKeys.ticketDetail(ticket.id), ticket);
         queryClient.invalidateQueries({ queryKey: supportKeys.ticketLists() });
-        queryClient.invalidateQueries({ queryKey: supportKeys.unreadCount() });
       },
       onError: (error) => {
         toast.error(error.message || "Could not update the ticket");

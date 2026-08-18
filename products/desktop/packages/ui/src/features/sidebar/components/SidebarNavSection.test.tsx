@@ -67,8 +67,8 @@ vi.mock("@posthog/ui/features/command-center/commandCenterStore", () => ({
     selector: (s: { cells: (string | null)[] }) => unknown,
   ) => selector({ cells: [] }),
 }));
-vi.mock("@posthog/ui/features/support/hooks/useSupportUnreadCount", () => ({
-  useSupportUnreadCount: () => ({ data: 0 }),
+vi.mock("@posthog/ui/features/support/hooks/useSupportMyOpenCount", () => ({
+  useSupportMyOpenCount: () => 0,
 }));
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
   useInboxAllReports: () => ({ counts: { pulls: 0 } }),
