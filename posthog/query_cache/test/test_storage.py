@@ -49,9 +49,6 @@ class FakeObjectStorage:
             raise ObjectStorageError("read failed")
         return self.objects[(bucket, key)]
 
-    def delete(self, bucket: str, key: str) -> None:
-        self.objects.pop((bucket, key), None)
-
 
 class TestS3PointerCodec(SimpleTestCase):
     def test_pointer_round_trips(self):
@@ -251,7 +248,7 @@ class TestQueryCacheS3Routing(BaseTest):
         assert entry is not None
         assert entry.as_full_response() == response
 
-    def test_refresh_replaces_the_previous_object(self):
+    def test_each_upload_writes_a_fresh_object(self):
         cache_key = f"s3_fresh_object_{self.team.pk}"
         cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
         first = self._large_response()
@@ -259,31 +256,10 @@ class TestQueryCacheS3Routing(BaseTest):
 
         with patch("posthog.query_cache.storage.s3_write_mode", return_value="on"):
             cache.store_result(response=first, target_age=None)
-            first_keys = set(self.storage.objects)
             cache.store_result(response=second, target_age=None)
 
-        # A shared object key would let overlapping recomputes overwrite each other's blob;
-        # a leaked first-generation object would sit in the bucket until the lifecycle rule.
-        assert len(self.storage.objects) == 1
-        assert not set(self.storage.objects) & first_keys
-        entry = cache.lookup().entry
-        assert entry is not None
-        assert entry.as_full_response() == second
-
-    def test_stale_pointer_read_cannot_delete_the_new_entry(self):
-        cache_key = f"s3_stale_pointer_{self.team.pk}"
-        cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
-        second = {**self._large_response(), "cache_key": "second"}
-
-        with patch("posthog.query_cache.storage.s3_write_mode", return_value="on"):
-            cache.store_result(response=self._large_response(), target_age=None)
-            old_pointer = _redis_raw(cache_key)
-            cache.store_result(response=second, target_age=None)
-
-        # A reader still holding the first pointer finds its object deleted; the resulting
-        # miss must not take the second generation's entry down with it.
-        assert old_pointer is not None
-        assert qc_storage.decode_stored_value(old_pointer, team_id=self.team.pk, cache_key=cache_key) is None
+        # A shared object key would let overlapping recomputes overwrite each other's blob.
+        assert len(self.storage.objects) == 2
         entry = cache.lookup().entry
         assert entry is not None
         assert entry.as_full_response() == second

@@ -109,14 +109,8 @@ S3_READ_DURATION = Histogram(
 
 S3_WRITE_BYTES_COUNTER = Counter(
     name="posthog_query_cache_s3_write_bytes_total",
-    documentation="Compressed bytes uploaded to S3, by write mode; with the delete counter this tracks bucket growth.",
+    documentation="Compressed bytes uploaded to S3, by write mode; the growth signal for the bucket.",
     labelnames=["mode"],
-)
-
-S3_DELETE_COUNTER = Counter(
-    name="posthog_query_cache_s3_delete_total",
-    documentation="Background deletions of superseded query cache blobs, by outcome.",
-    labelnames=["outcome"],
 )
 
 LEGACY_VALUE_READ_COUNTER = Counter(
@@ -194,34 +188,6 @@ def _get_upload_executor() -> ThreadPoolExecutor:
             if _upload_executor is None:
                 _upload_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="query-cache-s3")
     return _upload_executor
-
-
-def schedule_stale_blob_delete(replaced_value: Optional[bytes]) -> None:
-    """Delete the S3 object behind a pointer that was just overwritten in Redis.
-
-    The object is garbage from the moment its pointer left Redis; deleting now instead of
-    waiting for the lifecycle rule keeps the bucket from holding every superseded generation
-    for CACHED_RESULTS_TTL_DAYS. Runs off-thread and never raises; a failed or skipped
-    delete is collected by the lifecycle rule.
-    """
-    if not replaced_value or not is_s3_pointer(replaced_value) or not settings.OBJECT_STORAGE_ENABLED:
-        return
-    pointer = decode_pointer(replaced_value)
-    if pointer is None:
-        return
-
-    def _delete() -> None:
-        try:
-            object_storage_client().delete(bucket=pointer.bucket, key=pointer.key)
-            S3_DELETE_COUNTER.labels(outcome="success").inc()
-        except Exception:
-            S3_DELETE_COUNTER.labels(outcome="error").inc()
-            logger.warning("query_cache_s3_delete_failed", object_key=pointer.key, exc_info=True)
-
-    try:
-        _get_upload_executor().submit(_delete)
-    except Exception:
-        logger.warning("query_cache_s3_delete_submit_failed", object_key=pointer.key, exc_info=True)
 
 
 def schedule_upload_for_pointer(
