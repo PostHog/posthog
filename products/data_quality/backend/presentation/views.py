@@ -79,11 +79,15 @@ class DataQualityCheckViewSet(_DataQualityGateMixin, TeamAndOrgViewSetMixin, vie
         return None
 
     def safely_get_queryset(self, queryset: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
+        # Filter fields are named literally rather than unpacked from the request so an attacker
+        # can't smuggle an arbitrary field name or relationship traversal into the ORM query.
         queryset = queryset.filter(team_id=self.team_id, deleted=False)
-        for param in ("subject_type", "subject_uuid", "check_type"):
-            value = self.request.query_params.get(param)
-            if value:
-                queryset = queryset.filter(**{param: value})
+        if subject_type := self.request.query_params.get("subject_type"):
+            queryset = queryset.filter(subject_type=subject_type)
+        if subject_uuid := self.request.query_params.get("subject_uuid"):
+            queryset = queryset.filter(subject_uuid=subject_uuid)
+        if check_type := self.request.query_params.get("check_type"):
+            queryset = queryset.filter(check_type=check_type)
         return queryset.order_by("-created_at")
 
     @extend_schema(

@@ -32,6 +32,18 @@ _DATA_CATALOG_INFORMATION_SCHEMA_TABLES = frozenset(
     }
 )
 
+# `system.information_schema` tables gated behind `data_quality` read access (see
+# `_can_read_data_quality` in information_schema.py). They carry check definitions, run outcomes, and
+# per-subject health. A query touching any of these must partition the cache by `data_quality` access,
+# or an allowed user's cached rows would be served to a denied user on a cache hit.
+_DATA_QUALITY_INFORMATION_SCHEMA_TABLES = frozenset(
+    {
+        "system.information_schema.data_quality_checks",
+        "system.information_schema.data_quality_check_runs",
+        "system.information_schema.data_quality_health",
+    }
+)
+
 
 def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str]]:
     """The set of access-control scope names a query reads, e.g. "notebook", "warehouse_table".
@@ -81,6 +93,11 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
             # AnalyticsQueryRunner._get_object_access_restrictions.
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
+
+        # The data-quality information_schema tables are gated on `data_quality` read access, not
+        # `data_catalog`, so partition their cache key separately.
+        if table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
+            scopes.add("data_quality")
 
         # Connection-scoped queries read the external source's upstream data directly. Their tables
         # are virtual (named by ExternalDataSchema.name) or physical direct rows, which the

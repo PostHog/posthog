@@ -215,6 +215,35 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.json()["health"] == expected
         assert response.json()["checks_total"] == len(states)
 
+    def test_health_ignores_disabled_checks(self) -> None:
+        # A disabled failing check must not drive the verdict, or health would read 'failing' while
+        # checks_failing counts 0 -- the verdict and the counts have to agree.
+        common = {
+            "team": self.team,
+            "subject_type": SubjectType.VIEW,
+            "subject_uuid": self.view.id,
+            "subject_name": "orders",
+            "check_type": CheckType.NOT_NULL,
+            "severity": CheckSeverity.ERROR,
+        }
+        DataQualityCheck.objects.for_team(self.team.id).create(
+            column_name="enabled_col", fingerprint=uuid4().hex, last_status=CheckRunStatus.PASSED, **common
+        )
+        DataQualityCheck.objects.for_team(self.team.id).create(
+            column_name="disabled_col",
+            fingerprint=uuid4().hex,
+            last_status=CheckRunStatus.FAILED,
+            enabled=False,
+            **common,
+        )
+
+        response = self.client.get(f"{self.url}/health/?subject_type={SubjectType.VIEW}&subject_uuid={self.view.id}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["health"] == "healthy"
+        assert response.json()["checks_total"] == 1
+        assert response.json()["checks_failing"] == 0
+
     def test_run_returns_a_pollable_suite_run(self) -> None:
         check = self._create_check()
 

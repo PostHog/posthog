@@ -119,7 +119,10 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
             },
             "schedule_interval_minutes": {
                 "required": False,
-                "help_text": "Independent cadence in minutes. Omit for no schedule of its own.",
+                # The due-checks scanner ticks every 5 minutes, so a shorter cadence can't run any
+                # sooner and would only add scan load. Floor it to the scan interval.
+                "min_value": 5,
+                "help_text": "Independent cadence in minutes, minimum 5. Omit for no schedule of its own.",
             },
             "fingerprint": {
                 "help_text": "sha256 of the subject, type, column, and config. Re-creating the same check upserts."

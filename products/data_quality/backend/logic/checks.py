@@ -159,7 +159,13 @@ def checks_for_subject(team_id: int, subject_type: str, subject_uuid: str | UUID
 
 
 def subject_health(team_id: int, subject_type: str, subject_uuid: str | UUID) -> SubjectHealth:
-    rows = checks_for_subject(team_id, subject_type, subject_uuid).values_list("severity", "last_status")
+    # Only enabled checks count toward health, matching the REST counts and the
+    # information_schema.data_quality_health table -- the three must never disagree.
+    rows = (
+        checks_for_subject(team_id, subject_type, subject_uuid)
+        .filter(enabled=True)
+        .values_list("severity", "last_status")
+    )
     return roll_up_health(CheckStatusRow(severity=severity, last_status=status) for severity, status in rows)
 
 
