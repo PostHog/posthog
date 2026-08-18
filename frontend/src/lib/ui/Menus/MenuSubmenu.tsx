@@ -22,12 +22,12 @@ interface MenuSubmenuProps {
 /**
  * A menu row that opens a submenu on hover, and also on click.
  *
- * Base UI derives both of its submenu click flags from `openOnHover`: leaving hover on also sets
- * `ignoreMouse`, so a mouse click on the trigger is swallowed, and hover itself is gated on a flag
- * the menu turns off after the first click anywhere inside the popup. No combination of its props
- * gives us hover-open and a click that works, so this owns the submenu's open state and opens it on
- * click directly. That is the same contract Radix's `DropdownMenuSubTrigger` has, which is what the
- * other nested menus in the app are built on.
+ * Base UI derives both of its submenu click flags from `openOnHover`. Leaving hover on also sets
+ * `ignoreMouse`, so a mouse click on the trigger is ignored and opening depends entirely on a
+ * pointer-rest timer; turning hover off is the only way to get the click, and it costs the hover.
+ * Neither setting gives us both, so this owns the submenu's open state and opens it on click
+ * directly. That is the same contract Radix's `DropdownMenuSubTrigger` has, which is what the other
+ * nested menus in the app are built on.
  */
 export function MenuSubmenu({ trigger, children, popupClassName }: MenuSubmenuProps): JSX.Element {
     const [open, setOpen] = useState(false)
