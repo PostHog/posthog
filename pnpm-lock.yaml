@@ -1582,9 +1582,6 @@ importers:
       '@opentelemetry/semantic-conventions':
         specifier: ^1.36.0
         version: 1.36.0
-      '@posthog/cyclotron':
-        specifier: workspace:*
-        version: link:../rust/cyclotron-node
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
@@ -4670,18 +4667,6 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
 
   rust/common/hogvm/node: {}
-
-  rust/cyclotron-node:
-    devDependencies:
-      '@types/node':
-        specifier: ^22.13.14
-        version: 22.15.17
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      undici-types:
-        specifier: ^7.3.0
-        version: 7.3.0
 
   rust/replay-anonymizer-node:
     devDependencies:
