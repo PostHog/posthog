@@ -153,10 +153,25 @@ export class ConditionalBranchHandler implements ActionHandler {
     }
 }
 
-// Scans the compiled bytecode so expression-authored inCohort(...) calls count too
+// Operation.CALL_GLOBAL from @posthog/hogvm, which is a const enum and can't be imported
+// under isolatedModules
+const CALL_GLOBAL = 2
+
+// Scans the compiled bytecode so expression-authored inCohort(...) calls count too. Matches the
+// call encoding [CALL_GLOBAL, name, argCount] rather than the bare name: string constants and
+// property chains put their text in the same flat array, and a stray match here would couple an
+// unrelated condition's run to the behavioral cohorts DB.
 function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
     const bytecode = (condition.filters as HogFunctionFilters | null | undefined)?.bytecode
-    return Array.isArray(bytecode) && bytecode.some((op) => op === 'inCohort' || op === 'notInCohort')
+    if (!Array.isArray(bytecode)) {
+        return false
+    }
+    return bytecode.some(
+        (op, index) =>
+            (op === 'inCohort' || op === 'notInCohort') &&
+            bytecode[index - 1] === CALL_GLOBAL &&
+            typeof bytecode[index + 1] === 'number'
+    )
 }
 
 export async function checkConditions(

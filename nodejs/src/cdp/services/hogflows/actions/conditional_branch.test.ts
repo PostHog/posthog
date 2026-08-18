@@ -195,9 +195,12 @@ describe('action.conditional_branch', () => {
             }
         }
 
+        // Same shape the Python serializer emits: the authored properties plus compiled bytecode.
+        // Keeping the properties key matters: filters holding ONLY bytecode short-circuit to an
+        // unconditional match in filterFunctionInstrumented and never execute the VM.
         const cohortConditionFilters = (fn: 'inCohort' | 'notInCohort'): Record<string, any> => ({
-            // Same shape the Python compiler emits for `{type: 'cohort', value: 42}` filters
             bytecode: ['_H', 1, 33, COHORT_ID, 32, 'cohort_ids', 1, 1, 2, fn, 2],
+            properties: [{ key: 'id', type: 'cohort', value: COHORT_ID }],
         })
 
         const executeWithRepository = async (
@@ -231,6 +234,30 @@ describe('action.conditional_branch', () => {
             expect(repository.calls).toEqual([
                 { teamId: invocation.hogFlow.team_id, personUuid: invocation.person!.id },
             ])
+        })
+
+        it('does not query membership for a condition that merely mentions "inCohort" as a string', async () => {
+            const repository = new FakeCohortMembershipRepository([COHORT_ID])
+            action.config.conditions = [
+                {
+                    // properties.foo == 'inCohort' — the name appears as a string constant, not a call
+                    filters: {
+                        bytecode: ['_H', 1, 32, 'inCohort', 32, 'foo', 32, 'properties', 1, 2, 11],
+                        properties: [{ key: 'foo', type: 'event', value: 'inCohort', operator: 'exact' }],
+                    },
+                },
+                { filters: HOG_FILTERS_EXAMPLES.no_filters.filters },
+            ]
+            const handler = new ConditionalBranchHandler(repository)
+
+            const result = await handler.execute({
+                invocation,
+                action,
+                result: createInvocationResult(invocation),
+            })
+
+            expect(result.nextAction).toEqual(findActionById(invocation.hogFlow, 'condition_2'))
+            expect(repository.calls).toEqual([])
         })
 
         it('treats a person-less invocation as a non-member without querying', async () => {
