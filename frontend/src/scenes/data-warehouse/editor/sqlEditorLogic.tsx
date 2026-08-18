@@ -65,6 +65,7 @@ import {
     HogQLFilters,
     HogQLMetadata,
     HogQLMetadataResponse,
+    HogQLNotice,
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -347,6 +348,22 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
         ...source,
         sendRawQuery: source.connectionId ? source.sendRawQuery || undefined : undefined,
     }
+}
+
+const UNRESOLVED_FIELD_RE = /Unable to resolve field: ([^\s,.?]+)/
+
+/**
+ * A standalone subquery legitimately fails to resolve identifiers that its outer query provides —
+ * a correlated alias, a CTE name. Drop those "unable to resolve field" errors when the missing
+ * identifier appears as a token in the surrounding query, so a valid correlated subquery is not
+ * flagged as broken. Any other error (syntax, an identifier absent from the outer query) is kept.
+ */
+export function errorsExcludingOuterReferences(errors: HogQLNotice[], outerContextText: string): HogQLNotice[] {
+    const outerIdentifiers = new Set(outerContextText.match(/[A-Za-z_$][\w$]*/g) ?? [])
+    return errors.filter((error) => {
+        const identifier = UNRESOLVED_FIELD_RE.exec(error.message)?.[1]
+        return !identifier || !outerIdentifiers.has(identifier)
+    })
 }
 
 function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizationNode {
@@ -3776,11 +3793,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // Helper to validate a subquery standalone. Results are cached by subquery text
             // to avoid re-hitting the metadata endpoint for the same subquery on every cursor
             // move; the cache is invalidated whenever queryInput changes (see subscription).
-            const validateSubquery = async (subqueryText: string): Promise<{ errorMessage: string | null }> => {
+            const validateSubquery = async (
+                subqueryText: string,
+                outerContextText: string
+            ): Promise<{ errorMessage: string | null }> => {
                 if (!cache.subqueryValidationCache) {
                     cache.subqueryValidationCache = new Map<string, { errorMessage: string | null }>()
                 }
-                const cached = cache.subqueryValidationCache.get(subqueryText)
+                // Validate against the tab's own connection (and variables), so functions the
+                // connection supports are not reported as unsupported. Different connections resolve
+                // the same text differently, so the connection id is part of the cache key.
+                const connectionId = values.sourceQuery?.source.connectionId
+                const variables = values.sourceQuery?.source.variables
+                const cacheKey = `${connectionId ?? ''}::${subqueryText}`
+                const cached = cache.subqueryValidationCache.get(cacheKey)
                 if (cached) {
                     return cached
                 }
@@ -3789,15 +3815,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         kind: NodeKind.HogQLMetadata,
                         language: HogLanguage.hogQL,
                         query: subqueryText,
+                        connectionId,
+                        variables,
                     })
-                    const errors = response?.errors ?? []
+                    const errors = errorsExcludingOuterReferences(response?.errors ?? [], outerContextText)
                     const result =
                         errors.length > 0
                             ? {
                                   errorMessage: `This subquery may fail standalone:\n${errors.map((e) => e.message).join('\n')}`,
                               }
                             : { errorMessage: null }
-                    cache.subqueryValidationCache.set(subqueryText, result)
+                    cache.subqueryValidationCache.set(cacheKey, result)
                     return result
                 } catch {
                     return { errorMessage: 'This subquery may fail standalone' }
@@ -3826,7 +3854,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     endLineNumber: subEnd.lineNumber,
                     endColumn: subEnd.column,
                 }
-                const { errorMessage } = await validateSubquery(subquery.query)
+                // The surrounding query, minus the subquery itself — used to tell a broken
+                // subquery apart from one that merely references an outer alias or CTE.
+                const outerContextText = fullText.slice(0, subquery.start) + ' ' + fullText.slice(subquery.end)
+                const { errorMessage } = await validateSubquery(subquery.query, outerContextText)
                 const decorations: editor.IModelDeltaDecoration[] = []
                 if (errorMessage) {
                     decorations.push({

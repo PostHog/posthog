@@ -35,6 +35,7 @@ import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import {
     activeTabMatchesUrlTarget,
+    errorsExcludingOuterReferences,
     getDisplayTypeToSaveInsight,
     sqlEditorLogic,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
@@ -720,6 +721,45 @@ describe('sqlEditorLogic', () => {
             expect(getDisplayTypeToSaveInsight(outputTab, sourceQueryDisplay, effectiveVisualizationType)).toEqual(
                 expected
             )
+        })
+    })
+
+    describe('errorsExcludingOuterReferences', () => {
+        const notice = (message: string): { message: string } => ({ message })
+
+        it.each([
+            {
+                name: 'drops an unresolved field that the outer query provides (correlated alias)',
+                errors: [notice('Unable to resolve field: e')],
+                outerContext: 'SELECT * FROM events AS e WHERE e.timestamp > now()',
+                expectedKept: 0,
+            },
+            {
+                name: 'drops an unresolved CTE reference defined in the outer query',
+                errors: [notice('Unable to resolve field: recent')],
+                outerContext: 'WITH recent AS (SELECT 1) SELECT * FROM recent',
+                expectedKept: 0,
+            },
+            {
+                name: 'keeps an unresolved field absent from the outer query',
+                errors: [notice('Unable to resolve field: nonexistent')],
+                outerContext: 'SELECT * FROM events',
+                expectedKept: 1,
+            },
+            {
+                name: 'keeps a non-resolution error such as a syntax error',
+                errors: [notice('Syntax error at line 1')],
+                outerContext: 'SELECT * FROM events AS syntax',
+                expectedKept: 1,
+            },
+            {
+                name: 'keeps a real error while dropping an outer reference in the same batch',
+                errors: [notice('Unable to resolve field: e'), notice('Unable to resolve field: missing')],
+                outerContext: 'SELECT * FROM events AS e',
+                expectedKept: 1,
+            },
+        ])('$name', ({ errors, outerContext, expectedKept }) => {
+            expect(errorsExcludingOuterReferences(errors as any, outerContext)).toHaveLength(expectedKept)
         })
     })
 

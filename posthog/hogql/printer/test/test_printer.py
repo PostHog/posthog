@@ -4896,6 +4896,29 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            ("in_events_subquery", "SELECT uuid FROM events WHERE event IN (SELECT event FROM events)"),
+            (
+                "not_in_events_subquery",
+                "SELECT event FROM events WHERE person_id NOT IN (SELECT person_id FROM events)",
+            ),
+        ]
+    )
+    def test_global_in_prints_re_parseable_hogql(self, _name, select):
+        # The IN → GLOBAL IN promotion also runs for the hogql dialect (it is in type resolution,
+        # not lazy-table resolution). `response.hogql` feeds the "Open in SQL editor" button, so the
+        # hogql output must stay re-parseable — `globalIn` / `globalNotIn` are not registered HogQL
+        # functions and re-parsing them raises "Unsupported function call".
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed, _ = prepare_and_print_ast(parse_select(select), context, "hogql")
+        assert "globalIn" not in printed, f"did not expect globalIn in hogql output:\n{printed}"
+        assert "globalNotIn" not in printed, f"did not expect globalNotIn in hogql output:\n{printed}"
+        # Re-parsing and re-printing the offered query must not raise.
+        prepare_and_print_ast(
+            parse_select(printed), HogQLContext(team_id=self.team.pk, enable_select_queries=True), "hogql"
+        )
+
+    @parameterized.expand(
+        [
             ("global_joins_with_optimize", True, True),
             ("global_joins_without_optimize", True, False),
             ("no_global_joins_with_optimize", False, True),

@@ -93,6 +93,17 @@ class HogQLPrinter(BasePrinter):
     def _array_access_prefix(self, nullish: bool) -> str:
         return "?." if nullish else ""
 
+    def _get_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str:
+        # `GLOBAL IN` / `GLOBAL NOT IN` are ClickHouse distributed-execution details with no HogQL
+        # surface syntax, and `globalIn` / `globalNotIn` are not registered HogQL functions. Print
+        # them as plain `in` / `notIn` so the emitted HogQL stays re-parseable — type resolution
+        # re-promotes an IN over a sharded table to the GLOBAL form when a SQL dialect needs it.
+        if op == ast.CompareOperationOp.GlobalIn:
+            return super()._get_compare_op(ast.CompareOperationOp.In, left, right)
+        if op == ast.CompareOperationOp.GlobalNotIn:
+            return super()._get_compare_op(ast.CompareOperationOp.NotIn, left, right)
+        return super()._get_compare_op(op, left, right)
+
     def _render_cohort_compare_op(self, op: ast.CompareOperationOp, left: str, right: str) -> str | None:
         if op == ast.CompareOperationOp.InCohort:
             return f"{left} IN COHORT {right}"
