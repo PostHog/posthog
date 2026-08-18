@@ -538,6 +538,19 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             "name": "Community",
         }
 
+    def test_email_sender_rotation_rejects_more_than_ten_senders(self):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {
+            "from": {"integrationId": 1, "integrationIds": list(range(1, 12))},
+            "to": "a@b.com",
+            "subject": "hi",
+            "text": "hi",
+        }
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, {"email": {"value": value}})
+        assert "At most 10 email senders are allowed." in str(ctx.value.detail)
+
     @parameterized.expand(
         [
             ("person", "{person?.id}"),
