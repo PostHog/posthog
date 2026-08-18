@@ -197,7 +197,7 @@ pub async fn otel_handler(
             &otel_request_context(token, OTEL_PATH, Some(&request)),
             SpanCapStage::Raw,
             raw_span_count,
-            MAX_RAW_SPANS_PER_REQUEST,
+            MAX_RAW_OTEL_SPANS_PER_REQUEST,
         );
         return Err(err.into_response());
     }
@@ -246,7 +246,7 @@ pub async fn otel_handler(
             &otel_request_context(token, OTEL_PATH, Some(&request)),
             SpanCapStage::Ai,
             span_count,
-            MAX_SPANS_PER_REQUEST,
+            MAX_AI_EVENTS_PER_REQUEST,
         );
         return Err(err.into_response());
     }
