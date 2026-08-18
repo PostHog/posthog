@@ -11,6 +11,7 @@ from django.core.management.base import CommandError
 
 import psycopg
 
+from posthog.management.commands import persons_dedup as persons_dedup_command
 from posthog.persons_db import persons_db_connection
 
 pytestmark = pytest.mark.django_db
@@ -220,7 +221,7 @@ class TestPersonsDedupDeleteOnly:
         live = _add_person(persons_conn, uuid)
         _add_distinct_id(persons_conn, live, "did-10")
 
-        _run("plan", tmp_path, apply=True)
+        _run("delete-unreferenced", tmp_path, apply=True)
 
         assert _dup_groups(persons_conn) == 0
         assert _persons(persons_conn) == 1
@@ -237,7 +238,7 @@ class TestPersonsDedupDeleteOnly:
         _add_distinct_id(persons_conn, a, "did-11a")
         _add_distinct_id(persons_conn, b, "did-11b")
 
-        _run("plan", tmp_path, apply=True)
+        _run("delete-unreferenced", tmp_path, apply=True)
 
         assert _persons(persons_conn) == 2
         assert _dup_groups(persons_conn) == 1
@@ -248,7 +249,7 @@ class TestPersonsDedupDeleteOnly:
         live = _add_person(persons_conn, uuid)
         _add_distinct_id(persons_conn, live, "did-12")
 
-        _run("plan", tmp_path)
+        _run("delete-unreferenced", tmp_path)
 
         assert _persons(persons_conn) == 2
         assert list(tmp_path.glob("*.jsonl")) == []
@@ -259,7 +260,7 @@ class TestPersonsDedupDeleteOnly:
         live = _add_person(persons_conn, uuid)
         _add_distinct_id(persons_conn, live, "did-13")
 
-        _run("plan", tmp_path, apply=True)
+        _run("delete-unreferenced", tmp_path, apply=True)
 
         lines = [line for f in tmp_path.glob("*.jsonl") for line in f.read_text().splitlines()]
         persons = [json.loads(line) for line in lines]
@@ -273,7 +274,7 @@ class TestPersonsDedupDeleteOnly:
         live = _add_person(persons_conn, uuid)
         _add_distinct_id(persons_conn, live, "did-15")
 
-        _run("plan", tmp_path, apply=True)
+        _run("delete-unreferenced", tmp_path, apply=True)
 
         files = list(tmp_path.glob("*.jsonl"))
         assert files, "apply must write a backup file"
@@ -285,15 +286,15 @@ class TestPersonsDedupDeleteOnly:
         live = _add_person(persons_conn, uuid)
         _add_distinct_id(persons_conn, live, "did-14")
 
-        _run("plan", tmp_path, apply=True)
-        _run("plan", tmp_path, apply=True)
+        _run("delete-unreferenced", tmp_path, apply=True)
+        _run("delete-unreferenced", tmp_path, apply=True)
 
         assert _persons(persons_conn) == 1
 
 
 class TestPersonsDedupRepair:
     def test_repairs_the_production_shape(self, persons_conn, tmp_path):
-        # The shape of all 2,150 merge-required groups measured in prod-EU team 71093:
+        # The shape every merge-required group in the production census shared:
         # one row owns the distinct ID, the other owns a flag override, neither owns both.
         uuid = _uuid(20)
         live = _add_person(persons_conn, uuid)
@@ -443,10 +444,44 @@ class TestPersonsDedupVerify:
         _add_distinct_id(persons_conn, live, "did-32")
 
         with pytest.raises(CommandError, match="at least 1"):
-            _run("plan", tmp_path, apply=True, batch_size=0)
+            _run("delete-unreferenced", tmp_path, apply=True, batch_size=0)
 
         assert _persons(persons_conn) == 2
 
     def test_apply_is_rejected_for_read_only_modes(self, persons_conn, tmp_path):
         with pytest.raises(CommandError, match="meaningless"):
             _run("verify", tmp_path, apply=True)
+
+
+class TestPersonsDedupConnectionRouting:
+    # The reads can scan for minutes on large teams; silently moving them back to the
+    # primary is the regression these guard against. Locally the reader URL falls back
+    # to the writer, so the routed kwarg is the only observable difference.
+    @pytest.mark.parametrize(
+        "mode,kwargs,expected_writer",
+        [
+            ("classify", {}, False),
+            ("verify", {}, False),
+            ("classify", {"writer": True}, True),
+            ("repair", {"apply": True}, True),
+        ],
+    )
+    def test_read_modes_use_the_reader_unless_writer_is_forced(
+        self, persons_conn, tmp_path, monkeypatch, mode, kwargs, expected_writer
+    ):
+        requested = []
+        real_connection = persons_db_connection
+
+        def spy(*, writer: bool = True, autocommit: bool = False):
+            requested.append(writer)
+            return real_connection(writer=writer, autocommit=autocommit)
+
+        monkeypatch.setattr(persons_dedup_command, "persons_db_connection", spy)
+
+        _run(mode, tmp_path, **kwargs)
+
+        assert requested == [expected_writer]
+
+    def test_writer_flag_is_rejected_for_write_modes(self, persons_conn, tmp_path):
+        with pytest.raises(CommandError, match="always uses the writer"):
+            _run("repair", tmp_path, writer=True)

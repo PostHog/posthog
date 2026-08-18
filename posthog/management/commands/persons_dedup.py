@@ -331,9 +331,14 @@ class Command(BaseCommand):
     help = "Resolve duplicate (team_id, uuid) rows in posthog_person. Dry run unless --apply."
 
     def add_arguments(self, parser: Any) -> None:
-        parser.add_argument("--mode", required=True, choices=["classify", "plan", "repair", "verify"])
+        parser.add_argument("--mode", required=True, choices=["classify", "delete-unreferenced", "repair", "verify"])
         parser.add_argument("--team", type=int, required=True)
         parser.add_argument("--apply", action="store_true", help="actually delete; omit for a dry run")
+        parser.add_argument(
+            "--writer",
+            action="store_true",
+            help="read from the primary instead of the reader replica (classify/verify only)",
+        )
         parser.add_argument("--batch-size", type=int, default=500)
         parser.add_argument("--outdir", default="persons_dedup_backups")
         parser.add_argument(
@@ -351,13 +356,23 @@ class Command(BaseCommand):
         if mode in ("classify", "verify") and apply_changes:
             raise CommandError(f"--apply is meaningless for --mode {mode}")
 
+        if mode not in ("classify", "verify") and options["writer"]:
+            raise CommandError(f"--writer is meaningless for --mode {mode}; it always uses the writer")
+
         # LIMIT 0 stages nothing and the loop exits reporting success, which reads as
         # "nothing to do" on a team that still has duplicates. A negative value reaches
         # Postgres as a raw syntax error.
         if options["batch_size"] < 1:
             raise CommandError("--batch-size must be at least 1")
 
-        with persons_db_connection(writer=True, autocommit=True) as conn:
+        # classify and verify are pure reads whose scans can run for minutes on large
+        # teams, so they default to the reader replica to keep that load off the
+        # primary. Replica staleness is bounded to replay lag (logged below) and is not
+        # load-bearing: a duplicate minted after the read escapes a primary read too,
+        # and the unique index build is the authoritative duplicate check either way.
+        use_writer = mode not in ("classify", "verify") or options["writer"]
+
+        with persons_db_connection(writer=use_writer, autocommit=True) as conn:
             with conn.cursor() as cur:
                 cur.execute("SET statement_timeout = 0")
 
@@ -368,11 +383,20 @@ class Command(BaseCommand):
                     "Ask for the grants before running; nothing was changed."
                 )
 
-            if mode == "classify":
-                self._classify(conn, team)
-                return
-            if mode == "verify":
-                self._verify(conn, team)
+            if mode in ("classify", "verify"):
+                # A verify run seconds after a repair can see the pre-repair state on a
+                # lagging replica; surfacing the lag lets the operator tell a stale read
+                # from a real failure (or rerun with --writer).
+                if not use_writer and _scalar(conn, "SELECT CASE WHEN pg_is_in_recovery() THEN 1 ELSE 0 END"):
+                    lag_seconds = _scalar(
+                        conn,
+                        "SELECT COALESCE(EXTRACT(EPOCH FROM now() - pg_last_xact_replay_timestamp()), 0)::bigint",
+                    )
+                    logger.info("persons_dedup.reading_from_replica", team_id=team, replay_lag_seconds=lag_seconds)
+                if mode == "classify":
+                    self._classify(conn, team)
+                else:
+                    self._verify(conn, team)
                 return
 
             if _scalar(conn, "SELECT CASE WHEN pg_is_in_recovery() THEN 1 ELSE 0 END"):
@@ -380,7 +404,7 @@ class Command(BaseCommand):
 
             _check_session_stability(conn)
 
-            stage_sql = STAGE_UNREFERENCED_SQL if mode == "plan" else STAGE_UNREACHABLE_SQL
+            stage_sql = STAGE_UNREFERENCED_SQL if mode == "delete-unreferenced" else STAGE_UNREACHABLE_SQL
             self._run(conn, team, stage_sql, options, apply_changes=apply_changes, mode=mode)
 
     def _classify(self, conn: psycopg.Connection, team: int) -> None:
@@ -461,6 +485,12 @@ class Command(BaseCommand):
             cur.execute(stage_sql, {"team": team})
             staged = cur.rowcount
             cur.execute("COMMIT")
+            # Temp tables get no autovacuum or autoanalyze. Without this index every
+            # TAKE_BATCH full-scans and sorts the victims table, and the retired rows
+            # only go dead, so the scan never gets cheaper as the run progresses. Built
+            # after the staging insert so it is one bulk build, not per-row maintenance.
+            cur.execute(f"CREATE INDEX IF NOT EXISTS persons_dedup_victims_uuid_id_idx ON {VICTIMS_TABLE} (uuid, id)")
+            cur.execute(f"ANALYZE {VICTIMS_TABLE}")
 
         logger.info("persons_dedup.staged", team_id=team, mode=mode, victims=staged)
         if staged == 0:
@@ -478,6 +508,10 @@ class Command(BaseCommand):
                 cur.execute(f"TRUNCATE {VICTIMS_TABLE}_batch")
                 cur.execute(TAKE_BATCH_SQL, {"batch": options["batch_size"]})
                 in_batch = cur.rowcount
+                # With no stats on the batch table the planner can pick a hash join and
+                # seq-scan posthog_cohortpeople inside the lock-holding transaction,
+                # instead of probing its person_id index once per victim.
+                cur.execute(f"ANALYZE {VICTIMS_TABLE}_batch")
             if in_batch == 0:
                 break
             batches += 1
