@@ -14,6 +14,7 @@ import {
   Spinner,
   Text,
 } from "@posthog/quill";
+import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
 import {
   useCanvasVersions,
   useDashboard,
@@ -108,6 +109,9 @@ export function GridCanvasView({
   const setCollapsed = useCanvasChatPanelStore((s) => s.setCollapsed);
   const panelWidth = useCanvasChatPanelStore((s) => s.width);
   const setPanelWidth = useCanvasChatPanelStore((s) => s.setWidth);
+  // Comments opened from view mode (the breadcrumb's Comments button) hold the
+  // dock open without edit mode, exactly like the freeform panel.
+  const viewOpen = useCanvasChatPanelStore((s) => s.viewOpen);
   const [isResizingPanel, setIsResizingPanel] = useState(false);
   const [widgetTarget, setWidgetTarget] = useState<GridChatTarget | null>(null);
   // Canvas-wide task started this session, until the record catches up.
@@ -125,6 +129,13 @@ export function GridCanvasView({
     if (index === -1) return null;
     return `v${versions.length - index}/${versions.length} · Live`;
   }, [versions, currentVersionId]);
+  const commentVersionLabel = useCallback(
+    (versionId: string) => {
+      const index = versions.findIndex((version) => version.id === versionId);
+      return index === -1 ? null : `V${versions.length - index}`;
+    },
+    [versions],
+  );
 
   const onDragComplete = useCallback(
     (outcome: GridDragOutcome) => {
@@ -423,7 +434,7 @@ export function GridCanvasView({
           </div>
         </div>
       </div>
-      {interactive || widgetTarget ? (
+      {interactive || widgetTarget || viewOpen ? (
         <ResizableSidebar
           open={!collapsed || !!widgetTarget}
           width={panelWidth}
@@ -435,6 +446,12 @@ export function GridCanvasView({
           <GridChatPanel
             target={widgetTarget}
             canvasTaskId={dashboard.generationTaskId ?? startedCanvasTaskId}
+            commentTaskId={canvasCommentTaskId(
+              dashboard.generationTaskId ?? startedCanvasTaskId,
+              versions,
+            )}
+            canvasVersionId={currentVersionId ?? null}
+            commentVersionLabel={commentVersionLabel}
             canvasId={canvasId}
             canvasName={dashboard.name}
             channelId={dashboard.channelId}

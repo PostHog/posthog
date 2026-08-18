@@ -48,8 +48,16 @@ Invoke the \`composing-grid-canvases\` skill and follow it completely.
 
 You are working on the WHOLE grid canvas: add, fill, move, resize, or remove
 placements as the instruction requires, and edit the placed component
-canvases themselves when a widget needs fixing. Use the guarded patch loop,
-and never leave a placement in the generating state when you finish.
+canvases themselves when a widget needs fixing. One instruction often calls
+for SEVERAL widgets (e.g. "a canvas summarizing work in progress" wants a
+tile per concern): plan the full set first, resolve each with the skill's
+ladder (place from the store, fork, or build new), and lay them all out
+without overlap. Use the guarded patch loop, and never leave a placement in
+the generating state when you finish.
+
+Users leave feedback as comments on this canvas, attached to this task. List
+them with the task comment tools (e.g. \`tasks-comments-list\`) before and
+after making changes, and address the open ones.
 
 Target:
 - grid canvas id: "${escapeXmlAttr(input.dashboardId)}"
