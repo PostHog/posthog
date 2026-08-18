@@ -220,6 +220,7 @@ fn make_test_client_collecting_warnings(
 
 const ENDPOINT: &str = "/i/v0/ai/otel";
 const LOGS_ENDPOINT: &str = "/i/v0/ai/otel/v1/logs";
+const LOGS_ENDPOINT_ALIAS: &str = "/i/v0/ai/otel/v1/logs/";
 
 async fn send_request(sink: &CapturingSink, request: &ExportTraceServiceRequest) -> u16 {
     let client = make_test_client(sink);
@@ -698,6 +699,23 @@ async fn test_logs_batch_accepts_mixed_records_within_raw_limit() {
         .header("Content-Type", "application/x-protobuf")
         .header("Authorization", format!("Bearer {TOKEN}"))
         .body(request.encode_to_vec())
+        .send()
+        .await;
+
+    assert_eq!(response.status().as_u16(), 200);
+    assert_eq!(sink.get_events().await.len(), 1);
+}
+
+#[tokio::test]
+async fn test_logs_endpoint_accepts_trailing_slash_alias() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+
+    let response = client
+        .post(LOGS_ENDPOINT_ALIAS)
+        .header("Content-Type", "application/x-protobuf")
+        .header("Authorization", format!("Bearer {TOKEN}"))
+        .body(make_evaluation_logs_request().encode_to_vec())
         .send()
         .await;
 

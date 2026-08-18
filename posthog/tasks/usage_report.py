@@ -1640,11 +1640,15 @@ def get_teams_with_ai_event_count_in_period(
                                 {verified_expr} IN ('true', '1') AS verified,
                                 {relay_expr} IN ('true', '1') AS relay,
                                 if(verified AND relay, {trace_id_expr}, '') AS trace_id,
-                                if(
-                                    verified AND relay,
-                                    if(event = '$ai_evaluation', {evaluation_run_id_expr}, {span_id_expr}),
-                                    ''
-                                ) AS relay_id
+                                    if(
+                                        verified AND relay,
+                                        if(
+                                            event = '$ai_evaluation' AND {evaluation_run_id_expr} != '',
+                                            {evaluation_run_id_expr},
+                                            {span_id_expr}
+                                        ),
+                                        ''
+                                    ) AS relay_id
                             FROM {events_read_table(use_new)}
                             WHERE team_id IN %(relayed_team_ids)s
                               AND event IN %(ai_events)s

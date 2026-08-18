@@ -48,6 +48,8 @@ const MAX_EXPANDED_AI_EVENT_BYTES: usize = 8 * 1024 * 1024;
 /// to accommodate mixed-content batches (e.g. Next.js sending HTTP + AI spans together)
 /// while still bounding the cost of attribute scanning.
 const MAX_RAW_OTEL_SPANS_PER_REQUEST: usize = 1000;
+// Structural entries are bounded separately from the 4 MiB wire limit because
+// tiny repeated protobuf messages can expand into much larger decoded vectors.
 const MAX_RAW_OTEL_LOG_RECORDS_PER_REQUEST: usize = 1000;
 const MAX_RAW_OTEL_LOG_NODES_PER_REQUEST: usize = 3000;
 
@@ -388,7 +390,22 @@ pub async fn logs_handler(
             report_internal_error_metrics(err.to_metric_tag(), "otel_logs_validation");
             err.into_response()
         })?;
-    provenance::apply(&mut events, gateway_provenance);
+    provenance::apply(
+        &mut events,
+        gateway_provenance,
+        headers.contains_key(crate::gateway_provenance::SIGNATURE_HEADER),
+    );
+    let quota_provenance = if events.iter().all(|event| {
+        event
+            .properties
+            .get("$ai_trace_id")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|trace_id| !trace_id.is_empty())
+    }) {
+        gateway_provenance
+    } else {
+        provenance::Provenance::Invalid
+    };
     let event_count = events.len();
     Span::current().record("record_count", event_count);
 
@@ -404,7 +421,7 @@ pub async fn logs_handler(
         &state,
         ip,
         token.to_string(),
-        gateway_provenance,
+        quota_provenance,
         events,
         received_at,
     )

@@ -288,7 +288,6 @@ fn count_key_value_field(
         let (tag, wire_type) =
             prost::encoding::decode_key(&mut key_value).map_err(invalid_logs_protobuf)?;
         if tag == 2 && wire_type == prost::encoding::WireType::LengthDelimited {
-            increment_log_node_count(node_count, node_limit)?;
             let mut value = take_message(&mut key_value).map_err(invalid_logs_protobuf)?;
             count_any_value_nodes(&mut value, node_count, node_limit)?;
         } else {
@@ -441,6 +440,8 @@ impl<'de> Visitor<'de> for JsonBudgetVisitor<'_> {
         A: MapAccess<'de>,
     {
         while map.next_key::<String>()?.is_some() {
+            increment_log_node_count(self.node_count, self.node_limit)
+                .map_err(serde::de::Error::custom)?;
             map.next_value_seed(JsonBudgetSeed {
                 node_count: self.node_count,
                 node_limit: self.node_limit,
@@ -598,6 +599,31 @@ mod tests {
         let error = parse_logs_request(&body, &headers, 1024 * 1024, 1000).unwrap_err();
 
         assert!(error.to_string().contains("Too many OTLP log nodes"));
+    }
+
+    #[test]
+    fn test_parse_logs_json_rejects_too_many_flat_object_entries() {
+        let object = (0..1001)
+            .map(|index| (format!("key-{index}"), serde_json::Value::Null))
+            .collect::<serde_json::Map<_, _>>();
+        let body = Bytes::from(serde_json::to_vec(&object).unwrap());
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+
+        let error = parse_logs_request(&body, &headers, 1024 * 1024, 1000).unwrap_err();
+
+        assert!(error.to_string().contains("Too many OTLP log nodes"));
+    }
+
+    #[test]
+    fn test_parse_logs_protobuf_rejects_truncated_message() {
+        let body = Bytes::from_static(&[0x0a, 0x05, 0x01]);
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/x-protobuf".parse().unwrap());
+
+        let error = parse_logs_request(&body, &headers, 1024, 1000).unwrap_err();
+
+        assert!(error.to_string().contains("buffer underflow"));
     }
 
     #[test]

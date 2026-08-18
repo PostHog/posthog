@@ -119,6 +119,10 @@ fn evaluation_event(
     if result_label.is_none() && result_value.is_none() {
         return None;
     }
+    let explanation = attributes
+        .get(EXPLANATION)
+        .and_then(Value::as_str)
+        .map(str::to_string);
     attributes.remove(SCORE_LABEL);
     attributes.remove(SCORE_VALUE);
 
@@ -186,10 +190,10 @@ fn evaluation_event(
             }
         }
     }
-    if let Some(explanation) = properties.get(EXPLANATION).and_then(Value::as_str) {
+    if let Some(explanation) = explanation {
         properties.insert(
             "$ai_evaluation_reasoning".to_string(),
-            Value::String(explanation.to_string()),
+            Value::String(explanation),
         );
     }
     if let Some(body) = record.body.as_ref().and_then(|body| body.value.as_ref()) {
@@ -406,6 +410,30 @@ mod tests {
         };
 
         let events = expand_into_events(&request(record), "fallback").unwrap();
+
+        assert!(events[0]
+            .properties
+            .get("$ai_evaluation_reasoning")
+            .is_none());
+    }
+
+    #[test]
+    fn does_not_stamp_resource_explanation_on_evaluations() {
+        let mut request = request(LogRecord {
+            attributes: vec![
+                string_attribute(EVALUATION_NAME, "correctness"),
+                double_attribute(SCORE_VALUE, 0.9),
+            ],
+            ..evaluation_record()
+        });
+        request.resource_logs[0]
+            .resource
+            .as_mut()
+            .unwrap()
+            .attributes
+            .push(string_attribute(EXPLANATION, "resource explanation"));
+
+        let events = expand_into_events(&request, "fallback").unwrap();
 
         assert!(events[0]
             .properties
