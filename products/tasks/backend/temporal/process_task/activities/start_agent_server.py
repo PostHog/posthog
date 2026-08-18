@@ -432,6 +432,12 @@ def _invoke_start_agent_server(
             TaskRun.update_state_atomic(ctx.run_id, updates={"rtk_effective": ctx.rtk_enabled})
         except Exception:
             logger.warning("persist_rtk_effective_failed", run_id=ctx.run_id, exc_info=True)
+    except RequiredMcpUnavailableError:
+        # Fatal and self-explanatory (non_retryable, capture=False): let it through with its
+        # classification intact instead of rewrapping it as a retryable SandboxExecutionError, which
+        # would burn all three attempts and lose the tailored guidance. Mirrors the OAuthTokenError
+        # passthrough in _prepare_launch.
+        raise
     except Exception as e:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)
