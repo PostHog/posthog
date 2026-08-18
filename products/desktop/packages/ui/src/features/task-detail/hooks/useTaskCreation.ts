@@ -116,6 +116,8 @@ interface UseTaskCreationOptions {
 
 interface UseTaskCreationReturn {
   isCreatingTask: boolean;
+  /** The task is on its way; the composer fades out before the chat replaces it. */
+  isExitingComposer: boolean;
   canSubmit: boolean;
   handleSubmit: (contentOverride?: EditorContent) => Promise<boolean>;
   additionalDirectories: string[];
@@ -203,6 +205,7 @@ export function useTaskCreation({
   onTaskCreatedEffect,
 }: UseTaskCreationOptions): UseTaskCreationReturn {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [isExitingComposer, setIsExitingComposer] = useState(false);
   const hostClient = useHostTRPCClient();
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
@@ -260,7 +263,6 @@ export function useTaskCreation({
 
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
-      const submitStartedAt = Date.now();
       setIsCreatingTask(true);
 
       try {
@@ -345,9 +347,10 @@ export function useTaskCreation({
               label: a.label,
             })),
           });
-          // Let the composer land at the bottom of the page before the chat
-          // replaces it, so the two views read as one movement.
-          await waitForComposerExit(submitStartedAt);
+          // Fade the composer out before the chat fades in, so the phases
+          // hand over instead of cutting.
+          setIsExitingComposer(true);
+          await waitForComposerExit();
           navigateToTaskPending(pendingTaskKey);
           if (!contentOverride) {
             editor.clear();
@@ -559,6 +562,7 @@ export function useTaskCreation({
         }
       } finally {
         setIsCreatingTask(false);
+        setIsExitingComposer(false);
       }
     },
     [
@@ -608,6 +612,7 @@ export function useTaskCreation({
 
   return {
     isCreatingTask,
+    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,

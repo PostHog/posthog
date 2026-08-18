@@ -25,7 +25,7 @@ import {
   useTaskRepositoryDraftStore,
 } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
-import { NEW_TASK_COMPOSER_EXIT_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
+import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
@@ -976,6 +976,7 @@ export function TaskInput({
 
   const {
     isCreatingTask,
+    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,
@@ -1257,41 +1258,30 @@ export function TaskInput({
         <Box className="relative h-full min-w-0 flex-1">
           <Flex height="100%" className="relative px-4">
             <DotPatternBackground className="h-[100.333%]" />
-            <motion.div
-              // Framer owns the transform so the submit slide can animate; `x`
-              // stands in for the horizontal half of the old translate.
-              style={{ x: "-50%" }}
-              initial={false}
-              animate={{
-                // On submit the composer travels to the bottom of the page,
-                // meeting the chat's own composer so the swap reads as one
-                // continuous movement rather than a cut.
-                // Otherwise: raise the input when the suggestion cards are shown
-                // so the longer list below it isn't squished against the bottom
-                // of the viewport. Note: this is NOT tied to `editorIsEmpty` —
-                // the input keeps its position as the user types so the box
-                // doesn't jump down when the suggestions fade out (and back in
-                // when the prompt is cleared).
-                top: isCreatingTask
-                  ? "100%"
-                  : suggestions && suggestions.length > 0
-                    ? "38%"
-                    : "50%",
-                y: isCreatingTask ? "-100%" : "-50%",
-                marginTop: isCreatingTask ? -12 : 0,
+            <div
+              style={{
+                // Raise the input when the suggestion cards are shown so the longer
+                // list below it isn't squished against the bottom of the viewport.
+                // Note: this is NOT tied to `editorIsEmpty` — the input keeps its
+                // position as the user types so the box doesn't jump down when the
+                // suggestions fade out (and back in when the prompt is cleared).
+                top: suggestions && suggestions.length > 0 ? "38%" : "50%",
+                transform: "translate(-50%, -50%)",
+                // Once the task is on its way, the whole composer fades out and
+                // the pending chat fades in over it.
+                opacity: isExitingComposer ? 0 : 1,
+                transitionProperty: "opacity",
+                transitionDuration: `${NEW_TASK_COMPOSER_FADE_MS}ms`,
+                transitionTimingFunction: "ease-out",
               }}
-              transition={{
-                duration: NEW_TASK_COMPOSER_EXIT_MS / 1000,
-                ease: [0.22, 1, 0.36, 1],
-              }}
-              className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
+              className={`absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2 ${
+                isExitingComposer ? "pointer-events-none" : ""
+              }`}
             >
               <Flex
                 gap="2"
                 align="center"
-                className={`absolute bottom-full left-0 mb-1 min-w-0 gap-1 transition-opacity duration-200 ${
-                  isCreatingTask ? "pointer-events-none opacity-0" : ""
-                }`}
+                className="absolute bottom-full left-0 mb-1 min-w-0 gap-1"
               >
                 {spaceSelector?.({ disabled: isCreatingTask })}
                 <WorkspaceModeSelect
@@ -1595,11 +1585,7 @@ export function TaskInput({
                     </div>
                   )}
               </Flex>
-              <div
-                className={`absolute top-full right-0 left-0 z-10 transition-opacity duration-200 ${
-                  isCreatingTask ? "pointer-events-none opacity-0" : ""
-                }`}
-              >
+              <div className="absolute top-full right-0 left-0 z-10">
                 {suggestions ? (
                   <AnimatePresence>
                     {suggestions.length > 0 && editorIsEmpty && (
@@ -1665,7 +1651,7 @@ export function TaskInput({
                   />
                 )}
               </div>
-            </motion.div>
+            </div>
           </Flex>
         </Box>
       </Flex>
