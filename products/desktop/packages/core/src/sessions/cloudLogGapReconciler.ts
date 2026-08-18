@@ -125,8 +125,21 @@ export class CloudLogGapReconciler {
       logUrl,
     } = request;
 
-    const { rawEntries, totalLineCount, parseFailureCount } =
+    let { rawEntries, totalLineCount, parseFailureCount } =
       await this.deps.fetchLogs(logUrl, taskRunId, expectedCount);
+
+    const missingLineCount = expectedCount - totalLineCount;
+    if (
+      missingLineCount > 0 &&
+      newEntries.length >= missingLineCount &&
+      parseFailureCount === 0
+    ) {
+      rawEntries = [
+        ...rawEntries,
+        ...newEntries.slice(newEntries.length - missingLineCount),
+      ];
+      totalLineCount = expectedCount;
+    }
 
     const session = this.deps.getSession(taskRunId);
     if (!session || session.taskId !== taskId) {

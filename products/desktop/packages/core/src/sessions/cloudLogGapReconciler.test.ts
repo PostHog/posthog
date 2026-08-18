@@ -83,6 +83,33 @@ describe("CloudLogGapReconciler", () => {
     );
   });
 
+  it("fills a lagging fetched log with the streamed tail", async () => {
+    const fetchedEntries = [entry("a"), entry("b")];
+    const streamedEntries = [entry("b"), entry("c"), entry("d")];
+    const { deps, commit } = createDeps({
+      fetch: {
+        rawEntries: fetchedEntries,
+        totalLineCount: 2,
+        parseFailureCount: 0,
+      },
+    });
+
+    new CloudLogGapReconciler(deps).reconcile(
+      request({
+        expectedCount: 4,
+        newEntries: streamedEntries,
+      }),
+    );
+    await tick();
+
+    expect(commit).toHaveBeenCalledWith(
+      "r1",
+      [...fetchedEntries, entry("c"), entry("d")],
+      "https://logs/r1",
+      4,
+    );
+  });
+
   it("does not commit when the store already caught up", async () => {
     const { deps, commit } = createDeps({
       session: { taskId: "t1", processedLineCount: 5, logUrl: undefined },
