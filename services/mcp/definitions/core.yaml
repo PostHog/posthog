@@ -524,6 +524,9 @@ tools:
     users-integrations-github-destroy:
         operation: users_integrations_github_destroy
         enabled: false
+    users-integrations-github-install-requests-retrieve:
+        operation: users_integrations_github_install_requests_retrieve
+        enabled: false
     users-integrations-github-prepare-callback-create:
         operation: users_integrations_github_prepare_callback_create
         enabled: false
