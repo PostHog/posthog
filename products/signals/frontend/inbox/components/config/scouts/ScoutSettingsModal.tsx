@@ -20,10 +20,12 @@ import { ScoutConfigForm } from './ScoutConfigControls'
  */
 export function ScoutSettingsModal({
     config,
+    surface,
     isOpen,
     onClose,
 }: {
     config: SignalScoutConfig
+    surface: ScoutSurface
     isOpen: boolean
     onClose: () => void
 }): JSX.Element {
@@ -41,7 +43,7 @@ export function ScoutSettingsModal({
             <ScoutConfigForm
                 config={config}
                 onUpdate={updateScoutConfig}
-                onDelete={deleteScout}
+                onDelete={(configId) => deleteScout(configId, surface)}
                 deleting={deletingScoutIds.includes(config.id)}
                 updating={updatingScoutIds.includes(config.id)}
             />
@@ -83,7 +85,7 @@ export function ScoutSettingsButton({
                     {showLabel ? 'Settings' : null}
                 </LemonButton>
             </Tooltip>
-            {isOpen && <ScoutSettingsModal config={config} isOpen onClose={() => setIsOpen(false)} />}
+            {isOpen && <ScoutSettingsModal config={config} surface={surface} isOpen onClose={() => setIsOpen(false)} />}
         </>
     )
 }

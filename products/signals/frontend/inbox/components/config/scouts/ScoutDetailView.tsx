@@ -116,17 +116,10 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     )
 }
 
+/** Navigation only: the scouts URL handler clears the selected scout, so no action is dispatched here. */
 function BackToScouts(): JSX.Element {
-    const { setSelectedScoutSkillName } = useActions(inboxSceneLogic)
     return (
-        <LemonButton
-            type="tertiary"
-            size="small"
-            icon={<IconArrowLeft />}
-            to={urls.inbox('scouts')}
-            onClick={() => setSelectedScoutSkillName(null)}
-            className="w-fit"
-        >
+        <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.inbox('scouts')} className="w-fit">
             Scouts
         </LemonButton>
     )
@@ -180,10 +173,13 @@ function ScoutReportsSection({ skillName }: { skillName: string }): JSX.Element 
     }
 
     const loading = !scoutRunsLoadedOnce || (scoutReportsLoading && reportRows.length === 0)
+    const editedAny = reportRows.some(({ action }) => action === 'edited')
 
     return (
         <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-default">Reports it filed</span>
+            <span className="text-xs font-medium uppercase tracking-wide text-default">
+                {editedAny ? 'Reports it filed or added to' : 'Reports it filed'}
+            </span>
             {loading ? (
                 <LemonSkeleton className="h-12 w-full rounded" />
             ) : reportRows.length === 0 ? (

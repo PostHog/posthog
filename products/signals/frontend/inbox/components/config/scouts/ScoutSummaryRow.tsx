@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { IconArrowUpRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -14,6 +15,7 @@ import type {
 
 import { nextRunAt, scoutCadenceLabel } from '../../../utils/scoutGroups'
 import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
+import { ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 
 /**
@@ -31,7 +33,13 @@ export function ScoutSummaryRow({
     updating?: boolean
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const next = nextRunAt(config, currentTeam?.timezone ?? 'UTC', new Date())
+    const timezone = currentTeam?.timezone ?? 'UTC'
+    const now = new Date()
+    const next = nextRunAt(config, timezone, now)
+    // Shown in the project timezone, the one the cadence is stated in; a rolling scout past its
+    // interval is waiting on the scheduler rather than scheduled for a time that has passed.
+    const nextRunText =
+        !next || !config.enabled ? null : next <= now ? 'due now' : dayjs(next).tz(timezone).format('h:mm A')
 
     return (
         <div
@@ -56,10 +64,11 @@ export function ScoutSummaryRow({
                             Dry run
                         </LemonTag>
                     )}
+                    <ScoutLifecycleBadge config={config} />
                 </div>
                 <span className="text-[11px] text-muted">
                     {scoutCadenceLabel(config)}
-                    {next && config.enabled && ` · next run ${next.toLocaleTimeString([], { timeStyle: 'short' })}`}
+                    {nextRunText && ` · next run ${nextRunText}`}
                 </span>
             </div>
             <div className="flex shrink-0 items-center gap-2">

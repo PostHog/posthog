@@ -1,20 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconExternal, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
-import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { nextRunAt, scoutCadenceLabel } from '../../../utils/scoutGroups'
+import { scoutCadenceLabel } from '../../../utils/scoutGroups'
 import { prettifyScoutSkillName, SCOUT_RUNS_PER_SCOUT, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutStatusTag } from './ScoutBadges'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
+import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { LeaveScoutNoteButton } from './ScoutNotesPanel'
 import { ScoutSettingsButton } from './ScoutSettingsModal'
 
@@ -63,15 +63,15 @@ export function ScoutDetailHeader({
 }): JSX.Element {
     const { updatingScoutIds, manualRunScoutIds } = useValues(scoutFleetLogic)
     const { updateScoutConfig, runScoutNow } = useActions(scoutFleetLogic)
-    const { currentTeam } = useValues(teamLogic)
 
     const updating = updatingScoutIds.includes(config.id)
     const running = manualRunScoutIds.includes(config.id)
-    const next = nextRunAt(config, currentTeam?.timezone ?? 'UTC', new Date())
     // Filed and edited stay separate — adding the weak-signal count on top produced a total of two
-    // different things, which is exactly what made the old "filed" number unreadable.
-    const authored = rollup?.authoredReportIds.size ?? 0
-    const edited = rollup?.editedReportIds.size ?? 0
+    // different things, which is exactly what made the old "filed" number unreadable. A report the
+    // scout filed and later added to counts once, as filed.
+    const authoredIds = rollup?.authoredReportIds ?? new Set<string>()
+    const authored = authoredIds.size
+    const edited = [...(rollup?.editedReportIds ?? [])].filter((id) => !authoredIds.has(id)).length
 
     return (
         <div className="flex flex-col gap-3 border-b border-primary bg-surface-primary px-4 py-3">
@@ -95,6 +95,15 @@ export function ScoutDetailHeader({
                     </LemonButton>
                 </Tooltip>
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
+                <Tooltip title="Open the skill that defines what this scout does">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconExternal />}
+                        to={urls.skill(config.skill_name)}
+                        aria-label={`Open the ${config.skill_name} skill`}
+                    />
+                </Tooltip>
                 <ScoutEnabledSwitch config={config} onUpdate={updateScoutConfig} updating={updating} />
             </div>
 
@@ -102,10 +111,7 @@ export function ScoutDetailHeader({
 
             <div className="flex flex-wrap rounded border border-primary">
                 <Metric value={scoutCadenceLabel(config)} label="Cadence" />
-                <Metric
-                    value={next ? <TZLabel time={next.toISOString()} /> : <span className="text-muted">—</span>}
-                    label="Next run"
-                />
+                <Metric value={<ScoutNextRunLabel config={config} />} label="Next run" />
                 <Metric value={rollup?.runCount ?? 0} label={`Runs · last ${SCOUT_RUNS_PER_SCOUT}`} />
                 <Metric value={authored} label="Reports filed" />
                 <Metric value={edited} label="Reports edited" />
@@ -135,10 +141,12 @@ export function ScoutAttentionBanner({ config }: { config: SignalScoutConfig }):
     let detail: string
     if (config.pause_reason === 'repeated_failures') {
         headline = 'This scout paused itself after its runs kept failing'
-        detail = `${pluralize(
-            config.consecutive_failure_count,
-            'run'
-        )} in a row failed. It retries about once a day on its own, and resumes its normal schedule after one clean run. Turning it on resumes it now.`
+        // A settings edit resets the streak without resuming the scout, so a stored zero is not a count.
+        const streak =
+            config.consecutive_failure_count > 0
+                ? `${pluralize(config.consecutive_failure_count, 'run')} in a row failed.`
+                : 'Its last few runs all failed.'
+        detail = `${streak} It retries about once a day on its own, and resumes its normal schedule after one clean run. Turning it on resumes it now.`
     } else if (config.pause_reason === 'ignored') {
         headline = paused
             ? 'This scout was paused because nobody acted on its reports'

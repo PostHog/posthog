@@ -256,10 +256,6 @@ interface PairedPresetDefinition {
     disableCron: string
 }
 
-// Re-exported so the existing feature-flag call sites keep their import; the implementation is
-// shared with any other surface that renders a cron schedule.
-export { describeCron }
-
 /**
  * Schedule pickers operate on the browser's wall clock, but users expect the time they enter
  * to be interpreted in the project's timezone (shown via `ScheduleTimezoneHint`).

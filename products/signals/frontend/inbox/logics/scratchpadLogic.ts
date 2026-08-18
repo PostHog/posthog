@@ -1,10 +1,13 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { signalsScoutScratchpadSearch } from 'products/signals/frontend/generated/api'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { SCOUT_ROSTER_WINDOW_HOURS } from '../utils/scoutRunsWindow'
 
 // The list view shows two ways to read the fleet's memory: newest-first (the API's
 // native order) or clustered by the key namespace scouts choose (`tags:*`, `dedupe:*`).
@@ -74,6 +77,7 @@ export interface scratchpadLogicValues {
     lastUpdatedAt: string | null
     loadFailed: boolean
     loadingContentKeys: string[]
+    recentlyLearnedCount: number
     searchText: string
     totalCount: number | null
 }
@@ -126,6 +130,7 @@ export interface scratchpadLogicActions {
 export interface scratchpadLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         totalCount: (entries: ScratchpadEntryApi[] | null) => number | null
+        recentlyLearnedCount: (entries: ScratchpadEntryApi[] | null) => number
         lastUpdatedAt: (entries: ScratchpadEntryApi[] | null) => string | null
         groups: (entries: ScratchpadEntryApi[] | null) => ScratchpadNamespaceGroup[]
     }
@@ -236,6 +241,19 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         totalCount: [
             (s) => [s.entries],
             (entries: ScratchpadEntryApi[] | null): number | null => (entries ? entries.length : null),
+        ],
+        // Entries written or refreshed over the roster window, so the roster's "learned" headline
+        // sits on the same span as the run and report numbers the summary endpoint returns for it.
+        recentlyLearnedCount: [
+            (s) => [s.entries],
+            (entries: ScratchpadEntryApi[] | null): number => {
+                if (!entries) {
+                    return 0
+                }
+                const windowStart = dayjs().subtract(SCOUT_ROSTER_WINDOW_HOURS, 'hours')
+                return entries.filter((entry) => entry.updated_at && dayjs(entry.updated_at).isAfter(windowStart))
+                    .length
+            },
         ],
         // Entries are newest-first, so the head's timestamp drives the callout's "updated when" hint.
         lastUpdatedAt: [

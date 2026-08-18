@@ -17,7 +17,8 @@ const INITIAL_VISIBLE = 3
  * scout that looks like a cron job and one that visibly gets better at its job.
  */
 export function ScoutLearnedPanel({ skillName }: { skillName: string }): JSX.Element | null {
-    const { entries, entriesLoading } = useValues(scratchpadLogic)
+    const { entries, entriesLoading, loadFailed } = useValues(scratchpadLogic)
+    const { loadEntries } = useActions(scratchpadLogic)
     const { setScratchpadOpen } = useActions(inboxSceneLogic)
     const [showAll, setShowAll] = useState(false)
 
@@ -26,6 +27,21 @@ export function ScoutLearnedPanel({ skillName }: { skillName: string }): JSX.Ele
             <div className="flex flex-col gap-2">
                 <span className="text-xs font-medium uppercase tracking-wide text-default">What it has learned</span>
                 <LemonSkeleton className="h-16 w-full rounded" />
+            </div>
+        )
+    }
+
+    // A failed load is not an empty memory: say so, rather than silently dropping the panel.
+    if (loadFailed && entries === null) {
+        return (
+            <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-default">What it has learned</span>
+                <div className="flex flex-col items-center gap-2 rounded border border-danger bg-danger-highlight px-4 py-6 text-center text-sm text-danger">
+                    <span>Couldn't load what this scout has learned.</span>
+                    <LemonButton size="xsmall" type="secondary" onClick={() => loadEntries()}>
+                        Try again
+                    </LemonButton>
+                </div>
             </div>
         )
     }
