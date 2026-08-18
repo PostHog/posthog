@@ -2,6 +2,7 @@ import os
 import atexit
 import typing
 import logging
+from collections.abc import Sequence
 
 from django.http import HttpRequest, HttpResponse
 
@@ -48,7 +49,7 @@ def _otel_django_response_hook(span: Span, request: HttpRequest, response: HttpR
     span.update_name("HTTP" if http_method == "_OTHER" else f"{http_method} {route}")
 
 
-def _otel_redis_request_hook(span: Span, instance: object, args: tuple[object, ...], kwargs: dict[str, object]) -> None:
+def _otel_redis_request_hook(span: Span, instance: object, args: Sequence[object], kwargs: dict[str, object]) -> None:
     """Tag cluster-client spans with the connection attributes the instrumentor leaves off.
 
     opentelemetry-instrumentation-redis reads `db.system` and `net.peer.*` off
