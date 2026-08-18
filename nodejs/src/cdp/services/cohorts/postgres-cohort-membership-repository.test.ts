@@ -1,3 +1,5 @@
+import { register } from 'prom-client'
+
 import { defaultConfig } from '~/common/config/config'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
@@ -8,6 +10,16 @@ import {
     CohortMembershipLookupTimeoutError,
     PostgresCohortMembershipRepository,
 } from './postgres-cohort-membership-repository'
+
+// Counter is a module-scoped global, so compare deltas rather than reset shared state between tests.
+const outcomeCount = async (outcome: string): Promise<number> => {
+    const metric = register.getSingleMetric('cdp_cohort_membership_lookups_total')
+    if (!metric) {
+        return 0
+    }
+    const data = await metric.get()
+    return data.values.find((v) => (v.labels as Record<string, string>).outcome === outcome)?.value ?? 0
+}
 
 describe('PostgresCohortMembershipRepository', () => {
     let postgres: PostgresRouter
@@ -58,6 +70,34 @@ describe('PostgresCohortMembershipRepository', () => {
             jest.advanceTimersByTime(500)
             await assertion
             await expect(lookup.catch((e) => e.isRetriable)).resolves.toBe(true)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('records exactly one outcome when the query settles after timing out', async () => {
+        jest.useFakeTimers()
+        try {
+            let resolveQuery!: (value: { rows: { cohort_id: string }[] }) => void
+            const lateRouter = {
+                query: () => new Promise((resolve) => (resolveQuery = resolve)),
+            } as unknown as PostgresRouter
+            const lateRepository = new PostgresCohortMembershipRepository(lateRouter, 500)
+
+            const timeoutBefore = await outcomeCount('timeout')
+            const successBefore = await outcomeCount('success')
+
+            const lookup = lateRepository.getMemberCohortIds(2, new UUIDT().toString())
+            jest.advanceTimersByTime(500)
+            await expect(lookup).rejects.toThrow(CohortMembershipLookupTimeoutError)
+
+            // The underlying query settles a moment later; its handler must not record a second outcome
+            resolveQuery({ rows: [{ cohort_id: '101' }] })
+            await Promise.resolve()
+            await Promise.resolve()
+
+            expect(await outcomeCount('timeout')).toBe(timeoutBefore + 1)
+            expect(await outcomeCount('success')).toBe(successBefore)
         } finally {
             jest.useRealTimers()
         }

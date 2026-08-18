@@ -40,7 +40,12 @@ export class PostgresCohortMembershipRepository implements CohortMembershipRepos
         )
 
         const result = await new Promise<Awaited<typeof queryPromise>>((resolve, reject) => {
+            // The timer and the query race. The query's handlers stay registered after the timer
+            // wins and fire when it settles late, so this flag stops the loser from recording a
+            // second outcome and double-counting the lookup in the metric.
+            let settled = false
             const timer = setTimeout(() => {
+                settled = true
                 // Swallow the losing query's settlement so it can't become an unhandled rejection
                 queryPromise.catch(() => undefined)
                 cohortMembershipLookupsCounter.labels('timeout').inc()
@@ -49,11 +54,19 @@ export class PostgresCohortMembershipRepository implements CohortMembershipRepos
 
             queryPromise.then(
                 (res) => {
+                    if (settled) {
+                        return
+                    }
+                    settled = true
                     clearTimeout(timer)
                     cohortMembershipLookupsCounter.labels('success').inc()
                     resolve(res)
                 },
                 (err) => {
+                    if (settled) {
+                        return
+                    }
+                    settled = true
                     clearTimeout(timer)
                     cohortMembershipLookupsCounter.labels('error').inc()
                     reject(err)
