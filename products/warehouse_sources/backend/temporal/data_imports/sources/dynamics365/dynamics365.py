@@ -52,7 +52,7 @@ class Dynamics365ConfigurationError(Exception):
     """A customer-supplied value can't be used to build a Dataverse request."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Dynamics365ResumeConfig:
     # Opaque `@odata.nextLink` of the next unfetched page (it embeds Dataverse's $skiptoken, which
     # must never be constructed by hand).
