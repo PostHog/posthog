@@ -26,6 +26,7 @@ from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.queries.base import determine_parsed_date_for_property_matching
 
 from products.feature_flags.backend.api.filters_schema import FeatureFlagFiltersSerializer
+from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
 DATE_OPERATORS: frozenset[str] = frozenset({"is_date_exact", "is_date_after", "is_date_before"})
 STRING_VALUE_OPERATORS: frozenset[str] = frozenset(
@@ -73,18 +74,13 @@ def check_variant_rollout_sum(filters: Mapping[str, Any]) -> list[Violation]:
     variant_list = (filters.get("multivariate") or {}).get("variants", [])
     if not variant_list:
         return []
-    # Exact equality is deliberate parity with the live write path, which enforces
-    # `sum != 100`. Float summation is deterministic, so any flag that passed that check at
-    # write time still sums to exactly 100 here; near-100 drift only exists on rows that
-    # predate the check, and those genuinely need cleanup before enforcement because the
-    # write path would reject them on their next update anyway.
     rollout_sum = sum(variant.get("rollout_percentage", 0) for variant in variant_list)
-    if rollout_sum != 100:
+    if not variant_rollout_sum_is_100(rollout_sum):
         return [
             Violation(
                 rule_id="cross_field.variant_rollout_sum_not_100",
                 path="multivariate.variants",
-                message=f"Variant rollout percentages must sum to 100, got {rollout_sum}.",
+                message=f"Variant rollout percentages must sum to 100, got {format_variant_rollout_sum(rollout_sum)}.",
             )
         ]
     return []
