@@ -64,6 +64,12 @@ const canvasCreate = (): ToolBase<typeof CanvasCreateSchema, Schemas.Canvas> => 
         if (params.channel_id !== undefined) {
             body['channel_id'] = params.channel_id
         }
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
         if (params.template_id !== undefined) {
             body['template_id'] = params.template_id
         }
@@ -167,8 +173,10 @@ const canvasList = (): ToolBase<typeof CanvasListSchema, Schemas.PaginatedCanvas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/`,
             query: {
                 channel: params.channel,
+                kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
             },
         })
         return result
