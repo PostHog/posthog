@@ -175,7 +175,7 @@ class KafkaProfileSettings:
     security_protocol: Optional[str]
     sasl_mechanism: Optional[str]
     sasl_user: Optional[str]
-    sasl_password: Optional[str]
+    sasl_password: Optional[str] = field(repr=False)
     producer_settings: dict[str, Any] = field(default_factory=dict)
 
 
