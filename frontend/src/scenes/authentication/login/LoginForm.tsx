@@ -32,6 +32,10 @@ import { SessionRiskBanner } from './SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
+// Bare text nodes below are wrapped in <span>s: in-page translation replaces text nodes with
+// <font> elements, which crashes React's sibling insert/remove operations (removeChild /
+// insertBefore NotFoundError, see react#11538). Text that is its own element's only child is
+// already safe, so only text sharing a parent with element siblings needs wrapping.
 export function LoginForm(): JSX.Element {
     const { precheck, exitCodeVerification, resendCodeBasedVerification } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -69,7 +73,7 @@ export function LoginForm(): JSX.Element {
 
     const footer = (
         <p className="mt-5 mb-0 text-sm text-secondary text-center">
-            New to PostHog?{' '}
+            <span>New to PostHog?</span>{' '}
             <Link
                 to={[signupUrl, { email: login.email }]}
                 data-attr="signup"
@@ -90,7 +94,9 @@ export function LoginForm(): JSX.Element {
                             'Enter your login code'
                         ) : (
                             <>
-                                Log in to{' '}
+                                {/* This whole fragment is deleted when the title flips to the code-sent
+                                    string, so even the separator space lives inside an element */}
+                                <span>{'Log in to '}</span>
                                 <span className="px-1 rounded-md bg-[color-mix(in_srgb,var(--color-blue-500)_10%,transparent)] text-[var(--color-blue-500)]">
                                     @PostHog
                                 </span>
@@ -107,9 +113,11 @@ export function LoginForm(): JSX.Element {
                             isCodeSent ? 'bg-success-highlight border-success' : 'bg-danger-highlight border-danger'
                         )}
                     >
-                        {generalError.detail ||
-                            ERROR_MESSAGES[generalError.code] ||
-                            'Could not complete your login. Please try again.'}
+                        <span>
+                            {generalError.detail ||
+                                ERROR_MESSAGES[generalError.code] ||
+                                'Could not complete your login. Please try again.'}
+                        </span>
                         {preflight?.cloud && (
                             <>
                                 {' '}
@@ -177,7 +185,7 @@ export function LoginForm(): JSX.Element {
                             {resendResponse?.success && (
                                 <p className="flex items-center gap-1 text-success mb-0" role="status">
                                     <IconCheckCircle />
-                                    Code sent — check your inbox.
+                                    <span>Code sent — check your inbox.</span>
                                 </p>
                             )}
                             <Link
@@ -249,7 +257,7 @@ export function LoginForm(): JSX.Element {
                         )}
                         {hasNoConfiguredLoginMethod && (
                             <div className="py-2.5 px-3 text-sm leading-normal text-primary text-left bg-warning-highlight border border-warning rounded">
-                                No sign-in method is set up for this account. Use{' '}
+                                <span>No sign-in method is set up for this account. Use</span>{' '}
                                 <Link
                                     to={[urls.passwordReset(), { email: login.email }]}
                                     data-attr="forgot-password"
@@ -257,7 +265,7 @@ export function LoginForm(): JSX.Element {
                                 >
                                     Forgot password?
                                 </Link>{' '}
-                                to set a password by email.
+                                <span>to set a password by email.</span>
                             </div>
                         )}
                         {autoRedirectingToProvider && (
