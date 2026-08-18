@@ -12,8 +12,6 @@ from posthog.models.user import User
 
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
-    EmailChannel,
-    EmailChannelKind,
     EmailThread,
     EmailThreadAccountLink,
     EmailThreadMessage,
@@ -24,6 +22,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.services.email_thread_ingestion import (
     EmailAddress,
+    EmailMailbox,
     ParsedEmail,
     _upsert_participants,
 )
@@ -247,14 +246,10 @@ class TestEmailThreadPersistence(BaseTest):
         member = User.objects.create_and_join(self.organization, "colleague@example.com", None)
         User.objects.filter(id=member.id).update(email="Colleague@Example.com")
 
-        channel = EmailChannel.objects.create(
+        mailbox = EmailMailbox(
             team=self.team,
-            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
-            owner=self.user,
-            inbound_token="mixed-case-member-token",
-            from_email="support@example.com",
-            from_name="Support",
-            domain="example.com",
+            email="support@example.com",
+            owner_email=self.user.email,
         )
         thread = self._create_thread()
         email = ParsedEmail(
@@ -269,13 +264,10 @@ class TestEmailThreadPersistence(BaseTest):
             body_plain="Hello",
             stripped_text="Hello",
             sender_authenticated=True,
-            dkim_passed=True,
-            dkim_signing_domains=("example.com",),
-            capture_address="inbox@example.com",
             attachments=(),
         )
 
-        _upsert_participants(team_id=self.team.id, thread=thread, channel=channel, email=email)
+        _upsert_participants(team_id=self.team.id, thread=thread, mailbox=mailbox, email=email)
 
         participant = EmailThreadParticipant.objects.for_team(self.team.id).get(
             thread=thread, email="colleague@example.com"

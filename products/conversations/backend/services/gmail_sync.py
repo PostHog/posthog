@@ -18,9 +18,10 @@ from posthog.egress.google_workspace import google_workspace_request
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.organization import OrganizationMembership
 
-from products.conversations.backend.models import EmailChannel, EmailChannelKind, EmailThreadMessageDirection
+from products.conversations.backend.models import EmailThreadMessageDirection
 from products.conversations.backend.services.email_thread_ingestion import (
     EmailAddress,
+    EmailMailbox,
     ParsedEmail,
     ingest_customer_email,
 )
@@ -70,14 +71,14 @@ def sync_gmail_integration(integration_id: int, team_id: int) -> None:
         return
 
     access_token = _get_fresh_access_token(integration)
-    channel = _email_channel(integration)
+    mailbox = _create_email_mailbox(integration)
     internal_emails = _organization_member_emails(integration)
     history_id = integration.config.get(GMAIL_HISTORY_ID_CONFIG_KEY)
 
     if history_id:
         next_history_id = _sync_history(
             integration=integration,
-            channel=channel,
+            mailbox=mailbox,
             access_token=access_token,
             start_history_id=str(history_id),
             internal_emails=internal_emails,
@@ -85,7 +86,7 @@ def sync_gmail_integration(integration_id: int, team_id: int) -> None:
     else:
         next_history_id = _initial_sync(
             integration=integration,
-            channel=channel,
+            mailbox=mailbox,
             access_token=access_token,
             internal_emails=internal_emails,
         )
@@ -116,25 +117,13 @@ def _get_fresh_access_token(integration: Integration) -> str:
     return token
 
 
-def _email_channel(integration: Integration) -> EmailChannel:
+def _create_email_mailbox(integration: Integration) -> EmailMailbox:
     owner = integration.created_by
     email = str(integration.config.get("email") or "").strip().lower()
     if owner is None or not email or "@" not in email:
         raise GmailSyncError(f"Integration {integration.id} has no mailbox owner")
 
-    name = " ".join(part for part in (owner.first_name, owner.last_name) if part).strip() or email
-    return EmailChannel(
-        team=integration.team,
-        kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
-        owner=owner,
-        inbound_token="",
-        from_email=email,
-        from_name=name,
-        domain=email.rsplit("@", 1)[1],
-        domain_verified=False,
-        dns_records={},
-        is_default=False,
-    )
+    return EmailMailbox(team=integration.team, email=email, owner_email=owner.email.lower())
 
 
 def _organization_member_emails(integration: Integration) -> set[str]:
@@ -150,7 +139,7 @@ def _organization_member_emails(integration: Integration) -> set[str]:
 def _initial_sync(
     *,
     integration: Integration,
-    channel: EmailChannel,
+    mailbox: EmailMailbox,
     access_token: str,
     internal_emails: set[str],
 ) -> str:
@@ -173,7 +162,7 @@ def _initial_sync(
     )
     _ingest_message_ids(
         integration=integration,
-        channel=channel,
+        mailbox=mailbox,
         access_token=access_token,
         message_ids=[str(message["id"]) for message in payload.get("messages", []) if message.get("id")],
         internal_emails=internal_emails,
@@ -184,7 +173,7 @@ def _initial_sync(
 def _sync_history(
     *,
     integration: Integration,
-    channel: EmailChannel,
+    mailbox: EmailMailbox,
     access_token: str,
     start_history_id: str,
     internal_emails: set[str],
@@ -201,7 +190,7 @@ def _sync_history(
         if pending_message_ids:
             _ingest_message_id(
                 integration=integration,
-                channel=channel,
+                mailbox=mailbox,
                 access_token=access_token,
                 gmail_message_id=pending_message_ids[0],
                 internal_emails=internal_emails,
@@ -238,7 +227,7 @@ def _sync_history(
             _clear_history_progress(integration)
             return _initial_sync(
                 integration=integration,
-                channel=channel,
+                mailbox=mailbox,
                 access_token=access_token,
                 internal_emails=internal_emails,
             )
@@ -293,7 +282,7 @@ def _clear_history_progress(integration: Integration) -> None:
 def _ingest_message_ids(
     *,
     integration: Integration,
-    channel: EmailChannel,
+    mailbox: EmailMailbox,
     access_token: str,
     message_ids: list[str],
     internal_emails: set[str],
@@ -301,7 +290,7 @@ def _ingest_message_ids(
     for gmail_message_id in message_ids:
         _ingest_message_id(
             integration=integration,
-            channel=channel,
+            mailbox=mailbox,
             access_token=access_token,
             gmail_message_id=gmail_message_id,
             internal_emails=internal_emails,
@@ -311,7 +300,7 @@ def _ingest_message_ids(
 def _ingest_message_id(
     *,
     integration: Integration,
-    channel: EmailChannel,
+    mailbox: EmailMailbox,
     access_token: str,
     gmail_message_id: str,
     internal_emails: set[str],
@@ -336,7 +325,6 @@ def _ingest_message_id(
     try:
         parsed = _parse_gmail_message(
             payload,
-            channel.from_email,
             str(integration.integration_id),
             load_attachment_data=load_attachment_data,
         )
@@ -350,7 +338,7 @@ def _ingest_message_id(
     direction = EmailThreadMessageDirection.OUTBOUND if "SENT" in labels else EmailThreadMessageDirection.INBOUND
     ingest_customer_email(
         team_id=integration.team_id,
-        channel=channel,
+        mailbox=mailbox,
         email=parsed,
         direction=direction,
         source_type="gmail",
@@ -360,7 +348,6 @@ def _ingest_message_id(
 
 def _parse_gmail_message(
     payload: dict[str, Any],
-    mailbox_email: str,
     google_account_id: str,
     *,
     load_attachment_data: Callable[[str], str] | None = None,
@@ -393,9 +380,6 @@ def _parse_gmail_message(
         body_plain=body_plain[:50_000],
         stripped_text=body_plain[:50_000],
         sender_authenticated=False,
-        dkim_passed=False,
-        dkim_signing_domains=(),
-        capture_address=mailbox_email,
         attachments=(),
     )
 
