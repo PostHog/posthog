@@ -154,6 +154,34 @@ describe('funnelDataLogic', () => {
                 isTrendsFunnel: true,
             })
         })
+
+        // Saved funnels can carry a funnelsFilter with no viz type. Without a resolved default the
+        // conversion rate label and the detailed results table disappear.
+        it.each([
+            ['no funnelsFilter', {}, FunnelVizType.Steps],
+            [
+                'a funnelsFilter without a viz type',
+                { funnelsFilter: { funnelWindowInterval: 14 } },
+                FunnelVizType.Steps,
+            ],
+            [
+                'an explicit viz type',
+                { funnelsFilter: { funnelVizType: FunnelVizType.TimeToConvert } },
+                FunnelVizType.TimeToConvert,
+            ],
+        ])('resolves the viz type for %s', async (_name, queryPatch, expected) => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                ...queryPatch,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                funnelVizType: expected,
+            })
+        })
     })
 
     describe('empty funnel', () => {
