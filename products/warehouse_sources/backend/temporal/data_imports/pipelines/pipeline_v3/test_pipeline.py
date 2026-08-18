@@ -265,5 +265,47 @@ class TestCDCSourceWiring:
         assert mock_producer_cls.call_args.kwargs["cdc_write_mode"] is None
 
 
-def mock_source_stub() -> MagicMock:
-    return MagicMock(source_type="Postgres")
+class TestCDCSeqProvenanceSurvivesStaging:
+    def test_the_stamp_survives_every_extract_side_hop(self) -> None:
+        # The loader gates all position resolution on the provenance stamp. If any hop between the
+        # buffer read and the loader's parquet read strips field metadata, resolution silently turns
+        # itself off: the floor never advances, files re-merge every run, and every other test still
+        # passes. Chain mirrors PipelineV3.run: normalize → evolve against a Delta-derived schema
+        # (which carries no arrow metadata) → batcher concat → staged-parquet round trip.
+        import io
+
+        import pyarrow as pa
+        import deltalake
+        import pyarrow.parquet as pq
+
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+            CDC_SEQ_COLUMN,
+            CDC_SEQ_PROVENANCE,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+            evolve_pyarrow_schema,
+            normalize_table_column_names,
+        )
+
+        table = pa.table({"id": pa.array([1, 2], pa.int64())}).append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array([10, 20], pa.int64())
+        )
+        # The target as Delta reports it: same columns plus one this batch lacks, and no arrow
+        # field metadata (Delta stores none), which is what could strip the stamp on evolve.
+        target_fields: list[pa.Field] = [
+            pa.field("id", pa.int64()),
+            pa.field(CDC_SEQ_COLUMN, pa.int64()),
+            pa.field("extra", pa.string()),
+        ]
+        delta_schema = deltalake.Schema.from_arrow(pa.schema(target_fields))
+
+        staged = pa.concat_tables(
+            [evolve_pyarrow_schema(normalize_table_column_names(table), delta_schema)] * 2,
+            promote_options="permissive",
+        )
+        buf = io.BytesIO()
+        pq.write_table(staged, buf)
+        buf.seek(0)
+
+        assert has_engine_seq(pq.read_table(buf))

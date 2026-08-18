@@ -11,6 +11,7 @@ generator resumes.
 
 from __future__ import annotations
 
+import uuid
 import datetime as dt
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
@@ -50,9 +51,13 @@ CONSOLIDATED_WRITE_MODE = "incremental_merge"
 DEFAULT_BATCH_ROW_LIMIT = 5000
 DEFAULT_BATCH_BYTE_LIMIT = 200 * 1024 * 1024
 
-# Slack when comparing an S3 mtime against a job timestamp from our DB, so clock skew between the
-# two can never make a file look older than a run that in fact never listed it.
+# Slack when comparing an S3 mtime against a listing timestamp from our clock, so skew between the
+# two can never make a file look older than a listing that in fact never saw it.
 _CONSUMED_MTIME_MARGIN = dt.timedelta(minutes=5)
+
+# The last buffer listing, `{"listed_at": iso, "job_id": str}` — a sibling of `cdc_load_position`.
+# It matures into a deletion proof only if that job COMPLETES (see _completed_listing_time).
+BUFFER_LISTING_CONFIG_KEY = "cdc_buffer_listing"
 
 
 def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
@@ -110,11 +115,11 @@ class CDCSourceManager:
         self._inputs = inputs
         self._logger = logger
 
-    async def _read_load_position(self, resource_name: str) -> int | None:
-        """The highest position already committed for this lane, read once per run.
+    async def _read_consume_state(self, resource_name: str) -> tuple[int | None, dict | None]:
+        """The lane's committed floor and the last listing stamp, read once per run.
 
-        A floor for which files are still needed, not a correctness boundary — `drop_superseded_rows`
-        is that, and it re-reads the config per batch on the load side. Reading a stale value here
+        The floor decides which files are still needed, not correctness — `drop_superseded_rows` is
+        that, and it re-reads the config per batch on the load side. Reading a stale value here
         costs one redundant file read whose rows the guard then drops.
         """
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -124,28 +129,53 @@ class CDCSourceManager:
                 id=self._inputs.schema_id, team_id=self._inputs.team_id
             )
         )
-        return read_load_position(sync_type_config, resource_name)
+        listing = (sync_type_config or {}).get(BUFFER_LISTING_CONFIG_KEY)
+        return read_load_position(sync_type_config, resource_name), listing if isinstance(listing, dict) else None
 
-    async def _previous_completed_run_started_at(self) -> dt.datetime | None:
-        """Start of the most recent COMPLETED sync job for this schema.
+    async def _stamp_listing(self, listed_at: dt.datetime) -> None:
+        """Record that this run listed the buffer, before any file is read.
 
-        A completed run drained its whole generator, so every buffer file present when it listed —
-        anything last modified before it started — was read through to a committed write.
+        The stamp becomes a deletion proof only once this run's job COMPLETES — see
+        `_completed_listing_time`. Crashing after the stamp leaves the job un-completed, so a
+        partial run can never prove anything.
+        """
+        from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
+
+        stamp = {"listed_at": listed_at.isoformat(), "job_id": str(self._inputs.job_id)}
+
+        def _merge(config: dict) -> None:
+            config[BUFFER_LISTING_CONFIG_KEY] = stamp
+
+        await database_sync_to_async_pool(db_read_with_retry)(
+            lambda: update_sync_type_config_keys(self._inputs.schema_id, self._inputs.team_id, mutate=_merge)
+        )
+
+    async def _completed_listing_time(self, listing: dict | None) -> dt.datetime | None:
+        """When the buffer was last listed by a run that went on to COMPLETE, or None.
+
+        Only a completed run proves consumption: completion means the generator drained every
+        listed file and every staged batch committed. A job-status check on the stamped job is what
+        keeps a no-op run (the legacy-backlog gate returns an empty response without listing) or a
+        crashed run from ever serving as proof.
         """
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
-        return await database_sync_to_async_pool(db_read_with_retry)(
-            lambda: (
-                ExternalDataJob.objects.filter(
-                    schema_id=self._inputs.schema_id,
-                    team_id=self._inputs.team_id,
-                    status=ExternalDataJob.Status.COMPLETED,
-                )
-                .order_by("-created_at")
-                .values_list("created_at", flat=True)
-                .first()
-            )
+        if not listing:
+            return None
+        try:
+            listed_at = dt.datetime.fromisoformat(listing["listed_at"])
+            job_id = uuid.UUID(str(listing["job_id"]))
+        except (KeyError, TypeError, ValueError):
+            return None
+        if listed_at.tzinfo is None:
+            return None
+
+        completed = await database_sync_to_async_pool(db_read_with_retry)(
+            lambda: ExternalDataJob.objects.filter(
+                id=job_id, team_id=self._inputs.team_id, status=ExternalDataJob.Status.COMPLETED
+            ).exists()
         )
+        return listed_at if completed else None
 
     async def _list_buffer_files(self) -> list[tuple[tuple[int, int, int], str, dt.datetime | None]]:
         """Buffer files under this schema's prefix, in position order.
@@ -158,7 +188,9 @@ class CDCSourceManager:
 
         async with aget_s3_client() as s3:
             try:
-                ls_res = await s3._ls(prefix, detail=True)
+                # refresh: capture writes through a different process, so this client's dircache is
+                # never invalidated by them — a cached listing could miss files indefinitely.
+                ls_res = await s3._ls(prefix, detail=True, refresh=True)
             except FileNotFoundError:
                 await self._logger.adebug("cdc_buffer_prefix_not_found", prefix=prefix)
                 return []
@@ -185,24 +217,25 @@ class CDCSourceManager:
         end_seq: int,
         modified: dt.datetime | None,
         floor: int | None,
-        prev_completed_start: dt.datetime | None,
+        proof_time: dt.datetime | None,
     ) -> bool:
         """Whether a file's rows are all proven committed, so the file can be deleted.
 
         Strictly below the floor is position-proof: the load-side guard would drop every row anyway.
         AT the floor, position alone cannot tell a consumed file from the unread tail of a
         transaction split across files (all its rows share one commit position) — but a file that
-        already existed when the last COMPLETED run started was listed and drained by it. The margin
-        absorbs clock skew between S3 and our DB; an idle schema's trailing file clears it within a
-        couple of ticks instead of being re-merged and re-billed forever.
+        already existed at `proof_time` (a completed run's listing) was listed, drained, and
+        committed by that run. The margin absorbs clock skew between S3 and our DB; an idle schema's
+        trailing file clears it within a couple of ticks instead of being re-merged and re-billed
+        forever.
         """
         if floor is None or end_seq > floor:
             return False
         if end_seq < floor:
             return True
-        if modified is None or modified.tzinfo is None or prev_completed_start is None:
+        if modified is None or modified.tzinfo is None or proof_time is None:
             return False
-        return modified < prev_completed_start - _CONSUMED_MTIME_MARGIN
+        return modified < proof_time - _CONSUMED_MTIME_MARGIN
 
     async def get_items(
         self,
@@ -210,9 +243,12 @@ class CDCSourceManager:
         batch_row_limit: int = DEFAULT_BATCH_ROW_LIMIT,
         batch_byte_limit: int = DEFAULT_BATCH_BYTE_LIMIT,
     ) -> AsyncGenerator[pa.Table]:
+        listed_at = dt.datetime.now(tz=dt.UTC)
         files = await self._list_buffer_files()
-        floor = await self._read_load_position(resource_name)
-        prev_completed_start = await self._previous_completed_run_started_at() if floor is not None else None
+        floor, prior_listing = await self._read_consume_state(resource_name)
+        # Proof comes from the PRIOR stamp, resolved before this run overwrites it.
+        proof_time = await self._completed_listing_time(prior_listing) if floor is not None else None
+        await self._stamp_listing(listed_at)
 
         batch_tables: list[pa.Table] = []
         batch_rows = 0
@@ -221,7 +257,7 @@ class CDCSourceManager:
         async with aget_s3_client() as s3:
             for (_start_seq, end_seq, _file_index), key, modified in files:
                 # The only place a buffer file is deleted — see _is_consumed for the proof.
-                if self._is_consumed(end_seq, modified, floor, prev_completed_start):
+                if self._is_consumed(end_seq, modified, floor, proof_time):
                     await s3._rm(key)
                     continue
 

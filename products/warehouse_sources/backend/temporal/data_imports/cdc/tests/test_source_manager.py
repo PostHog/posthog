@@ -57,7 +57,10 @@ class _FakeS3:
         self.missing_prefix = missing_prefix
         self.mtimes = mtimes or {}
 
-    async def _ls(self, prefix, detail=True):
+    async def _ls(self, prefix, detail=True, refresh=False):
+        # The manager must always bypass the fsspec dircache — capture writes through a different
+        # process, so a cached listing could miss its files indefinitely.
+        assert refresh, "buffer listings must pass refresh=True"
         if self.missing_prefix:
             raise FileNotFoundError(prefix)
         return [{"type": "file", "Key": key, "LastModified": self.mtimes.get(key, _OLD_MTIME)} for key in self.files]
@@ -82,15 +85,14 @@ class _FakeS3:
 
 
 @contextlib.contextmanager
-def _patched(s3: _FakeS3, load_position: int | None, prev_completed_start: dt.datetime | None):
+def _patched(s3: _FakeS3, load_position: int | None, proof_time: dt.datetime | None):
     with (
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.aget_s3_client"
         ) as mock_client,
-        patch.object(CDCSourceManager, "_read_load_position", AsyncMock(return_value=load_position)),
-        patch.object(
-            CDCSourceManager, "_previous_completed_run_started_at", AsyncMock(return_value=prev_completed_start)
-        ),
+        patch.object(CDCSourceManager, "_read_consume_state", AsyncMock(return_value=(load_position, None))),
+        patch.object(CDCSourceManager, "_completed_listing_time", AsyncMock(return_value=proof_time)),
+        patch.object(CDCSourceManager, "_stamp_listing", AsyncMock()) as mock_stamp,
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.get_buffer_prefix",
             return_value=f"s3://{_PREFIX}",
@@ -98,7 +100,7 @@ def _patched(s3: _FakeS3, load_position: int | None, prev_completed_start: dt.da
     ):
         mock_client.return_value.__aenter__ = AsyncMock(return_value=s3)
         mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-        yield
+        yield mock_stamp
 
 
 def _manager() -> CDCSourceManager:
@@ -112,10 +114,10 @@ def _manager() -> CDCSourceManager:
 async def _collect(
     s3: _FakeS3,
     load_position: int | None = None,
-    prev_completed_start: dt.datetime | None = None,
+    proof_time: dt.datetime | None = None,
     **kwargs,
 ) -> list[pa.Table]:
-    with _patched(s3, load_position, prev_completed_start):
+    with _patched(s3, load_position, proof_time):
         return [t async for t in _manager().get_items("users", **kwargs)]
 
 
@@ -174,33 +176,31 @@ class TestCDCSourceManager:
         assert s3.opened == [_key(200, 299)]
         assert tables[0].column("id").to_pylist() == [2]
 
-    async def test_a_trailing_file_is_deleted_once_a_completed_run_predates_it(self):
+    async def test_a_trailing_file_is_deleted_once_a_completed_listing_predates_it(self):
         # Position alone cannot prove the file at the floor consumed, so an idle schema would
         # otherwise re-merge and re-bill its trailing file on every sync forever.
         s3 = _FakeS3({_key(100, 200): _parquet_bytes(_table([1], [200]))})
 
-        tables = await _collect(s3, load_position=200, prev_completed_start=_OLD_MTIME + dt.timedelta(hours=1))
+        tables = await _collect(s3, load_position=200, proof_time=_OLD_MTIME + dt.timedelta(hours=1))
 
         assert s3.removed == [_key(100, 200)]
         assert tables == []
 
     @parameterized.expand(
         [
-            # A file written after the completed run started was never in its listing — it can hold
-            # the unread tail of a transaction split across files (all rows share one position).
-            ("written_after_the_completed_run_started", _NOW, _NOW - dt.timedelta(minutes=30)),
-            # Within the clock-skew margin of the run start, existence at listing time is unproven.
+            # A file written after the proving run's listing was never in it — it can hold the
+            # unread tail of a transaction split across files (all rows share one position).
+            ("written_after_the_proving_listing", _NOW, _NOW - dt.timedelta(minutes=30)),
+            # Within the clock-skew margin of the listing, existence in it is unproven.
             ("within_the_skew_margin", _NOW - dt.timedelta(minutes=32), _NOW - dt.timedelta(minutes=30)),
-            ("no_completed_run_yet", _OLD_MTIME, None),
+            ("no_completed_listing_yet", _OLD_MTIME, None),
         ]
     )
-    async def test_a_file_at_the_position_is_kept_when_consumption_is_unproven(
-        self, _name, mtime, prev_completed_start
-    ):
+    async def test_a_file_at_the_position_is_kept_when_consumption_is_unproven(self, _name, mtime, proof_time):
         key = _key(100, 200)
         s3 = _FakeS3({key: _parquet_bytes(_table([1], [200]))}, mtimes={key: mtime})
 
-        tables = await _collect(s3, load_position=200, prev_completed_start=prev_completed_start)
+        tables = await _collect(s3, load_position=200, proof_time=proof_time)
 
         assert s3.removed == []
         assert len(tables) == 1
@@ -208,7 +208,7 @@ class TestCDCSourceManager:
     async def test_no_files_are_deleted_before_anything_is_committed(self):
         s3 = _FakeS3({_key(100, 199): _parquet_bytes(_table([1], [100]))})
 
-        await _collect(s3, load_position=None, prev_completed_start=_NOW)
+        await _collect(s3, load_position=None, proof_time=_NOW)
 
         assert s3.removed == []
 
@@ -315,3 +315,44 @@ class TestPendingLegacyBacklog:
             ),
         ):
             assert has_pending_legacy_backlog(schema) is expected
+
+
+@pytest.mark.asyncio
+class TestListingProof:
+    # The deletion proof must come only from a run that listed the buffer AND completed. A gated
+    # no-op run (which never lists) or a crashed run (whose job never completes) must prove nothing.
+
+    async def test_every_consuming_run_stamps_its_listing(self):
+        s3 = _FakeS3({_key(100, 199): _parquet_bytes(_table([1], [100]))})
+
+        with _patched(s3, None, None) as mock_stamp:
+            [t async for t in _manager().get_items("users")]
+
+        mock_stamp.assert_awaited_once()
+
+    @parameterized.expand([("job_completed", True, True), ("job_not_completed", False, False)])
+    async def test_a_stamp_proves_only_once_its_job_completes(self, _name, completed, expect_proof):
+        listing = {"listed_at": _NOW.isoformat(), "job_id": "018f0000-0000-0000-0000-000000000001"}
+        exists_qs = MagicMock()
+        exists_qs.exists.return_value = completed
+
+        with patch(
+            "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects.filter",
+            return_value=exists_qs,
+        ):
+            proof = await _manager()._completed_listing_time(listing)
+
+        assert (proof == _NOW) is expect_proof
+        assert (proof is None) is (not expect_proof)
+
+    @parameterized.expand(
+        [
+            ("no_stamp", None),
+            ("malformed_date", {"listed_at": "not-a-date", "job_id": "018f0000-0000-0000-0000-000000000001"}),
+            ("naive_timestamp", {"listed_at": "2026-08-14T12:00:00", "job_id": "018f0000-0000-0000-0000-000000000001"}),
+            ("malformed_job_id", {"listed_at": "2026-08-14T12:00:00+00:00", "job_id": "not-a-uuid"}),
+            ("missing_job", {"listed_at": "2026-08-14T12:00:00+00:00"}),
+        ]
+    )
+    async def test_unusable_stamps_prove_nothing(self, _name, listing):
+        assert await _manager()._completed_listing_time(listing) is None

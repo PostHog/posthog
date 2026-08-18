@@ -22,6 +22,7 @@ def _mocked_side_effects(
     oldest_batch_age: float | None = None,
     write_resolution: bool = True,
     buffer_keys: list[str] | None = None,
+    extraction_running: bool = False,
 ):
     """Stub every outside effect: Temporal schedules, the sourcebatch probe, the flag, and S3.
 
@@ -39,6 +40,10 @@ def _mocked_side_effects(
         patch(f"{_CMD}.is_cdc_write_resolution_enabled", return_value=write_resolution),
         patch(f"{_CMD}.purge_buffer_prefix") as mock_purge,
         patch("products.data_warehouse.backend.facade.api.get_s3_client", return_value=s3),
+        patch(
+            "products.data_warehouse.backend.facade.api.cdc_extraction_schedule_has_running_action",
+            return_value=extraction_running,
+        ),
         patch("products.data_warehouse.backend.facade.api.pause_cdc_extraction_schedule") as mock_pause,
         patch("products.data_warehouse.backend.facade.api.unpause_cdc_extraction_schedule") as mock_unpause,
         patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule") as mock_pause_schema,
@@ -249,3 +254,27 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         assert "cdc_ingest_mode" not in source.job_inputs
         mocks["pause"].assert_called_once()
         mocks["unpause"].assert_not_called()
+
+    def test_rollback_waits_out_an_in_flight_extraction_run(self):
+        # Pausing the schedule does not stop a running workflow — one still executing would keep
+        # writing buffer files and advancing the slot behind the drain check.
+        source = self._source(ingest_mode="buffered")
+        self._schema(source, "users")
+
+        with _mocked_side_effects(extraction_running=True):
+            with pytest.raises(CommandError, match="still executing"):
+                self._run(source, rollback=True, drain_timeout=0)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
+
+    def test_a_user_disabled_schema_is_not_flipped(self):
+        # Step 5 unpauses eligible schedules; flipping a disabled schema would reverse the disable.
+        source = self._source()
+        disabled = self._schema(source, "users")
+        disabled.should_sync = False
+        disabled.save(update_fields=["should_sync"])
+
+        with _mocked_side_effects():
+            with pytest.raises(CommandError, match="No schema on this source serves the buffered lane"):
+                self._run(source)

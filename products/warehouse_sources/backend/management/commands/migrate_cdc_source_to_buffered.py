@@ -76,7 +76,9 @@ class Command(BaseCommand):
         if not cdc_schemas:
             raise CommandError(f"Source {source_id} has no CDC schemas")
 
-        eligible = [s for s in cdc_schemas if serves_buffered_lane(s)]
+        # Mirror capture's _get_cdc_schemas: a user-disabled schema must not be flipped — step 5
+        # would unpause its schedule, reversing the disable.
+        eligible = [s for s in cdc_schemas if s.should_sync and serves_buffered_lane(s)]
         ineligible = [s for s in cdc_schemas if s not in eligible]
         current_mode = (source.job_inputs or {}).get("cdc_ingest_mode", "legacy")
 
@@ -98,7 +100,7 @@ class Command(BaseCommand):
             return
 
         if rollback:
-            self._roll_back(source, eligible, options["drain_timeout"])
+            self._roll_back(source, eligible, cdc_schemas, options["drain_timeout"])
         else:
             self._flip_to_buffered(source, eligible, options["drain_timeout"])
 
@@ -149,7 +151,9 @@ class Command(BaseCommand):
                 )
             )
         if ineligible:
-            detail = ", ".join(f"{s.name} [{s.cdc_table_mode}]" for s in ineligible)
+            detail = ", ".join(
+                f"{s.name} [{'disabled' if not s.should_sync else s.cdc_table_mode}]" for s in ineligible
+            )
             self.stdout.write(self.style.WARNING(f"  staying on legacy ({len(ineligible)}): {detail}"))
             self.stdout.write(
                 self.style.WARNING(
@@ -198,7 +202,13 @@ class Command(BaseCommand):
             'advances sync_type_config["cdc_load_position"]; consumed files disappear on the run after.'
         )
 
-    def _roll_back(self, source: ExternalDataSource, eligible: list[ExternalDataSchema], drain_timeout: int) -> None:
+    def _roll_back(
+        self,
+        source: ExternalDataSource,
+        eligible: list[ExternalDataSchema],
+        cdc_schemas: list[ExternalDataSchema],
+        drain_timeout: int,
+    ) -> None:
         from products.data_warehouse.backend.facade.api import (
             pause_cdc_extraction_schedule,
             unpause_cdc_extraction_schedule,
@@ -206,33 +216,53 @@ class Command(BaseCommand):
 
         source_id = str(source.id)
 
-        self.stdout.write("1/5 pausing extraction schedule")
+        # Pausing the schedule stops future firings, not a workflow already running — which can
+        # keep writing buffer files and advancing the slot. The drain check below is meaningless
+        # until capture is actually idle.
+        self.stdout.write("1/6 pausing extraction schedule")
         pause_cdc_extraction_schedule(source_id)
+        self.stdout.write("2/6 waiting for the in-flight extraction run to finish")
+        self._wait_for_extraction_idle(source_id, drain_timeout)
 
         # The buffer's tail holds WAL the slot has already advanced past — it exists nowhere else.
         # The consumer must apply it BEFORE legacy delivery resumes, or it is lost for good. Capture
-        # is paused so the buffer is static; the still-running scheduled sync drains it.
-        self.stdout.write("2/5 waiting for the consumer to drain the buffer")
-        self._wait_for_buffer_drain(source.team_id, eligible, drain_timeout)
+        # is idle so the buffer is static; the still-running scheduled sync drains it. Scanned over
+        # every CDC schema, not just the eligible ones — a schema disabled after the flip still owns
+        # unconsumed files.
+        self.stdout.write("3/6 waiting for the consumer to drain the buffer")
+        self._wait_for_buffer_drain(source.team_id, cdc_schemas, drain_timeout)
 
         # Consumer next: a sync merging old buffered rows AFTER legacy capture resumed would
         # overwrite newer legacy writes — legacy writes carry no position, so the guard can't
         # protect them. Strict: a schedule that failed to pause could start such a sync.
-        self.stdout.write("3/5 pausing per-schema schedules")
+        self.stdout.write("4/6 pausing per-schema schedules")
         self._pause_schema_schedules_strict(eligible)
         self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
-        self.stdout.write("4/5 setting cdc_ingest_mode=legacy")
+        self.stdout.write("5/6 setting cdc_ingest_mode=legacy")
         source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "legacy"}
         source.save(update_fields=["job_inputs"])
 
         # Leftover fully-applied files stay: the position guard no-ops a replay, the S3 TTL clears them.
-        self.stdout.write("5/5 unpausing extraction schedule")
+        self.stdout.write("6/6 unpausing extraction schedule")
         unpause_cdc_extraction_schedule(source_id)
 
         self.stdout.write(self.style.SUCCESS(f"Source {source_id} is now legacy."))
 
-    def _wait_for_buffer_drain(self, team_id: int, eligible: list[ExternalDataSchema], timeout: int) -> None:
+    def _wait_for_extraction_idle(self, source_id: str, timeout: int) -> None:
+        from products.data_warehouse.backend.facade.api import cdc_extraction_schedule_has_running_action
+
+        deadline = time.monotonic() + timeout
+        while cdc_extraction_schedule_has_running_action(source_id):
+            if time.monotonic() >= deadline:
+                raise CommandError(
+                    f"An extraction run is still executing after {timeout}s. The schedule is left "
+                    "paused and the mode unchanged — wait for it to finish, then re-run."
+                )
+            self.stdout.write("    waiting, extraction run still executing")
+            time.sleep(DRAIN_POLL_SECONDS)
+
+    def _wait_for_buffer_drain(self, team_id: int, schemas: list[ExternalDataSchema], timeout: int) -> None:
         """Block until every schema's load position covers every remaining buffer file."""
         from products.data_warehouse.backend.facade.api import get_s3_client
         from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import read_load_position
@@ -244,7 +274,7 @@ class Command(BaseCommand):
         deadline = time.monotonic() + timeout
         while True:
             behind: list[str] = []
-            for schema in eligible:
+            for schema in schemas:
                 schema.refresh_from_db(fields=["sync_type_config"])
                 floor = read_load_position(schema.sync_type_config, consolidated_resource_name(schema)) or 0
                 prefix = strip_s3_protocol(get_buffer_prefix(team_id, str(schema.id)))

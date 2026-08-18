@@ -27,6 +27,8 @@ preserved, so there is no WAL gap and no re-sync.
    Without the flag the loader records no load position, so no consumed file is ever proven safe to
    delete; the buffer then fills until the S3 TTL expires it, with the slot long advanced past those
    changes. That is unrecoverable loss, not a stall. Rollback does not require the flag.
+   **The flag must also stay on after the flip** — turning it off later freezes the load position,
+   and the symptom is a frozen `cdc_load_position` with buffer files aging toward the TTL.
 2. No source table has a column named `_ph_cdc_seq`. **The command refuses to flip if one does** —
    the name is reserved for change ordering, and capture hard-errors on the collision rather than
    writing files whose ordering and retry cleanup derive from customer data.
@@ -90,14 +92,21 @@ python manage.py migrate_cdc_source_to_buffered --source-id <uuid> --rollback
 
 The order matters, and the command enforces it:
 
-1. Pause the extraction schedule, so the buffer stops growing.
-2. **Wait for the consumer to drain the buffer.** The buffer's tail holds WAL the slot has already
+1. Pause the extraction schedule, so no new capture run starts.
+2. Wait for the in-flight extraction run to finish — pausing a schedule does not stop a running
+   workflow, and a run still executing would keep writing files and advancing the slot behind the
+   drain check.
+3. **Wait for the consumer to drain the buffer.** The buffer's tail holds WAL the slot has already
    advanced past — it exists nowhere else, and flipping to legacy before it is applied loses it for
    good. The command refuses to proceed (extraction left paused, consumer left running) until every
    remaining file is covered by the schema's load position.
-3. Pause the per-schema schedules and wait for running sync jobs, so no in-flight merge of old
+4. Pause the per-schema schedules and wait for running sync jobs, so no in-flight merge of old
    buffered rows can land after legacy delivery resumes and overwrite newer rows.
-4. Set the mode to `legacy` and unpause the extraction schedule.
+5. Set the mode to `legacy` and unpause the extraction schedule.
+
+The buffer-drain check covers every CDC schema on the source, including ones disabled after the
+flip — a disabled schema's unconsumed files still block, and draining them means re-enabling the
+schema so its sync can catch up first.
 
 Fully-applied buffer files are **not** purged: the position guard makes a replay a no-op, and the
 14-day S3 TTL clears them. Rows already merged stay merged — the same rows the legacy lane would
