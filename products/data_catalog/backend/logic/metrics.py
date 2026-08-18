@@ -421,14 +421,18 @@ def _lock_batch(team_id: int, metrics: list[Metric]) -> dict[UUID, Metric]:
 
     Locks in ``pk`` order so two concurrent bulk operations over overlapping rows queue behind each
     other instead of deadlocking. A metric missing from the result was deleted between resolution and
-    the lock. ``of`` keeps the lock on the metric rows: the joined user rows are only read to
-    serialize the response, and locking them would block unrelated writes to those users.
+    the lock.
     """
     locked = (
         Metric.objects.for_team(team_id)
         .filter(pk__in=[metric.pk for metric in metrics], deleted=False)
-        .select_related("owner", "created_by")
+        # Cache owner and created_by so serializing the approve response reads them off the row
+        # instead of one posthog_user lookup per metric. Both FKs are nullable, so select_related
+        # is a LEFT OUTER JOIN; Postgres rejects FOR UPDATE on the nullable side of an outer join,
+        # so scope the lock to the Metric row with of=("self",) (which also keeps the lock off
+        # posthog_user).
         .select_for_update(of=("self",))
+        .select_related("owner", "created_by")
         .order_by("pk")
     )
     return {metric.id: metric for metric in locked}
