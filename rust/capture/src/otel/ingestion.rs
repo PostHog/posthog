@@ -1,8 +1,10 @@
 use axum::http::HeaderMap;
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use prost::Message;
+use serde::de::IgnoredAny;
+use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::CaptureError;
@@ -100,6 +102,7 @@ pub fn parse_logs_request(
     body: &Bytes,
     headers: &HeaderMap,
     body_limit: usize,
+    record_limit: usize,
 ) -> Result<ExportLogsServiceRequest, CaptureError> {
     let content_encoding = headers
         .get("content-encoding")
@@ -122,9 +125,11 @@ pub fn parse_logs_request(
         .unwrap_or("");
 
     if content_type.starts_with("application/x-protobuf") {
+        ensure_protobuf_log_record_limit(&body, record_limit)?;
         ExportLogsServiceRequest::decode(&body[..])
             .map_err(|e| CaptureError::RequestParsingError(format!("Invalid protobuf: {e}")))
     } else if content_type.starts_with("application/json") {
+        ensure_json_log_record_limit(&body, record_limit)?;
         let mut json_value: Value = serde_json::from_slice(&body)
             .map_err(|e| CaptureError::RequestParsingError(format!("Invalid JSON: {e}")))?;
 
@@ -138,6 +143,135 @@ pub fn parse_logs_request(
             "Content-Type must be application/x-protobuf or application/json".to_string(),
         ))
     }
+}
+
+fn ensure_protobuf_log_record_limit(
+    mut request: &[u8],
+    record_limit: usize,
+) -> Result<(), CaptureError> {
+    let mut record_count = 0;
+    while request.has_remaining() {
+        let (tag, wire_type) =
+            prost::encoding::decode_key(&mut request).map_err(invalid_logs_protobuf)?;
+        if tag == 1 && wire_type == prost::encoding::WireType::LengthDelimited {
+            let mut resource_logs = take_message(&mut request).map_err(invalid_logs_protobuf)?;
+            count_resource_log_records(&mut resource_logs, &mut record_count, record_limit)?;
+        } else {
+            prost::encoding::skip_field(
+                wire_type,
+                tag,
+                &mut request,
+                prost::encoding::DecodeContext::default(),
+            )
+            .map_err(invalid_logs_protobuf)?;
+        }
+    }
+    Ok(())
+}
+
+fn count_resource_log_records(
+    resource_logs: &mut &[u8],
+    record_count: &mut usize,
+    record_limit: usize,
+) -> Result<(), CaptureError> {
+    while resource_logs.has_remaining() {
+        let (tag, wire_type) =
+            prost::encoding::decode_key(resource_logs).map_err(invalid_logs_protobuf)?;
+        if tag == 2 && wire_type == prost::encoding::WireType::LengthDelimited {
+            let mut scope_logs = take_message(resource_logs).map_err(invalid_logs_protobuf)?;
+            count_scope_log_records(&mut scope_logs, record_count, record_limit)?;
+        } else {
+            prost::encoding::skip_field(
+                wire_type,
+                tag,
+                resource_logs,
+                prost::encoding::DecodeContext::default(),
+            )
+            .map_err(invalid_logs_protobuf)?;
+        }
+    }
+    Ok(())
+}
+
+fn count_scope_log_records(
+    scope_logs: &mut &[u8],
+    record_count: &mut usize,
+    record_limit: usize,
+) -> Result<(), CaptureError> {
+    while scope_logs.has_remaining() {
+        let (tag, wire_type) =
+            prost::encoding::decode_key(scope_logs).map_err(invalid_logs_protobuf)?;
+        if tag == 2 && wire_type == prost::encoding::WireType::LengthDelimited {
+            let _ = take_message(scope_logs).map_err(invalid_logs_protobuf)?;
+            *record_count += 1;
+            ensure_log_record_count(*record_count, record_limit)?;
+        } else {
+            prost::encoding::skip_field(
+                wire_type,
+                tag,
+                scope_logs,
+                prost::encoding::DecodeContext::default(),
+            )
+            .map_err(invalid_logs_protobuf)?;
+        }
+    }
+    Ok(())
+}
+
+fn take_message<'a>(buf: &mut &'a [u8]) -> Result<&'a [u8], prost::DecodeError> {
+    let len = prost::encoding::decode_varint(buf)? as usize;
+    if len > buf.len() {
+        return Err(prost::DecodeError::new("buffer underflow"));
+    }
+    let (message, rest) = buf.split_at(len);
+    *buf = rest;
+    Ok(message)
+}
+
+fn invalid_logs_protobuf(error: prost::DecodeError) -> CaptureError {
+    CaptureError::RequestParsingError(format!("Invalid protobuf: {error}"))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LogsRecordCount {
+    #[serde(default)]
+    resource_logs: Vec<ResourceLogsRecordCount>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResourceLogsRecordCount {
+    #[serde(default)]
+    scope_logs: Vec<ScopeLogsRecordCount>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScopeLogsRecordCount {
+    #[serde(default)]
+    log_records: Vec<IgnoredAny>,
+}
+
+fn ensure_json_log_record_limit(body: &[u8], record_limit: usize) -> Result<(), CaptureError> {
+    let counts: LogsRecordCount = serde_json::from_slice(body)
+        .map_err(|error| CaptureError::RequestParsingError(format!("Invalid JSON: {error}")))?;
+    let record_count = counts
+        .resource_logs
+        .iter()
+        .flat_map(|resource_logs| &resource_logs.scope_logs)
+        .map(|scope_logs| scope_logs.log_records.len())
+        .sum();
+    ensure_log_record_count(record_count, record_limit)
+}
+
+fn ensure_log_record_count(record_count: usize, record_limit: usize) -> Result<(), CaptureError> {
+    if record_count > record_limit {
+        return Err(CaptureError::RequestParsingError(format!(
+            "Too many log records: {record_count} exceeds limit of {record_limit}"
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -191,7 +325,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "application/json".parse().unwrap());
 
-        let request = parse_logs_request(&body, &headers, 1024).unwrap();
+        let request = parse_logs_request(&body, &headers, 1024, 1000).unwrap();
 
         let record = &request.resource_logs[0].scope_logs[0].log_records[0];
         assert_eq!(record.event_name, "gen_ai.evaluation.result");
