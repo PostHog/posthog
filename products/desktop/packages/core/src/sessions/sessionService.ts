@@ -6533,6 +6533,10 @@ export class SessionService {
     let rawEntries: StoredLogEntry[];
     let liveStreamLineCount: number;
     let resumeLeafEntryStartIndex: number | undefined;
+    // How many entries the tail fetch dropped off the front of rawEntries. The
+    // stream cursors count from the start of the chain, and the engine's own
+    // totals still include those entries, so they have to be added back.
+    let truncatedHeadCount = 0;
     const resumeFromRunId =
       typeof runState?.resume_from_run_id === "string"
         ? runState.resume_from_run_id
@@ -6566,6 +6570,7 @@ export class SessionService {
           }
           this.logHydrationTruncation(taskId, taskRunId, result);
           rawEntries = result.entries;
+          truncatedHeadCount = result.truncatedHeadCount;
           const markedLeafStart = rawEntries.findIndex(
             (entry) => getEntryTaskRunMarker(entry) === taskRunId,
           );
@@ -6600,6 +6605,9 @@ export class SessionService {
           }
           this.logHydrationTruncation(taskId, resumeFromRunId, ancestorResult);
           this.logHydrationTruncation(taskId, taskRunId, currentRunResult);
+          // rawEntries below starts at the ancestor window, so only the
+          // ancestor fetch's drop moves the front of the chain.
+          truncatedHeadCount = ancestorResult.truncatedHeadCount;
           const ancestorEntries: StoredLogEntry[] = ancestorResult.entries;
           const currentRunEntries: StoredLogEntry[] = currentRunResult.entries;
           const ancestorKeys = ancestorEntries.map((entry) =>
@@ -6642,6 +6650,7 @@ export class SessionService {
         }
         this.logHydrationTruncation(taskId, taskRunId, result);
         rawEntries = result.entries;
+        truncatedHeadCount = result.truncatedHeadCount;
         liveStreamLineCount = rawEntries.length;
         // A terminal run whose persisted chain comes back empty can still
         // have a complete S3 session log (persistence raced teardown); fall
@@ -6650,6 +6659,7 @@ export class SessionService {
           const parsed = await this.fetchSessionLogs(logUrl, taskRunId);
           if (parsed.rawEntries.length > 0) {
             rawEntries = parsed.rawEntries;
+            truncatedHeadCount = 0;
             liveStreamLineCount = parsed.totalLineCount;
           }
         }
@@ -6730,11 +6740,12 @@ export class SessionService {
       };
     }
 
+    const chainEntryCount = rawEntries.length + truncatedHeadCount;
     // If live updates already populated a processed count, don't overwrite
     // that newer state with the persisted baseline fetched during startup.
     // Terminal hydration is different: it is the final transcript, so apply
     // it whenever the persisted chain has more lines than the local stream.
-    const effectiveLineCount = Math.max(liveStreamLineCount, rawEntries.length);
+    const effectiveLineCount = Math.max(liveStreamLineCount, chainEntryCount);
     const alreadyApplied = isTerminalRun
       ? (session.processedLineCount ?? 0) >= effectiveLineCount
       : session.processedLineCount !== undefined &&
@@ -6744,7 +6755,7 @@ export class SessionService {
       this.surfacePersistedPendingPermissions(taskRunId, rawEntries);
       this.pendingPermissionHydratedRuns.add(taskRunId);
       return {
-        historyEntryCount: rawEntries.length,
+        historyEntryCount: chainEntryCount,
         liveStreamLineCount: session.processedLineCount ?? liveStreamLineCount,
       };
     }
@@ -6762,7 +6773,7 @@ export class SessionService {
       events,
       isCloud: true,
       logUrl: logUrl ?? session.logUrl,
-      cloudTranscriptEntryCount: rawEntries.length,
+      cloudTranscriptEntryCount: chainEntryCount,
       // Terminal hydration records the whole chain as processed so nothing
       // re-applies it; live resume runs keep the leaf-stream cursor.
       processedLineCount: isTerminalRun
@@ -6779,7 +6790,7 @@ export class SessionService {
       this.clearTerminalCloudPromptState(taskRunId);
     }
     return {
-      historyEntryCount: rawEntries.length,
+      historyEntryCount: chainEntryCount,
       liveStreamLineCount,
     };
   }
