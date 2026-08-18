@@ -69,6 +69,8 @@ from .constants import (
     RECONCILE_EMBEDDING_GRACE,
     RECONCILE_EMBEDDING_SCAN_CAP,
     REEMIT_EMBEDDING_SCAN_CAP,
+    TRIAL_MAX_DOCUMENTS,
+    TRIAL_QUIET_PERIOD,
 )
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
@@ -1572,6 +1574,40 @@ def has_ready_sources(team_id: int) -> bool:
 
 
 @with_team_scope(canonical=True)
+def has_maintained_sources(team_id: int) -> bool:
+    """`has_ready_sources`, minus the try-it-once-and-never-return shape.
+
+    For a caller deciding whether to spend prompt space describing this team's knowledge base.
+    Searches leave no trace anywhere — no hit counters, no `last_searched_at`, no analytics
+    event — so this reads the rows for evidence of upkeep instead of for evidence of use. Any
+    of a second source, an `always_include` pin, a configured refresh cadence, more than
+    `TRIAL_MAX_DOCUMENTS` live documents, or a source touched inside `TRIAL_QUIET_PERIOD`
+    counts as maintained; only the full trial shape fails.
+
+    `updated_at` is load-bearing here and only trustworthy because the disqualifier already
+    requires a manual source: the refresh coordinator stamps `updated_at` on every pass of an
+    auto-refreshing source (a 304 included), so recency on those proves a cron ran, not that a
+    human returned.
+    """
+    sources = list(
+        KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY)
+        .annotate(live_documents=Count("documents", filter=Q(documents__tombstoned_at__isnull=True)))
+        .values("refresh_interval", "always_include", "updated_at", "live_documents")[:2]
+    )
+    if not sources:
+        return False
+    if len(sources) > 1:
+        return True
+    (only,) = sources
+    return bool(
+        only["always_include"]
+        or only["refresh_interval"] != RefreshInterval.MANUAL
+        or only["live_documents"] > TRIAL_MAX_DOCUMENTS
+        or only["updated_at"] > timezone.now() - TRIAL_QUIET_PERIOD
+    )
+
+
+@with_team_scope(canonical=True)
 def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
     """Return all SAFE/READY chunks from always_include sources, hard-capped by chars.
 
@@ -1639,6 +1675,17 @@ def has_feature_flag(team: Team) -> bool:
 def is_available_for_team(team: Team) -> bool:
     """Feature flag + ready sources — the full "should agents use BK?" predicate."""
     return has_feature_flag(team) and has_ready_sources(team.id)
+
+
+def is_maintained_for_team(team: Team) -> bool:
+    """Feature flag + a maintained knowledge base — the "is this worth prompt space?" predicate.
+
+    Stricter than `is_available_for_team`, and for a different question. A tool decides whether
+    it can serve a search (availability); a prompt section decides whether every run on this
+    project should carry a description of the knowledge base (upkeep, per
+    `has_maintained_sources`). Reach for availability when the caller only searches on demand.
+    """
+    return has_feature_flag(team) and has_maintained_sources(team.id)
 
 
 _SEARCH_LIMIT_CAP = 20

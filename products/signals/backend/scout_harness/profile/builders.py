@@ -729,7 +729,7 @@ def _business_knowledge(team: Team) -> dict[str, Any]:
     how much is searchable, what changed recently. The profile does NOT evaluate the
     `product-business-knowledge` feature flag — it reads only authoritative tables so cached
     profiles stay valid across flag flips. Whether the run is told about the base at all is the
-    prompt's call, gated per run on flag + READY sources (`prompt._BUSINESS_KNOWLEDGE`).
+    prompt's call, gated per run on flag + a maintained base (`prompt._BUSINESS_KNOWLEDGE`).
     """
     qs = KnowledgeSource.objects.for_team(team.id)
     total = qs.count()

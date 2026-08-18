@@ -186,6 +186,17 @@ BK_QUERY_EMBEDDING_TIMEOUT = 5.0
 # These bypass query filtering, so unbounded injection blows the token budget.
 MAX_ALWAYS_ON_CONTEXT_CHARS = 20_000
 
+# --- Abandoned-trial shape (`logic.has_maintained_sources`) ---
+# A team that pasted one page in to see what the product does and never came back still reads
+# as available to everything checking `is_available_for_team`, so an agent prompt describing
+# the knowledge base costs that team tokens on every run for a base nobody consults. The shape
+# below is what that trial looks like on the rows, and `has_maintained_sources` treats it as
+# not worth the prompt space. Deliberately narrow — one lone unpinned manual source, this
+# little content, quiet this long — because the opposite error hides a real knowledge base
+# from every agent. Widen it only on evidence.
+TRIAL_MAX_DOCUMENTS = 1
+TRIAL_QUIET_PERIOD = datetime.timedelta(days=60)
+
 # --- Drill-down (agentic read) tunables ---
 # Default chunk radius for get_document_window: returns center +/- radius
 # chunks (up to 2*radius+1 = 11 chunks ~= 13k chars at typical size).

@@ -1,11 +1,20 @@
 import uuid
+import datetime
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
-from products.business_knowledge.backend.constants import CHUNK_HARD_MAX_CHARS, MAX_ALWAYS_ON_CONTEXT_CHARS
+from posthog.models.team.team import Team
+
+from products.business_knowledge.backend.constants import (
+    CHUNK_HARD_MAX_CHARS,
+    MAX_ALWAYS_ON_CONTEXT_CHARS,
+    TRIAL_QUIET_PERIOD,
+)
 from products.business_knowledge.backend.logic import (
     QuotaExceededError,
     TextTooLargeError,
@@ -13,11 +22,13 @@ from products.business_knowledge.backend.logic import (
     chunk_text,
     create_text_source,
     get_always_on_context,
+    has_maintained_sources,
 )
 from products.business_knowledge.backend.models import (
     KnowledgeChunk,
     KnowledgeDocument,
     KnowledgeSource,
+    RefreshInterval,
     SafetyVerdict,
     SourceStatus,
 )
@@ -223,3 +234,77 @@ class TestGetAlwaysOnContext(BaseTest):
         assert total <= MAX_ALWAYS_ON_CONTEXT_CHARS
         # Should have gotten at most 1 chunk (2nd would exceed cap)
         assert len(results) == 1
+
+
+class TestHasMaintainedSources(BaseTest):
+    def _create_source(
+        self,
+        *,
+        status: str = SourceStatus.READY,
+        always_include: bool = False,
+        refresh_interval: str = RefreshInterval.MANUAL,
+        documents: int = 1,
+        tombstoned_documents: int = 0,
+        age: datetime.timedelta = datetime.timedelta(days=1),
+    ) -> KnowledgeSource:
+        source = KnowledgeSource.objects.unscoped().create(
+            team_id=self.team.id,
+            name="test",
+            source_type="text",
+            status=status,
+            always_include=always_include,
+            refresh_interval=refresh_interval,
+        )
+        for index in range(documents + tombstoned_documents):
+            KnowledgeDocument.objects.unscoped().create(
+                team_id=self.team.id,
+                source=source,
+                stable_id=str(uuid.uuid4()),
+                title=f"doc-{index}",
+                content="content",
+                content_hash=str(index),
+                safety_verdict=SafetyVerdict.SAFE,
+                tombstoned_at=timezone.now() if index >= documents else None,
+            )
+        # `updated_at` is auto_now, so the create above stamps it now — reach past save() to age it.
+        KnowledgeSource.objects.unscoped().filter(id=source.id).update(updated_at=timezone.now() - age)
+        return source
+
+    @parameterized.expand(
+        [
+            ("no_sources", [], False),
+            # The shape the predicate exists to catch: one page pasted in to try the product, left
+            # alone since. Every variation below breaks it in exactly one place and must pass.
+            ("lone_abandoned_trial", [{"age": TRIAL_QUIET_PERIOD * 2}], False),
+            ("lone_source_touched_recently", [{"age": datetime.timedelta(days=1)}], True),
+            ("lone_pinned_source", [{"age": TRIAL_QUIET_PERIOD * 2, "always_include": True}], True),
+            (
+                "lone_auto_refreshing_source",
+                [{"age": TRIAL_QUIET_PERIOD * 2, "refresh_interval": RefreshInterval.DAILY}],
+                True,
+            ),
+            ("lone_source_with_content", [{"age": TRIAL_QUIET_PERIOD * 2, "documents": 5}], True),
+            (
+                "two_abandoned_sources",
+                [{"age": TRIAL_QUIET_PERIOD * 2}, {"age": TRIAL_QUIET_PERIOD * 2}],
+                True,
+            ),
+            # A crawl that stopped discovering pages tombstones them, and search skips those, so
+            # they must not lift an abandoned source over the content bar either.
+            (
+                "lone_trial_with_tombstoned_documents",
+                [{"age": TRIAL_QUIET_PERIOD * 2, "tombstoned_documents": 5}],
+                False,
+            ),
+            ("pending_source_only", [{"status": SourceStatus.PENDING, "documents": 5}], False),
+        ]
+    )
+    def test_classifies_the_team_knowledge_base(self, _name: str, sources: list[dict], expected: bool) -> None:
+        for spec in sources:
+            self._create_source(**spec)
+        assert has_maintained_sources(self.team.id) is expected
+
+    def test_scoped_to_one_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._create_source(documents=5)
+        assert has_maintained_sources(other_team.id) is False

@@ -476,7 +476,7 @@ class TestBusinessKnowledgePromptSection(SimpleTestCase):
         # curated a knowledge base with scouts that never search it, and rendering it for everyone
         # steers the whole fleet at BK tools that are only in the toolset when that product's flag
         # is on — an unknown-tool burn on every run, for a section most teams can't act on.
-        def _prompt(*, available: bool) -> str:
+        def _prompt(*, maintained: bool) -> str:
             return build_run_prompt(
                 LoadedSkill(
                     name="signals-scout-errors",
@@ -492,19 +492,19 @@ class TestBusinessKnowledgePromptSection(SimpleTestCase):
                 run_id="00000000-0000-0000-0000-000000000abc",
                 team_id=1,
                 started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
-                business_knowledge_available=available,
+                business_knowledge_maintained=maintained,
             )
 
-        available = _prompt(available=True)
-        assert "# Business knowledge" in available
-        assert "business-knowledge-documents-search" in available
+        maintained = _prompt(maintained=True)
+        assert "# Business knowledge" in maintained
+        assert "business-knowledge-documents-search" in maintained
 
-        unavailable = _prompt(available=False)
-        assert "# Business knowledge" not in unavailable
+        unmaintained = _prompt(maintained=False)
+        assert "# Business knowledge" not in unmaintained
         # The tool names, specifically — *Ground rules* still names business-knowledge documents as
         # one of the untrusted sources a run may read, and must keep doing so.
-        assert "business-knowledge-documents-search" not in unavailable
-        assert "business-knowledge-document-window-retrieve" not in unavailable
+        assert "business-knowledge-documents-search" not in unmaintained
+        assert "business-knowledge-document-window-retrieve" not in unmaintained
 
 
 class TestPromptBuilder(BaseTest):

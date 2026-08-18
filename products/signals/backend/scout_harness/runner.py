@@ -22,7 +22,7 @@ from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
-from products.business_knowledge.backend.logic import is_available_for_team
+from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.data_catalog.backend.facade.flags import is_data_catalog_enabled
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
@@ -516,16 +516,18 @@ def _data_catalog_enabled_for_team(team: Team) -> bool:
         return False
 
 
-def _business_knowledge_available_for_team(team: Team) -> bool:
+def _business_knowledge_maintained_for_team(team: Team) -> bool:
     """Whether this team's scouts get the business-knowledge section.
 
-    The product's flag plus at least one READY source, resolved fresh per run so a flag flip or a
-    first finished ingest lands on the next run. Falls back to off on a read error for the same
-    reason `_data_catalog_enabled_for_team` does: this resolves inside `_spawn_and_run`, so a raise
-    would book a failed run and advance the streak over a section the run does not need.
+    `is_maintained_for_team`, not `is_available_for_team`: the section rides on every run, so a
+    knowledge base a team tried once and abandoned would tax the whole lane forever. Resolved
+    fresh per run so a flag flip, a first finished ingest, or a team returning to curate lands on
+    the next run. Falls back to off on a read error for the same reason
+    `_data_catalog_enabled_for_team` does: this resolves inside `_spawn_and_run`, so a raise would
+    book a failed run and advance the streak over a section the run does not need.
     """
     try:
-        return is_available_for_team(team)
+        return is_maintained_for_team(team)
     except Exception as error:
         capture_exception(error)
         return False
@@ -635,8 +637,8 @@ async def _spawn_and_run(
         if data_catalog_enabled
         else None
     )
-    business_knowledge_available = await database_sync_to_async(
-        _business_knowledge_available_for_team, thread_sensitive=False
+    business_knowledge_maintained = await database_sync_to_async(
+        _business_knowledge_maintained_for_team, thread_sensitive=False
     )(team)
     prompt = build_run_prompt(
         skill,
@@ -646,7 +648,7 @@ async def _spawn_and_run(
         github_read_access=github_guidance,
         data_catalog_enabled=data_catalog_enabled,
         governed_metric_names=governed_metric_names,
-        business_knowledge_available=business_knowledge_available,
+        business_knowledge_maintained=business_knowledge_maintained,
         # Renders the structured-output section (schema + `scout-record-output` contract) only
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.

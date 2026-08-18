@@ -564,12 +564,12 @@ Your close-out `summary` renders in the scout's run history **collapsed to the f
 
 Keep it a close-out, not a transcript: methodology and tool-by-tool narration belong in the task log."""
 
-# Rendered only for a team whose knowledge base exists and is reachable — the
-# `product-business-knowledge` flag is on (which is also what puts these tools in the run's MCP
-# toolset) AND at least one source is READY. The runner resolves both per run
-# (`business_knowledge_available`), so the section states the base as a fact and names the tools as
-# present. The alternative — render always, have the scout self-check the project profile — charged
-# every prompt in the fleet for a section a team without a knowledge base could only skip.
+# Rendered only for a team whose knowledge base is reachable and looks maintained — the runner
+# resolves `business_knowledge.is_maintained_for_team` per run (`business_knowledge_maintained`).
+# That predicate covers the flag, which is also what puts these tools in the run's MCP toolset, so
+# the section states the base as a fact and names the tools as present. The alternative — render
+# always, have the scout self-check the project profile — charged every prompt in the fleet for a
+# section a team without a knowledge base could only skip.
 _BUSINESS_KNOWLEDGE = """# Business knowledge
 
 This team keeps a curated knowledge base (product docs, policies, domain context) that you can search with `business-knowledge-documents-search`. Search it when interpreting a domain-specific event or metric (what "tier-2 support" means), when deciding whether observed behavior is expected (a refund-policy change explaining a metric move), or to enrich a finding with team-specific context. `business-knowledge-document-window-retrieve` expands around a search hit.
@@ -751,7 +751,7 @@ def _signal_tail_sections(
     structured_output_section: str = "",
     data_catalog_enabled: bool = False,
     governed_metric_names: Sequence[str] | None = None,
-    business_knowledge_available: bool = False,
+    business_knowledge_maintained: bool = False,
 ) -> list[str]:
     """Signal-channel tail. `followup_section` is the per-run composed self-validation section —
     channel-matched, so it can't live in a static list; `structured_output_section` is likewise
@@ -773,7 +773,7 @@ def _signal_tail_sections(
         _linking_section(report_channel=False),
         _WRITING_STYLE,
         _WRITING_SUMMARY,
-        *([_BUSINESS_KNOWLEDGE] if business_knowledge_available else []),
+        *([_BUSINESS_KNOWLEDGE] if business_knowledge_maintained else []),
         _DEDUPE_RULES_SIGNAL,
         _OPERATIONAL_FRICTION,
         _OUTPUT_FORMAT,
@@ -789,7 +789,7 @@ def _report_tail_sections(
     structured_output_section: str = "",
     data_catalog_enabled: bool = False,
     governed_metric_names: Sequence[str] | None = None,
-    business_knowledge_available: bool = False,
+    business_knowledge_maintained: bool = False,
 ) -> list[str]:
     """Report-channel tail, tailored to the report tools the scout actually opted into.
 
@@ -846,7 +846,7 @@ def _report_tail_sections(
         _linking_section(report_channel=True),
         _WRITING_STYLE,
         _WRITING_SUMMARY,
-        *([_BUSINESS_KNOWLEDGE] if business_knowledge_available else []),
+        *([_BUSINESS_KNOWLEDGE] if business_knowledge_maintained else []),
         _OPERATIONAL_FRICTION,
         _OUTPUT_FORMAT,
     ]
@@ -909,7 +909,7 @@ def build_run_prompt(
     structured_output_schema: dict | None = None,
     data_catalog_enabled: bool = False,
     governed_metric_names: Sequence[str] | None = None,
-    business_knowledge_available: bool = False,
+    business_knowledge_maintained: bool = False,
 ) -> str:
     """Render the opening prompt for one scout run.
 
@@ -953,10 +953,11 @@ def build_run_prompt(
     renders the injected listing so the run is catalog-aware without a probe query, and `None`
     means the lookup was unavailable, falling back to the prose probe-and-cache rule.
 
-    `business_knowledge_available` must mirror `business_knowledge.is_available_for_team`: it renders
-    the business-knowledge section, which names tools that only exist in the run's toolset when that
-    product's flag is on, and describes a knowledge base that is only worth a search once a source is
-    READY. Off renders nothing at all, so a team without one never pays for the section.
+    `business_knowledge_maintained` must mirror `business_knowledge.is_maintained_for_team`: it
+    renders the business-knowledge section, which names tools that only exist in the run's toolset
+    when that product's flag is on. The stricter predicate is deliberate — the section rides on
+    every run of the lane, so a base a team tried once and abandoned would tax the lane forever.
+    Off renders nothing at all, so such a team never pays for the section.
 
     Every prompt carries the self-validation follow-ups section: the scout keeps a `followup:`
     scratchpad queue and decides for itself, run by run, whether to spend the run validating it —
@@ -985,7 +986,7 @@ def build_run_prompt(
             structured_output_section=structured_output_section,
             data_catalog_enabled=data_catalog_enabled,
             governed_metric_names=governed_metric_names,
-            business_knowledge_available=business_knowledge_available,
+            business_knowledge_maintained=business_knowledge_maintained,
         )
         # Point the run-identity line at a report tool the scout can actually call — prefer authoring,
         # fall back to editing for an edit-only scout. Never name a tool that would fail closed.
@@ -997,7 +998,7 @@ def build_run_prompt(
             structured_output_section=structured_output_section,
             data_catalog_enabled=data_catalog_enabled,
             governed_metric_names=governed_metric_names,
-            business_knowledge_available=business_knowledge_available,
+            business_knowledge_maintained=business_knowledge_maintained,
         )
         emit_tool = "scout-emit-signal"
     # Slot the origin-matched improvement channel between friction reporting and the output format
