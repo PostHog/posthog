@@ -1,0 +1,160 @@
+import base64
+
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
+
+from posthog.models.integration import Integration
+
+from products.conversations.backend.models import (
+    EmailThread,
+    EmailThreadAccountLink,
+    EmailThreadMessage,
+    EmailThreadMessageDirection,
+)
+from products.conversations.backend.services import gmail_sync
+from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
+from products.customer_analytics.backend.models import Account
+
+
+def _response(payload: dict, status_code: int = 200) -> MagicMock:
+    response = MagicMock(status_code=status_code)
+    response.json.return_value = payload
+    response.text = ""
+    return response
+
+
+def _gmail_message(*, label: str, sender: str, recipient: str, message_id: str = "gmail-1") -> dict:
+    body = base64.urlsafe_b64encode(b"Customer message body").decode().rstrip("=")
+    return {
+        "id": message_id,
+        "threadId": "thread-1",
+        "historyId": "101",
+        "internalDate": "1785855600000",
+        "labelIds": [label],
+        "payload": {
+            "mimeType": "text/plain",
+            "headers": [
+                {"name": "Message-ID", "value": f"<{message_id}@example.com>"},
+                {"name": "From", "value": sender},
+                {"name": "To", "value": recipient},
+                {"name": "Subject", "value": "Account follow-up"},
+            ],
+            "body": {"data": body},
+        },
+    }
+
+
+class TestGmailSync(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="google-sub-1",
+            created_by=self.user,
+            config={
+                "email": self.user.email,
+                "scope": f"https://www.googleapis.com/auth/calendar.readonly {gmail_sync.GMAIL_READONLY_SCOPE}",
+                "refreshed_at": 9_999_999_999,
+                "expires_in": 3600,
+            },
+            sensitive_config={"access_token": "ACCESS", "refresh_token": "REFRESH"},
+        )
+
+    @parameterized.expand(
+        [
+            ("inbox", "INBOX", "customer@example.com", "test@posthog.com", EmailThreadMessageDirection.INBOUND),
+            ("sent", "SENT", "test@posthog.com", "customer@example.com", EmailThreadMessageDirection.OUTBOUND),
+        ]
+    )
+    def test_google_connection_imports_account_email(
+        self,
+        _name: str,
+        label: str,
+        sender: str,
+        recipient: str,
+        expected_direction: EmailThreadMessageDirection,
+    ) -> None:
+        self.user.email = "test@posthog.com"
+        self.user.save(update_fields=["email"])
+        self.integration.config["email"] = self.user.email
+        self.integration.save(update_fields=["config"])
+        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Example", external_id="example")
+        account.properties = {"email_domains": ["example.com"]}
+        account.save()
+
+        with patch.object(
+            gmail_sync,
+            "google_workspace_request",
+            side_effect=[
+                _response({"emailAddress": self.user.email, "historyId": "100"}),
+                _response({"messages": [{"id": "gmail-1"}]}),
+                _response(_gmail_message(label=label, sender=sender, recipient=recipient)),
+            ],
+        ):
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        recalculate_email_thread_links(self.team.id)
+
+        message = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
+        assert message.direction == expected_direction
+        assert message.source_type == "gmail"
+        assert message.comment.content == "Customer message body"
+        assert EmailThreadAccountLink.objects.for_team(self.team.id).get().account_id == str(account.id)
+        self.integration.refresh_from_db()
+        assert self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] == "100"
+
+    def test_incremental_sync_is_idempotent(self) -> None:
+        self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] = "100"
+        self.integration.save(update_fields=["config"])
+        history = {
+            "history": [
+                {
+                    "id": "101",
+                    "messagesAdded": [
+                        {"message": {"id": "gmail-1"}},
+                        {"message": {"id": "gmail-1"}},
+                    ],
+                }
+            ],
+            "historyId": "101",
+        }
+        responses = [
+            _response(history),
+            _response(_gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)),
+            _response(history),
+            _response(_gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)),
+        ]
+
+        with patch.object(gmail_sync, "google_workspace_request", side_effect=responses):
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        assert EmailThread.objects.for_team(self.team.id).count() == 1
+        assert EmailThreadMessage.objects.for_team(self.team.id).count() == 1
+
+    def test_existing_calendar_only_connection_does_not_call_gmail(self) -> None:
+        self.integration.config["scope"] = "https://www.googleapis.com/auth/calendar.readonly"
+        self.integration.save(update_fields=["config"])
+
+        with patch.object(gmail_sync, "google_workspace_request") as mock_request:
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        mock_request.assert_not_called()
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    def test_internal_only_email_is_not_stored(self) -> None:
+        with patch.object(
+            gmail_sync,
+            "google_workspace_request",
+            side_effect=[
+                _response({"emailAddress": self.user.email, "historyId": "100"}),
+                _response({"messages": [{"id": "gmail-1"}]}),
+                _response(_gmail_message(label="INBOX", sender=self.user.email, recipient=self.user.email)),
+            ],
+        ):
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        assert not EmailThread.objects.for_team(self.team.id).exists()
