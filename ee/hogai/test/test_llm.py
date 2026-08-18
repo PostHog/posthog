@@ -21,6 +21,16 @@ from ee.hogai.llm import BILLING_SKIPPED_COUNTER, PROJECT_ORG_USER_CONTEXT_PROMP
 
 @patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key", "ANTHROPIC_API_KEY": "test-api-key"})
 class TestMaxChatOpenAI(BaseTest):
+    def test_provider_is_included_in_callback_metadata(self):
+        for llm, expected_provider in (
+            (MaxChatOpenAI(user=self.user, team=self.team), "openai"),
+            (MaxChatAnthropic(user=self.user, team=self.team, model="claude"), "anthropic"),
+        ):
+            with self.subTest(provider=expected_provider):
+                call_kwargs = llm._with_posthog_properties()
+
+                self.assertEqual(call_kwargs["metadata"]["ls_provider"], expected_provider)
+
     def setUp(self):
         super().setUp()
         # Setup test data
