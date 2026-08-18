@@ -64,6 +64,13 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLEPLAYCONSOLE
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # app_package_names picks which apps the stored service account key reads, and clearing it
+        # selects every app the account can see — so changing it must require re-uploading the key
+        # rather than letting an editor who never held it widen the import's reach.
+        return ["app_package_names"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Google rejected the service account credentials. Please upload a current JSON key file.",

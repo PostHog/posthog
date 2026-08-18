@@ -45,6 +45,10 @@ def test_source_type() -> None:
     assert GooglePlayConsoleSource().source_type == ExternalDataSourceType.GOOGLEPLAYCONSOLE
 
 
+def test_package_names_force_the_key_to_be_re_uploaded() -> None:
+    assert GooglePlayConsoleSource().connection_host_fields == ["app_package_names"]
+
+
 def test_source_ships_visible_as_alpha() -> None:
     config = GooglePlayConsoleSource().get_source_config
 
