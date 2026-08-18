@@ -81,6 +81,33 @@ describe("toCodexMcpServers", () => {
     });
   });
 
+  // Codex rejects server names outside ^[a-zA-Z0-9_-]+$ and silently never
+  // starts the server, so MCP Store display names must be sanitized here.
+  it.each([
+    ["Google Calendar", "Google_Calendar"],
+    ["Linear (Jane Doe)", "Linear__Jane_Doe_"],
+  ])("sanitizes %j into a codex-valid server key", (name, expected) => {
+    const servers = [
+      { type: "http", name, url: "https://mcp.example/mcp" },
+    ] as unknown as McpServer[];
+
+    expect(toCodexMcpServers(servers)).toEqual({
+      [expected]: { url: "https://mcp.example/mcp" },
+    });
+  });
+
+  it("suffixes colliding sanitized names instead of dropping a server", () => {
+    const servers = [
+      { type: "http", name: "Notion (A)", url: "https://a.example/mcp" },
+      { type: "http", name: "Notion [A]", url: "https://b.example/mcp" },
+    ] as unknown as McpServer[];
+
+    expect(toCodexMcpServers(servers)).toEqual({
+      Notion__A_: { url: "https://a.example/mcp" },
+      Notion__A__2: { url: "https://b.example/mcp" },
+    });
+  });
+
   it("leaves PostHog exec unchanged when gating is not enabled", () => {
     const servers = [
       {

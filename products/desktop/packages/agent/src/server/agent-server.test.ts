@@ -1699,6 +1699,26 @@ describe("AgentServer HTTP Mode", () => {
       expect(relaySpy).toHaveBeenCalledOnce();
     });
 
+    // Codex registers servers under sanitized keys (its name pattern rejects
+    // e.g. spaces), so the always-ask gate must match the sanitized form too.
+    it("relays a codex tool call whose relayed-server name codex sanitized", async () => {
+      const testServer = exposeCloudClient(createServer());
+      testServer.config.relayMcpServers = ["My Slack"];
+      testServer.session = { hasDesktopConnected: true };
+      const relaySpy = vi
+        .spyOn(testServer, "relayPermissionToClient")
+        .mockResolvedValue({
+          outcome: { outcome: "selected", optionId: "allow_once" },
+        });
+
+      const { requestPermission } = testServer.createCloudClient(basePayload);
+      await requestPermission(
+        codexPermissionRequestFor("My_Slack", "send_message"),
+      );
+
+      expect(relaySpy).toHaveBeenCalledOnce();
+    });
+
     it("denies a relayed-server tool call instead of auto-approving when no client is reachable", async () => {
       const testServer = exposeCloudClient(createServer());
       testServer.config.relayMcpServers = ["slack"];

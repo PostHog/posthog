@@ -1,5 +1,6 @@
 import type { McpServer } from "@agentclientprotocol/sdk";
 import { isPostHogExecDescriptor } from "../../posthog-exec-permission";
+import { sanitizeMcpServerName } from "../claude/mcp/tool-metadata";
 
 interface CodexMcpServerToolConfig {
   approval_mode: "prompt";
@@ -25,9 +26,35 @@ export type CodexMcpServerConfig =
     });
 
 /**
+ * Codex requires `mcp_servers` keys to match `^[a-zA-Z0-9_-]+$` and fails the
+ * offending server's startup otherwise (silently: the thread starts, the
+ * server's tools just never appear), so display names like "Google Calendar"
+ * or "Linear (Jane Doe)" from the MCP Store must be sanitized before keying
+ * the map. Reuses the Claude adapter's sanitizer so an installation produces
+ * the same `mcp__<server>__<tool>` keys under both adapters. A collision after
+ * sanitization gets a numeric suffix, because a plain map write would silently
+ * drop one of the colliding servers.
+ */
+export function codexMcpServerName(name: string): string {
+  return sanitizeMcpServerName(name) || "mcp-server";
+}
+
+function uniqueCodexMcpServerName(name: string, taken: Set<string>): string {
+  const base = codexMcpServerName(name);
+  let key = base;
+  for (let i = 2; taken.has(key); i++) {
+    key = `${base}_${i}`;
+  }
+  taken.add(key);
+  return key;
+}
+
+/**
  * Translates the ACP `McpServer[]` into the shape Codex's app-server expects under
  * `config.mcp_servers` — ACP encodes env/headers as `{ name, value }[]`, Codex
- * wants plain string maps. Returns undefined when there's nothing to inject.
+ * wants plain string maps, and keys must satisfy codex's server-name pattern
+ * (see {@link codexMcpServerName}). Returns undefined when there's nothing to
+ * inject.
  */
 export function toCodexMcpServers(
   servers: McpServer[] | undefined,
@@ -38,6 +65,7 @@ export function toCodexMcpServers(
   }
 
   const out: Record<string, CodexMcpServerConfig> = {};
+  const taken = new Set<string>();
   for (const server of servers) {
     // `approval_mode: "prompt"` makes codex ask before every exec call; the
     // per-sub-tool regex filtering happens in the adapter's approval handlers,
@@ -49,7 +77,7 @@ export function toCodexMcpServers(
         : {};
     if ("command" in server && server.command) {
       const env = pairsToRecord(server.env);
-      out[server.name] = {
+      out[uniqueCodexMcpServerName(server.name, taken)] = {
         command: server.command,
         args: server.args ?? [],
         ...(env ? { env } : {}),
@@ -57,7 +85,7 @@ export function toCodexMcpServers(
       };
     } else if ("url" in server && server.url) {
       const headers = pairsToRecord(server.headers);
-      out[server.name] = {
+      out[uniqueCodexMcpServerName(server.name, taken)] = {
         url: server.url,
         ...(headers ? { http_headers: headers } : {}),
         ...policy,
