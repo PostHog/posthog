@@ -24,7 +24,13 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository_owner == 'PostHog'
+        # A fork PR runs in the base repo, so `repository_owner` does not exclude it,
+        # but its read-only GITHUB_TOKEN cannot push to ghcr.io. Skipping here leaves
+        # `sandbox_image` unset so both build jobs skip too, which keeps a fork off
+        # the skills build it would only pay for to fail at the push.
+        if: |
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         name: Determine if sandbox image needs to be built
         permissions:
             contents: read
@@ -60,7 +66,8 @@ jobs:
         needs: changes
         name: Build agent skills from source
         if: |
-            github.repository_owner == 'PostHog' && (
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -174,7 +181,8 @@ jobs:
         needs: [changes, build_skills]
         name: Build and push Tasks Sandbox container image
         if: |
-            github.repository_owner == 'PostHog' && (
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
