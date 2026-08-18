@@ -193,7 +193,7 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
     If inject_context is set to False, no context will be included in the system prompt.
     """
 
-    posthog_provider = "openai"
+    posthog_provider: ClassVar[str] = "openai"
 
     def model_post_init(self, __context: Any) -> None:
         super().model_post_init(__context)
@@ -258,7 +258,7 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
     It also makes sure we retry automatically in case of errors.
     """
 
-    posthog_provider = "anthropic"
+    posthog_provider: ClassVar[str] = "anthropic"
 
     bypass_proxy: bool = False
     """
