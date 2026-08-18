@@ -652,6 +652,9 @@ tools:
     tasks-update:
         operation: tasks_update
         enabled: false
+    tasks-usage-retrieve:
+        operation: tasks_usage_retrieve
+        enabled: false
     tasks-warm-create:
         operation: tasks_warm_create
         enabled: false
