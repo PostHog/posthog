@@ -208,6 +208,38 @@ Compare each URL against its own prior-13-day rate (same query, earlier window) 
 
 Stored AI summaries are a second discovery surface here: `session-recording-summaries-list {"has_exceptions": true, "outcome": "failure"}` returns sessions whose summary flagged exceptions, each with a one-line outcome — free narrative for a candidate cohort. `outcome=failure` alone is mostly benign bounces on bulk-summarized projects; it is an enrichment filter, never a finding — require the exception flag or corroborating friction. **Boundary:** the underlying exceptions belong to the error-tracking scout. Check `inbox-reports-list` for an existing error-tracking finding on the same surface first — file a separate report only when you add the user-impact framing (sessions, persons, watchable recordings) the exception finding lacks; otherwise leave a scratchpad note. Honor `dedupe:error-tracking:*` entries.
 
+#### Name the code behind the surface
+
+A cluster reported as "rage clicks on /checkout, 'Pay now'" hands the reader a place, not a file. One extra read on the cluster's own sessions usually names the code, and a report that carries the anchor can set `repository` and be worked directly instead of routing to a human to go find it.
+
+Re-read the cluster's events selecting the identifier columns, not just the text:
+
+```sql
+SELECT timestamp, event,
+       elements_chain_ids, elements_chain_texts, elements_chain_href,
+       properties.$el_text AS el_text,
+       properties.$current_url AS url,
+       properties.$exception_sources AS exception_sources,
+       properties.$exception_issue_id AS issue_id
+FROM events
+WHERE event IN ('$rageclick', '$dead_click', '$exception')
+  AND properties.$session_id IN (<the cluster's session ids>)
+  AND timestamp >= now() - INTERVAL 1 DAY
+  AND timestamp <= now() + INTERVAL 1 DAY
+ORDER BY timestamp DESC
+LIMIT 50
+```
+
+Work down these tiers and stop at the first that produces a candidate — a lower tier never beats a higher one:
+
+1. **A stack trace.** `$exception_sources` on an exception in those sessions names source files outright, with no inference. Read the whole array and take the entry inside the team's own tree rather than a fixed position; `$exception_issue_id` links the error-tracking issue behind it. A frame naming a bundle chunk rather than a file means symbolication hasn't run for that release — drop to tier 2.
+2. **A developer-authored identifier.** `elements_chain_ids` gives the HTML `id` as an array with no parsing; a `data-attr` or `data-testid` needs the raw `elements_chain` for the one row that matters, where posthog-js writes captured attributes with an `attr__` prefix (`attr__data-attr="pay-now"` — carry the value, not the key). These are strings someone typed into their own source, so they match it verbatim.
+3. **Text and route.** `elements_chain_texts` / `$el_text` and the path. Fragile under i18n (the repo holds the translation key, not the rendered string) and under interpolated content, but usually present — and for file-routed frameworks (Next.js app router, Nuxt, SvelteKit, Remix) the route maps to a file almost mechanically.
+
+Never anchor on class names: utility CSS matches everything, and CSS-module and styled-component names are hashed and appear nowhere in the source. The mobile equivalent is a bare `UIButton` or `UITextField` with no developer label — a framework class, not the team's code, so treat it as no anchor at all.
+
+Say which tier the anchor rests on so the reader can weigh it, and feed a tier 1 path straight into the harness prompt's `gh` ownership query as its `path=` argument — the file that broke and the person who owns it come out of the same read. An empty result is information, not a failure, but it isn't proof that nothing happened: usually there was no interaction at that moment (a banner that rendered on load, a layout that broke on resize), and it can equally mean the interaction went uncaptured because autocapture is off for the team. Attribute by route and say the element is unknown. Never invent one — a fabricated selector sends the coding agent downstream into the wrong file with false confidence.
+
 #### Replay vision watch layer
 
 Replay vision scanners (LLM probes the team configures over recordings) write their results to the events stream, so **SQL is the primary route** — it works even where the `vision-*` MCP tools aren't registered. Discover the roster and its pulse in one read:
@@ -250,7 +282,7 @@ By run #5 you should know the capture ratio and its rhythm, the friction watchli
 The generic report mechanics — search the inbox first (via the `report:session-replay:<surface>` pointer, else an `inbox-reports-list` search on the surface's _specific_ terms, not a broad word like `rageclick`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the session-replay judgment layered on top:
 
 - **Edit** when a still-live report already tracks the surface — a capture cliff still unrecovered, a friction cluster still spiking, a scanner still dark. A persistent cliff or cluster is one report across runs: a new window confirming it's ongoing is a re-escalation (`append_note` the fresh recording counts / rates), not a fresh report per tick.
-- **Author** when nothing live covers the surface. A report-worthy finding names the surface (URL and element, or the affected scanner set), quantifies the step against its own baseline (rate before/after, sessions, persons), passes the volume gates, dates the onset, and links 2–3 example recordings in the `evidence`. Attach the shape via `charts` — recordings vs site traffic for a capture cliff, the surface's friction-rate series for a cluster — so the step and its onset are visible. These are investigations, not code fixes → `actionability=requires_human_input`. Priority: a confirmed **capture cliff** is **P1–P2** (recordings are not retroactive — data loss compounds every day unfixed); a corroborated friction cluster or broken-experience cohort on a key flow is **P2**; scanner watch-gaps and friction on minor surfaces are **P3**.
+- **Author** when nothing live covers the surface. A report-worthy finding names the surface (URL and element, or the affected scanner set), quantifies the step against its own baseline (rate before/after, sessions, persons), passes the volume gates, dates the onset, and links 2–3 example recordings in the `evidence`. Attach the shape via `charts` — recordings vs site traffic for a capture cliff, the surface's friction-rate series for a cluster — so the step and its onset are visible. A capture cliff is an investigation, not a code fix → `actionability=requires_human_input` and the `NO_REPO` sentinel. A friction cluster or broken-experience cohort is different once you have an anchor: it names where a fix would land, so set `repository` to the repo that owns it instead of the `NO_REPO` sentinel. Let `actionability` follow the cause, not the anchor — `immediately_actionable` only when the evidence also says what's broken (an exception firing at the same interaction, a dead click on a control that should respond), `requires_human_input` when you have the place but not the cause. Carry the anchor and its tier either way, so whoever picks the report up starts in the right file. Priority: a confirmed **capture cliff** is **P1–P2** (recordings are not retroactive — data loss compounds every day unfixed); a corroborated friction cluster or broken-experience cohort on a key flow is **P2**; scanner watch-gaps and friction on minor surfaces are **P3**.
 - **Remember** if it's below the bar but worth carrying forward (a URL drifting upward inside the noise band, a new page accumulating its first baseline, a single-person storm worth re-checking), or to record what you ruled out and why.
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, already covers it.
 
@@ -292,7 +324,7 @@ Direct calls (read-only):
 
 - `execute-sql` against `raw_session_replay_events` — the volume/capture side: `min_first_timestamp` (always the time filter — see footguns), `session_id`, `click_count`, `console_error_count`, `first_url`, `distinct_id`.
 - `execute-sql` against `posthog.session_replay_features` — per-recorded-session friction detail: `rage_click_count`, `dead_click_count`, `console_error_after_click_count`, `network_failed_request_count`, `quick_back_count`, `rapid_scroll_reversal_count`, `max_idle_gap_ms`. Partial coverage by design — corroboration, not the denominator.
-- `execute-sql` against `events` — the friction stream: `$rageclick` (and `$dead_click` where enabled) with `$current_url`, `$el_text`, `$session_id`; replay SDK health properties (`$recording_status`, `$replay_sample_rate`, `$sdk_debug_recording_script_not_loaded`) on regular events.
+- `execute-sql` against `events` — the friction stream: `$rageclick` (and `$dead_click` where enabled) with `$current_url`, `$el_text`, `$session_id`; replay SDK health properties (`$recording_status`, `$replay_sample_rate`, `$sdk_debug_recording_script_not_loaded`) on regular events; the attribution columns on those same rows (`elements_chain_ids`, `elements_chain_texts`, `elements_chain_href`, and the raw `elements_chain` for a `data-attr` / `data-testid`) and the `$exception_sources` / `$exception_issue_id` pair on `$exception`.
 - `query-session-recordings-list` — resolve `$session_id`s to watchable recordings (pass `session_ids` + a matching `date_from`); order by `console_error_count` or `activity_score` when shortlisting.
 - `session-recording-get` — one recording's metadata for a finding's example links.
 - `session-recording-summaries-list` / `session-recording-summary-get` — stored AI summaries (list filters: `session_ids`, `has_exceptions`, `outcome`; get returns segment-level detail). A 404 just means no summary exists — never trigger generation.

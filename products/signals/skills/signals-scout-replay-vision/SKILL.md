@@ -8,8 +8,9 @@ description: >
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the replay-vision tools in
-  the MCP tools section (execute-sql over `$recording_observed`, read-data-schema, and the
-  feature-gated vision-scanners-list / -get / -observations-list / vision-observations-list /
+  the MCP tools section (execute-sql over `$recording_observed` and `raw_session_replay_events`,
+  read-data-schema, and the feature-gated vision-scanners-list / -get / -observations-list /
+  vision-observations-list /
   vision-quota-retrieve when available — leads with `$recording_observed` SQL when absent).
 allowed_tools:
   - emit_report
@@ -103,16 +104,17 @@ Expect test/abandoned scanners in the tail — judge by `obs_7d`, and write a `n
 
 ### Profile shape — what the combinations mean
 
-| Pattern                                                                      | What it usually means                                                         |
-| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Enabled scanner, `obs_7d` collapsed vs `obs_prior_7d`, recordings still flow | Watch gap — scanner stopped observing; confirm failed vs not-running (P2–P3)  |
-| `obs_7d` low + `vision-quota-retrieve` shows `exhausted`                     | Quota drained — scanner silently skipped until reset; bundle as health (P3)   |
-| Monitor `yes`-rate steps up week-over-week across many sessions              | Aggregate finding — the condition is spreading; per-session scan can't see it |
-| Scorer mean steps down (or up) vs its own prior weeks                        | Aggregate regression — quantify against the scanner's own baseline (P2–P3)    |
-| One classifier tag's share concentrating across many distinct sessions       | Theme finding — name the tag, count sessions, date the onset (P2–P3)          |
-| Summarizer: same friction theme recurring across many summaries              | Aggregation finding — cluster the summaries; recommend a sharper scanner      |
-| One loud session, high confidence, single scanner                            | Per-session — the push path's job (or session-replay's). Not yours.           |
-| Scanner disabled, or `no`/low-score by design with no trend                  | Baseline — operator choice. `noise:`/`pattern:` entry, skip.                  |
+| Pattern                                                                      | What it usually means                                                               |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Enabled scanner, `obs_7d` collapsed vs `obs_prior_7d`, recordings still flow | Watch gap — scanner stopped observing; confirm failed vs not-running (P2–P3)        |
+| `obs_7d` low + `vision-quota-retrieve` shows `exhausted`                     | Quota drained — scanner silently skipped until reset; bundle as health (P3)         |
+| Monitor `yes`-rate steps up week-over-week across many sessions              | Aggregate finding — the condition is spreading; per-session scan can't see it       |
+| Scorer mean steps down (or up) vs its own prior weeks                        | Aggregate regression — quantify against the scanner's own baseline (P2–P3)          |
+| One classifier tag's share concentrating across many distinct sessions       | Theme finding — name the tag, count sessions, date the onset (P2–P3)                |
+| Summarizer: same friction theme recurring across many summaries              | Aggregation finding — cluster the summaries; recommend a sharper scanner            |
+| Findings pile up with no event in their window                               | Attribution gap — nothing a coding agent can act on; recommend instrumentation (P3) |
+| One loud session, high confidence, single scanner                            | Per-session — the push path's job (or session-replay's). Not yours.                 |
+| Scanner disabled, or `no`/low-score by design with no trend                  | Baseline — operator choice. `noise:`/`pattern:` entry, skip.                        |
 
 ### Explore
 
@@ -175,6 +177,20 @@ LIMIT 30
 
 A tag whose `sessions_7d` jumps clearly above its `prior_weekly_sessions` (already the weekly-equivalent baseline) is a candidate. For **summarizers**, raw `scanner_output_summary` text is freeform — don't group on it. Instead read the top recent summaries (`vision-scanners-observations-list` for the scanner, or the `scanner_output_title`/`scanner_output_summary` columns) and look for a **recurring theme** across many distinct sessions: the same complaint, flow, or failure described again and again. That's the aggregation the summarizer can't do for itself. Summarizers always emit facet embeddings, so recurring themes may also be searchable via the signals semantic surface — but the cross-session _count_ is what makes it a finding.
 
+#### Anchor a finding in code
+
+A finding a scanner emits carries a moment, not a file, so a report built on one tells a reader where to look in a video and nowhere in the repo.
+This does not move the push/pull boundary: you attribute the example findings backing an aggregate shift you already validated, never a per-session finding the push path owns.
+`$recording_observed` carries `signal_finding_rec_ts` — the recording-relative offsets, in whole seconds, of the findings that cleared the emission floor. It is a JSON-encoded array like the tags (footgun #3), so `JSONExtract(ifNull(properties.signal_finding_rec_ts, '[]'), 'Array(Int64)')` before you `arrayJoin` it.
+
+**Anchor.** `recording_start + offset` is the finding's absolute instant. The recording's start is `min(min_first_timestamp)` on `raw_session_replay_events` for that `session_id`, or the start time on `session-recording-get`. Recording bounds are not session bounds — depending on the team's config, recording can begin well after the session did, so never substitute the session's first event.
+
+**Window.** Events on `properties.$session_id` within ~5 seconds either side of the anchor, selecting `elements_chain_ids`, `elements_chain_texts`, `properties.$event_type`, `properties.$current_url`, `properties.$screen_name`, and the `$exception_*` family. Widen only when it comes back empty — a wider window pulls in unrelated interactions and you attribute the wrong click.
+
+**Rank what comes back, and stop at the first tier that produces a candidate.** A stack trace is strongest: `$exception_sources` names source files outright, and `$exception_issue_id` links the issue behind it. Next are developer-authored identifiers — `elements_chain_ids`, or a `data-attr` / `data-testid` read off the raw chain, where posthog-js writes captured attributes with an `attr__` prefix (carry the value, not the key) — strings someone typed into their own source, so they match it verbatim. Element text and the URL or screen route are the fallback. Never class names: utility CSS matches everything and hashed module names appear nowhere in the source.
+
+**Coverage is itself a finding, and it is yours.** `signal_finding_rec_ts` makes attributability countable across a scanner's observations: the share of its findings with any event in their window is how much of what that scanner reports a coding agent could act on. Rule out your own anchor first — one wrong `recording_start` empties every window — and check whether the team captures interactions at all. A scanner whose findings are consistently backed by nothing, on a team whose autocapture works, is describing what it sees on video with no instrumentation to place it — file that once as P3, naming the surface and recommending the fix (a `data-attr` convention on that flow, autocapture where it's off), and don't re-report it per run. It is the same job as every other pattern here: a shape that only exists across sessions.
+
 #### Emits-signals dedupe courtesy
 
 For any scanner with `emits_signals: true`, its per-session findings are already in this inbox. Before authoring anything touching that scanner, `inbox-reports-list` on the `replay_vision` source and look for an overlapping report, backed by an unfiltered recent-reports scan matched on the scanner name / example `session_id`s. Author only if you add the aggregate angle the per-session pushes lack, and cite the overlapping report's id. If the push path itself looks broken (a scanner with `emits_signals` whose observations succeed but no matching reports appear over a soak window), that _is_ a finding — a silent push gap — P3, name the scanner.
@@ -197,7 +213,7 @@ By run #5 you should know the live roster, each scanner's baseline output distri
 The generic report mechanics — search the inbox first (via the `report:replay_vision:<scanner-slug>` pointer, else an `inbox-reports-list` search on the scanner's _specific_ name, not a broad word like `scanner`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` / actionability fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the replay-vision judgment layered on top:
 
 - **Edit** when a still-live report already tracks the same scanner's shift and it's still moving — a `yes`-rate still climbing, a scorer mean still depressed, a tag still concentrating. A persistent aggregate shift is one report across runs: a fresh complete week confirming it's ongoing is a re-escalation (`append_note` the new rate/score and session count), not a new report per tick.
-- **Author** a fresh report only when nothing live covers the shift. A report-worthy finding names the scanner and its type, quantifies the **aggregate** shift against the scanner's _own_ baseline (rate/score before vs after, distinct sessions, the dated onset), attaches the matching series via `charts` (the `yes`-rate, mean score, or tag share over time for an output shift; observation throughput with recording volume alongside for a watch gap, since failed or ineligible runs emit no `$recording_observed` to rate) so the shift is visible, links 2–3 example recordings, and — for anything touching an `emits_signals` scanner or a session-replay / error-tracking surface — cites the overlapping inbox report. These are watcher findings, not code fixes → `actionability=requires_human_input` + `repository=NO_REPO`. Priority: a high-value scanner fully silent or a clear aggregate regression on a key flow is **P2**; scanner-health bundles and minor trends **P3**; FYI themes **P4**. After authoring, write the `report:replay_vision:<scanner-slug>` pointer with the `report_id`.
+- **Author** a fresh report only when nothing live covers the shift. A report-worthy finding names the scanner and its type, quantifies the **aggregate** shift against the scanner's _own_ baseline (rate/score before vs after, distinct sessions, the dated onset), attaches the matching series via `charts` (the `yes`-rate, mean score, or tag share over time for an output shift; observation throughput with recording volume alongside for a watch gap, since failed or ineligible runs emit no `$recording_observed` to rate) so the shift is visible, links 2–3 example recordings, and — for anything touching an `emits_signals` scanner or a session-replay / error-tracking surface — cites the overlapping inbox report. Scanner health and watch gaps are watcher findings, not code fixes → `actionability=requires_human_input` + `repository=NO_REPO`. An aggregate output shift is different once its example findings resolve to a file: set `repository` to the repo that owns that surface instead of the sentinel. Let `actionability` follow the cause, not the anchor — `immediately_actionable` only when the window also says what's broken (a stack trace at the moment the scanner flagged), `requires_human_input` when you have the place but only the scanner's prose for the cause. Carry the anchor and its tier either way, so whoever picks the report up starts in the right file. Priority: a high-value scanner fully silent or a clear aggregate regression on a key flow is **P2**; scanner-health bundles and minor trends **P3**; FYI themes **P4**. After authoring, write the `report:replay_vision:<scanner-slug>` pointer with the `report_id`.
 - **Remember** if below the bar but worth carrying forward (a rate drifting inside the noise band, a new scanner accruing its first baseline, a single-session storm), or to record what you ruled out.
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, covers it, or if it's a per-session fact the push path already owns.
 
@@ -232,7 +248,8 @@ When in doubt, write a memory entry instead of filing a report.
 
 Direct calls (read-only):
 
-- `execute-sql` against `events` (`event = '$recording_observed'`) — the primary route. Key properties: `scanner_id`, `scanner_name`, `scanner_type`, `scanner_version`, `session_id`, `emits_signals`, `model_used`, `provider_used`, and the flattened `scanner_output_*` fields (`scanner_output_confidence`, `scanner_output_verdict`, `scanner_output_score`, `scanner_output_tags` (JSON array — `JSONExtract` before `arrayJoin`, footgun #3), `scanner_output_tags_freeform`, `scanner_output_title`, `scanner_output_summary`, `scanner_output_reasoning`). Time-filter on `timestamp` with the upper bound (footgun #1); count reach with `uniq(session_id)` (footgun #2); group/filter by `scanner_id` (footgun #4).
+- `execute-sql` against `events` (`event = '$recording_observed'`) — the primary route. Key properties: `scanner_id`, `scanner_name`, `scanner_type`, `scanner_version`, `session_id`, `emits_signals`, `model_used`, `provider_used`, `signal_finding_rec_ts` (JSON array of finding offsets — `JSONExtract` it, footgun #3), and the flattened `scanner_output_*` fields (`scanner_output_confidence`, `scanner_output_verdict`, `scanner_output_score`, `scanner_output_tags` (JSON array — `JSONExtract` before `arrayJoin`, footgun #3), `scanner_output_tags_freeform`, `scanner_output_title`, `scanner_output_summary`, `scanner_output_reasoning`). Time-filter on `timestamp` with the upper bound (footgun #1); count reach with `uniq(session_id)` (footgun #2); group/filter by `scanner_id` (footgun #4).
+- `execute-sql` against `raw_session_replay_events` — `min(min_first_timestamp)` per `session_id` is the recording's start, the anchor a finding offset is measured from. Time-filter on `min_first_timestamp`; the friendly `session_replay_events` view's `start_time` is an aggregate projection, so filtering on it returns nothing.
 - `vision-scanners-list` — roster + `enabled` / `emits_signals` / `scanner_type` state. Feature-gated; if absent, lean on the roster SQL above.
 - `vision-scanners-get` (`scanner_id`) — the one scanner's full row: `enabled`, `scanner_version`, `updated_at`, `last_swept_at`. The **only** place to date a config edit (scanner changes aren't in the activity log).
 - `vision-scanners-observations-list` (`scanner_id`, `status`, `verdict`, `tags`, `triggered_by`) — the **only** way to see failed/ineligible observations (footgun #5) and read `error_reason`.
