@@ -1,4 +1,4 @@
-export type HealthCheckStatus = 'success' | 'warning' | 'error' | 'loading'
+export type HealthCheckStatus = 'success' | 'info' | 'warning' | 'error' | 'loading'
 
 export type HealthCheckCategory = 'events' | 'configuration' | 'performance'
 
@@ -17,6 +17,8 @@ export interface HealthCheck {
     action?: HealthCheckAction
     docsUrl?: string
     urgent?: boolean
+    issueId?: string
+    dismissed?: boolean
 }
 
 export interface OverallHealthStatus {

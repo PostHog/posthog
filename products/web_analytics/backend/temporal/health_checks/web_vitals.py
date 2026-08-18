@@ -1,5 +1,6 @@
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
+from posthog.models.team import Team
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import (
     _SEVERITY_WEIGHT,
@@ -23,6 +24,9 @@ GROUP BY team_id
 HAVING countIf(event = '$pageview') > 0
    AND countIf(event = '$web_vitals') = 0
 """
+
+WEB_VITALS_STATE_NOT_ENABLED = "not_enabled"
+WEB_VITALS_STATE_NO_DATA_YET = "no_data_yet"
 
 
 class WebVitalsCheck(HealthCheck):
@@ -50,6 +54,12 @@ class WebVitalsCheck(HealthCheck):
 
     @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
+        if issue.payload.get("state") == WEB_VITALS_STATE_NO_DATA_YET:
+            return AlertContent(
+                title="Web vitals enabled, no events yet",
+                summary=issue.payload.get("reason", "Web vitals is enabled but no $web_vitals events have arrived yet"),
+                link="/web/health",
+            )
         return AlertContent(
             title="No web vitals events",
             summary=issue.payload.get("reason", "$web_vitals events are not being received"),
@@ -58,6 +68,8 @@ class WebVitalsCheck(HealthCheck):
 
     @classmethod
     def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
+        if issue.payload.get("state") == WEB_VITALS_STATE_NO_DATA_YET:
+            return None
         title = "No web vitals events"
         summary = issue.payload.get("reason", "$web_vitals events are not being received.")
         return SignalContent(
@@ -78,16 +90,27 @@ class WebVitalsCheck(HealthCheck):
             lookback_days=WEB_VITALS_LOOKBACK_DAYS,
         )
 
+        flagged_team_ids = [team_id for (team_id,) in rows]
+        if not flagged_team_ids:
+            return {}
+
+        opted_in_team_ids = set(
+            Team.objects.filter(
+                id__in=flagged_team_ids,
+                autocapture_web_vitals_opt_in=True,
+            ).values_list("id", flat=True)
+        )
+
         issues: dict[int, list[HealthCheckResult]] = {}
-        for (team_id,) in rows:
+        for team_id in flagged_team_ids:
+            if team_id in opted_in_team_ids:
+                severity, state = HealthIssue.Severity.INFO, WEB_VITALS_STATE_NO_DATA_YET
+                reason = f"Web vitals is enabled but no $web_vitals events have arrived in the last {WEB_VITALS_LOOKBACK_DAYS} days"
+            else:
+                severity, state = HealthIssue.Severity.WARNING, WEB_VITALS_STATE_NOT_ENABLED
+                reason = f"Team has $pageview events but no $web_vitals events in last {WEB_VITALS_LOOKBACK_DAYS} days"
             issues[team_id] = [
-                HealthCheckResult(
-                    severity=HealthIssue.Severity.WARNING,
-                    payload={
-                        "reason": f"Team has $pageview events but no $web_vitals events in last {WEB_VITALS_LOOKBACK_DAYS} days"
-                    },
-                    hash_keys=[],
-                )
+                HealthCheckResult(severity=severity, payload={"state": state, "reason": reason}, hash_keys=[])
             ]
 
         return issues

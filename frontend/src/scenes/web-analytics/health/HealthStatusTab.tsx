@@ -1,16 +1,22 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { HealthCheckSection } from './components/HealthCheckSection'
-import { HealthCheck } from './healthCheckTypes'
+import { HealthCheck, HealthCheckStatus } from './healthCheckTypes'
 import { webAnalyticsHealthLogic } from './webAnalyticsHealthLogic'
 
 export function HealthStatusTab(): JSX.Element {
-    const { overallHealthStatus, checksByCategory, healthIssuesLoading, refreshDisabledReason } =
-        useValues(webAnalyticsHealthLogic)
-    const { refreshHealthChecks, trackSectionToggled } = useActions(webAnalyticsHealthLogic)
+    const {
+        overallHealthStatus,
+        checksByCategory,
+        healthIssuesLoading,
+        refreshDisabledReason,
+        hasDismissedChecks,
+        showDismissed,
+    } = useValues(webAnalyticsHealthLogic)
+    const { refreshHealthChecks, trackSectionToggled, setShowDismissed } = useActions(webAnalyticsHealthLogic)
 
     return (
         <div className="mt-4 space-y-4 max-w-4xl">
@@ -23,6 +29,18 @@ export function HealthStatusTab(): JSX.Element {
                 loading={healthIssuesLoading}
                 refreshDisabledReason={refreshDisabledReason}
             />
+
+            {hasDismissedChecks && (
+                <div className="flex justify-end">
+                    <LemonSwitch
+                        label="Show dismissed"
+                        checked={showDismissed}
+                        onChange={setShowDismissed}
+                        size="small"
+                        data-attr="web-analytics-health-show-dismissed"
+                    />
+                </div>
+            )}
 
             <div className="space-y-3">
                 <HealthCheckSection
@@ -51,7 +69,7 @@ export function HealthStatusTab(): JSX.Element {
 }
 
 interface OverallHealthBannerProps {
-    status: 'success' | 'warning' | 'error' | 'loading'
+    status: HealthCheckStatus
     summary: string
     passedCount: number
     totalCount: number
@@ -78,7 +96,7 @@ function OverallHealthBanner({
         )
     }
 
-    const bannerType = status === 'success' ? 'success' : status === 'error' ? 'error' : 'warning'
+    const bannerType = status === 'success' || status === 'info' ? 'success' : status === 'error' ? 'error' : 'warning'
 
     return (
         <LemonBanner type={bannerType}>
