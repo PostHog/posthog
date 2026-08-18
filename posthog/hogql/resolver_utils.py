@@ -116,7 +116,9 @@ def _names_on_table_type(table_type: ast.Type, context: HogQLContext) -> set[str
             table = table_type.resolve_database_table(context)
         except Exception:
             return set()
-        return set(table.fields.keys())
+        # Hidden fields back an exposed alias (`_deleted` behind `deleted`), so naming them in an
+        # error would point at an internal instead of the column the caller should use.
+        return {name for name, field in table.fields.items() if not field.hidden}
     if isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)):
         return set(getattr(table_type, "columns", {}).keys())
     return set()
@@ -165,6 +167,53 @@ def suggest_field_names(
     if not candidates:
         return []
     return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
+
+
+def _single_table_field_names(scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext) -> set[str]:
+    """Field names visible in `scope` when it selects from exactly one plain table.
+
+    Returns an empty set for anything wider (a join, a subquery, a scope with a parent). An
+    exhaustive list is only unambiguous for a single table; across several it is noisy, and for a
+    correlated subquery it would bury the real cause, which is scoping rather than a wrong name.
+    """
+    if not isinstance(scope, ast.SelectQueryType):
+        return set()
+    if scope.parent is not None or scope.anonymous_tables or len(scope.tables) != 1:
+        return set()
+    return _names_on_table_type(next(iter(scope.tables.values())), context) | set(scope.aliases.keys())
+
+
+def field_resolution_hint(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType,
+    name: str,
+    context: HogQLContext,
+    *,
+    bare_reference: bool = True,
+    limit: int = 3,
+    max_listed: int = 25,
+) -> str:
+    """Return the trailing clause for an "Unable to resolve field" error.
+
+    Close matches become "Did you mean: ...?". Otherwise, for a bare column reference in a
+    single-table query, list what the table does expose: a name that is absent rather than
+    misspelled (a column that only exists on the REST API, say) is too far off for a fuzzy match, so
+    it would yield a bare error that costs an extra schema-discovery query to recover from.
+
+    `bare_reference` is False when the unresolved name is the first link of a longer chain, where it
+    is probably a table qualifier — then the problem is scoping, and a column list only distracts.
+    """
+    suggestions = suggest_field_names(scope, name, context, limit=limit)
+    if suggestions:
+        return f". Did you mean: {', '.join(suggestions)}?"
+    if not bare_reference:
+        return ""
+
+    candidates = sorted(_single_table_field_names(scope, context))
+    if not candidates:
+        return ""
+    if len(candidates) > max_listed:
+        return f". Available fields include: {', '.join(candidates[:max_listed])}, …"
+    return f". Available fields: {', '.join(candidates)}"
 
 
 def lookup_table_by_name(

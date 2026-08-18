@@ -47,9 +47,9 @@ from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
+    field_resolution_hint,
     lookup_field_by_name,
     lookup_table_by_name,
-    suggest_field_names,
 )
 from posthog.hogql.type_system import (
     infer_array_access_constant_type,
@@ -2301,8 +2301,7 @@ class Resolver(CloningVisitor):
                     )
                 return ast.Constant(value=value, type=global_type)
 
-            suggestions = suggest_field_names(scope, name, self.context)
-            suggestion_suffix = f". Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+            suggestion_suffix = field_resolution_hint(scope, name, self.context, bare_reference=len(node.chain) == 1)
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #
