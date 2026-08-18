@@ -1,9 +1,11 @@
+import uuid
+
 import pytest
 from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
 
-from posthog.models import IdentityProviderConfig, Organization, OrganizationDomain
+from posthog.models import IdentityProviderConfig, LinkedIdentityProviderConfig, Organization, OrganizationDomain
 
 # Legacy `OrganizationDomain` columns that mirror fields on `IdentityProviderConfig`. Test-only:
 # used to build underscore-prefixed kwargs and to guard the two models' field shapes against drift.
@@ -35,6 +37,37 @@ class TestIdentityProviderConfig(BaseTest):
         domain.identity_provider_config = config
         domain.save()
         return config
+
+    def test_creating_config_populates_uuid_identifiers(self):
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+
+        assert uuid.UUID(str(config.saml_relay_state))
+        assert uuid.UUID(str(config.scim_slug))
+        assert config.saml_relay_state != config.scim_slug
+
+    def test_creating_domain_with_idp_config_creates_link(self):
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        identifiers = (str(config.saml_relay_state), str(config.scim_slug))
+        domain = self._create_domain(identity_provider_config=config)
+
+        assert LinkedIdentityProviderConfig.objects.filter(
+            organization_domain=domain, identity_provider_config=config
+        ).exists()
+        config.refresh_from_db()
+        assert (config.saml_relay_state, config.scim_slug) == identifiers
+
+    def test_updating_domain_idp_config_creates_link(self):
+        domain = self._create_domain()
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        identifiers = (str(config.saml_relay_state), str(config.scim_slug))
+        domain.identity_provider_config = config
+        domain.save()
+
+        assert LinkedIdentityProviderConfig.objects.filter(
+            organization_domain=domain, identity_provider_config=config
+        ).exists()
+        config.refresh_from_db()
+        assert (config.saml_relay_state, config.scim_slug) == identifiers
 
     def test_saving_legacy_idp_columns_does_not_create_or_link_config(self):
         # The domain<->config dual-write mirror has been removed: writing the legacy underscore
@@ -70,9 +103,19 @@ class TestIdentityProviderConfig(BaseTest):
             assert getattr(domain_field, "max_length", None) == getattr(config_field, "max_length", None), field
             assert getattr(domain_field, "db_column", None) == field, field
 
-    def test_deleting_domain_keeps_config(self):
+    def test_deleting_domain_deletes_orphaned_config(self):
         domain = self._create_domain()
         config = self._create_linked_config(domain, saml_entity_id="entity-id")
+
+        domain.delete()
+        assert not IdentityProviderConfig.objects.filter(pk=config.pk).exists()
+
+    def test_deleting_domain_keeps_config_linked_to_another_domain(self):
+        domain = self._create_domain()
+        other_domain = self._create_domain(domain="other.posthog.com")
+        config = self._create_linked_config(domain, saml_entity_id="entity-id")
+        other_domain.identity_provider_config = config
+        other_domain.save()
 
         domain.delete()
         assert IdentityProviderConfig.objects.filter(pk=config.pk).exists()

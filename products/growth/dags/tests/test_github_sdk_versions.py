@@ -4,7 +4,10 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from products.growth.dags.github_sdk_versions import (
+    LOCAL_RELEASES_CACHE_TTL_SECONDS,
     fetch_android_sdk_data,
     fetch_dotnet_sdk_data,
     fetch_elixir_sdk_data,
@@ -18,8 +21,10 @@ from products.growth.dags.github_sdk_versions import (
     fetch_php_sdk_data,
     fetch_python_sdk_data,
     fetch_react_native_sdk_data,
+    fetch_releases_from_repo,
     fetch_ruby_sdk_data,
     fetch_web_sdk_data,
+    local_releases_cache,
 )
 
 # NOTE: Fixtures are defined as they were in October 10, 2025
@@ -368,6 +373,191 @@ class TestFetchDotnetSdkData(TestFetchSdkDataBase):
         assert "2.2.2" in result["releaseDates"]
         assert result["releaseDates"]["2.2.2"] == "2025-11-21T17:27:02Z"
         assert mock_get.call_count == 2  # Assert that it attempted to paginate
+
+
+def _release(tag_name: str, created_at: str) -> dict:
+    return {"tag_name": tag_name, "created_at": created_at, "draft": False, "prerelease": False}
+
+
+class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
+    @pytest.mark.parametrize(
+        "fetch_fn,releases,expected_latest,expected_date_keys",
+        [
+            # posthog-python moved to `posthog-v*` tags; sibling package tags must not match
+            (
+                fetch_python_sdk_data,
+                [
+                    _release("openfeature-provider-posthog-v0.1.39", "2026-08-01T00:00:00Z"),
+                    _release("posthog-v7.38.0", "2026-07-30T00:00:00Z"),
+                    _release("v7.12.0", "2025-08-30T00:00:00Z"),
+                    _release("7.5.0", "2025-05-30T00:00:00Z"),
+                ],
+                "7.38.0",
+                {"7.38.0", "7.12.0", "7.5.0"},
+            ),
+            # posthog-ruby moved to `posthog-ruby-v*` tags; `posthog-rails-v*` is a different package
+            (
+                fetch_ruby_sdk_data,
+                [
+                    _release("posthog-rails-v3.18.0", "2026-08-01T00:00:00Z"),
+                    _release("posthog-ruby-v3.23.0", "2026-07-30T00:00:00Z"),
+                    _release("v3.6.1", "2025-08-30T00:00:00Z"),
+                    _release("3.3.3", "2025-05-30T00:00:00Z"),
+                ],
+                "3.23.0",
+                {"3.23.0", "3.6.1", "3.3.3"},
+            ),
+            # posthog-dotnet moved to `PostHog-v*` tags; AspNetCore/AI package tags must not match
+            (
+                fetch_dotnet_sdk_data,
+                [
+                    _release("PostHog.AspNetCore-v2.8.2", "2026-08-01T00:00:00Z"),
+                    _release("PostHog.AI-v0.1.4", "2026-07-31T00:00:00Z"),
+                    _release("PostHog-v2.13.0", "2026-07-30T00:00:00Z"),
+                    _release("2.6.0", "2025-09-30T00:00:00Z"),
+                    _release("v2.4.1", "2025-08-30T00:00:00Z"),
+                ],
+                "2.13.0",
+                {"2.13.0", "2.6.0", "2.4.1"},
+            ),
+            # posthog-kmp dropped its `v` prefix after 0.1.x
+            (
+                fetch_kmp_sdk_data,
+                [
+                    _release("0.2.2", "2026-07-30T00:00:00Z"),
+                    _release("v0.1.0", "2026-05-30T00:00:00Z"),
+                ],
+                "0.2.2",
+                {"0.2.2", "0.1.0"},
+            ),
+        ],
+    )
+    def test_current_and_historical_tag_schemes(self, fetch_fn, releases, expected_latest, expected_date_keys):
+        with patch("posthog.egress.transport.transport.requests.request") as mock_get:
+            self.setup_ok_json_mock(mock_get, releases)
+
+            result = fetch_fn()
+
+        assert result["latestVersion"] == expected_latest
+        assert set(result["releaseDates"]) == expected_date_keys
+
+
+class TestLatestVersionSelection(TestFetchSdkDataBase):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_backported_hotfix_listed_first_is_not_latest(self, mock_get):
+        # GitHub orders /releases by creation date, so a hotfix on an older release line
+        # appears before the actual newest version
+        self.setup_ok_json_mock(
+            mock_get,
+            [
+                _release("posthog-js@1.200.5", "2026-08-01T00:00:00Z"),
+                _release("posthog-js@1.298.1", "2026-07-20T00:00:00Z"),
+            ],
+        )
+
+        result = fetch_web_sdk_data()
+
+        assert result["latestVersion"] == "1.298.1"
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_unparseable_tag_cannot_become_latest(self, mock_get):
+        # posthog-ios matches every release tag; a stray non-version tag must not win
+        self.setup_ok_json_mock(
+            mock_get,
+            [
+                _release("list", "2026-08-01T00:00:00Z"),
+                _release("3.69.2", "2026-07-20T00:00:00Z"),
+            ],
+        )
+
+        result = fetch_ios_sdk_data()
+
+        assert result["latestVersion"] == "3.69.2"
+
+
+class TestFetchReleasesFailureHandling(TestFetchSdkDataBase):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_mid_pagination_failure_returns_no_data(self, mock_get):
+        # A partial page set can miss versions and produce a wrong "latest"; the fetch must
+        # fail closed so the previously cached Redis data keeps serving
+        page1 = MagicMock()
+        page1.ok = True
+        page1.status_code = 200
+        page1.json.return_value = [_release("posthog-js@1.298.1", "2026-07-20T00:00:00Z")] * 100
+
+        page2 = MagicMock()
+        page2.ok = False
+        page2.status_code = 403
+
+        mock_get.side_effect = [page1, page2]
+
+        result = fetch_web_sdk_data()
+
+        assert result == {}
+
+    def test_failed_fetch_is_not_cached(self):
+        repo = "PostHog/example-repo"
+        local_releases_cache.pop(repo, None)
+
+        fail = MagicMock()
+        fail.ok = False
+        fail.status_code = 403
+
+        ok_page = MagicMock()
+        ok_page.ok = True
+        ok_page.status_code = 200
+        ok_page.json.return_value = [_release("1.0.0", "2026-07-20T00:00:00Z")]
+
+        empty_page = MagicMock()
+        empty_page.ok = True
+        empty_page.status_code = 200
+        empty_page.json.return_value = []
+
+        with (
+            override_settings(TEST=False),
+            patch("posthog.egress.transport.transport.requests.request") as mock_get,
+        ):
+            mock_get.side_effect = [fail, ok_page, empty_page]
+
+            assert fetch_releases_from_repo(repo) == []
+            # The failure must not be cached: the next call retries and succeeds
+            releases = fetch_releases_from_repo(repo)
+
+        local_releases_cache.pop(repo, None)
+        assert len(releases) == 1
+
+    def test_cached_releases_expire(self):
+        repo = "PostHog/example-repo-ttl"
+        local_releases_cache.pop(repo, None)
+
+        def ok_pages():
+            page = MagicMock()
+            page.ok = True
+            page.status_code = 200
+            page.json.return_value = [_release("1.0.0", "2026-07-20T00:00:00Z")]
+            empty = MagicMock()
+            empty.ok = True
+            empty.status_code = 200
+            empty.json.return_value = []
+            return [page, empty]
+
+        with (
+            override_settings(TEST=False),
+            patch("posthog.egress.transport.transport.requests.request") as mock_get,
+            patch("products.growth.dags.github_sdk_versions.time.monotonic") as mock_time,
+        ):
+            mock_get.side_effect = ok_pages() + ok_pages()
+
+            mock_time.return_value = 0.0
+            fetch_releases_from_repo(repo)
+            fetch_releases_from_repo(repo)
+            assert mock_get.call_count == 2  # Second call within the TTL is served from cache
+
+            mock_time.return_value = LOCAL_RELEASES_CACHE_TTL_SECONDS + 1.0
+            fetch_releases_from_repo(repo)
+            assert mock_get.call_count == 4  # Past the TTL the releases are refetched
+
+        local_releases_cache.pop(repo, None)
 
 
 class TestSupportsUnprefixedReleaseTags(TestFetchSdkDataBase):

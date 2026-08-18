@@ -26,6 +26,7 @@ import {
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
     doesSurveyRepeatOnEveryEvent,
+    getExpressionCommentForQuestion,
     getSurveyNotificationFilters,
     getRecurringSurveyScheduleInfo,
     getResolvedSurveyDateRange,
@@ -187,7 +188,7 @@ describe('survey utils', () => {
 
     describe('getSurveyNotificationFilters', () => {
         it('builds survey-specific notification filters', () => {
-            expect(getSurveyNotificationFilters('survey-123')).toEqual({
+            expect(getSurveyNotificationFilters('survey-123', true)).toEqual({
                 events: [
                     {
                         id: SurveyEventName.SENT,
@@ -226,6 +227,20 @@ describe('survey utils', () => {
                         ],
                     },
                 ],
+            })
+        })
+
+        it('also matches a sent event with no completion flag when partial responses are off', () => {
+            const sentBranches = getSurveyNotificationFilters('survey-123', false).events?.filter(
+                (event) => event.id === SurveyEventName.SENT
+            )
+
+            expect(sentBranches).toHaveLength(2)
+            expect(sentBranches?.[1].properties).toContainEqual({
+                key: SurveyEventProperties.SURVEY_COMPLETED,
+                type: PropertyFilterType.Event,
+                value: PropertyOperator.IsNotSet,
+                operator: PropertyOperator.IsNotSet,
             })
         })
     })
@@ -307,6 +322,40 @@ describe('survey utils', () => {
             } as SurveyQuestion
 
             expect(getSurveyResponse(question, 1)).toBe("getSurveyResponse(1, 'question-456', true)")
+        })
+    })
+
+    describe('getExpressionCommentForQuestion', () => {
+        const makeQuestion = (question: string): SurveyQuestion =>
+            ({ id: 'q-1', type: SurveyQuestionType.Open, question }) as SurveyQuestion
+
+        it('returns single-line question text unchanged', () => {
+            expect(getExpressionCommentForQuestion(makeQuestion('¿Cómo calificarías tu experiencia?'), 0)).toBe(
+                '¿Cómo calificarías tu experiencia?'
+            )
+        })
+
+        it('collapses newlines so multi-line question text stays on a single line', () => {
+            // Regression: a newline followed by a non-ASCII char used to leak past the `--` HogQL
+            // comment and crash the Survey Results query with "Unexpected character U+00E9".
+            const result = getExpressionCommentForQuestion(
+                makeQuestion('Queremos compensar tu experiencia.\nDéjanos tu correo y te contactaremos para ayudarte.'),
+                4
+            )
+            expect(result).not.toMatch(/[\r\n]/)
+            expect(result).toBe(
+                'Queremos compensar tu experiencia. Déjanos tu correo y te contactaremos para ayudarte.'
+            )
+        })
+
+        it('collapses CRLF and surrounding whitespace', () => {
+            expect(getExpressionCommentForQuestion(makeQuestion('line one \r\n  line two'), 0)).toBe(
+                'line one line two'
+            )
+        })
+
+        it('falls back to a positional label when the question is empty or whitespace', () => {
+            expect(getExpressionCommentForQuestion(makeQuestion('   '), 2)).toBe('Question 3')
         })
     })
 

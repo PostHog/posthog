@@ -21,7 +21,7 @@ logger = structlog.get_logger(__name__)
 def cascade_posthog_code_repository_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
     event_text: str,
-    user_id: int | None = None,
+    user_id: int,
 ) -> PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path before the discovery agent.
 
@@ -29,26 +29,10 @@ def cascade_posthog_code_repository_activity(
     personal install, exactly one connected, or an explicit `org/repo` mentioned in the
     message — without paying for the sandbox-backed agent. Anything else returns
     `mode='agent_needed'` and the workflow takes over.
-
-    ``user_id`` defaults to ``None`` for backwards compatibility with the pre-2026-06
-    call shape: if a worker drains an activity task that was scheduled by an older
-    workflow (recorded with two positional args), the call still binds. In that case
-    the activity short-circuits to ``no_repo`` since the pre-2026-06 workflow code on
-    the receiving end does not understand the ``needs_user_github`` outcome and would
-    drop into the discovery agent flow with an empty repo list anyway.
     """
     from posthog.models.integration import Integration
 
-    if user_id is None:
-        logger.warning(
-            "posthog_code_cascade_legacy_call",
-            integration_id=inputs.integration_id,
-            slack_team_id=inputs.slack_team_id,
-        )
-        return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="legacy_no_user_id")
-
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
-    from products.slack_app.backend.feature_flags import is_slack_app_bot_prs_enabled
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -58,13 +42,10 @@ def cascade_posthog_code_repository_activity(
     all_repos = _get_full_repo_names(integration, user_id=user_id)
 
     if not all_repos:
-        # With bot PRs off, a team install means a missing personal install is recoverable via the
-        # gate prompt; with bot PRs on, team repos are already folded into all_repos, so empty is no-op.
-        team_has_github = Integration.objects.filter(
-            team=integration.team, kind=Integration.IntegrationKind.GITHUB
-        ).exists()
-        if team_has_github and not is_slack_app_bot_prs_enabled(integration.team):
-            return PostHogCodeRepoCascadeOutcome(mode="needs_user_github", repository=None, reason="no_user_repos")
+        # No repos means no repo, whatever the team has installed. Deciding here that the user must
+        # connect a personal install would gate the mention before anyone has asked whether it is
+        # even about code; `no_repo` becomes a repo-less task instead, and the agent tells the user
+        # to connect GitHub only once it can see that the ask needs code.
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
 
     if len(all_repos) == 1:

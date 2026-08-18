@@ -158,7 +158,6 @@ vi.mock("node:fs", async (importOriginal) => {
 
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
-import type { RegisteredFolder } from "../folders/schemas";
 import {
   AgentService,
   buildAutoApproveOutcome,
@@ -191,6 +190,7 @@ function createMockDependencies() {
     agentAuthAdapter: {
       getCurrentCredentials: vi.fn().mockResolvedValue(null),
       gatewayAuthToken: vi.fn().mockResolvedValue("gateway-token"),
+      gatewayProjectId: vi.fn().mockReturnValue(1),
       ensureGatewayProxy: vi.fn().mockResolvedValue("http://127.0.0.1:9999"),
       configureProcessEnv: vi.fn().mockResolvedValue(undefined),
       createPosthogConfig: vi.fn((credentials) => ({
@@ -246,9 +246,6 @@ function createMockDependencies() {
     workspaceSettings: {
       getWorktreeLocation: () => "/mock/worktrees",
     },
-    foldersService: {
-      getFolders: vi.fn().mockResolvedValue([]),
-    },
     loggerFactory: {
       scope: () => ({
         info: vi.fn(),
@@ -293,7 +290,6 @@ describe("AgentService", () => {
       deps.storagePaths as never,
       deps.workspaceRepository as never,
       deps.workspaceSettings as never,
-      deps.foldersService as never,
       deps.loggerFactory as never,
     );
     vi.spyOn(service, "emit");
@@ -329,6 +325,9 @@ describe("AgentService", () => {
       "claude",
     );
 
+    expect(fetchGatewayModels).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 1 }),
+    );
     const modelOption = options.find((option) => option.id === "model");
     expect(modelOption).toMatchObject({
       type: "select",
@@ -743,6 +742,98 @@ describe("AgentService", () => {
     });
   });
 
+  describe("session event subscriptions", () => {
+    function serviceLog(svc: AgentService) {
+      return (
+        svc as unknown as {
+          log: {
+            info: ReturnType<typeof vi.fn>;
+            warn: ReturnType<typeof vi.fn>;
+          };
+        }
+      ).log;
+    }
+
+    function seedPendingSession(svc: AgentService, taskRunId: string) {
+      (svc as unknown as { sessions: Map<string, unknown> }).sessions.set(
+        taskRunId,
+        { taskRunId, taskId: `task-for-${taskRunId}`, promptPending: true },
+      );
+    }
+
+    function warnIfNoRendererListening(svc: AgentService, taskRunId: string) {
+      (
+        svc as unknown as { warnIfNoRendererListening(id: string): void }
+      ).warnIfNoRendererListening(taskRunId);
+    }
+
+    it("delivers only the subscribed run's events and reports the close", async () => {
+      const controller = new AbortController();
+      const received: unknown[] = [];
+      const consumed = (async () => {
+        for await (const payload of service.subscribeSessionEvents(
+          "run-1",
+          controller.signal,
+        )) {
+          received.push(payload);
+        }
+      })();
+
+      service.emit(AgentServiceEvent.SessionEvent, {
+        taskRunId: "run-2",
+        payload: "other",
+      });
+      service.emit(AgentServiceEvent.SessionEvent, {
+        taskRunId: "run-1",
+        payload: "mine",
+      });
+      controller.abort();
+      await consumed;
+
+      expect(received).toEqual(["mine"]);
+      expect(serviceLog(service).info).toHaveBeenCalledWith(
+        "Renderer session event subscription closed",
+        expect.objectContaining({
+          taskRunId: "run-1",
+          delivered: 1,
+          remainingSubscribers: 0,
+        }),
+      );
+    });
+
+    it("warns once a minute when a pending turn streams with nobody subscribed", () => {
+      seedPendingSession(service, "run-1");
+
+      warnIfNoRendererListening(service, "run-1");
+      warnIfNoRendererListening(service, "run-1");
+
+      expect(serviceLog(service).warn).toHaveBeenCalledTimes(1);
+      expect(serviceLog(service).warn).toHaveBeenCalledWith(
+        "Session events emitted while a prompt is pending but no renderer is subscribed",
+        { taskRunId: "run-1", taskId: "task-for-run-1" },
+      );
+    });
+
+    it("stays quiet while a renderer is subscribed", () => {
+      seedPendingSession(service, "run-1");
+      const controller = new AbortController();
+      const consumed = (async () => {
+        for await (const _ of service.subscribeSessionEvents(
+          "run-1",
+          controller.signal,
+        )) {
+          // drain
+        }
+      })();
+
+      warnIfNoRendererListening(service, "run-1");
+      controller.abort();
+
+      expect(serviceLog(service).warn).not.toHaveBeenCalled();
+      return consumed;
+    });
+  });
+
   describe("idle timeout", () => {
     function injectSession(
       svc: AgentService,
@@ -919,26 +1010,10 @@ describe("AgentService", () => {
     });
   });
 
-  describe("channel system prompt local folders", () => {
+  describe("channel system prompt repository isolation", () => {
     const credentials = { apiHost: "https://app.posthog.com", projectId: 1 };
-    const FOLDERS_HEADER =
-      "already has these repositories checked out locally on this machine";
 
-    function makeFolder(
-      overrides: Partial<RegisteredFolder>,
-    ): RegisteredFolder {
-      return {
-        id: "folder-id",
-        path: "/src/example",
-        name: "example",
-        remoteUrl: null,
-        lastAccessed: "2026-01-01T00:00:00.000Z",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        ...overrides,
-      };
-    }
-
-    function buildChannelPrompt(folders: RegisteredFolder[]): string {
+    function buildChannelPrompt(): string {
       return (
         service as unknown as {
           buildSystemPrompt: (
@@ -948,7 +1023,6 @@ describe("AgentService", () => {
             additionalDirectories?: string[],
             systemPromptOverride?: string,
             channelMode?: boolean,
-            knownLocalFolders?: RegisteredFolder[],
           ) => { append: string };
         }
       ).buildSystemPrompt(
@@ -958,93 +1032,20 @@ describe("AgentService", () => {
         undefined,
         undefined,
         true,
-        folders,
       ).append;
     }
 
-    it.each([
-      {
-        desc: "exists:true with a remoteUrl renders name, path and URL",
-        folder: makeFolder({
-          name: "posthog",
-          path: "/src/posthog",
-          remoteUrl: "git@github.com:PostHog/posthog.git",
-          exists: true,
-        }),
-        included: true,
-        line: "  - posthog — /src/posthog (git@github.com:PostHog/posthog.git)",
-      },
-      {
-        desc: "exists undefined with a null remoteUrl renders without parens",
-        folder: makeFolder({
-          name: "local-only",
-          path: "/src/local-only",
-          remoteUrl: null,
-        }),
-        included: true,
-        line: "  - local-only — /src/local-only",
-      },
-      {
-        desc: "exists:false is filtered out and omits the block",
-        folder: makeFolder({
-          name: "stale",
-          path: "/src/stale",
-          exists: false,
-        }),
-        included: false,
-        line: "  - stale — /src/stale",
-      },
-    ])("$desc", ({ folder, included, line }) => {
-      const prompt = buildChannelPrompt([folder]);
+    it("requires a task-specific clone instead of an existing checkout", () => {
+      const prompt = buildChannelPrompt();
 
-      if (included) {
-        expect(prompt).toContain(FOLDERS_HEADER);
-        expect(prompt).toContain(line);
-        // The reuse-first guidance only appears when a folder is on disk.
-        expect(prompt).toContain("do NOT clone it again");
-      } else {
-        expect(prompt).not.toContain(line);
-        // The only folder was filtered out, so the block is dropped entirely
-        // and the prompt falls back to the "ask for a path" guidance.
-        expect(prompt).not.toContain(FOLDERS_HEADER);
-        expect(prompt).toContain("If the user names a folder or path");
-      }
-    });
-
-    it("lists only existing folders when given a mix", () => {
-      const prompt = buildChannelPrompt([
-        makeFolder({
-          id: "1",
-          name: "posthog",
-          path: "/src/posthog",
-          remoteUrl: "git@github.com:PostHog/posthog.git",
-          exists: true,
-        }),
-        makeFolder({ id: "2", name: "local-only", path: "/src/local-only" }),
-        makeFolder({
-          id: "3",
-          name: "stale",
-          path: "/src/stale",
-          exists: false,
-        }),
-      ]);
-
-      expect(prompt).toContain(FOLDERS_HEADER);
       expect(prompt).toContain(
-        "  - posthog — /src/posthog (git@github.com:PostHog/posthog.git)",
+        "Do not `cd` into or edit an existing checkout elsewhere on the machine",
       );
-      expect(prompt).toContain("  - local-only — /src/local-only");
-      // A null remoteUrl must not render an empty "()" suffix.
-      expect(prompt).not.toContain("/src/local-only (");
-      // exists:false folders never reach the prompt.
-      expect(prompt).not.toContain("stale");
-    });
-
-    it("omits the local-folders block entirely when none are known", () => {
-      const prompt = buildChannelPrompt([]);
-
-      expect(prompt).not.toContain(FOLDERS_HEADER);
-      expect(prompt).toContain("If the user names a folder or path");
+      expect(prompt).toContain("use `clone_repo`");
+      expect(prompt).toContain(
+        "task-specific clone inside the scratch directory",
+      );
+      expect(prompt).not.toContain("Prefer reusing one of these");
     });
   });
 

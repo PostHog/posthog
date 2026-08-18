@@ -13,8 +13,7 @@ use common_ingestion_warnings::{
     emit_request_warning, WarningEmitter, WarningRequestContext, WarningType,
     CAPTURE_LEGACY_ANALYTICS,
 };
-use serde_json::{json, Map};
-use uuid::Uuid;
+use serde_json::Map;
 
 use super::unknown_if_missing;
 use crate::api::CaptureError;
@@ -32,39 +31,6 @@ pub fn request_context(context: &ProcessingContext) -> WarningRequestContext {
         lib_version: unknown_if_missing(context.sdk_attribution.lib_version.as_deref()),
         path: context.path.clone(),
     }
-}
-
-/// Emit the `distinct_id_truncated` warning for one legacy batch's events
-/// whose distinct_id was cut down to the 200-char cap at extraction. The
-/// events were ingested (modified, not dropped), so this is legacy-only: v1
-/// rejects oversized ids outright as `distinct_id_too_large`.
-///
-/// Identifier details are included only when the batch had exactly one
-/// truncated event; with several they would be an arbitrary pick, and `count`
-/// already carries the volume. The truncated value is at most 200 chars, so
-/// it needs no bounding of its own; `distinctIdLength` is the original char
-/// count, telling the customer how far over the cap they were.
-pub fn emit_distinct_id_truncated_warning(
-    emitter: Option<&dyn WarningEmitter>,
-    request: &WarningRequestContext,
-    sample: Option<(String, usize, Uuid)>,
-    count: u64,
-) {
-    let mut details = Map::new();
-    if let Some((distinct_id, original_chars, event_uuid)) = sample {
-        details.insert("distinctId".to_string(), json!(distinct_id));
-        details.insert("distinctIdLength".to_string(), json!(original_chars));
-        details.insert("eventUuid".to_string(), json!(event_uuid));
-    }
-
-    emit_request_warning(
-        emitter,
-        request,
-        CAPTURE_LEGACY_ANALYTICS,
-        WarningType::DistinctIdTruncated,
-        details,
-        count,
-    );
 }
 
 /// Map a legacy-path request abort to the ingestion warning customers should
@@ -173,6 +139,7 @@ mod tests {
     use crate::ingestion_warnings::{raw_event, SdkAttribution, MAX_SDK_ATTRIBUTION_LEN};
     use common_ingestion_warnings::test_support::CollectingEmitter;
     use common_ingestion_warnings::UNKNOWN_ATTRIBUTION;
+    use serde_json::json;
 
     fn legacy_context(attribution: SdkAttribution) -> ProcessingContext {
         ProcessingContext {

@@ -8,6 +8,7 @@ import type {
   ListSessionsResponse,
   LoadSessionRequest,
   LoadSessionResponse,
+  McpServer,
   NewSessionRequest,
   NewSessionResponse,
   PromptRequest,
@@ -28,7 +29,9 @@ import {
   serializeError,
 } from "@posthog/shared";
 import {
+  isMethod,
   type NativeGoalState,
+  POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
 } from "../../acp-extensions";
 import type { ModelInfo } from "../../gateway-models";
@@ -53,11 +56,12 @@ import {
   estimateTokens,
 } from "../claude/context-breakdown";
 import { isLocalSkillCommandChunk } from "../local-skill";
+import { LOCAL_TOOLS_MCP_NAME } from "../local-tools";
+import { visiblePromptBlocks } from "../prompt-blocks";
 import { resolveSpokenNarration } from "../session-meta";
 import {
   AppServerClient,
   type AppServerClientHandlers,
-  AppServerRequestError,
   type AppServerRpc,
 } from "./app-server-client";
 import { handleServerRequest } from "./approvals";
@@ -94,17 +98,7 @@ import {
 } from "./spawn";
 import { parseStructuredOutput } from "./structured-output";
 import { TurnController } from "./turn-controller";
-import { UsageTracker } from "./usage-tracker";
-
-function isStaleTurnSteerError(error: unknown): boolean {
-  if (!(error instanceof AppServerRequestError) || error.code !== -32600) {
-    return false;
-  }
-  return (
-    error.message === "no active turn to steer" ||
-    /^expected active turn id `.*` but found `.*`$/.test(error.message)
-  );
-}
+import { mergeUsage, UsageTracker } from "./usage-tracker";
 
 type AppServerSessionMeta = {
   // The host sends either a plain string or the Claude-style `{ append }` form.
@@ -154,17 +148,6 @@ const GOAL_COMMAND = {
   input: { hint: "[<objective>|clear|pause|resume]" },
 };
 
-function isHiddenPromptBlock(block: PromptRequest["prompt"][number]): boolean {
-  const meta = block._meta as { ui?: { hidden?: boolean } } | undefined;
-  return meta?.ui?.hidden === true;
-}
-
-function visiblePromptBlocks(
-  prompt: PromptRequest["prompt"],
-): PromptRequest["prompt"] {
-  return prompt.filter((block) => !isHiddenPromptBlock(block));
-}
-
 function parseGoalCommand(prompt: PromptRequest["prompt"]): GoalCommand | null {
   const visible = visiblePromptBlocks(prompt);
   if (visible.some((block) => block.type !== "text")) return null;
@@ -188,29 +171,18 @@ function parseGoalCommand(prompt: PromptRequest["prompt"]): GoalCommand | null {
   }
 }
 
-function mergePromptUsage(
-  left: PromptResponse["usage"],
-  right: PromptResponse["usage"],
-): PromptResponse["usage"] {
-  if (!left) return right;
-  if (!right) return left;
-  return {
-    inputTokens: left.inputTokens + right.inputTokens,
-    outputTokens: left.outputTokens + right.outputTokens,
-    cachedReadTokens:
-      (left.cachedReadTokens ?? 0) + (right.cachedReadTokens ?? 0),
-    cachedWriteTokens:
-      (left.cachedWriteTokens ?? 0) + (right.cachedWriteTokens ?? 0),
-    thoughtTokens: (left.thoughtTokens ?? 0) + (right.thoughtTokens ?? 0),
-    totalTokens: left.totalTokens + right.totalTokens,
-  };
+function steerDeclined(): PromptResponse {
+  return { stopReason: "end_turn", _meta: { steer: false } };
 }
 
 function mergePromptResponses(
   left: PromptResponse,
   right: PromptResponse,
 ): PromptResponse {
-  return { ...right, usage: mergePromptUsage(left.usage, right.usage) };
+  return {
+    ...right,
+    usage: mergeUsage(left.usage ?? undefined, right.usage ?? undefined),
+  };
 }
 
 // The native app-server owns its config; BaseAcpAgent only calls dispose() on this.
@@ -277,6 +249,10 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private additionalDirectories?: string[];
   /** The session workspace stays writable when extra roots are applied per turn. */
   private workspaceDirectory?: string;
+  private threadSetup?: {
+    meta?: AppServerSessionMeta;
+    developerInstructions?: string;
+  };
   /** The in-flight turn's <proposed_plan>, streamed or completed (drives the implement handoff). */
   private planProposal?: { itemId: string; text: string };
   /** Structured plan tool call already emitted while the proposal streams. */
@@ -292,6 +268,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private cancelNextGoalTurn = false;
   /** Native goal ticks start outside prompt(), so TurnController does not own them. */
   private nativeGoalTurnId?: string;
+  private steering = false;
 
   constructor(
     client: AgentSideConnection,
@@ -448,6 +425,78 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     return { sessionId: threadId, configOptions: this.config.options };
   }
 
+  async extMethod(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (!isMethod(method, POSTHOG_METHODS.REFRESH_SESSION)) {
+      throw RequestError.methodNotFound(method);
+    }
+    if (params.mcpServers === undefined) {
+      throw new RequestError(
+        -32602,
+        "refresh_session requires at least one refreshable field (e.g. mcpServers)",
+      );
+    }
+    if (!Array.isArray(params.mcpServers)) {
+      throw new RequestError(
+        -32602,
+        "refresh_session: mcpServers must be an array",
+      );
+    }
+    if (!this.threadId) {
+      throw new RequestError(
+        -32002,
+        "Cannot refresh session before a thread is started",
+      );
+    }
+    if (this.turns.isPending || this.nativeGoalTurnId) {
+      throw new RequestError(
+        -32002,
+        "Cannot refresh session while a prompt turn is in flight",
+      );
+    }
+
+    await this.refreshThreadMcpServers(params.mcpServers as McpServer[]);
+    return { refreshed: true };
+  }
+
+  private async refreshThreadMcpServers(servers: McpServer[]): Promise<void> {
+    const cwd = this.workspaceDirectory;
+    let localTools: ReturnType<typeof buildLocalToolsServer> = null;
+    try {
+      localTools = buildLocalToolsServer(
+        { cwd },
+        this.localToolsMeta(this.threadSetup?.meta),
+      );
+    } catch (err) {
+      this.logger.warn(
+        "local-tools server unavailable on refresh; continuing without it",
+        { error: String(err) },
+      );
+    }
+    const mcpServers = toCodexMcpServers(
+      [...servers, ...(localTools ? [localTools] : [])],
+      { gatePosthogExec: true },
+    );
+    const config = buildThreadConfig(mcpServers, this.additionalDirectories);
+    const developerInstructions = this.threadSetup?.developerInstructions;
+
+    await this.rpc.request(APP_SERVER_METHODS.THREAD_RESUME, {
+      model: this.config.model,
+      cwd,
+      threadId: this.threadId,
+      ...(developerInstructions ? { developerInstructions } : {}),
+      ...(config ? { config } : {}),
+    });
+
+    this.logger.info("Refreshed codex thread MCP servers", {
+      threadId: this.threadId,
+      mcpServers: mcpServers ? Object.keys(mcpServers) : [],
+      hasLocalTools: !!localTools,
+    });
+  }
+
   /** Replay a resumed thread's persisted turns (from the thread/resume response) as session updates. */
   private replayHistory(thread: AppServerThread | undefined): void {
     if (!this.sessionId || !thread?.turns?.length) return;
@@ -543,6 +592,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         ].filter((s): s is string => !!s),
       ),
     ].join("\n\n");
+    this.threadSetup = { meta: params.meta, developerInstructions };
     // Degrade gracefully: an unresolvable bundled local-tools script skips it with a
     // warning rather than killing thread setup.
     let localTools: ReturnType<typeof buildLocalToolsServer> = null;
@@ -807,35 +857,26 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (dropped > 0) {
       this.logger.warn("Dropped non-text/non-image prompt blocks", { dropped });
     }
+    const isSteer =
+      (params._meta as { steer?: unknown } | undefined)?.steer === true;
     if (this.turns.isRunning) {
-      // A turn is already running: fold the message in via turn/steer (precondition: the
-      // active turnId). Refresh from the response's rotated turnId so a later steer/interrupt
-      // still targets the live turn (no turn/started is re-emitted for a steer).
-      let steerRes: { turnId?: string };
-      try {
-        steerRes = await this.rpc.request<{ turnId?: string }>(
-          APP_SERVER_METHODS.TURN_STEER,
-          {
-            threadId: this.threadId,
-            input,
-            expectedTurnId: this.turns.activeTurnId,
-          },
-        );
-      } catch (error) {
-        if (
-          (params._meta as { steer?: unknown } | undefined)?.steer === true &&
-          isStaleTurnSteerError(error)
-        ) {
-          return { stopReason: "end_turn", _meta: { steer: false } };
-        }
-        throw error;
+      if (isSteer) {
+        return await this.steerRunningTurn(input, params.prompt);
       }
+      const steerRes = await this.rpc.request<{ turnId?: string }>(
+        APP_SERVER_METHODS.TURN_STEER,
+        {
+          threadId: this.threadId,
+          input,
+          expectedTurnId: this.turns.activeTurnId,
+        },
+      );
       this.turns.onSteered(steerRes?.turnId);
       this.broadcastUserInput(params.prompt);
       return { stopReason: "end_turn", _meta: { steer: true } };
     }
-    if ((params._meta as { steer?: unknown } | undefined)?.steer === true) {
-      return { stopReason: "end_turn", _meta: { steer: false } };
+    if (isSteer) {
+      return steerDeclined();
     }
     if (this.turns.isPending) {
       // A turn is pending but has no turnId yet, so we can't steer; fail fast.
@@ -959,6 +1000,96 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       );
   }
 
+  private turnStartParams(input: CodexUserInput[]): Record<string, unknown> {
+    const approvalPolicy = this.config.approvalPolicy();
+    const sandboxPolicy = this.sandboxPolicyForTurn();
+    return {
+      threadId: this.threadId,
+      input,
+      model: this.config.model,
+      ...(this.config.effort ? { effort: this.config.effort } : {}),
+      // Always request a reasoning summary; the default "auto" can skip it on trivial turns.
+      summary: "detailed",
+      // Picker preset applied per-turn. codex keeps turn overrides for subsequent turns,
+      // so every mode sends its full policy — omitting a field would leave the previous
+      // mode's value active (e.g. plan's readOnly sandbox bleeding into auto).
+      ...(approvalPolicy ? { approvalPolicy } : {}),
+      // Pushed every turn — codex remembers the last mode, so switching back from plan must be explicit.
+      collaborationMode: this.config.collaborationModeForTurn(),
+      // Skipped on cloud, where a non-danger sandbox re-engages the unavailable
+      // linux-sandbox and panics; the enclosing docker/Modal sandbox isolates instead.
+      ...(this.environment !== "cloud" && sandboxPolicy
+        ? { sandboxPolicy }
+        : {}),
+      // Constrain the final message to the task schema for parseable structured output.
+      ...(this.jsonSchema ? { outputSchema: this.jsonSchema } : {}),
+    };
+  }
+
+  private async interruptTurn(turnId: string, label: string): Promise<void> {
+    await this.rpc
+      .request(APP_SERVER_METHODS.TURN_INTERRUPT, {
+        threadId: this.threadId,
+        turnId,
+      })
+      .catch((err) => this.logger.warn(label, err));
+  }
+
+  private async steerRunningTurn(
+    input: CodexUserInput[],
+    prompt: PromptRequest["prompt"],
+  ): Promise<PromptResponse> {
+    if (this.steering) {
+      return steerDeclined();
+    }
+    this.steering = true;
+    try {
+      const turnId = this.session.cancelled
+        ? undefined
+        : this.turns.markInterrupted();
+      if (!turnId) {
+        return steerDeclined();
+      }
+      await this.interruptTurn(turnId, "steer turn/interrupt failed");
+      this.planProposal = undefined;
+      this.streamedPlanToolCallId = undefined;
+      let started: { turn?: { id?: string } };
+      try {
+        started = await this.rpc.request<{ turn?: { id?: string } }>(
+          APP_SERVER_METHODS.TURN_START,
+          this.turnStartParams(input),
+        );
+      } catch (err) {
+        this.logger.warn("steer continuation turn/start failed", err);
+        if (!this.turns.clearInterrupted(turnId)) {
+          await this.finalizeTurn("cancelled");
+        }
+        return steerDeclined();
+      }
+      this.usage.carryForNativeTurn();
+      if (this.session.cancelled) {
+        const orphanId = this.turns.markInterrupted(started?.turn?.id);
+        this.logger.warn(
+          "cancel raced the steer continuation; interrupting it",
+          {
+            turnId: orphanId,
+          },
+        );
+        if (orphanId) {
+          await this.interruptTurn(
+            orphanId,
+            "orphan continuation interrupt failed",
+          );
+        }
+        return steerDeclined();
+      }
+      this.broadcastUserInput(prompt);
+      return { stopReason: "end_turn", _meta: { steer: true } };
+    } finally {
+      this.steering = false;
+    }
+  }
+
   /** Start one codex turn and await its completion. */
   private async runTurn(input: CodexUserInput[]): Promise<PromptResponse> {
     this.lastAgentMessage = "";
@@ -969,29 +1100,10 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.deferredTurnComplete = undefined;
     const { completion, turn } = this.turns.begin();
     try {
-      const approvalPolicy = this.config.approvalPolicy();
-      const sandboxPolicy = this.sandboxPolicyForTurn();
-      await this.rpc.request(APP_SERVER_METHODS.TURN_START, {
-        threadId: this.threadId,
-        input,
-        model: this.config.model,
-        ...(this.config.effort ? { effort: this.config.effort } : {}),
-        // Always request a reasoning summary; the default "auto" can skip it on trivial turns.
-        summary: "detailed",
-        // Picker preset applied per-turn. codex keeps turn overrides for subsequent turns,
-        // so every mode sends its full policy — omitting a field would leave the previous
-        // mode's value active (e.g. plan's readOnly sandbox bleeding into auto).
-        ...(approvalPolicy ? { approvalPolicy } : {}),
-        // Pushed every turn — codex remembers the last mode, so switching back from plan must be explicit.
-        collaborationMode: this.config.collaborationModeForTurn(),
-        // Skipped on cloud, where a non-danger sandbox re-engages the unavailable
-        // linux-sandbox and panics; the enclosing docker/Modal sandbox isolates instead.
-        ...(this.environment !== "cloud" && sandboxPolicy
-          ? { sandboxPolicy }
-          : {}),
-        // Constrain the final message to the task schema for parseable structured output.
-        ...(this.jsonSchema ? { outputSchema: this.jsonSchema } : {}),
-      });
+      await this.rpc.request(
+        APP_SERVER_METHODS.TURN_START,
+        this.turnStartParams(input),
+      );
       return await completion;
     } finally {
       this.turns.finishPrompt(turn);
@@ -1353,12 +1465,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     // threadId and turnId (else -32600); skip the RPC when no turn started.
     const turnId = this.turns.markInterrupted();
     if (this.threadId && turnId) {
-      await this.rpc
-        .request(APP_SERVER_METHODS.TURN_INTERRUPT, {
-          threadId: this.threadId,
-          turnId,
-        })
-        .catch((err) => this.logger.warn("turn/interrupt failed", err));
+      await this.interruptTurn(turnId, "turn/interrupt failed");
     }
     await this.finalizeTurn("cancelled");
   }
@@ -1939,6 +2046,22 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     );
   }
 
+  private shouldAutoAcceptMcpToolCall(mcp: {
+    server: string;
+    tool: string;
+    args: unknown;
+  }): boolean {
+    const isHandsOffMode =
+      this.config.mode === "auto" || this.config.mode === "full-access";
+    const isRepositoryTool =
+      mcp.server === LOCAL_TOOLS_MCP_NAME &&
+      (mcp.tool === "list_repos" || mcp.tool === "clone_repo");
+    return (
+      (isHandsOffMode && isRepositoryTool) ||
+      this.shouldAutoAcceptPostHogExec(mcp)
+    );
+  }
+
   /**
    * Server-initiated requests. Simple approvals resolve to a `{ decision }` envelope (a bare
    * string is rejected); richer ones (AskUserQuestion / permission profile / elicitation) go
@@ -1953,7 +2076,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       logger: this.logger,
       resolveMcpToolCall: (serverName) => this.mcp.byServer(serverName),
       shouldAutoAcceptMcpToolCall: (mcp) =>
-        this.shouldAutoAcceptPostHogExec(mcp),
+        this.shouldAutoAcceptMcpToolCall(mcp),
     });
     if (richer.handled) {
       return richer.response;
@@ -2001,7 +2124,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     // Codex has no MCP-specific approval; a known MCP call surfaces the real server/tool/args
     // so the host renders the proper MCP permission (incl. PostHog `exec` unwrapping).
     const mcp = this.mcp.byItemId(detail.itemId);
-    if (mcp && this.shouldAutoAcceptPostHogExec(mcp)) {
+    if (mcp && this.shouldAutoAcceptMcpToolCall(mcp)) {
       return { decision: "accept" };
     }
     // kind + content route plain command/file approvals to Execute/EditPermission (not the fallback).

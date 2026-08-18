@@ -5,9 +5,10 @@
 use simd_json::borrowed::{Object, Value};
 
 use crate::assets::{
-    apply_blur, blur_inline_image_attr, has_media_src_attr, is_media_src_attr, is_media_tag,
-    INLINE_IMAGE_ATTR,
+    apply_blur, blur_inline_image_attr, has_media_src_attr, is_image_ref_attr, is_media_src_attr,
+    is_media_tag, INLINE_IMAGE_ATTR,
 };
+use crate::collect::is_image_ref_strict;
 use crate::context::Ctx;
 use crate::css::{scrub_css_images, INLINED_STYLESHEET_ATTR};
 use crate::json::{
@@ -96,7 +97,9 @@ pub fn scrub_mutation_attributes(ctx: &Ctx<'_>, attributes: &mut Vec<Value<'_>>)
                 } else {
                     TagKind::Other
                 };
-                changed |= scrub_attrs(ctx, attrs, kind);
+                // A mutation carries attributes with no tag, so a `src` here could belong to an
+                // iframe or a script as easily as an image. Decline rather than guess.
+                changed |= scrub_attrs(ctx, attrs, kind, false);
             }
         }
     }
@@ -125,9 +128,14 @@ pub(crate) fn walk_node(ctx: &Ctx<'_>, node: &mut Value<'_>, parent: ParentKind)
 
     match obj.get("type").and_then(as_small_uint) {
         Some(NODE_ELEMENT) => {
-            let kind = classify_tag(obj.get("tagName").and_then(as_str).unwrap_or(""));
+            let tag = obj
+                .get("tagName")
+                .and_then(as_str)
+                .unwrap_or("")
+                .to_string();
+            let kind = classify_tag(&tag);
             if let Some(attrs) = obj.get_mut("attributes").and_then(as_object_mut) {
-                changed |= scrub_attrs(ctx, attrs, kind);
+                changed |= scrub_attrs(ctx, attrs, kind, crate::assets::tag_src_is_image(&tag));
             }
             let child_parent = match kind {
                 TagKind::Script => ParentKind::Script,
@@ -196,16 +204,29 @@ pub(crate) fn classify_tag(tag: &str) -> TagKind {
     }
 }
 
-fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object<'_>, kind: TagKind) -> bool {
+fn scrub_attrs(
+    ctx: &Ctx<'_>,
+    attrs: &mut Object<'_>,
+    kind: TagKind,
+    tag_src_is_image: bool,
+) -> bool {
     let mut changed = false;
     // Plain string scrubs mutate values in place while iterating — no per-element key Vec. Only the
     // helpers that need `&mut Object` (blur inserts sibling keys, css re-reads by key) defer their
     // attr names, which most elements don't have. Each attr is scrubbed independently, so running
     // the deferred ones after the loop produces the same result as the original in-order pass.
     let mut deferred: Vec<String> = Vec::new();
+    let mut rejected_image_refs: Vec<String> = Vec::new();
 
     for (name, value) in attrs.iter_mut() {
         let name: &str = name.as_ref();
+        if is_image_ref_attr(name) {
+            let keep = ctx.keeps_image_refs() && as_str(value).is_some_and(is_image_ref_strict);
+            if !keep {
+                rejected_image_refs.push(name.to_string());
+            }
+            continue;
+        }
         if kind == TagKind::Media && is_media_src_attr(name) {
             continue;
         }
@@ -237,6 +258,11 @@ fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object<'_>, kind: TagKind) -> bool {
         }
     }
 
+    for name in rejected_image_refs {
+        attrs.remove(name.as_str());
+        changed = true;
+    }
+
     for name in deferred {
         if name == INLINE_IMAGE_ATTR {
             changed |= blur_inline_image_attr(ctx, attrs, &name);
@@ -246,7 +272,7 @@ fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object<'_>, kind: TagKind) -> bool {
     }
 
     if kind == TagKind::Media {
-        changed |= apply_blur(ctx, attrs);
+        changed |= apply_blur(ctx, attrs, tag_src_is_image);
     }
 
     changed
@@ -270,7 +296,9 @@ pub(crate) fn is_user_text_attr(name: &str) -> bool {
 }
 
 pub(crate) fn is_data_attr(name: &str) -> bool {
-    name.starts_with("data-") && !name.starts_with("data-anon-original-")
+    name.starts_with("data-")
+        && !name.starts_with("data-anon-original-")
+        && !is_image_ref_attr(name)
 }
 
 pub(crate) fn data_attr_looks_sensitive(value: &str) -> bool {

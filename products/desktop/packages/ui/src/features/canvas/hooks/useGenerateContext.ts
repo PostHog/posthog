@@ -35,12 +35,12 @@ interface GenerateContextInput {
   workspaceMode?: WorkspaceMode;
 }
 
-// Launches the plan-mode session that builds a context's CONTEXT.md. The task
-// runs repo-less (the agent attaches a repo lazily and asks to clarify if it
-// can't find the right one) and starts in plan mode, seeded by the user's
-// description, so the user shapes the document before it publishes via the
-// PostHog MCP. Defaults to a cloud run so generation never ties up (or depends
-// on) the local machine. Returns the created task, or null on failure.
+// Launches the session that builds a context's CONTEXT.md. The task runs
+// repo-less (the agent attaches a repo lazily and asks to clarify if it can't
+// find the right one) and unattended in auto mode, seeded by the user's
+// description, so it publishes via the PostHog MCP without a round trip.
+// Defaults to a cloud run so generation never ties up (or depends on) the local
+// machine. Returns the created task, or null on failure.
 //
 // Channel-agnostic on purpose: the create-context dialog calls this with a
 // freshly-created context's id (no bound hook possible before it exists), and
@@ -89,7 +89,7 @@ export function useGenerateContext() {
             : undefined;
           if (!model) {
             toastError(
-              "Couldn't start the planning session",
+              "Couldn't start the CONTEXT.md session",
               "No model is configured for cloud runs.",
             );
             return null;
@@ -108,9 +108,10 @@ export function useGenerateContext() {
             // Own the task on the channel so it lands in the context feed
             // (not just Recents).
             channelId,
-            // Plan mode: the agent proposes the document and waits for approval
-            // before publishing, so the user co-designs CONTEXT.md.
-            executionMode: "plan",
+            // Always auto, never the composer's last-used mode: this launch has
+            // no mode picker, and a plan-mode build just parks the agent behind
+            // an approval the user never asked for. They edit CONTEXT.md after.
+            executionMode: "auto",
             allowNoRepo: true,
             // A cloud run pairs a runtime adapter with a model, and the API
             // rejects one without the other. Since this flow never surfaces a
@@ -121,12 +122,12 @@ export function useGenerateContext() {
         );
 
         if (!result.success) {
-          toastError("Couldn't start the planning session", result.error);
+          toastError("Couldn't start the CONTEXT.md session", result.error);
           return null;
         }
 
         const task = result.data.task;
-        // File into the context so its Recents/Artifacts tabs pick it up.
+        // File into the context so its Recents list picks it up.
         // Best-effort — a failure here shouldn't undo a started task.
         void fileTask(channelId, task.id).catch(() => {});
         // Announce the CONTEXT.md build in the channel feed (durable, team-

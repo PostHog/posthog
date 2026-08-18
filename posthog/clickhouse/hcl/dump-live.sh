@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Convergence gate, step 1 of 2: introspect the live OPS/LOGS nodes on a booted
-# multinode stack (see tools/infra-scripts/clickhouse-multinode/) into one HCL
-# dump per <env>-<role>. Step 2 (check-live.sh) diffs those dumps against the
-# committed golden — offline. Splitting keeps the cluster/network-dependent
-# capture separate from the deterministic comparison.
+# Convergence gate, step 1 of 2: introspect every node the booted multinode stack
+# runs (see tools/infra-scripts/clickhouse-multinode/) into one HCL dump per
+# <env>-<role> — the roles listed in ROLES below, one per published port. Step 2
+# (check-live.sh) diffs those dumps against the committed golden — offline.
+# Splitting keeps the cluster/network-dependent capture separate from the
+# deterministic comparison.
 #
 # Transient / unmanaged objects are dropped at introspect time via exclude.hcl.
 #

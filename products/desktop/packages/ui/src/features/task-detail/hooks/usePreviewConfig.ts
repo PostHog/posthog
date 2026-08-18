@@ -15,15 +15,14 @@ import {
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import {
   type Adapter,
+  DEEPSEEK_MODEL_FLAG,
   FAST_MODE_FLAG,
   GLM_MODEL_FLAG,
+  GLM53_MODEL_FLAG,
   getCloudUrlFromRegion,
   KIMI_MODEL_FLAG,
 } from "@posthog/shared";
-import {
-  stripGlmModelOption,
-  stripKimiModelOption,
-} from "@posthog/ui/features/sessions/modelOptionFilters";
+import { stripDisabledModelOption } from "@posthog/ui/features/sessions/modelOptionFilters";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { logger } from "../../../shell/logger";
 import { useAuthStateValue } from "../../auth/store";
@@ -61,6 +60,8 @@ function getOptionByCategory(
 export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
   const hostClient = useHostTRPCClient();
   const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
+  const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
+  const deepseekEnabled = useFeatureFlag(DEEPSEEK_MODEL_FLAG);
   const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
   const fastModeFlagEnabled = useFeatureFlag(FAST_MODE_FLAG);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
@@ -112,12 +113,14 @@ export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
         if (abort.signal.aborted) return;
 
         const options = serverOptions
-          .map((option) => {
-            const withoutGlm = glmEnabled
-              ? option
-              : stripGlmModelOption(option);
-            return kimiEnabled ? withoutGlm : stripKimiModelOption(withoutGlm);
-          })
+          .map((option) =>
+            stripDisabledModelOption(option, {
+              deepseek: deepseekEnabled,
+              glm: glmEnabled,
+              glm53: glm53Enabled,
+              kimi: kimiEnabled,
+            }),
+          )
           .filter((option) => fastModeFlagEnabled || option.id !== "fast");
 
         const {
@@ -242,6 +245,8 @@ export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
     hostClient,
     hasHydrated,
     glmEnabled,
+    glm53Enabled,
+    deepseekEnabled,
     kimiEnabled,
     fastModeFlagEnabled,
   ]);

@@ -37,11 +37,10 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { findLastIndex } from 'lib/utils/arrays'
-import { downloadFile, uuid } from 'lib/utils/dom'
+import { downloadFile } from 'lib/utils/dom'
 import { clamp } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -55,6 +54,13 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
+
+import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
+import {
+    MAX_REPLAY_IFRAME_HTML_CHARS,
+    ReplayIframeData,
+    persistReplayIframeData,
+} from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { PreflightStatus, SessionRecordingSnapshotSource, SessionRecordingType, UserType } from '../../../types'
@@ -145,6 +151,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     onRecordingDeleted?: () => void
     autoPlay?: boolean
     withSidebar?: boolean
+    noMeta?: boolean
+    noDock?: boolean
     mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
     pinned?: boolean
@@ -152,8 +160,6 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     playNextRecording?: (automatic: boolean) => void
     skipToFirstMatchingEvent?: boolean
 }
-
-const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
 
 // Positions less than this far before the next FullSnapshot are treated as
 // renderable: recordings routinely start a few ms before their first
@@ -218,19 +224,6 @@ const trackingStateMap: Record<SessionPlayerState, PlayerTimeTracking['state']> 
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
 
-function removeFromLocalStorageWithPrefix(prefix: string): void {
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-        const key = localStorage.key(i)
-        if (key?.startsWith(prefix)) {
-            localStorage.removeItem(key)
-        }
-    }
-}
-
-export function removeReplayIframeDataFromLocalStorage(): void {
-    removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
-}
-
 const NOSCRIPT_BLOCK_RE = /<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi
 
 /**
@@ -242,6 +235,18 @@ export function stripRrwebScriptShims(html: string): string {
         return html
     }
     return html.replace(NOSCRIPT_BLOCK_RE, '')
+}
+
+const SNAPSHOT_REJECTION_PROBLEM = {
+    too_large: 'This part of the recording is too large to use as a heatmap background.',
+    storage_failed: "Couldn't save this moment as a heatmap background.",
+} as const
+
+function rejectHeatmapSnapshot(reason: keyof typeof SNAPSHOT_REJECTION_PROBLEM, htmlChars: number): void {
+    posthog.capture('in-app heatmap background snapshot rejected', { reason, html_chars: htmlChars })
+    lemonToast.error(
+        `${SNAPSHOT_REJECTION_PROBLEM[reason]} Try a different moment, or create a heatmap from the page URL instead.`
+    )
 }
 
 /**
@@ -537,6 +542,7 @@ export interface sessionRecordingPlayerLogicValues {
         url: string
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
+    isSnapshotUnauthorized: boolean // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
     snapshotStore: SnapshotStore // snapshotDataLogic
     snapshotsLoaded: boolean // snapshotDataLogic
@@ -725,6 +731,9 @@ export interface sessionRecordingPlayerLogicActions {
         error: string
         errorObject?: any
     } // snapshotDataLogic
+    retrySnapshotLoading: () => {
+        value: true
+    } // snapshotDataLogic
     setPlayerActive: (active: boolean) => {
         active: boolean
     } // snapshotDataLogic
@@ -838,6 +847,9 @@ export interface sessionRecordingPlayerLogicActions {
         error: any
     }
     restartIframePlayback: () => {
+        value: true
+    }
+    retryLoadingSnapshots: () => {
         value: true
     }
     schedulePlayerTimeTracking: () => {
@@ -1129,6 +1141,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'snapshotStore',
                 'allSourcesLoaded',
                 'storeVersion',
+                'isSnapshotUnauthorized',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             [
@@ -1159,6 +1172,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshotsForSourceFailure',
                 'loadSnapshotSourcesFailure',
                 'snapshotSourceLoadExhausted',
+                'retrySnapshotLoading',
                 'loadNextSnapshotSource',
                 'loadAllSources',
                 'setTargetTimestamp',
@@ -1189,6 +1203,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endScrub: true,
         setPlayerError: (reason: string) => ({ reason }),
         clearPlayerError: true,
+        retryLoadingSnapshots: true,
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         setSkippingToMatchingEvent: (isSkippingToMatchingEvent: boolean) => ({ isSkippingToMatchingEvent }),
         syncPlayerSpeed: true,
@@ -2537,24 +2552,34 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setPlayerError('loadSnapshotsForSourceFailure')
+                actions.setPlayerError(
+                    values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'loadSnapshotsForSourceFailure'
+                )
             }
         },
         loadSnapshotSourcesFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setPlayerError('loadSnapshotSourcesFailure')
+                actions.setPlayerError(
+                    values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'loadSnapshotSourcesFailure'
+                )
             }
         },
         // Both are terminal give-ups: unlike the per-attempt failures above they fire even when other
         // data already loaded, because the missing range would otherwise buffer forever with no error.
         snapshotSourceLoadExhausted: () => {
             console.error('PostHog Recording Playback Error: A snapshot source repeatedly failed to load')
-            actions.setPlayerError('snapshotSourceLoadExhausted')
+            actions.setPlayerError(
+                values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'snapshotSourceLoadExhausted'
+            )
         },
         snapshotProcessingFailed: () => {
             console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')
             actions.setPlayerError('snapshotProcessingFailed')
+        },
+        retryLoadingSnapshots: () => {
+            actions.clearPlayerError()
+            actions.retrySnapshotLoading()
         },
         setPlay: () => {
             if (!values.snapshotsLoaded) {
@@ -2605,6 +2630,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 analyzed: true,
                 player_metadata: values.sessionPlayerMetaData,
             })
+            analysisNudgeLogic.findMounted()?.actions.recordingAnalyzed(props.sessionRecordingId)
         },
         setPause: () => {
             actions.stopAnimation()
@@ -3099,16 +3125,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
-            const key = ReplayIframeDatakeyPrefix + uuid()
+            const html = stripRrwebScriptShims(rawIframeHtml)
+            const htmlChars = html.length
+            if (htmlChars > MAX_REPLAY_IFRAME_HTML_CHARS) {
+                rejectHeatmapSnapshot('too_large', htmlChars)
+                return
+            }
+
             const data: ReplayIframeData = {
-                html: stripRrwebScriptShims(rawIframeHtml),
+                html,
                 width: resolution.width,
                 height: resolution.height,
                 startDateTime: values.sessionPlayerMetaData?.start_time,
                 url: values.currentURL,
             }
-            localStorage.setItem(key, JSON.stringify(data))
+            const key = persistReplayIframeData(data)
+            if (!key) {
+                rejectHeatmapSnapshot('storage_failed', htmlChars)
+                return
+            }
             const modalLogic = sessionPlayerModalLogic.findMounted()
             if (modalLogic?.values.modalContext?.type === 'heatmap-background-selection') {
                 modalLogic.actions.completeHeatmapBackgroundSelection(key)
