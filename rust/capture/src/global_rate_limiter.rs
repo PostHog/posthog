@@ -150,10 +150,9 @@ impl GlobalRateLimiter {
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
     ) -> anyhow::Result<Self> {
-        // A zero window would make every derived budget zero, limiting all
-        // traffic. The underlying limiter can't run on a zero window either, so
-        // treat it as one second here rather than silently shedding everything.
-        let window_secs = config.global_rate_limit_window_interval_secs.max(1);
+        // `build` refuses to boot on a zero window, so this scaling never
+        // divides a budget down to nothing.
+        let window_secs = config.global_rate_limit_window_interval_secs;
         let metrics_scope = format!("{}_ai_bytes", config.capture_mode.as_tag());
         Self::build(
             config,
@@ -196,6 +195,17 @@ impl GlobalRateLimiter {
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
         spec: LimiterSpec<'_>,
     ) -> anyhow::Result<Self> {
+        // `leak_rate_for` divides the threshold by the window, so a zero window
+        // gives every bucket an infinite leak rate and the limiter admits
+        // everything. That is the opposite of what an operator setting a limit
+        // asked for, and it fails silently, so refuse to boot on it.
+        if config.global_rate_limit_window_interval_secs == 0 {
+            anyhow::bail!(
+                "invalid configuration: GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS must be greater than 0; \
+                 a zero window gives every key an infinite leak rate, so no limit is ever enforced"
+            );
+        }
+
         // Seed the (swappable) custom-key map from the static CSV overrides. When a
         // dynamic source is enabled, the common refresh loop replaces this map only
         // from an explicit Redis blob; an absent key or an unreachable Redis is

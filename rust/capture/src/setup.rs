@@ -458,7 +458,7 @@ fn ai_byte_limit_per_second(config: &Config) -> u64 {
 const MAX_AI_EVENT_BYTES: u64 = 8_388_608;
 
 fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
-    let window_secs = config.global_rate_limit_window_interval_secs.max(1);
+    let window_secs = config.global_rate_limit_window_interval_secs;
     let window_budget = ai_byte_limit_per_second(config).saturating_mul(window_secs);
     if window_budget < MAX_AI_EVENT_BYTES {
         warn!(
@@ -928,6 +928,44 @@ mod tests {
         assert_eq!(
             ai_events_overflow_valve(&ai_valve_config(&input)),
             expected_armed
+        );
+    }
+
+    /// Signature shared by the limiter constructors under test.
+    type LimiterBuilder = fn(
+        &Config,
+        Vec<Arc<dyn common_redis::Client + Send + Sync>>,
+    ) -> anyhow::Result<GlobalRateLimiter>;
+
+    /// A zero window gives every bucket an infinite leak rate, so the limiter
+    /// admits everything. Building one must fail at boot rather than run as a
+    /// limiter that never limits.
+    #[rstest]
+    #[case::ai_bytes(GlobalRateLimiter::new_ai_bytes)]
+    #[case::token_distinct_id(GlobalRateLimiter::new_token_distinct_id)]
+    fn limiters_reject_a_zero_window(#[case] build: LimiterBuilder) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS", "0"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        // `GlobalRateLimiter` is not `Debug`, so unwrap the error by hand.
+        let err = match build(&config, vec![]) {
+            Ok(_) => panic!("a zero window must not build a limiter"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS"),
+            "the error must name the offending setting, got: {err}"
         );
     }
 
