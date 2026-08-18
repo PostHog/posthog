@@ -1284,6 +1284,10 @@ class TaskManagementWorkflow(PostHogWorkflow):
         )
         if not pr_context:
             return CIFollowUpDecision.NO_PR
+        if not pr_context.follow_up_enabled:
+            # The task owner turned the loop off after this run started; keep
+            # polling but never dispatch, so re-enabling resumes it.
+            return CIFollowUpDecision.SKIP
         if pr_context.pr_state in ("closed", "merged"):
             workflow.logger.info(
                 "task_management_ci_skipped_pr_closed",

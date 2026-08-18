@@ -418,6 +418,18 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         # must be persisted for the warm run to honor the setting.
         assert run.state.get("auto_publish") is True
 
+    def test_reuse_persists_disabled_ci_follow_up(self):
+        # Warm tasks are born with model defaults (follow-up on), so the reuse path
+        # must carry a request that turns the loop off onto the row.
+        warm_task, _run = self._warm_run()
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(ci_follow_up_enabled=False)
+
+        assert str(dto.id) == str(warm_task.id)
+        assert dto.ci_follow_up_enabled is False
+        warm_task.refresh_from_db()
+        assert warm_task.ci_follow_up_enabled is False
+
     def test_reuses_warm_task_with_new_reasoning_effort_and_attachments(self):
         warm_task, run = self._warm_run(
             extra_state={

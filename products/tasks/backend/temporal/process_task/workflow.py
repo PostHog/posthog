@@ -742,6 +742,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id},
             )
             return CIFollowUpDecision.NO_PR
+        if not pr_context.follow_up_enabled:
+            # The task owner turned the loop off after this run started; keep
+            # polling but never dispatch, so re-enabling resumes it.
+            return CIFollowUpDecision.SKIP
         # First time we observe a PR: surface "Opened pull request" + "Keeping CI green" so the UI moves
         # past "Started agent". The url rides the "pr" step's detail; the frontend turns it into the CTA.
         if pr_context.pr_url and not self._pr_progress_emitted:

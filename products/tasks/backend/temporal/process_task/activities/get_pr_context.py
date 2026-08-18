@@ -36,6 +36,10 @@ class GetPrContextOutput:
     ci_status: str = "none"
     changes_requested: bool = False
     unresolved_threads: int = 0
+    # Read live from the task each poll so a mid-run toggle change takes effect,
+    # unlike pr_loop_enabled which the workflow caches once at start. Default true
+    # keeps replay of pre-rollout activity results deserializable.
+    follow_up_enabled: bool = True
 
 
 def is_pr_actionable(pr: GetPrContextOutput) -> bool:
@@ -114,6 +118,8 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
         if not pr_url:
             return None
 
+        follow_up_enabled = task_run.task.ci_follow_up_enabled
+
         try:
             github_integration: GitHubIntegration | UserGitHubIntegration
             if ctx.github_integration_id:
@@ -174,4 +180,5 @@ def get_pr_context(input: GetPrContextInput) -> GetPrContextOutput | None:
             ci_status=pull_request.get("ci_status", "none"),
             changes_requested=pull_request.get("review_decision") == "changes_requested",
             unresolved_threads=pull_request.get("unresolved_threads", 0),
+            follow_up_enabled=follow_up_enabled,
         )

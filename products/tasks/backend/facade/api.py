@@ -4881,6 +4881,13 @@ def create_task(
             if channel is not None and warm_task.channel_id != channel.id:
                 warm_task.channel = channel
                 update_fields.append("channel")
+            if "ci_follow_up_enabled" in validated_data:
+                # Warm tasks are created with model defaults, so a request that reuses a
+                # warm run must carry the client's follow-up setting onto the row.
+                requested_follow_up = validated_data["ci_follow_up_enabled"]
+                if warm_task.ci_follow_up_enabled != requested_follow_up:
+                    warm_task.ci_follow_up_enabled = requested_follow_up
+                    update_fields.append("ci_follow_up_enabled")
             if update_fields:
                 warm_task.save(update_fields=[*update_fields, "updated_at"])
             if should_set_client_provenance:

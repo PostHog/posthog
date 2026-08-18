@@ -313,6 +313,26 @@ class TestShouldRunCIFollowUp:
         decision = await workflow._should_run_ci_follow_up()
         assert decision is CIFollowUpDecision.SKIP
 
+    async def test_returns_skip_when_follow_up_disabled(self, monkeypatch, silent_workflow_logger):
+        # An otherwise-actionable PR must not fire when the task owner has turned
+        # the loop off mid-run — the gate reads the live setting each poll.
+        workflow = TaskManagementWorkflow()
+        workflow._context = _build_context()
+
+        async def fake_execute_activity(activity_fn, *args, **kwargs):
+            return GetPrContextOutput(
+                pr_url="https://github.com/org/repo/pull/1",
+                pr_state="open",
+                fingerprint="fp-1",
+                ci_status="failing",
+                follow_up_enabled=False,
+            )
+
+        monkeypatch.setattr(task_management_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        decision = await workflow._should_run_ci_follow_up()
+        assert decision is CIFollowUpDecision.SKIP
+
     @pytest.mark.parametrize(
         "ci_status,changes_requested,expected_decision,expected_fingerprint",
         [

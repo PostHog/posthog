@@ -186,6 +186,27 @@ class TestGetPrContextActivity:
         integration.get_pull_request_snapshot.assert_called_once_with(pr_url)
 
     @pytest.mark.django_db
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_reports_live_follow_up_setting(self, test_task_run, enabled):
+        # The workflow caches pr_loop_enabled at start, so the loop reads this
+        # live value each poll to honor a mid-run toggle change.
+        pr_url = "https://github.com/org/repo/pull/42"
+        test_task_run.output = {"pr_url": pr_url}
+        test_task_run.save(update_fields=["output"])
+        test_task_run.task.ci_follow_up_enabled = enabled
+        test_task_run.task.save(update_fields=["ci_follow_up_enabled"])
+
+        integration = MagicMock()
+        integration.get_pull_request_snapshot.return_value = {"success": True, "url": pr_url, "state": "open"}
+
+        ctx = self._ctx(run_id=str(test_task_run.id))
+        with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
+            result = self._run(ctx)
+
+        assert isinstance(result, GetPrContextOutput)
+        assert result.follow_up_enabled is enabled
+
+    @pytest.mark.django_db
     def test_uses_user_github_integration_for_user_credentials(self, test_task_run):
         pr_url = "https://github.com/org/repo/pull/42"
         test_task_run.output = {"pr_url": pr_url}
