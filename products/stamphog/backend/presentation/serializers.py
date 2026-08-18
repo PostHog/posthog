@@ -8,7 +8,14 @@ from rest_framework import serializers
 
 from posthog.models.integration import Integration
 
-from ..facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
+from ..facade.enums import (
+    ChannelResolutionSource,
+    DigestRunStatus,
+    ReviewMode,
+    ReviewRunStatus,
+    ReviewTrigger,
+    ReviewVerdict,
+)
 from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 
 
@@ -319,10 +326,23 @@ class ReviewRunSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Full URL to the pull request on GitHub.",
     )
+    title = serializers.CharField(
+        source="pull_request.title",
+        read_only=True,
+        help_text="Pull request title as of the last webhook delivery applied.",
+    )
+    author_login = serializers.CharField(
+        source="pull_request.author_login",
+        read_only=True,
+        help_text="GitHub login of the pull request author.",
+    )
     head_branch = serializers.CharField(
         source="pull_request.head_branch",
         read_only=True,
         help_text="Branch name of the PR head.",
+    )
+    trigger = serializers.SerializerMethodField(
+        help_text="What caused this run to exist: self-driving inbox provenance, the repo's trigger label, or the repo reviewing every PR event.",
     )
     status = serializers.ChoiceField(
         choices=[(s.value, s.name) for s in ReviewRunStatus],
@@ -349,6 +369,16 @@ class ReviewRunSerializer(serializers.ModelSerializer):
             "repo access must not read."
         ),
     )
+
+    @extend_schema_field(serializers.ChoiceField(choices=[(t.value, t.name) for t in ReviewTrigger]))
+    def get_trigger(self, obj: ReviewRun) -> str:
+        # Inbox provenance is the strongest signal and outranks the repo mode: a self-driving run is
+        # dispatched from the inbox regardless of whether the repo also reviews every PR event.
+        if (obj.output or {}).get("inbox_review"):
+            return ReviewTrigger.SELF_DRIVING
+        if obj.pull_request.repo_config.review_mode == ReviewMode.LABEL:
+            return ReviewTrigger.LABEL
+        return ReviewTrigger.ALL
 
     @extend_schema_field(_ReviewOutputSummarySerializer)
     def get_output(self, obj: ReviewRun) -> dict[str, object]:
@@ -381,14 +411,20 @@ class ReviewRunSerializer(serializers.ModelSerializer):
             "repository",
             "pr_number",
             "pr_url",
+            "title",
+            "author_login",
             "head_sha",
             "head_branch",
             "delivery_id",
+            "trigger",
             "status",
             "verdict",
             "gate_result",
             "output",
             "error",
+            "posted_review_id",
+            "verdict_posted_at",
+            "approval_dismissed_at",
             "created_at",
             "updated_at",
             "completed_at",
@@ -398,6 +434,11 @@ class ReviewRunSerializer(serializers.ModelSerializer):
             "head_sha": {"help_text": "Commit SHA of the PR head at the time this run started."},
             "delivery_id": {"help_text": "GitHub webhook delivery ID that triggered this run, used for deduplication."},
             "error": {"help_text": "Error message if the run failed, blank otherwise."},
+            "posted_review_id": {"help_text": "ID of the GitHub review this run posted, null if it never posted one."},
+            "verdict_posted_at": {"help_text": "When this run's verdict reached GitHub, null if it never did."},
+            "approval_dismissed_at": {
+                "help_text": "When this run's GitHub approval was retracted because the head moved, null if it wasn't."
+            },
             "created_at": {"help_text": "When the review run was created."},
             "updated_at": {"help_text": "When the review run was last updated."},
             "completed_at": {"help_text": "When the review run reached a terminal state, if it has."},

@@ -13,7 +13,7 @@ from uuid import UUID
 from django.conf import settings
 from django.core import signing
 from django.db import IntegrityError, router, transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -32,7 +32,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewRunStatus
+from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewTrigger
 
 from ..logic.github_client import (
     StamphogGitHubError,
@@ -501,7 +501,31 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.ReadOnlyModelViewSet
         if status_filter:
             queryset = queryset.filter(status=status_filter)
 
+        trigger = self.request.query_params.get("trigger")
+        if trigger:
+            queryset = self._filter_by_trigger(queryset, trigger)
+
         return queryset
+
+    @staticmethod
+    def _filter_by_trigger(queryset: QuerySet[ReviewRun], trigger: str) -> QuerySet[ReviewRun]:
+        """Narrow to one trigger, mirroring ReviewRunSerializer.get_trigger.
+
+        The trigger isn't a column — it's inbox provenance on the run's output falling back to the
+        repo's review mode — so the same precedence has to be spelled out here in SQL. Keep the two
+        in step: a run that reads as self-driving in the table must be reachable by that filter.
+
+        The serializer tests the provenance for truthiness while this tests for the key, which agree
+        because both writers in tasks.py either omit `inbox_review` or write a populated dict.
+        """
+        self_driving = Q(output__has_key="inbox_review")
+        if trigger == ReviewTrigger.SELF_DRIVING:
+            return queryset.filter(self_driving)
+        if trigger == ReviewTrigger.LABEL:
+            return queryset.exclude(self_driving).filter(pull_request__repo_config__review_mode=ReviewMode.LABEL)
+        if trigger == ReviewTrigger.ALL:
+            return queryset.exclude(self_driving).filter(pull_request__repo_config__review_mode=ReviewMode.ALL)
+        return queryset.none()
 
     @extend_schema(
         parameters=[
@@ -525,6 +549,14 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.ReadOnlyModelViewSet
                 OpenApiParameter.QUERY,
                 required=False,
                 description="Filter by review run status.",
+            ),
+            OpenApiParameter(
+                "trigger",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                enum=[t.value for t in ReviewTrigger],
+                description="Filter by what caused the run: self_driving, label, or all.",
             ),
         ],
         responses={200: ReviewRunSerializer(many=True)},
