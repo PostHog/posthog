@@ -678,6 +678,37 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly updated_at?: string | null
 }
 
+/**
+ * A configured destination, with the fields it was created with so the two round-trip.
+ *
+ * slack_channel_name has no counterpart here: creation puts it in the HogFunction name
+ * rather than its inputs, so there is nothing to read back.
+ */
+export interface LogsAlertDestinationConfigApi {
+    hog_function_ids: string[]
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams */
+    type: NotificationDestinationTypeEnumApi
+    /** Integration ID for the Slack workspace. Present when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Present when type=slack. */
+    slack_channel_id?: string
+    /** Endpoint posted to. Present for webhook and teams. */
+    webhook_url?: string
+}
+
+export interface PaginatedLogsAlertDestinationConfigListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsAlertDestinationConfigApi[]
+}
+
 export interface LogsAlertCreateDestinationApi {
     /** Notification destination type.
      *
@@ -2291,6 +2322,17 @@ export type LogsAlertsListParams = {
      * Only return log alerts created by the user with this UUID.
      */
     created_by?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LogsAlertsDestinationsListParams = {
     /**
      * Number of results to return per page.
      */

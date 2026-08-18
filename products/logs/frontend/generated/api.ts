@@ -16,6 +16,7 @@ import type {
     LogsAlertDestinationResponseApi,
     LogsAlertSimulateRequestApi,
     LogsAlertSimulateResponseApi,
+    LogsAlertsDestinationsListParams,
     LogsAlertsEventsListParams,
     LogsAlertsListParams,
     LogsAnomalyScanRequestApi,
@@ -40,6 +41,7 @@ import type {
     LogsViewApi,
     LogsViewsListParams,
     PaginatedLogsAlertConfigurationListApi,
+    PaginatedLogsAlertDestinationConfigListApi,
     PaginatedLogsAlertEventListApi,
     PaginatedLogsMetricRuleListApi,
     PaginatedLogsRetentionRuleListApi,
@@ -193,6 +195,44 @@ export const logsAlertsDestroy = async (projectId: string, id: string, options?:
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getLogsAlertsDestinationsListUrl = (
+    projectId: string,
+    id: string,
+    params?: LogsAlertsDestinationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/alerts/${id}/destinations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/alerts/${id}/destinations/`
+}
+
+/**
+ * List the notification destinations configured for this alert. Creating a destination fans out into one HogFunction per alert event kind (firing, resolved, ...); this returns one entry per destination, carrying the whole group's HogFunction IDs and the config it was created with.
+ */
+export const logsAlertsDestinationsList = async (
+    projectId: string,
+    id: string,
+    params?: LogsAlertsDestinationsListParams,
+    options?: RequestInit
+): Promise<PaginatedLogsAlertDestinationConfigListApi> => {
+    return apiMutator<PaginatedLogsAlertDestinationConfigListApi>(
+        getLogsAlertsDestinationsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getLogsAlertsDestinationsCreateUrl = (projectId: string, id: string) => {

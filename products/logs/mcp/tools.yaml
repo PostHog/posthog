@@ -103,6 +103,9 @@ tools:
             logs-alerts-destinations-create. Destinations are deleted as one atomic group — partial deletion fails the
             call.
         feature_flag: logs-alerting
+    logs-alerts-destinations-list:
+        operation: logs_alerts_destinations_list
+        enabled: false
     logs-alerts-destroy:
         operation: logs_alerts_destroy
         enabled: true
