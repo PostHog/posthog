@@ -639,9 +639,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (funnelsFilter: FunnelsFilter | null | undefined): boolean | null => {
                 return funnelsFilter === null
                     ? null
-                    : funnelsFilter === undefined
-                      ? true
-                      : funnelsFilter.funnelVizType === FunnelVizType.Steps
+                    : (funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) === FunnelVizType.Steps
             },
         ],
         isTimeToConvertFunnel: [
