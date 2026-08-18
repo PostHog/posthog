@@ -46,6 +46,18 @@ describe("MarkdownText", () => {
       present: ["☐", "☑"],
       absent: ["•", "1."],
     },
+    {
+      name: "object tag renders its label without the raw markup",
+      content: 'Check the <insight id="9pQx3">checkout funnel</insight> now',
+      present: ["checkout funnel", "Check the", "now"],
+      absent: ["<insight", "</insight"],
+    },
+    {
+      name: "still-streaming object tag renders nothing",
+      content: 'Loading <flag id="4',
+      present: ["Loading"],
+      absent: ["<flag"],
+    },
   ])("$name", ({ content, present, absent }) => {
     const tree = renderTree(content);
     for (const marker of present) {

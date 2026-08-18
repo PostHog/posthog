@@ -25435,26 +25435,13 @@ export namespace Schemas {
 
     export interface DigestChannel {
       readonly id: string;
-      /**
-         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone.
-         * @maxLength 255
-         */
+      /** Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone. */
       audience_key: string;
-      /**
-         * ID of the team's Slack integration used to post the digest.
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
+      /** ID of the team's Slack integration used to post the digest. */
       slack_integration_id: number;
-      /**
-         * Slack channel ID to post the digest to, e.g. 'C012AB3CD'.
-         * @maxLength 64
-         */
+      /** Slack channel ID to post the digest to, e.g. 'C012AB3CD'. */
       slack_channel_id: string;
-      /**
-         * Human-readable Slack channel name, for display only.
-         * @maxLength 255
-         */
+      /** Human-readable Slack channel name, for display only. */
       slack_channel_name?: string;
       /** How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned because the workspace has a channel named exactly like the audience_key), 'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in .stamphog/policy.yml), or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet).
        *
@@ -25464,11 +25451,30 @@ export namespace Schemas {
        * * `owners_contact` - OWNERS_CONTACT */
       readonly resolution_source: ResolutionSourceEnum;
       /** Whether this channel is included in the daily digest fan-out. */
-      enabled?: boolean;
-      /** @nullable */
+      enabled: boolean;
+      /**
+         * When a digest was last posted to this channel.
+         * @nullable
+         */
       readonly last_digest_at: string | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * Input shape for creating/updating a digest channel (see the repo-config write serializer).
+     */
+    export interface DigestChannelWrite {
+      /** Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone. */
+      audience_key: string;
+      /** ID of the team's Slack integration used to post the digest. */
+      slack_integration_id: number;
+      /** Slack channel ID to post the digest to, e.g. 'C012AB3CD'. */
+      slack_channel_id: string;
+      /** Human-readable Slack channel name, for display only. */
+      slack_channel_name?: string;
+      /** Whether this channel is included in the daily digest fan-out. */
+      enabled?: boolean;
     }
 
     /**
@@ -51345,7 +51351,7 @@ export namespace Schemas {
      *
      * The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
      * and default-branch policy file contents — repository content a project member without repo access
-     * must never read over the API. Only these derived, content-free fields are exposed.
+     * must never read. Only these derived, content-free fields are exposed.
      */
     export interface _ReviewOutputSummary {
       /** Version of the stamphog engine that produced this review, if it reported one. */
@@ -52402,18 +52408,12 @@ export namespace Schemas {
 
     export interface StamphogRepoConfig {
       readonly id: string;
-      /**
-         * SCM provider this config talks to. Defaults to 'github'.
-         * @maxLength 32
-         */
+      /** SCM provider this config talks to. Defaults to 'github'. */
       provider?: string;
-      /**
-         * Repository full name, e.g. 'PostHog/posthog'.
-         * @maxLength 255
-         */
+      /** Repository full name, e.g. 'PostHog/posthog'. */
       repository: string;
       /** Whether stamphog actively reviews pull requests for this repo. */
-      enabled?: boolean;
+      enabled: boolean;
       /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
       readonly installation_id: string;
       /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
@@ -52422,11 +52422,8 @@ export namespace Schemas {
        *
        * * `all` - all
        * * `label` - label */
-      review_mode?: ReviewModeEnum;
-      /**
-         * Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'.
-         * @maxLength 100
-         */
+      readonly review_mode: ReviewModeEnum;
+      /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
       readonly created_at: string;
       readonly updated_at: string;
@@ -56315,26 +56312,13 @@ export namespace Schemas {
 
     export interface PatchedDigestChannel {
       readonly id?: string;
-      /**
-         * Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone.
-         * @maxLength 255
-         */
+      /** Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone. */
       audience_key?: string;
-      /**
-         * ID of the team's Slack integration used to post the digest.
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
+      /** ID of the team's Slack integration used to post the digest. */
       slack_integration_id?: number;
-      /**
-         * Slack channel ID to post the digest to, e.g. 'C012AB3CD'.
-         * @maxLength 64
-         */
+      /** Slack channel ID to post the digest to, e.g. 'C012AB3CD'. */
       slack_channel_id?: string;
-      /**
-         * Human-readable Slack channel name, for display only.
-         * @maxLength 255
-         */
+      /** Human-readable Slack channel name, for display only. */
       slack_channel_name?: string;
       /** How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned because the workspace has a channel named exactly like the audience_key), 'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in .stamphog/policy.yml), or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet).
        *
@@ -56345,7 +56329,10 @@ export namespace Schemas {
       readonly resolution_source?: ResolutionSourceEnum;
       /** Whether this channel is included in the daily digest fan-out. */
       enabled?: boolean;
-      /** @nullable */
+      /**
+         * When a digest was last posted to this channel.
+         * @nullable
+         */
       readonly last_digest_at?: string | null;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -61024,36 +61011,34 @@ export namespace Schemas {
       readonly status?: string | null;
     }
 
-    export interface PatchedStamphogRepoConfig {
-      readonly id?: string;
-      /**
-         * SCM provider this config talks to. Defaults to 'github'.
-         * @maxLength 32
-         */
+    /**
+     * Input shape for creating/updating a repo config.
+     *
+     * Separate from the read serializer because the contract is an output shape: it carries a
+     * required id, which a create request has no way to supply. Same split as visual_review's
+     * input serializers.
+     *
+     * installation_id is deliberately absent: it may only ever be set by the verified
+     * sync_installation flow, which proves the caller owns the installation before binding it. A
+     * client-supplied value on this path is ignored, so a manually created config carries no
+     * installation and simply won't resolve webhooks until synced.
+     */
+    export interface PatchedStamphogRepoConfigWrite {
+      /** SCM provider this config talks to. Defaults to 'github'. */
       provider?: string;
-      /**
-         * Repository full name, e.g. 'PostHog/posthog'.
-         * @maxLength 255
-         */
+      /** Repository full name, e.g. 'PostHog/posthog'. */
       repository?: string;
       /** Whether stamphog actively reviews pull requests for this repo. */
       enabled?: boolean;
-      /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
-      readonly installation_id?: string;
-      /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
        * * `all` - all
        * * `label` - label */
       review_mode?: ReviewModeEnum;
-      /**
-         * Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'.
-         * @maxLength 100
-         */
+      /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
-      readonly created_at?: string;
-      readonly updated_at?: string;
     }
 
     /**
@@ -76450,6 +76435,36 @@ export namespace Schemas {
       readonly install_url: string;
       /** GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. Authorize-first: an already-installed user is redirected straight back with an OAuth code (no installation_id), and sync_installation then discovers their installations server-side. Blank if the App client id is unconfigured. */
       readonly authorize_url: string;
+    }
+
+    /**
+     * Input shape for creating/updating a repo config.
+     *
+     * Separate from the read serializer because the contract is an output shape: it carries a
+     * required id, which a create request has no way to supply. Same split as visual_review's
+     * input serializers.
+     *
+     * installation_id is deliberately absent: it may only ever be set by the verified
+     * sync_installation flow, which proves the caller owns the installation before binding it. A
+     * client-supplied value on this path is ignored, so a manually created config carries no
+     * installation and simply won't resolve webhooks until synced.
+     */
+    export interface StamphogRepoConfigWrite {
+      /** SCM provider this config talks to. Defaults to 'github'. */
+      provider?: string;
+      /** Repository full name, e.g. 'PostHog/posthog'. */
+      repository: string;
+      /** Whether stamphog actively reviews pull requests for this repo. */
+      enabled?: boolean;
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      digest_enabled?: boolean;
+      /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
+       *
+       * * `all` - all
+       * * `label` - label */
+      review_mode?: ReviewModeEnum;
+      /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
+      trigger_label?: string;
     }
 
     /**
