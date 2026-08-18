@@ -30,6 +30,10 @@ import {
 } from '~/types'
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import {
+    logsSelection,
+    mergeFilterIntoValues,
+} from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterAdd'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { LogsDateRangePicker } from '../LogsDateRangePicker/LogsDateRangePicker'
@@ -144,12 +148,13 @@ export function addLogsValueFilter(
         })
     }
 
-    return [...currentValues, newPropertyFilter]
+    return mergeFilterIntoValues(currentValues, newPropertyFilter)
 }
 
 export const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
     const { utcDateRange, queryFilterGroup, columnQueryFields } = useValues(logsViewerFiltersLogic)
+    const { focusFilter } = useActions(logsViewerFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
@@ -170,14 +175,19 @@ export const LogsFilterSearch = (): JSX.Element => {
             ...columnQueryFields,
         },
         onChange: (taxonomicGroup, value, item) => {
-            if (item.value === undefined) {
-                addGroupFilter(taxonomicGroup, value, item)
-                setVisible(false)
-                return
-            }
-
-            setGroupValues(addLogsValueFilter(taxonomicGroup, value, item, filterGroup.values))
             setVisible(false)
+            // Recording the selection back to recents stays with taxonomicFilterLogic, which does it
+            // for every pick; this only decides how the selection lands in the group.
+            const selection = logsSelection(filterGroup.values, taxonomicGroup, value, item)
+            if (selection.kind === 'merge') {
+                setGroupValues(mergeFilterIntoValues(filterGroup.values, selection.filter))
+            } else if (selection.kind === 'valueItem') {
+                setGroupValues(addLogsValueFilter(taxonomicGroup, value, item, filterGroup.values))
+            } else if (selection.kind === 'focus') {
+                focusFilter(selection.index)
+            } else {
+                addGroupFilter(taxonomicGroup, value, item)
+            }
         },
         onEnter: onClose,
         autoSelectItem: true,
@@ -211,9 +221,17 @@ export const LogsFilterSearch = (): JSX.Element => {
     )
 }
 
-const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean }): JSX.Element | null => {
+const FilterGroupValues = ({
+    allowInitiallyOpen,
+    focusable = false,
+}: {
+    allowInitiallyOpen: boolean
+    /** Only the top-level list owns focus: a nested group's indices are its own. */
+    focusable?: boolean
+}): JSX.Element | null => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    const { focusedFilter } = useValues(logsViewerFiltersLogic)
 
     if (filterGroup.values.length === 0) {
         return null
@@ -222,13 +240,16 @@ const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean
     return (
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
+                // A chip opens its editor when it mounts, so changing the key of the focused chip is
+                // what pops it open — the nonce makes focusing the same chip again a fresh mount.
+                const focusKey = focusable && focusedFilter?.index === index ? `${index}-${focusedFilter.nonce}` : index
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
                         <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
-                        key={index}
+                        key={focusKey}
                         index={index}
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
@@ -253,7 +274,7 @@ export const LogsAppliedFilters = (): JSX.Element | null => {
 
     return (
         <div className="flex gap-1 items-center flex-wrap">
-            <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
+            <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} focusable />
         </div>
     )
 }

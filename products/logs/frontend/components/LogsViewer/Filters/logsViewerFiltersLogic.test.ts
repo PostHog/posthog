@@ -141,6 +141,18 @@ describe('logsViewerFiltersLogic', () => {
         })
     })
 
+    describe('focusFilter', () => {
+        it('changes state when the same filter is focused twice, which is what reopens its editor', async () => {
+            await expectLogic(logic, () => logic.actions.focusFilter(1)).toFinishAllListeners()
+            const first = logic.values.focusedFilter
+            expect(first).toMatchObject({ index: 1 })
+
+            await expectLogic(logic, () => logic.actions.focusFilter(1)).toFinishAllListeners()
+            expect(logic.values.focusedFilter).toMatchObject({ index: 1 })
+            expect(logic.values.focusedFilter).not.toEqual(first)
+        })
+    })
+
     describe('setFilterGroup fallback', () => {
         it('falls back to default when given invalid filterGroup', async () => {
             logic.actions.setFilterGroup(null as any)
