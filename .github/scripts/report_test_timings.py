@@ -69,7 +69,16 @@ from posthog_owners import OwnersResolver
 
 logger = logging.getLogger("report_test_timings")
 
-REPO_ROOT = Path(__file__).parents[2]
+
+def find_repo_root(path: Path) -> Path:
+    """Find the checkout root without depending on this script's directory depth."""
+    for parent in path.resolve().parents:
+        if (parent / "owners.yaml").is_file() and (parent / ".github").is_dir():
+            return parent
+    raise RuntimeError(f"Could not find the repository root from {path}")
+
+
+REPO_ROOT = find_repo_root(Path(__file__))
 DEFAULT_OTLP_ENDPOINT = "https://us.i.posthog.com/i/v1/traces"
 Runner = Literal["pytest", "jest"]
 
