@@ -63,13 +63,10 @@ class Command(BaseCommand):
         app = existing or OAuthApplication(client_id=client_id)
         for field, value in desired.items():
             setattr(app, field, value)
-        # The ceiling narrows tokens on refresh, so a scope added by mistake at mint time cannot
-        # survive. Without it the scope list is only as good as the code that writes it.
         app.scopes = StripeIntegration.SCOPES.split()
         app.save()
 
-        # A deep link mints a full web session. This credential lives in a store the customer's
-        # whole Stripe account can read, so it must never be able to issue one.
+        # Readable by every member of the customer's Stripe account, so it must never mint a session.
         app.update_provisioning(can_issue_deep_links=False)
 
         self.stdout.write(self.style.SUCCESS(f"{'Reconciled' if existing else 'Created'} {APP_NAME}"))

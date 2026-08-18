@@ -20,8 +20,6 @@ class TestCreateStripeMarketplaceOauthApp(BaseTest):
         app = OAuthApplication.objects.get(client_id=MARKETPLACE_CLIENT_ID)
         assert app.client_type == OAuthApplication.CLIENT_PUBLIC
         assert app.provisioning.can_issue_deep_links is False
-        # Asserts the wiring, not the values: the marketplace scope list is owned by
-        # StripeIntegration.SCOPES and locked by its own test.
         assert set(app.ceiling_scopes) == set(StripeIntegration.SCOPES.split())
 
     def test_refuses_the_orchestrator_client_id(self):

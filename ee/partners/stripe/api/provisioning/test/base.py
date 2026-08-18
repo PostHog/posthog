@@ -31,8 +31,6 @@ class StripeProvisioningTestBase(APIBaseTest):
         self._ensure_stripe_oauth_app()
 
     def _ensure_stripe_oauth_app(self):
-        # Reaching this namespace is identity-based, but deep links are gated on the
-        # application's own capability, matching the generic provisioning surface.
         self.stripe_app, _ = OAuthApplication.objects.get_or_create(
             client_id=TEST_STRIPE_OAUTH_CLIENT_ID,
             defaults={

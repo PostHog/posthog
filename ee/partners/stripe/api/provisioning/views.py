@@ -900,9 +900,7 @@ class DeepLinksView(StripeResourceAPIView):
     def post(self, request: Request) -> Response:
         access_token = cast(OAuthAccessToken, request.auth)
 
-        # A deep link logs its user straight in, so it is gated on the application rather than
-        # on being able to reach this namespace. Mirrors the same check the generic
-        # provisioning surface makes in ee/api/agentic_provisioning/views/deep_links.py.
+        # A deep link logs its user straight in, so reaching this namespace is not enough.
         if not access_token.application.provisioning.can_issue_deep_links:
             capture_provisioning_event("deep_link_created", "not_enabled", partner=access_token.application)
             raise SpecError(

@@ -164,7 +164,6 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
 
         mock_capture.assert_called_once()
 
-        # The run must not abort, and the failure must be reported rather than swallowed.
         output = out.getvalue()
         assert "Rotated: 1" in output
         assert "Failed: 1" in output
@@ -177,7 +176,6 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
             application=self.new_app, scoped_teams__contains=[self.team.pk]
         ).exists()
 
-        # The other integration still rotated successfully.
         assert not OAuthAccessToken.objects.filter(pk=ok_access.pk).exists()
         assert OAuthAccessToken.objects.filter(
             application=self.new_app, scoped_teams__contains=[other_team.pk]
