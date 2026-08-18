@@ -149,6 +149,23 @@ def test_mint_failures_fall_back_to_none_instead_of_failing_the_run(
 @patch("products.tasks.backend.temporal.ai_gateway.requests.post")
 @patch("products.tasks.backend.temporal.ai_gateway.project_gateway_credential")
 @patch("products.tasks.backend.temporal.ai_gateway.find_oauth_access_token")
+def test_projection_failure_falls_back_to_none_without_minting(
+    mock_find: MagicMock, mock_project: MagicMock, mock_post: MagicMock
+) -> None:
+    # The synchronous projection runs on the OAuth-minting path against ai-gateway Redis; a
+    # projection outage must degrade the run to its OAuth token, not escape and fail provisioning.
+    mock_find.return_value = _token_row()
+    mock_project.side_effect = Exception("ai-gateway redis down")
+
+    with override_settings(**MINT_SETTINGS, AI_GATEWAY_MINT_CREDENTIAL=None):
+        assert mint_signals_scoped_token(_task(Task.OriginProduct.SIGNAL_REPORT), "pha_token") is None
+
+    mock_post.assert_not_called()
+
+
+@patch("products.tasks.backend.temporal.ai_gateway.requests.post")
+@patch("products.tasks.backend.temporal.ai_gateway.project_gateway_credential")
+@patch("products.tasks.backend.temporal.ai_gateway.find_oauth_access_token")
 def test_missing_oauth_row_skips_the_mint(mock_find: MagicMock, mock_project: MagicMock, mock_post: MagicMock) -> None:
     mock_find.return_value = None
 

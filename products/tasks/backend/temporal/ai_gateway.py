@@ -38,13 +38,6 @@ def mint_signals_scoped_token(task: Task, access_token: str) -> str | None:
         return None
 
     mint_credential = settings.AI_GATEWAY_MINT_CREDENTIAL
-    if not mint_credential:
-        # Minting with the run's own OAuth token: the gateway authenticates it from the
-        # projected credential blob, which normally lands via a post-commit Celery task, so
-        # project it synchronously to keep this mint from racing the projection.
-        project_gateway_credential(token_row)
-        mint_credential = access_token
-
     payload = {
         "cap_usd": settings.TASKS_SIGNALS_INTERACTIVE_COST_CAP_USD,
         "ttl_seconds": TOKEN_EXPIRATION_SECONDS,
@@ -53,6 +46,14 @@ def mint_signals_scoped_token(task: Task, access_token: str) -> str | None:
         "obo": str(task.team_id),
     }
     try:
+        if not mint_credential:
+            # Minting with the run's own OAuth token: the gateway authenticates it from the
+            # projected credential blob, which normally lands via a post-commit Celery task, so
+            # project it synchronously to keep this mint from racing the projection. A projection
+            # failure (Redis/DB outage) falls through to the shared warning below and returns None.
+            project_gateway_credential(token_row)
+            mint_credential = access_token
+
         response = requests.post(
             f"{settings.AI_GATEWAY_MINT_URL.rstrip('/')}/v1/tokens",
             json=payload,
