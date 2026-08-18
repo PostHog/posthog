@@ -179,25 +179,25 @@ describe('action.conditional_branch', () => {
         const COHORT_ID = 42
 
         class FakeCohortMembershipRepository implements CohortMembershipRepository {
-            public calls: { teamId: number; personUuid: string; cohortIds: number[] }[] = []
+            public calls: { teamId: number; personUuid: string }[] = []
 
             constructor(
-                private memberships: Map<number, boolean>,
+                private memberCohortIds: number[],
                 private error?: Error
             ) {}
 
-            getMemberships(teamId: number, personUuid: string, cohortIds: number[]): Promise<Map<number, boolean>> {
-                this.calls.push({ teamId, personUuid, cohortIds })
+            getMemberCohortIds(teamId: number, personUuid: string): Promise<number[]> {
+                this.calls.push({ teamId, personUuid })
                 if (this.error) {
                     return Promise.reject(this.error)
                 }
-                return Promise.resolve(new Map(cohortIds.map((id) => [id, this.memberships.get(id) ?? false])))
+                return Promise.resolve(this.memberCohortIds)
             }
         }
 
         const cohortConditionFilters = (fn: 'inCohort' | 'notInCohort'): Record<string, any> => ({
             // Same shape the Python compiler emits for `{type: 'cohort', value: 42}` filters
-            bytecode: ['_H', 1, 33, COHORT_ID, 2, fn, 1],
+            bytecode: ['_H', 1, 33, COHORT_ID, 32, 'cohort_ids', 1, 1, 2, fn, 2],
             cohort_ids: [COHORT_ID],
         })
 
@@ -224,18 +224,18 @@ describe('action.conditional_branch', () => {
             ['notInCohort', false, 'condition_1'],
             ['notInCohort', true, 'condition_2'],
         ] as const)('routes %s with membership=%s to %s', async (fn, isMember, expectedActionId) => {
-            const repository = new FakeCohortMembershipRepository(new Map([[COHORT_ID, isMember]]))
+            const repository = new FakeCohortMembershipRepository(isMember ? [7, COHORT_ID] : [7])
 
             const nextAction = await executeWithRepository(repository, fn)
 
             expect(nextAction).toEqual(findActionById(invocation.hogFlow, expectedActionId))
             expect(repository.calls).toEqual([
-                { teamId: invocation.hogFlow.team_id, personUuid: invocation.person!.id, cohortIds: [COHORT_ID] },
+                { teamId: invocation.hogFlow.team_id, personUuid: invocation.person!.id },
             ])
         })
 
         it('treats a person-less invocation as a non-member without querying', async () => {
-            const repository = new FakeCohortMembershipRepository(new Map([[COHORT_ID, true]]))
+            const repository = new FakeCohortMembershipRepository([COHORT_ID])
             invocation.person = undefined
             invocation.state.personId = undefined
 
@@ -246,7 +246,7 @@ describe('action.conditional_branch', () => {
         })
 
         it('propagates a lookup failure instead of routing on a made-up answer', async () => {
-            const repository = new FakeCohortMembershipRepository(new Map(), new Error('lookup timed out'))
+            const repository = new FakeCohortMembershipRepository([], new Error('lookup timed out'))
 
             await expect(executeWithRepository(repository, 'inCohort')).rejects.toThrow('lookup timed out')
         })
@@ -293,8 +293,7 @@ describe('action.conditional_branch', () => {
                 startedAtTimestamp: DateTime.utc().toMillis(),
             }
             const stubCohortMembershipRepository: CohortMembershipRepository = {
-                getMemberships: (_teamId, _personUuid, cohortIds) =>
-                    Promise.resolve(new Map(cohortIds.map((id) => [id, false]))),
+                getMemberCohortIds: () => Promise.resolve([]),
             }
             handler = new ConditionalBranchHandler(stubCohortMembershipRepository)
             counterHogflowWaitPollOnlyAdvance.reset()

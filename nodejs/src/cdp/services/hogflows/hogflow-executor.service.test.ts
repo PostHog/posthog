@@ -159,8 +159,7 @@ describe('Hogflow Executor', () => {
         await insertHogFunctionTemplate(hub.postgres, posthogCaptureTemplate)
 
         const stubCohortMembershipRepository: CohortMembershipRepository = {
-            getMemberships: (_teamId, _personUuid, cohortIds) =>
-                Promise.resolve(new Map(cohortIds.map((id) => [id, false]))),
+            getMemberCohortIds: () => Promise.resolve([]),
         }
         executor = new HogFlowExecutorService(
             hogFlowFunctionsService,

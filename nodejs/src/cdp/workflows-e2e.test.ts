@@ -656,7 +656,7 @@ describe('Workflows E2E (postgres-v2)', () => {
         // What the Django serializer compiles for a cohort condition filter; the shape is pinned
         // from the Python side by test_hog_flow_conditional_branch_cohort_filter_compiles
         const cohortConditionFilters = (cohortId: number): Record<string, any> => ({
-            bytecode: ['_H', 1, 33, cohortId, 2, 'inCohort', 1],
+            bytecode: ['_H', 1, 33, cohortId, 32, 'cohort_ids', 1, 1, 2, 'inCohort', 2],
             cohort_ids: [cohortId],
             properties: [{ key: 'id', type: 'cohort', value: cohortId }],
         })

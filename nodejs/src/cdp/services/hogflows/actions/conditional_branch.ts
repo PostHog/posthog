@@ -102,9 +102,9 @@ export class ConditionalBranchHandler implements ActionHandler {
 
         // A lookup failure throws on purpose: it follows the action's on_error setting instead
         // of silently routing the person as a non-member
-        const cohortMemberships = await this.fetchCohortMemberships(invocation, conditionalAction)
+        const memberCohortIds = await this.fetchMemberCohortIds(invocation, conditionalAction)
 
-        const conditionResult = await checkConditions(invocation, conditionalAction, cohortMemberships)
+        const conditionResult = await checkConditions(invocation, conditionalAction, memberCohortIds)
 
         const isWait = action.type === 'wait_until_condition'
 
@@ -136,51 +136,34 @@ export class ConditionalBranchHandler implements ActionHandler {
     }
 
     /** Person-less invocations (warehouse rows, account audiences) are non-members of everything. */
-    private async fetchCohortMemberships(
+    private async fetchMemberCohortIds(
         invocation: CyclotronJobInvocationHogFlow,
         action: Extract<HogFlowAction, { type: 'conditional_branch' }>
-    ): Promise<Map<number, boolean> | undefined> {
-        const cohortIds = [...new Set(action.config.conditions.flatMap(getConditionCohortIds))]
-        if (cohortIds.length === 0) {
+    ): Promise<number[] | undefined> {
+        if (!action.config.conditions.some(conditionReferencesCohorts)) {
             return undefined
         }
 
         const personUuid = invocation.person?.id ?? invocation.state.personId
         if (!personUuid) {
-            return new Map(cohortIds.map((id) => [id, false]))
+            return []
         }
 
-        return await this.cohortMembershipRepository.getMemberships(invocation.hogFlow.team_id, personUuid, cohortIds)
+        return await this.cohortMembershipRepository.getMemberCohortIds(invocation.hogFlow.team_id, personUuid)
     }
 }
 
-function getConditionCohortIds(condition: { filters?: unknown }): number[] {
-    const filters = condition.filters as HogFunctionFilters | null | undefined
-    return filters?.cohort_ids ?? []
-}
-
-// The VM is synchronous, so inCohort/notInCohort answer from the prefetched map; an id missing
-// from cohort_ids was never prefetched, so throw rather than guess non-membership
-function buildCohortMembershipFunctions(
-    memberships: Map<number, boolean> | undefined
-): Record<string, (...args: any[]) => any> {
-    const isMember = (cohortId: unknown): boolean => {
-        const membership = memberships?.get(Number(cohortId))
-        if (membership === undefined) {
-            throw new Error(`Membership of cohort ${cohortId} was not prefetched for this invocation`)
-        }
-        return membership
-    }
-    return {
-        inCohort: (cohortId: unknown) => isMember(cohortId),
-        notInCohort: (cohortId: unknown) => !isMember(cohortId),
-    }
+// Scans the compiled bytecode rather than trusting filters.cohort_ids, so expression-authored
+// inCohort(...) calls get their membership loaded too
+function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
+    const bytecode = (condition.filters as HogFunctionFilters | null | undefined)?.bytecode
+    return Array.isArray(bytecode) && bytecode.some((op) => op === 'inCohort' || op === 'notInCohort')
 }
 
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
     action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
-    cohortMemberships?: Map<number, boolean>
+    memberCohortIds?: number[]
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
@@ -191,11 +174,13 @@ export async function checkConditions(
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
             filters: condition.filters,
-            filterGlobals: { ...invocation.filterGlobals, variables: invocation.state.variables },
-            functions:
-                getConditionCohortIds(condition).length > 0
-                    ? buildCohortMembershipFunctions(cohortMemberships)
-                    : undefined,
+            filterGlobals: {
+                ...invocation.filterGlobals,
+                variables: invocation.state.variables,
+                // The inCohort/notInCohort STL functions read this; when it wasn't prefetched
+                // they fail the evaluation loudly instead of guessing non-membership
+                ...(memberCohortIds !== undefined ? { cohort_ids: memberCohortIds } : {}),
+            },
         })
 
         if (filterResults.match) {

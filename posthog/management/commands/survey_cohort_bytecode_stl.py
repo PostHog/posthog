@@ -105,7 +105,7 @@ RUST_NATIVE_STL: frozenset[str] = frozenset(
     }
 )
 RUST_HOG_STL: frozenset[str] = frozenset(
-    {"arrayCount", "arrayExists", "arrayFilter", "arrayMap", "arrayReduce", "sortableSemver"}
+    {"arrayCount", "arrayExists", "arrayFilter", "arrayMap", "arrayReduce", "inCohort", "notInCohort", "sortableSemver"}
 )
 RUST_SUPPORTED_STL: frozenset[str] = RUST_NATIVE_STL | RUST_HOG_STL
 
