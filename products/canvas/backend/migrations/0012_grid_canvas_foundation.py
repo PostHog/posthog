@@ -31,6 +31,30 @@ class Migration(migrations.Migration):
                 ),
                 ("created_at", models.DateTimeField(default=django.utils.timezone.now)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "canvas",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="canvas.canvas",
+                    ),
+                ),
+                (
+                    "team",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.team",
+                    ),
+                ),
+                (
+                    "user",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
             ],
             options={
                 "db_table": "posthog_canvas_home_preference",
@@ -50,33 +74,6 @@ class Migration(migrations.Migration):
             model_name="canvassourceversion",
             name="component_meta",
             field=models.JSONField(blank=True, null=True),
-        ),
-        migrations.AddField(
-            model_name="canvashomepreference",
-            name="canvas",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="+",
-                to="canvas.canvas",
-            ),
-        ),
-        migrations.AddField(
-            model_name="canvashomepreference",
-            name="team",
-            field=models.ForeignKey(
-                db_constraint=False,
-                on_delete=django.db.models.deletion.CASCADE,
-                to="posthog.team",
-            ),
-        ),
-        migrations.AddField(
-            model_name="canvashomepreference",
-            name="user",
-            field=models.ForeignKey(
-                db_constraint=False,
-                on_delete=django.db.models.deletion.CASCADE,
-                to=settings.AUTH_USER_MODEL,
-            ),
         ),
         migrations.AddConstraint(
             model_name="canvashomepreference",
