@@ -128,6 +128,20 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
     }
 }
 
+export function getExceptionTypeAndValue(properties: ErrorEventProperties): {
+    type?: string
+    value?: string
+} {
+    const [exception] = Array.isArray(properties.$exception_list) ? properties.$exception_list : []
+    const type = properties.$exception_types?.[0] || properties.$exception_type || exception?.type
+    const value = properties.$exception_values?.[0] || properties.$exception_message || exception?.value
+
+    return {
+        type: type ? stringify(type) : undefined,
+        value: value ? stringify(value) : undefined,
+    }
+}
+
 export function getExceptionList(properties: ErrorEventProperties): ErrorTrackingException[] {
     const { $sentry_exception } = properties
 
@@ -264,6 +278,16 @@ export function formatFunctionName(
         .with(['java', P.string, P.string], ([_, module, functionName]) => `${module}.${functionName}`)
         .with(['java', P.string, P.nullish], ([_, module]) => `${module}`)
         .otherwise(() => functionName)
+}
+
+export function getInstructionAddress(frame: Pick<ErrorTrackingStackFrame, 'junk_drawer'>): string | null {
+    const address = frame.junk_drawer?.raw_frame?.instruction_addr
+    if (typeof address !== 'string') {
+        return null
+    }
+    // SDKs can send a padded or blank address, which would render as an empty frame row
+    const trimmed = address.trim()
+    return trimmed.length > 0 ? trimmed : null
 }
 
 export function formatResolvedName(

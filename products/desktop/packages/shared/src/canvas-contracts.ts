@@ -24,6 +24,7 @@ export const canvasCapabilitiesSchema = z.object({
       .max(2)
       .default([]),
     actions: z.array(z.string().min(1).max(64)).max(32).default([]),
+    agentRequests: z.boolean().default(false),
   }),
   network: z.object({
     origins: z.array(z.string().url().max(2_048)).max(20),

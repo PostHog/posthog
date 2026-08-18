@@ -109,9 +109,9 @@ def calculate_for_query_based_insight(
     if query_json is None:
         raise ValueError("Insight has no query and no query_override was provided")
 
-    query_json, dashboard_filters_json = resolve_effective_dashboard_filters(
-        query_json, dashboard_filters_json, tile_filters_override
-    )
+    effective = resolve_effective_dashboard_filters(query_json, dashboard_filters_json, tile_filters_override)
+    query_json = effective.query
+    dashboard_filters_json = effective.filters
 
     process_response = process_query_dict(
         team,

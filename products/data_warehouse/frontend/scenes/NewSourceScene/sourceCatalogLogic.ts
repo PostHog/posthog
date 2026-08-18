@@ -1143,6 +1143,7 @@ export interface sourceCatalogLogicMeta {
                       | 'SalesforceMarketingCloud'
                       | 'SalesLoft'
                       | 'Salestrics'
+                      | 'SamCart'
                       | 'Sanity'
                       | 'SapConcur'
                       | 'SapErp'

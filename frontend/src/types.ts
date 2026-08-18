@@ -5522,6 +5522,7 @@ export const INTEGRATION_KINDS = [
     'aws-s3',
     's3-compatible',
     'snowflake',
+    'youtube-analytics',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5928,6 +5929,29 @@ export type AccessControlUpdateType = Pick<AccessControlType, 'access_level' | '
     resource?: AccessControlType['resource']
 }
 
+/** Which rule supplied an inherited access level — mirrors `ResolvedAccess.source` on the backend. */
+export type InheritedAccessSource =
+    | 'object'
+    | 'parent_object'
+    | 'resource'
+    | 'parent_resource'
+    | 'system_default'
+    | 'org_admin'
+    | 'creator'
+    | 'org_membership'
+
+/** What an object falls back to while it carries no override of its own, with the rule that
+ * decided it, resolved by the same walker that enforces access. */
+export type InheritedAccessType = {
+    access_level: AccessControlLevel
+    source: InheritedAccessSource
+    source_subject: 'member' | 'role' | 'default' | null
+    source_resource: APIScopeObject
+    source_resource_id: string | null
+    /** Human name of the parent object the level comes through (e.g. a table's source type). */
+    source_display_name: string | null
+}
+
 export type AccessControlResponseType = {
     access_controls: AccessControlType[]
     available_access_levels: AccessControlLevel[]
@@ -5935,11 +5959,9 @@ export type AccessControlResponseType = {
     default_access_level: AccessControlLevel
     minimum_access_level?: AccessControlLevel
     user_can_edit_access_levels: boolean
-    /** Resource whose project-wide rules apply while the object carries no override of its own. */
-    inherited_resource?: APIScopeObject | null
-    /** The level that applies while the object carries no override: the project-wide rule for
-     * `inherited_resource`, or its built-in default when no rule is set. */
-    inherited_access_level?: AccessControlLevel | null
+    /** The level and rule that apply while the object carries no override of its own; null when
+     * nothing sits above the object (e.g. a project). */
+    inherited_access?: InheritedAccessType | null
 }
 
 export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'

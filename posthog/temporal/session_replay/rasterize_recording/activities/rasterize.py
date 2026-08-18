@@ -5,6 +5,7 @@ from django.db import close_old_connections, transaction
 
 import structlog
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.session_recordings.recordings.recording_api_jwt import mint_recording_api_token, recording_api_jwt_enabled
 from posthog.storage import object_storage
@@ -41,21 +42,26 @@ _PERSISTED_OUTPUT_FIELDS: frozenset[str] = frozenset(
 def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResult:
     close_old_connections()
 
-    asset = ExportedAsset.objects.select_related("team").get(pk=exported_asset_id)
+    asset = ExportedAsset.objects.get(pk=exported_asset_id)
     ctx = asset.export_context or {}
 
     session_id = ctx.get("session_recording_id")
     if not session_id:
-        raise ValueError(f"ExportedAsset {exported_asset_id} has no session_recording_id in export_context")
+        # non_retryable: the asset's export_context is permanently invalid; retrying re-reads the
+        # same row, and the eventual workflow failure would wrongly mark the session as stuck.
+        raise ApplicationError(
+            f"ExportedAsset {exported_asset_id} has no session_recording_id in export_context", non_retryable=True
+        )
     # Assets reach this activity from several writers, not all of them behind the exports serializer,
     # so the id is re-checked here before it becomes part of an internal recording API path.
     if not is_valid_session_recording_id(session_id):
         # Logged as well as raised so a session id we reject wrongly is greppable, not just a failed render.
         logger.warning("rasterize.malformed_session_recording_id", asset_id=exported_asset_id)
-        raise ValueError(f"ExportedAsset {exported_asset_id} has a malformed session_recording_id")
+        raise ApplicationError(
+            f"ExportedAsset {exported_asset_id} has a malformed session_recording_id", non_retryable=True
+        )
 
-    format_map = {"video/webm": "webm", "video/mp4": "mp4", "image/gif": "gif"}
-    output_format = format_map.get(asset.export_format, "mp4")
+    output_format = ExportedAsset.RASTERIZED_FORMATS.get(asset.export_format, "mp4")
 
     s3_key_prefix = f"{settings.OBJECT_STORAGE_EXPORTS_FOLDER}/{output_format}/team-{asset.team_id}/task-{asset.id}"
 
@@ -73,17 +79,19 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
     if viewport_height is not None:
         viewport_height = max(300, min(2160, int(viewport_height)))
 
-    # 1x for short clips so output plays in real time; 4x for full sessions to cap file size.
+    # The output video is always real-time (the ffmpeg setpts filter undoes the speed-up); speed
+    # only reduces the virtual time a render spends playing the session. 1x for short clips keeps
+    # capture simple; 4x for full sessions bounds virtual time on long recordings.
     default_speed = 1 if (duration is not None and duration <= 5) else 4
-    playback_speed = ctx.get("playback_speed", default_speed)
-    recording_fps = ctx.get("recording_fps", 24)
-    # Cap the render rate so a large fps × speed product can't exhaust the shared rasterizer pool.
-    # Upper bound only: positivity is enforced in the Node validateInput, and fractional
-    # slow-motion speeds (< 1) are valid.
-    if playback_speed is not None:
-        playback_speed = min(360.0, float(playback_speed))
-    if recording_fps is not None:
-        recording_fps = min(60, int(recording_fps))
+    # `or` rather than a .get default so an explicit null in export_context also falls back instead
+    # of failing pydantic validation three retries in a row.
+    playback_speed = ctx.get("playback_speed") or default_speed
+    recording_fps = ctx.get("recording_fps") or 24
+    # Clamp the render rate so a large fps × speed product can't exhaust the shared rasterizer pool.
+    # The lower bound matches Node's validateInput: speeds below 1 have no slow-motion filter chain
+    # and would misreport the video duration.
+    playback_speed = max(1.0, min(360.0, float(playback_speed)))
+    recording_fps = min(60, int(recording_fps))
 
     # Empty until the signing secret is configured; the rasterizer then relays the legacy shared
     # secret instead, so rollout can happen per environment without breaking rendering.

@@ -87,6 +87,7 @@ rules:
                               |ButtonTile
                               |Canvas
                               |CanvasBuild
+                              |CanvasHomePreference
                               |CanvasSourceVersion
                               |CanvasState
                               |ChangeRequest
@@ -267,6 +268,7 @@ rules:
                               |ProductTour
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |PullRequestAudience
                               |QuarantinedIdentifier
                               |QueryTabState
                               |QuickFilter
@@ -452,6 +454,7 @@ rules:
                         |ButtonTile
                         |Canvas
                         |CanvasBuild
+                        |CanvasHomePreference
                         |CanvasSourceVersion
                         |CanvasState
                         |ChangeRequest
@@ -626,6 +629,7 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PullRequestAudience
                         |QuarantinedIdentifier
                         |QueryTabState
                         |QuickFilter
@@ -810,7 +814,10 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              CIMDVerificationToken
+                              BillingAlertConfiguration
+                              |BillingAlertEvaluationClaim
+                              |BillingAlertEvent
+                              |CIMDVerificationToken
                               |IdentityProviderConfig
                               |LegalDocument
                               |OrganizationMembership
@@ -878,7 +885,10 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        CIMDVerificationToken
+                        BillingAlertConfiguration
+                        |BillingAlertEvaluationClaim
+                        |BillingAlertEvent
+                        |CIMDVerificationToken
                         |IdentityProviderConfig
                         |LegalDocument
                         |OrganizationMembership
