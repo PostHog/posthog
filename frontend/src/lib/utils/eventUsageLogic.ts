@@ -52,6 +52,7 @@ import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
     ChartDisplayType,
     CohortType,
+    DashboardTileSpacing,
     DashboardMode,
     DashboardTemplateScope,
     DashboardTile,
@@ -870,6 +871,9 @@ export interface eventUsageLogicActions {
     ) => {
         dashboardId: number | undefined
         isShared: boolean
+    }
+    reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => {
+        tileDensity: DashboardTileSpacing
     }
     reportDashboardTileIgnoreDashboardFiltersToggled: (
         dashboardId: number | undefined,
@@ -2327,6 +2331,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             layoutZoom: number,
             source: 'button' | 'shortcut'
         ) => ({ dashboard, layoutZoom, source }),
+        reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => ({ tileDensity }),
         reportDashboardEditModeDiscardPrompt: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             action: 'shown' | 'discarded' | 'kept_editing'
@@ -3367,6 +3372,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 layout_zoom: layoutZoom,
                 source,
             })
+        },
+        reportDashboardTileDensityConfigured: async ({ tileDensity }) => {
+            posthog.capture('dashboard tile density configured', { tile_density: tileDensity })
         },
         reportDashboardEditModeDiscardPrompt: async ({ dashboard, action }) => {
             posthog.capture('dashboard edit mode discard prompt', {
