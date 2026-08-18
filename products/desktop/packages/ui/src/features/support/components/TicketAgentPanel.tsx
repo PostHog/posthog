@@ -3,28 +3,19 @@ import type {
   SupportTicket,
   SupportTicketMessage,
 } from "@posthog/api-client/posthog-client";
+import { buildTicketAgentPrompt } from "@posthog/core/support/ticketTaskLink";
 import {
-  Button,
   Empty,
-  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  InputGroup,
-  InputGroupTextarea,
 } from "@posthog/quill";
+import { ChannelHomeComposer } from "@posthog/ui/features/canvas/components/ChannelHomeComposer";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { useTicketAgentThread } from "@posthog/ui/features/support/hooks/useTicketAgentThread";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-
-const SUGGESTIONS = [
-  "Summarize this ticket",
-  "Is this possible in the product today?",
-  "Investigate the cause",
-];
 
 export function TicketAgentPanel({
   ticket,
@@ -33,17 +24,35 @@ export function TicketAgentPanel({
   ticket: SupportTicket;
   messages: SupportTicketMessage[];
 }) {
-  const { taskId, startThread, isStarting } = useTicketAgentThread(ticket);
+  const { taskId, linkTask } = useTicketAgentThread(ticket);
 
   if (taskId) {
     return <TicketAgentSession taskId={taskId} />;
   }
 
   return (
-    <StartThreadForm
-      isStarting={isStarting}
-      onStart={(request) => void startThread(request, messages)}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      <Empty className="flex-1 p-6">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <RobotIcon size={18} />
+          </EmptyMedia>
+          <EmptyTitle>Ask the agent about this ticket</EmptyTitle>
+          <EmptyDescription>
+            The first message starts a task seeded with the ticket and its
+            conversation, shared with everyone who opens it.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+
+      <ChannelHomeComposer
+        contextKey={`ticket:${ticket.id}`}
+        preferredWorkspaceMode="cloud"
+        channelContext={buildTicketAgentPrompt(ticket, messages, "")}
+        channelName={`Support ticket #${ticket.ticket_number}`}
+        onTaskCreated={(task) => linkTask(task.id)}
+      />
+    </div>
   );
 }
 
@@ -75,75 +84,4 @@ function TicketAgentSession({ taskId }: { taskId: string }) {
   }
 
   return <EmbeddedSessionView task={task} />;
-}
-
-function StartThreadForm({
-  isStarting,
-  onStart,
-}: {
-  isStarting: boolean;
-  onStart: (request: string) => void;
-}) {
-  const [draft, setDraft] = useState("");
-  const canStart = draft.trim().length > 0 && !isStarting;
-
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <Empty className="flex-1 p-6">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <RobotIcon size={18} />
-          </EmptyMedia>
-          <EmptyTitle>Ask the agent about this ticket</EmptyTitle>
-          <EmptyDescription>
-            The first message starts a task seeded with the ticket and its
-            conversation, shared with everyone who opens it.
-          </EmptyDescription>
-        </EmptyHeader>
-        <EmptyContent>
-          {SUGGESTIONS.map((suggestion) => (
-            <Button
-              key={suggestion}
-              variant="outline"
-              size="sm"
-              disabled={isStarting}
-              onClick={() => onStart(suggestion)}
-            >
-              {suggestion}
-            </Button>
-          ))}
-        </EmptyContent>
-      </Empty>
-
-      <div className="flex shrink-0 flex-col gap-1 border-border border-t px-4 py-2">
-        <InputGroup className="h-auto bg-card">
-          <InputGroupTextarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Ask the agent…"
-            className="max-h-[160px] min-h-[64px] resize-none text-[13px] [field-sizing:content]"
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                if (canStart) {
-                  onStart(draft.trim());
-                }
-              }
-            }}
-          />
-        </InputGroup>
-        <div className="flex items-center justify-end">
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={!canStart}
-            data-loading={isStarting || undefined}
-            onClick={() => onStart(draft.trim())}
-          >
-            Start thread
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
 }
