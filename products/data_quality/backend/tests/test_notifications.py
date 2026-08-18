@@ -18,8 +18,9 @@ from products.data_quality.backend.facade.enums import (
     SubjectType,
     SuiteRunTrigger,
 )
-from products.data_quality.backend.logic.notifications import _WarehouseSubjectResolver
+from products.data_quality.backend.logic.notifications import _WarehouseSubjectResolver, notify_materialization_blocked
 from products.data_quality.backend.logic.runner import run_check
+from products.data_quality.backend.logic.subject_access import referenced_subject_names
 from products.data_quality.backend.models import DataQualityCheck, DataQualitySuiteRun
 from products.notifications.backend.facade.enums import TargetType
 
@@ -62,6 +63,14 @@ class TestDataQualityNotifications(BaseTest):
             "fingerprint": uuid4().hex,
         }
         return DataQualityCheck.objects.for_team(self.team.id).create(**{**defaults, **kwargs})
+
+    def _resolver_for(self, check: DataQualityCheck) -> _WarehouseSubjectResolver:
+        return _WarehouseSubjectResolver(
+            self.team,
+            check.subject_type,
+            str(check.subject_uuid),
+            referenced_names=referenced_subject_names(self.team.id, check.check_type, check.config),
+        )
 
     @parameterized.expand(
         [
@@ -130,9 +139,7 @@ class TestDataQualityNotifications(BaseTest):
         mock_uac_cls.side_effect = FakeUAC
 
         check = self._check()
-        resolved = _WarehouseSubjectResolver(
-            self.team, check.subject_type, str(check.subject_uuid), check=check
-        ).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+        resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
 
         assert self.user.id in resolved
         assert denied.id not in resolved
@@ -154,9 +161,7 @@ class TestDataQualityNotifications(BaseTest):
         )
         check = self._check()
 
-        resolved = _WarehouseSubjectResolver(
-            self.team, check.subject_type, str(check.subject_uuid), check=check
-        ).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+        resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
 
         assert allowed.id in resolved
         assert blocked.id not in resolved
@@ -211,10 +216,34 @@ class TestDataQualityNotifications(BaseTest):
             config=config,
         )
 
-        resolved = _WarehouseSubjectResolver(
-            self.team, check.subject_type, str(check.subject_uuid), check=check
-        ).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+        resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
 
+        assert self.user.id in resolved
+        assert blocked.id not in resolved
+
+    def test_members_denied_a_referenced_subject_do_not_get_the_blocked_materialization_count(self) -> None:
+        # The blocked-materialization body counts the checks that failed, and one of them reads a
+        # second view, so the count is an oracle over that view too. A member allowed the view being
+        # materialized but denied the referenced one must be dropped.
+        customers = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        blocked = User.objects.create_and_join(self.organization, "blocked-blocked@test.com", "password")
+        self._deny_view_for_member(self.view, blocked)
+        self._check(
+            saved_query_id=customers.id,
+            subject_name="customers",
+            check_type=CheckType.RELATIONSHIPS,
+            config={"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(self.view.id), "to_column": "id"},
+            severity=CheckSeverity.ERROR,
+            last_status=CheckRunStatus.FAILED,
+        )
+
+        with patch(CREATE_NOTIFICATION) as create_notification:
+            notify_materialization_blocked(self.team.id, str(customers.id), "customers", 1)
+
+        resolver = create_notification.call_args.args[0].resolver
+        resolved = resolver.resolve(TargetType.TEAM, str(self.team.id), self.team.id)
         assert self.user.id in resolved
         assert blocked.id not in resolved
 

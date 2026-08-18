@@ -21,10 +21,11 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 
-from ..facade.enums import SubjectType
+from ..facade.enums import CheckRunStatus, CheckSeverity, SubjectType
 from ..models import DataQualityCheck
+from .checks import checks_for_subject
 from .flags import is_data_quality_checks_enabled_for_team_id
-from .subject_access import denied_subject_names, is_subject_denied, referenced_subject_names
+from .subject_access import denied_subject_names, is_subject_denied, referenced_subject_names, referencing_check_types
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -39,15 +40,15 @@ _SUBJECT_RESOURCE: dict[SubjectType, APIScopeObject] = {
 class _WarehouseSubjectResolver(RecipientsResolver):
     """Drop members who must not receive this check's warehouse metadata or its failing-row count.
 
-    Two gates on top of the built-in resource-level `warehouse_objects` filter that
+    Three gates on top of the built-in resource-level `warehouse_objects` filter that
     `create_notification` runs:
 
     - **Object-level** access to *this* table or view. The resource-level filter only asks whether a
       member can see warehouse objects at all, so a member with general warehouse access but an
       explicit denial on the subject would still receive its name, column, check type, and count.
     - **Referenced-subject** access. A `relationships` check reads a second subject and a `custom_sql`
-      check reads arbitrary tables, so `failed_row_count` is a count oracle over those too. A member
-      denied any subject the check reads must be dropped, matching how the run-history API gates them.
+      check reads arbitrary tables, so a failure count is an oracle over those too. A member denied
+      any of the names passed in must be dropped, matching how the run-history API gates them.
     - **Query** viewer access. The body's `failed_row_count` is a count oracle over the underlying
       warehouse rows that the run-history API gates behind query access, so a member denied `query`
       must not read it from the notification either.
@@ -58,12 +59,12 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         team: Team,
         subject_type: str,
         subject_uuid: str,
-        check: DataQualityCheck | None = None,
+        referenced_names: list[str] | None = None,
     ) -> None:
         self._team = team
         self._subject_type = subject_type
         self._subject_uuid = subject_uuid
-        self._check = check
+        self._referenced_names = referenced_names or []
 
     def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
         user_ids = super().resolve(target_type, target_id, team_id)
@@ -98,16 +99,13 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         # The declared subject isn't the only one the count depends on: a relationships check reads
         # its target and a custom_sql check reads arbitrary tables. Drop members denied any of those,
         # matching the run-history endpoint -- resolved by name the same way the loaders resolve them.
-        if self._check is None:
-            return user_ids
-        names = referenced_subject_names(self._team.id, self._check.check_type, self._check.config)
-        if not names:
+        if not self._referenced_names:
             return user_ids
 
         allowed: list[int] = []
         for user in User.objects.filter(id__in=user_ids):
             denied = denied_subject_names(self._team, user)
-            if not any(is_subject_denied(name, denied) for name in names):
+            if not any(is_subject_denied(name, denied) for name in self._referenced_names):
                 allowed.append(user.id)
         return allowed
 
@@ -132,7 +130,12 @@ def notify_check_started_failing(check: DataQualityCheck, failed_row_count: int 
                 # members with object-level access to it, plus query access for the count.
                 resource_type="warehouse_objects",
                 resource_id=str(check.subject_uuid),
-                resolver=_WarehouseSubjectResolver(team, check.subject_type, str(check.subject_uuid), check=check),
+                resolver=_WarehouseSubjectResolver(
+                    team,
+                    check.subject_type,
+                    str(check.subject_uuid),
+                    referenced_names=referenced_subject_names(team.id, check.check_type, check.config),
+                ),
             )
         )
     except Exception:
@@ -158,11 +161,33 @@ def notify_materialization_blocked(team_id: int, saved_query_id: str, view_name:
                 target_id=str(team_id),
                 resource_type="warehouse_objects",
                 resource_id=saved_query_id,
-                resolver=_WarehouseSubjectResolver(team, SubjectType.VIEW, saved_query_id),
+                resolver=_WarehouseSubjectResolver(
+                    team,
+                    SubjectType.VIEW,
+                    saved_query_id,
+                    referenced_names=_blocking_referenced_names(team_id, saved_query_id),
+                ),
             )
         )
     except Exception:
         LOGGER.exception("Could not send a materialization-blocked notification", saved_query_id=saved_query_id)
+
+
+def _blocking_referenced_names(team_id: int, saved_query_id: str) -> list[str]:
+    """Every further subject the checks behind a blocked materialization read.
+
+    The body's failure count aggregates those checks, so it is an oracle over everything they read,
+    not just over the view the recipient is already allowed to see.
+    """
+    names: set[str] = set()
+    blocking = checks_for_subject(team_id, SubjectType.VIEW, saved_query_id).filter(
+        check_type__in=referencing_check_types(),
+        severity=CheckSeverity.ERROR,
+        last_status=CheckRunStatus.FAILED,
+    )
+    for check in blocking:
+        names.update(referenced_subject_names(team_id, check.check_type, check.config))
+    return sorted(names)
 
 
 def _body(check: DataQualityCheck, failed_row_count: int | None) -> str:
