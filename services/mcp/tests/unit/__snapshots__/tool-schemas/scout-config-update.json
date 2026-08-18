@@ -71,6 +71,7 @@
                                         {
                                             "items": {
                                                 "maxLength": 255,
+                                                "pattern": "^[UW][A-Z0-9]{4,}\\s*(\\|.*)?$",
                                                 "type": "string"
                                             },
                                             "maxItems": 5,
