@@ -28,6 +28,7 @@ class TestFaireSource:
         config = self.source.get_source_config
 
         assert config.name.value == "Faire"
+        assert config.category is not None
         assert config.category.value == "E-commerce"
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.unreleasedSource is None
