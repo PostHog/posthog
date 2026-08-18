@@ -1244,8 +1244,6 @@ class TestHogFlowAPI(APIBaseTest):
         assert expected_detail in response.json()["detail"]
 
     def test_hog_flow_conditional_branch_rejects_cohort_filters_without_flag(self):
-        # Rollout gate: without workflows-cohort-conditions, an eligible cohort still fails
-        # compilation the way it always has, so nothing changes for unflagged teams.
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         hog_flow = self._hog_flow_with_condition_filters(
             "conditional_branch", {"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}
@@ -1257,8 +1255,6 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Cohort membership can't be evaluated in real-time filters" in response.json()["detail"]
 
     def test_hog_flow_wait_until_condition_rejects_cohort_filters(self):
-        # Cohort support is scoped to conditional_branch: a wait would only notice membership
-        # changes via the polling backstop, so the compile-time rejection must stay in place.
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         hog_flow = self._hog_flow_with_condition_filters(
             "wait_until_condition", {"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}

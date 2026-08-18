@@ -296,11 +296,8 @@ def filter_action_ids(filters: Optional[dict]) -> list[int]:
 
 
 def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
-    """Cohort ids referenced by the filters' global property tree.
-
-    Stored on compiled filters (as `cohort_ids`) so the runtime can prefetch cohort
-    membership for the bytecode's inCohort/notInCohort calls without parsing bytecode.
-    """
+    """Cohort ids referenced by the filters' property tree, stored on compiled filters
+    so the runtime can prefetch membership without parsing bytecode."""
     if not filters:
         return []
 
@@ -412,8 +409,7 @@ def compile_filters_bytecode(
             expr,
             context=context,
             cohort_membership_supported=cohort_membership_supported,
-            # inCohort/notInCohort aren't STL functions; the runtime injects them as host
-            # functions closing over prefetched membership (see conditional_branch.ts)
+            # Host functions the runtime injects (conditional_branch.ts), not STL
             supported_functions={"inCohort", "notInCohort"} if cohort_membership_supported else None,
         ).bytecode
         if cohort_membership_supported:

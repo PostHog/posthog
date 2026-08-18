@@ -923,9 +923,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         return data
 
     def _validate_realtime_cohorts(self, data: dict, team: Team) -> None:
-        """Only cohorts whose membership the realtime pipeline maintains in the cohort_membership
-        table may be referenced: the runtime answers inCohort with a point lookup against that
-        table, so any other cohort would evaluate everyone as a non-member."""
+        """A cohort without maintained cohort_membership rows would evaluate everyone as a non-member."""
         cohort_ids = filter_cohort_ids(data)
         if not cohort_ids:
             return
