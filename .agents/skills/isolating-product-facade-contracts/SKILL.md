@@ -31,7 +31,7 @@ Use Visual review as the concrete reference implementation:
 - [products/visual_review/backend/facade/api.py](../../../products/visual_review/backend/facade/api.py)
 - [products/visual_review/backend/presentation/views.py](../../../products/visual_review/backend/presentation/views.py)
 - [products/visual_review/backend/presentation/serializers.py](../../../products/visual_review/backend/presentation/serializers.py)
-- [products/visual_review/backend/logic.py](../../../products/visual_review/backend/logic.py)
+- [products/visual_review/backend/logic/](../../../products/visual_review/backend/logic/)
 - [products/visual_review/backend/tests/test_api.py](../../../products/visual_review/backend/tests/test_api.py)
 - [products/visual_review/backend/tests/test_presentation.py](../../../products/visual_review/backend/tests/test_presentation.py)
 
