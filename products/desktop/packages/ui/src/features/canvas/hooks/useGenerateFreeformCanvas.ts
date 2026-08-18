@@ -65,6 +65,9 @@ export function useGenerateFreeformCanvas(args: {
       // When set, the run fills ONE placement on a grid canvas (the agent
       // follows the composing-grid-canvases skill instead of building-canvases).
       placement?: { placementId: string; w: number; h: number };
+      // "grid" routes a whole-canvas run to the grid skill (edit the layout
+      // and its components) instead of freeform canvas authoring.
+      canvasKind?: "grid";
       // The composer's picks, when the surface exposes model/effort selectors.
       adapter?: Adapter;
       model?: string;
@@ -103,6 +106,7 @@ export function useGenerateFreeformCanvas(args: {
             templateId: opts.templateId,
             instruction,
             placement: opts.placement,
+            canvasKind: opts.canvasKind,
             channelId,
             channelName,
             channelContext,
@@ -131,7 +135,7 @@ export function useGenerateFreeformCanvas(args: {
         // fills are excluded: the completion toast judges the canvas's build
         // health, and a grid canvas has no builds — the empty lifecycle would
         // read as "finished with a failed build". The tile shows the progress.
-        if (!opts.placement) {
+        if (!opts.placement && opts.canvasKind !== "grid") {
           useCanvasGenerationTrackerStore.getState().track({
             taskId: result.taskId,
             dashboardId,

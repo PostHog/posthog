@@ -117,6 +117,30 @@ describe("CanvasApplicationService", () => {
     expect(generateCanvasName).not.toHaveBeenCalled();
   });
 
+  it("routes a whole-grid-canvas run to the grid skill and records it on the canvas", async () => {
+    const { service, createTask } = makeDeps();
+    const gateway = makeGateway();
+
+    const result = await service.generateCanvas(
+      input({
+        name: "Home",
+        instruction: "fix the weather widget's query",
+        canvasKind: "grid",
+      }),
+      gateway,
+    );
+
+    expect(result).toEqual({ ok: true, taskId: "task-1" });
+    const [taskInput] = createTask.mock.calls[0];
+    expect(taskInput.content).toContain("`composing-grid-canvases` skill");
+    expect(taskInput.content).toContain("WHOLE grid canvas");
+    expect(taskInput.taskDescription).toBe(
+      'Update canvas "Home": fix the weather widget\'s query',
+    );
+    // The whole-canvas conversation is recorded so it can be reopened.
+    expect(gateway.setGenerationTask).toHaveBeenCalledWith("dash-1", "task-1");
+  });
+
   it.each([
     ["no signed-in region", input({ cloudRegion: null })],
     ["resolver returns nothing", input(), vi.fn().mockResolvedValue(undefined)],

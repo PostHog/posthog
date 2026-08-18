@@ -33,6 +33,31 @@ Target:
 </canvas_generation_instructions>`;
 }
 
+// A task scoped to a whole grid canvas: the agent edits the layout itself and
+// the placed components, following the composing-grid-canvases skill.
+export function buildGridCanvasGenerationPrompt(input: {
+  dashboardId: string;
+  name: string;
+  channelName: string;
+  instruction: string;
+}): string {
+  return `${input.instruction}
+
+<canvas_generation_instructions>
+Invoke the \`composing-grid-canvases\` skill and follow it completely.
+
+You are working on the WHOLE grid canvas: add, fill, move, resize, or remove
+placements as the instruction requires, and edit the placed component
+canvases themselves when a widget needs fixing. Use the guarded patch loop,
+and never leave a placement in the generating state when you finish.
+
+Target:
+- grid canvas id: "${escapeXmlAttr(input.dashboardId)}"
+- grid canvas name: "${escapeXmlAttr(input.name)}"
+- channel: "${escapeXmlAttr(input.channelName)}"
+</canvas_generation_instructions>`;
+}
+
 export function buildCanvasGenerationPrompt(input: {
   dashboardId: string;
   name: string;

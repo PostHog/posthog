@@ -23,6 +23,7 @@ import { inject, injectable } from "inversify";
 import { isPlaceholderCanvasName } from "./canvasNaming";
 import {
   buildCanvasGenerationPrompt,
+  buildGridCanvasGenerationPrompt,
   buildPlacementGenerationPrompt,
 } from "./generationPrompt";
 
@@ -34,6 +35,10 @@ export interface GenerateCanvasInput {
   /** When set, the run fills ONE placement on a grid canvas instead of
    * authoring the canvas itself (composing-grid-canvases skill routing). */
   placement?: { placementId: string; w: number; h: number };
+  /** "grid" routes a whole-canvas run (no placement) to the grid skill:
+   * the agent edits the layout and its components instead of authoring a
+   * freeform canvas app. */
+  canvasKind?: "grid";
   /** Backend channel (task channel UUID) that owns the canvas and the task. */
   channelId: string;
   channelName: string;
@@ -164,20 +169,29 @@ export class CanvasApplicationService {
               boxWidth: input.placement.w,
               boxHeight: input.placement.h,
             })
-          : buildCanvasGenerationPrompt({
-              dashboardId: input.dashboardId,
-              name: input.name,
-              channelName: input.channelName,
-              templateId: input.templateId,
-              instruction: input.instruction,
-            }),
+          : input.canvasKind === "grid"
+            ? buildGridCanvasGenerationPrompt({
+                dashboardId: input.dashboardId,
+                name: input.name,
+                channelName: input.channelName,
+                instruction: input.instruction,
+              })
+            : buildCanvasGenerationPrompt({
+                dashboardId: input.dashboardId,
+                name: input.name,
+                channelName: input.channelName,
+                templateId: input.templateId,
+                instruction: input.instruction,
+              }),
         // A placement fill is named after its widget — every fill on the same
         // canvas would otherwise share one useless "Generate canvas Home" title.
         taskDescription: input.placement
           ? `Generate widget: ${truncateForTitle(input.instruction)}`
-          : input.name
-            ? `Generate canvas "${input.name}"`
-            : `Generate a canvas in ${channelDisplayReference(input.channelName)}`,
+          : input.canvasKind === "grid"
+            ? `Update canvas "${input.name}": ${truncateForTitle(input.instruction)}`
+            : input.name
+              ? `Generate canvas "${input.name}"`
+              : `Generate a canvas in ${channelDisplayReference(input.channelName)}`,
         // Unattended generation: run in auto mode so it doesn't stall on
         // edit-approval prompts.
         executionMode: "auto" as const,

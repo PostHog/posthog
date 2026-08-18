@@ -1,7 +1,8 @@
-import { SquaresFourIcon } from "@phosphor-icons/react";
+import { ChatCircleIcon, SquaresFourIcon } from "@phosphor-icons/react";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
 import {
+  Button,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -12,6 +13,7 @@ import {
 import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { GridChatPanel, type GridChatTarget } from "./GridChatPanel";
 import {
   GridPlacementTile,
   type PlacementTileActions,
@@ -89,6 +91,8 @@ export function GridCanvasView({
   }, []);
   const surfaceWidth = useMeasuredWidth(surfaceEl);
   const placements = layout?.placements;
+  // The right-hand conversation: a widget's fill task, or the whole canvas.
+  const [chat, setChat] = useState<GridChatTarget | null>(null);
 
   const onDragComplete = useCallback(
     (outcome: GridDragOutcome) => {
@@ -232,7 +236,20 @@ export function GridCanvasView({
     [patch, currentVersionId],
   );
 
-  const actions: PlacementTileActions = { describe, place, reset, remove };
+  const discuss = useCallback((placement: GridPlacement) => {
+    setChat({
+      taskId: placement.generationTaskId ?? null,
+      title: placement.prompt ?? "Widget",
+    });
+  }, []);
+
+  const actions: PlacementTileActions = {
+    describe,
+    place,
+    reset,
+    remove,
+    discuss,
+  };
 
   if (isLoading || !layout || !placements || !dashboard) {
     return (
@@ -248,106 +265,152 @@ export function GridCanvasView({
   const pitchY = grid.rowHeight + grid.gap;
 
   return (
-    <div className="h-full overflow-y-auto p-4">
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: the surface is a drawing target; tiles inside stay keyboard-reachable. */}
-      <div
-        ref={setSurfaceRef}
-        className="relative grid"
-        style={{
-          gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))`,
-          gridAutoRows: `${grid.rowHeight}px`,
-          gap: `${grid.gap}px`,
-          // Fill the viewport even when the content needs fewer rows, so the
-          // whole visible page is drawable (and dotted) rather than a strip.
-          minHeight: `max(100%, ${surfaceRows(placements) * pitchY}px)`,
-          cursor: interactive ? "crosshair" : undefined,
-        }}
-        onPointerDown={onSurfacePointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-      >
-        {interactive && surfaceWidth > 0 ? (
-          // Edit mode reveals the lattice: a soft dot (the fade to transparent
-          // is the blur) on each cell corner, where tiles snap and drawing
-          // starts, gently pulsing to invite a drag. The overlay's top edge
-          // starts at the first interior corner row so no clipped dots hug the
-          // top of the page.
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-0 animate-pulse opacity-60"
-            style={{
-              top: pitchY - grid.gap / 2 - DOT_FADE_RADIUS,
-              backgroundImage:
-                "radial-gradient(circle, var(--gray-7) 1px, transparent 4px)",
-              backgroundSize: `${pitchX}px ${pitchY}px`,
-              backgroundPosition: `${pitchX / 2 - grid.gap / 2}px ${DOT_FADE_RADIUS - pitchY / 2}px`,
-            }}
-          />
-        ) : null}
-        {placements.length === 0 && !drag ? (
-          // How-to placed on the grid as a tile of its own, instead of a
-          // full-width overlay that looks like broken chrome. Pointer events
-          // pass through so the user can draw right over it.
-          <div
-            className="pointer-events-none flex items-center justify-center rounded-(--radius-3) border border-(--gray-6) border-dashed bg-(--gray-2)"
-            style={gridItemStyle(emptyHintRect(grid.columns))}
+    <div className="flex h-full">
+      <div className="relative min-w-0 flex-1">
+        {interactive ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="absolute top-3 right-3 z-20"
+            onClick={() =>
+              setChat({
+                taskId: dashboard.generationTaskId ?? null,
+                title: "Canvas chat",
+              })
+            }
           >
-            <Empty className="border-0 bg-transparent">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <SquaresFourIcon size={24} />
-                </EmptyMedia>
-                <EmptyTitle>
-                  {interactive ? "Draw your first widget" : "An empty canvas"}
-                </EmptyTitle>
-                <EmptyDescription>
-                  {interactive
-                    ? "Click and drag on the dotted grid to draw a box, then describe what should go there or pick a component from the store."
-                    : "Select Edit to draw your first widget."}
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          </div>
+            <ChatCircleIcon size={14} />
+            Canvas chat
+          </Button>
         ) : null}
-        {placements.map((placement) => {
-          const dragged =
-            drag && drag.kind !== "draw" && drag.placementId === placement.id
-              ? drag.rect
-              : placement;
-          return (
-            <div
-              key={placement.id}
-              className="group relative overflow-hidden rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)"
-              style={gridItemStyle(dragged)}
-            >
-              {interactive ? (
-                <div
-                  className="absolute inset-x-0 top-0 z-10 h-5 cursor-move bg-(--gray-3) opacity-0 transition-opacity group-hover:opacity-100"
-                  onPointerDown={startMove(placement)}
-                />
-              ) : null}
-              <GridPlacementTile
-                placement={placement}
-                channelId={dashboard.channelId}
-                interactive={interactive}
-                actions={actions}
-              />
-              {interactive ? (
-                <div
-                  className="absolute right-0 bottom-0 z-10 h-4 w-4 cursor-nwse-resize bg-(--gray-6) opacity-0 transition-opacity group-hover:opacity-100"
-                  onPointerDown={startResize(placement)}
-                />
-              ) : null}
-            </div>
-          );
-        })}
-        {drag ? (
+        <div className="h-full overflow-y-auto p-4">
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: the surface is a drawing target; tiles inside stay keyboard-reachable. */}
           <div
-            className="pointer-events-none rounded-(--radius-3) border-(--accent-8) border-2 border-dashed bg-(--accent-3) opacity-70"
-            style={gridItemStyle(drag.rect)}
-          />
-        ) : null}
+            ref={setSurfaceRef}
+            className="relative grid"
+            style={{
+              gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))`,
+              gridAutoRows: `${grid.rowHeight}px`,
+              gap: `${grid.gap}px`,
+              // Fill the viewport even when the content needs fewer rows, so the
+              // whole visible page is drawable (and dotted) rather than a strip.
+              minHeight: `max(100%, ${surfaceRows(placements) * pitchY}px)`,
+              cursor: interactive ? "crosshair" : undefined,
+            }}
+            onPointerDown={onSurfacePointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+          >
+            {interactive && surfaceWidth > 0 ? (
+              // Edit mode reveals the lattice: a soft dot (the fade to transparent
+              // is the blur) on each cell corner, where tiles snap and drawing
+              // starts, gently pulsing to invite a drag. The overlay's top edge
+              // starts at the first interior corner row so no clipped dots hug the
+              // top of the page.
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-x-0 bottom-0 animate-pulse opacity-60"
+                style={{
+                  top: pitchY - grid.gap / 2 - DOT_FADE_RADIUS,
+                  backgroundImage:
+                    "radial-gradient(circle, var(--gray-7) 1px, transparent 4px)",
+                  backgroundSize: `${pitchX}px ${pitchY}px`,
+                  backgroundPosition: `${pitchX / 2 - grid.gap / 2}px ${DOT_FADE_RADIUS - pitchY / 2}px`,
+                }}
+              />
+            ) : null}
+            {placements.length === 0 && !drag ? (
+              // How-to placed on the grid as a tile of its own, instead of a
+              // full-width overlay that looks like broken chrome. Pointer events
+              // pass through so the user can draw right over it.
+              <div
+                className="pointer-events-none flex items-center justify-center rounded-(--radius-3) border border-(--gray-6) border-dashed bg-(--gray-2)"
+                style={gridItemStyle(emptyHintRect(grid.columns))}
+              >
+                <Empty className="border-0 bg-transparent">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <SquaresFourIcon size={24} />
+                    </EmptyMedia>
+                    <EmptyTitle>
+                      {interactive
+                        ? "Draw your first widget"
+                        : "An empty canvas"}
+                    </EmptyTitle>
+                    <EmptyDescription>
+                      {interactive
+                        ? "Click and drag on the dotted grid to draw a box, then describe what should go there or pick a component from the store."
+                        : "Select Edit to draw your first widget."}
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              </div>
+            ) : null}
+            {placements.map((placement) => {
+              const dragged =
+                drag &&
+                drag.kind !== "draw" &&
+                drag.placementId === placement.id
+                  ? drag.rect
+                  : placement;
+              return (
+                <div
+                  key={placement.id}
+                  className="group relative overflow-hidden rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)"
+                  style={gridItemStyle(dragged)}
+                >
+                  {interactive ? (
+                    <div
+                      className="absolute inset-x-0 top-0 z-10 h-5 cursor-move bg-(--gray-3) opacity-0 transition-opacity group-hover:opacity-100"
+                      onPointerDown={startMove(placement)}
+                    />
+                  ) : null}
+                  <GridPlacementTile
+                    placement={placement}
+                    interactive={interactive}
+                    actions={actions}
+                  />
+                  {interactive && placement.generationTaskId ? (
+                    // Opens the widget's own conversation in the side panel so a
+                    // broken query or tweak goes straight back to its agent.
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="absolute top-1 right-1 z-20 opacity-0 transition-opacity group-hover:opacity-100"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={() => actions.discuss(placement)}
+                    >
+                      <ChatCircleIcon size={14} />
+                    </Button>
+                  ) : null}
+                  {interactive ? (
+                    <div
+                      className="absolute right-0 bottom-0 z-10 h-4 w-4 cursor-nwse-resize bg-(--gray-6) opacity-0 transition-opacity group-hover:opacity-100"
+                      onPointerDown={startResize(placement)}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
+            {drag ? (
+              <div
+                className="pointer-events-none rounded-(--radius-3) border-(--accent-8) border-2 border-dashed bg-(--accent-3) opacity-70"
+                style={gridItemStyle(drag.rect)}
+              />
+            ) : null}
+          </div>
+        </div>
       </div>
+      {chat ? (
+        <GridChatPanel
+          target={chat}
+          canvasId={canvasId}
+          canvasName={dashboard.name}
+          channelId={dashboard.channelId}
+          onClose={() => setChat(null)}
+          onStarted={(taskId) => setChat({ taskId, title: "Canvas chat" })}
+        />
+      ) : null}
     </div>
   );
 }

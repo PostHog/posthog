@@ -11,11 +11,9 @@ import {
   Text,
 } from "@posthog/quill";
 import { isTerminalStatus } from "@posthog/shared/domain-types";
-import { taskCardNavigation } from "@posthog/ui/features/canvas/taskCardNavigation";
 import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ComponentFrame } from "./ComponentFrame";
 import { useComponentStore } from "./useGridLayout";
@@ -33,6 +31,8 @@ export interface PlacementTileActions {
   reset: (placement: GridPlacement) => void;
   /** Remove this placement from the layout. */
   remove: (placement: GridPlacement) => void;
+  /** Open this placement's task conversation in the canvas's side panel. */
+  discuss: (placement: GridPlacement) => void;
 }
 
 /**
@@ -42,12 +42,10 @@ export interface PlacementTileActions {
  */
 export function GridPlacementTile({
   placement,
-  channelId,
   interactive,
   actions,
 }: {
   placement: GridPlacement;
-  channelId: string;
   interactive: boolean;
   actions: PlacementTileActions;
 }) {
@@ -58,7 +56,6 @@ export function GridPlacementTile({
     return (
       <GeneratingTile
         placement={placement}
-        channelId={channelId}
         interactive={interactive}
         actions={actions}
       />
@@ -76,16 +73,13 @@ export function GridPlacementTile({
 
 function GeneratingTile({
   placement,
-  channelId,
   interactive,
   actions,
 }: {
   placement: GridPlacement;
-  channelId: string;
   interactive: boolean;
   actions: PlacementTileActions;
 }) {
-  const navigate = useNavigate();
   const taskId = placement.generationTaskId ?? null;
   const { data: task } = useQuery({
     ...taskDetailQuery(taskId ?? ""),
@@ -111,7 +105,7 @@ function GeneratingTile({
     <Button
       variant="outline"
       size="sm"
-      onClick={() => navigate(taskCardNavigation(channelId, taskId))}
+      onClick={() => actions.discuss(placement)}
     >
       {stalled ? "View task" : "View progress"}
     </Button>
@@ -150,7 +144,7 @@ function GeneratingTile({
             <Button
               variant="primary"
               size="sm"
-              onClick={() => navigate(taskCardNavigation(channelId, taskId))}
+              onClick={() => actions.discuss(placement)}
             >
               Review request
             </Button>
