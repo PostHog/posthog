@@ -65,14 +65,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 # the newest day freezes each day at its first-imported, not-yet-final value. Re-reading a trailing
 # window each run lets those days catch up; merge-by-primary-key makes the overlap idempotent.
 #
-# A week is the widest window cheap enough to apply by default. The re-read is paid on every sync and
-# scales the rows a run reports: on the largest stats tables (`search_term_stats`, `keyword_stats`,
-# which grow with query volume rather than account size) an N-day window costs roughly N times the
-# rows of a newest-day-only sync. A week is also the point above which SyncMethodForm warns that a
-# window is expensive, so the default sits at the edge of what the UI itself calls cheap. Accounts
-# needing longer — App-campaign conversion attribution outlasts a week — raise it per schema, up to
-# the 60-day cap the creation/update endpoints enforce.
-GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 7 * 24 * 60 * 60
+# The window is a direct multiplier on the rows an incremental run reports: on the largest stats
+# tables (`search_term_stats`, `keyword_stats`, which grow with query volume rather than account
+# size) an N-day window costs roughly N times the rows of a newest-day-only sync. Two weeks buys
+# most of Google's restatement window at half that cost. Only schemas created from here on pick this
+# up — existing schemas keep whatever lookback they already carry. It sits above the length at which
+# SyncMethodForm warns a window is expensive, so accounts that would rather sync less lower it per
+# schema, up to the 60-day cap the creation/update endpoints enforce.
+GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 15 * 24 * 60 * 60
 
 _OAUTH_ACCOUNTS_CACHE_TTL_SECONDS = 60
 

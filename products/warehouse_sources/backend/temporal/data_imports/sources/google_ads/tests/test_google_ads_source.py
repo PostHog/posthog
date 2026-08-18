@@ -365,10 +365,9 @@ class TestGoogleAdsLookbackDefault:
         assert schemas["campaign"].supports_incremental is False
         assert schemas["campaign"].default_incremental_lookback_seconds is None
         # The default must satisfy the 60-day cap the creation/update endpoints enforce, or creation
-        # would reject it. It must also stay inside the window SyncMethodForm presents as cheap
-        # (it warns above 7 days) — a default the UI flags as expensive silently multiplies the rows
-        # every new source syncs, and warehouse spend with them.
-        assert 0 < GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS <= 604_800
+        # would reject it. It must also stay under 30 days: that window re-read a trailing month of
+        # the stats tables on every incremental run, multiplying both synced rows and warehouse spend.
+        assert 0 < GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS < 2_592_000
 
 
 class TestGrpcReceiveLimit:
