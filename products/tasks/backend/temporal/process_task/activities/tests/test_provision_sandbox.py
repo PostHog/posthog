@@ -26,7 +26,9 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
 )
 
 
-def _context_for_desktop_bootstrap(*, image_name: str | None = "posthog-dev-stack") -> TaskProcessingContext:
+def _context_for_desktop_bootstrap(
+    *, image_name: str | None = "posthog-dev-stack", warm_enabled: bool = True
+) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
         run_id="run-id",
@@ -38,6 +40,7 @@ def _context_for_desktop_bootstrap(*, image_name: str | None = "posthog-dev-stac
         distinct_id="distinct-id",
         state={},
         custom_image_name=image_name,
+        desktop_workspace_warm_enabled=warm_enabled,
     )
 
 
@@ -77,6 +80,19 @@ def test_skips_desktop_workspace_preparation_for_other_images_repositories_and_f
         _context_for_desktop_bootstrap(image_name=image_name),
         sandbox,
         repository,
+    )
+
+    sandbox.execute.assert_not_called()
+
+
+def test_skips_desktop_workspace_preparation_when_warm_flag_is_off(mocker):
+    sandbox = mocker.Mock()
+    sandbox.config.image_fallback = None
+
+    _prepare_posthog_desktop_cloud_task(
+        _context_for_desktop_bootstrap(warm_enabled=False),
+        sandbox,
+        "posthog/posthog",
     )
 
     sandbox.execute.assert_not_called()
