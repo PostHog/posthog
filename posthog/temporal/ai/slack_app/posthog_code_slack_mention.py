@@ -29,13 +29,15 @@ from posthog.temporal.common.base import PostHogWorkflow
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
 
-# Temporal patch IDs — arbitrary strings recorded in workflow history. Every
-# pre-patch history has drained: this workflow's longest wait is the 15-minute
-# repo picker, and it is bounded at an hour as a child of the queue workflow. So
-# the gates are gone and only `deprecate_patch` remains, keeping the recorded
-# marker compatible for executions in flight across the deploy that removes
-# them. Standard two-step Temporal patch lifecycle: these calls come out once
-# the histories that recorded a plain marker have drained in turn.
+# Temporal patch IDs — arbitrary strings recorded in workflow history. The
+# pre-patch histories behind the first three have drained: this workflow's
+# longest wait is the 15-minute repo picker, and it is bounded at an hour as a
+# child of the queue workflow. Their gates are gone and only `deprecate_patch`
+# remains, keeping the recorded marker compatible for executions in flight
+# across the deploy that removes them. Standard two-step Temporal patch
+# lifecycle: those calls come out once the histories that recorded a plain
+# marker have drained in turn. The confirmation patch is younger and still
+# gated, so it stays a full `workflow.patched` branch until it drains too.
 _PATCH_ID_FILE_ONLY_FOLLOWUP_BYPASS = "slack-file-only-followup-bypass-v1"
 _PATCH_ID_MODEL_CLASSIFIER = "slack-app-model-classifier-v1"
 _PATCH_ID_NO_PERSONAL_GITHUB_GATE = "slack-no-personal-github-gate-v1"
@@ -103,25 +105,22 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             event_files = event.get("files")
             event_has_files = isinstance(event_files, list) and len(event_files) > 0
             file_only_followup = event_has_files and not (event.get("text") or "").strip()
-            if (
-                inputs.untagged_followup
-                and not inputs.untagged_followup_confirmed
-                and file_only_followup
-            ):
-                # The gate this replaces was short-circuited behind both flags, so
-                # only these histories carry the marker.
-                workflow.deprecate_patch(_PATCH_ID_FILE_ONLY_FOLLOWUP_BYPASS)
-            elif inputs.untagged_followup:
-                should_forward = await _execute_posthog_code_activity(
-                    classify_untagged_followup_activity,
-                    inputs,
-                    channel,
-                    thread_ts,
-                    slack_user_id,
-                    event.get("text", ""),
-                )
-                if not should_forward:
-                    return
+            if inputs.untagged_followup and not inputs.untagged_followup_confirmed:
+                if file_only_followup:
+                    # The gate this replaces was only ever reached behind both
+                    # flags, so only these histories carry the marker.
+                    workflow.deprecate_patch(_PATCH_ID_FILE_ONLY_FOLLOWUP_BYPASS)
+                else:
+                    should_forward = await _execute_posthog_code_activity(
+                        classify_untagged_followup_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        slack_user_id,
+                        event.get("text", ""),
+                    )
+                    if not should_forward:
+                        return
 
             # The reply is agent-directed. If the thread creator asked to be consulted
             # about other people's replies, this is the moment to ask: the prompt now
