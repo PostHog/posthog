@@ -407,4 +407,27 @@ describe('pulseLogic', () => {
         }).toFinishAllListeners()
         expect(calls).toBe(1)
     })
+
+    it('reports product_brief_viewed once per brief', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        await expectLogic(logic, () => {
+            logic.actions.loadBriefDetailSuccess(readyBrief as ProductBriefApi)
+            logic.actions.loadBriefDetailSuccess(readyBrief as ProductBriefApi)
+        }).toFinishAllListeners()
+
+        const viewedCalls = captureSpy.mock.calls.filter(([event]) => event === 'product_brief_viewed')
+        expect(viewedCalls).toHaveLength(1)
+        expect(viewedCalls[0][1]).toMatchObject({ brief_id: 'brief-1', status: 'ready' })
+    })
+
+    it('does not report product_brief_viewed for a generating brief', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        await expectLogic(logic, () => {
+            logic.actions.loadBriefDetailSuccess(generatingBrief as ProductBriefApi)
+        }).toFinishAllListeners()
+
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'product_brief_viewed')).toHaveLength(0)
+    })
 })

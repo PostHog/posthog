@@ -65,6 +65,25 @@ function isGeneratingBrief(brief: ProductBriefListApi): boolean {
     return brief.status === ProductBriefStatusEnumApi.Generating
 }
 
+/** Once per brief per mount: the attention metric counts brief opens, not poll ticks or re-renders. */
+function reportBriefViewed(cache: Record<string, any>, brief: ProductBriefApi | null | undefined): void {
+    if (!brief || brief.status === ProductBriefStatusEnumApi.Generating) {
+        return
+    }
+    cache.viewedBriefIds = cache.viewedBriefIds ?? new Set<string>()
+    if (cache.viewedBriefIds.has(brief.id)) {
+        return
+    }
+    cache.viewedBriefIds.add(brief.id)
+    posthog.capture('product_brief_viewed', {
+        brief_id: brief.id,
+        status: brief.status,
+        trigger: brief.trigger,
+        period_days: brief.period.days ?? null,
+        has_config: brief.config !== null,
+    })
+}
+
 export interface BriefConfigForm {
     name: string
     focus_prompt: string
@@ -679,6 +698,9 @@ export const pulseLogic = kea<pulseLogicType>([
         },
         selectConfig: () => {
             actions.selectBrief(values.visibleBriefs.length > 0 ? values.visibleBriefs[0].id : null)
+        },
+        loadBriefDetailSuccess: ({ briefDetail }) => {
+            reportBriefViewed(cache, briefDetail)
         },
         selectBrief: ({ briefId }) => {
             if (briefId === null) {
