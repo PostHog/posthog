@@ -73,7 +73,10 @@ class _SubjectScopedViewSet(TeamAndOrgViewSetMixin):
         # Token callers carry scopes but no RBAC, so the query gate has to be a scope for them.
         if getattr(view, "action", None) in self.QUERY_GATED_ACTIONS:
             return [f"{self.scope_object}:{'read' if request.method in SAFE_METHODS else 'write'}", "query:read"]
-        return None
+        # Everything else defers along the MRO, so the access-control actions this viewset inherits
+        # keep demanding access_control:read rather than riding the warehouse scope alone.
+        parent = getattr(super(), "dangerously_get_required_scopes", None)
+        return parent(request, view) if parent is not None else None
 
     def _require_flag(self) -> None:
         if not is_data_quality_checks_enabled(self.team):

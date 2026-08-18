@@ -4,9 +4,11 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 
 from posthog.constants import AvailableFeature
 
@@ -15,6 +17,7 @@ from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeve
 from products.data_quality.backend.logic import checks as checks_logic
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.presentation.serializers import DataQualitySuiteRunSerializer
+from products.data_quality.backend.presentation.views import SavedQueryCheckViewSet
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
@@ -22,6 +25,23 @@ from ee.models.rbac.access_control import AccessControl
 
 START_SUITE = "products.data_quality.backend.logic.checks.sync_connect"
 FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_enabled"
+
+
+class TestCheckViewSetScopes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("query_gated_read", "list", "GET", ["warehouse_view:read", "query:read"]),
+            ("query_gated_write", "create", "POST", ["warehouse_view:write", "query:read"]),
+            ("inherited_access_control", "users_with_access", "GET", ["access_control:read"]),
+        ]
+    )
+    def test_required_scopes_per_action(self, _name: str, action: str, method: str, expected: list[str]) -> None:
+        # The query gate is this viewset's own scope rule; everything else has to keep deferring, or the
+        # access-control actions it inherits would answer to a warehouse token with no access_control scope.
+        view = SavedQueryCheckViewSet()
+        view.action = action
+
+        assert view.dangerously_get_required_scopes(APIRequestFactory().generic(method, "/"), view) == expected
 
 
 class TestDataQualityCheckAPI(APIBaseTest):
