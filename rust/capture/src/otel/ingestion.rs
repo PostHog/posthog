@@ -738,6 +738,29 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_logs_protobuf_rejects_too_many_record_attributes() {
+        let request = ExportLogsServiceRequest {
+            resource_logs: vec![ResourceLogs {
+                scope_logs: vec![ScopeLogs {
+                    log_records: vec![opentelemetry_proto::tonic::logs::v1::LogRecord {
+                        attributes: vec![KeyValue::default(); 1001],
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        };
+        let body = Bytes::from(request.encode_to_vec());
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/x-protobuf".parse().unwrap());
+
+        let error = parse_logs_request(&body, &headers, 1024 * 1024, 1000).unwrap_err();
+
+        assert!(error.to_string().contains("Too many OTLP log nodes"));
+    }
+
+    #[test]
     fn test_parse_logs_protobuf_rejects_too_many_nested_any_values() {
         let request = ExportLogsServiceRequest {
             resource_logs: vec![ResourceLogs {
