@@ -1,13 +1,13 @@
 import json
 import base64
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
 
 from django.test import RequestFactory, override_settings
+from django.urls import resolve
 
 import jwt as pyjwt
 from parameterized import parameterized
@@ -115,12 +115,13 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
         self.authentication = TeamScopedAuthentication()
 
     def _request(self, token: str | None, url_team_id: int | str | None = None) -> Request:
+        path = f"/api/projects/{url_team_id}/actions/" if url_team_id is not None else "/internal/endpoint"
         if token is not None:
-            django_request = self.factory.get("/internal/endpoint", HTTP_AUTHORIZATION=f"Bearer {token}")
+            django_request = self.factory.get(path, HTTP_AUTHORIZATION=f"Bearer {token}")
         else:
-            django_request = self.factory.get("/internal/endpoint")
+            django_request = self.factory.get(path)
         if url_team_id is not None:
-            django_request.resolver_match = cast(Any, SimpleNamespace(kwargs={"team_id": str(url_team_id)}))
+            django_request.resolver_match = resolve(path)
         return Request(django_request)  # ty: ignore[invalid-return-type]
 
     def _authenticate(self, authentication: ScopedServiceJWTAuthentication, request: Request) -> tuple[Any, Any]:
@@ -188,3 +189,9 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
         user, _auth = self._authenticate(FleetScopedAuthentication(), self._request(token))
 
         assert user.current_team_id == self.team.id
+
+    def test_fleet_scoped_purpose_with_team_claim_rejects_another_url_team(self):
+        token = TEST_PURPOSE.mint({"team_id": self.team.id})
+
+        with pytest.raises(AuthenticationFailed):
+            FleetScopedAuthentication().authenticate(self._request(token, url_team_id=self.team.id + 1))
