@@ -12,12 +12,13 @@ Start from it when building a checklist, settings, or any state-carrying widget,
   "entryHtml": "index.html",
   "files": { "index.html": "<synthetic shell from canvas-source-retrieve — loads /src/canvas.tsx as a module>", "src/canvas.tsx": "<the component below>" },
   "dependencies": { "react": "<pinned>", "react-dom": "<pinned>", "@posthog/quill": "<pinned>", "lucide-react": "<pinned>" },
-  "capabilities": { "posthog": { "state": ["user"] }, "network": { "origins": [] } },
+  "capabilities": { "posthog": { "insights": [], "inlineQueries": false, "captureEvents": [], "state": ["user"], "actions": [] }, "network": { "origins": [] } },
   "component": { "size": { "defaultW": 3, "defaultH": 5, "minW": 2, "minH": 3 } }
 }
 ```
 
 - `index.html` must load `/src/canvas.tsx` as a module and every imported package must be in `dependencies` — the retrieved shell and dependency map already satisfy both. Improvising a comment-only entry fails the build with `no_entry_module`; dropping the `@posthog/quill` or `lucide-react` entries fails it with `import_not_declared`.
+- Declare the full `capabilities.posthog` shape (`insights`, `inlineQueries`, `captureEvents`, `state`, `actions`) even when a field is empty, as this example does — the build freezes the declared capabilities into the artifact manifest, which older clients read expecting every field. Populate only what the code calls and leave the rest empty.
 - `capabilities.posthog.state` must name every scope the code passes to `ph.state.*` — validation rejects an undeclared scope.
 - `component.size` is in grid units and advisory; the component still has to render at any size the user drags.
 
