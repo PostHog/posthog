@@ -255,7 +255,7 @@ const meta: Meta = {
                     {
                         logs_distinct_id_attribute_key: 'posthogDistinctId',
                         logs_distinct_id_attribute_keys: ['posthogDistinctId'],
-                        logs_session_id_attribute_keys: ['posthogSessionId'],
+                        logs_session_id_attribute_keys: ['sessionId'],
                     },
                 ],
                 '/api/environments/:team_id/error_tracking/issues/exists/': [200, { exists: true }],
