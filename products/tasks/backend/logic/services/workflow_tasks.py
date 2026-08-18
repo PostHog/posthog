@@ -15,6 +15,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS
 
 ACTIVE_RUN_STATUSES = [TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS]
 
@@ -82,7 +83,8 @@ def create_workflow_task(
                 "mcp_installation_ids": mcp_installation_ids or [],
                 "posthog_mcp_scopes": posthog_mcp_scopes,
             }
-        }
+        },
+        "inactivity_timeout_seconds": WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS,
     }
 
     try:

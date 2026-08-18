@@ -107,6 +107,9 @@ class TestWorkflowTasksAPI(APIBaseTest):
         pending_dispatch = run.state["pending_dispatch"]
         assert pending_dispatch["user_id"] == self.user.id
         assert pending_dispatch["posthog_mcp_scopes"] == "read_only"
+        # Unattended fire: without the short idle window every run whose model skips
+        # `finish` holds a sandbox for the full background window.
+        assert run.state["inactivity_timeout_seconds"] == 120
 
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
         response = self._post()
