@@ -154,7 +154,7 @@ describe('PersonMergeService store-owned merges', () => {
 
     it('a merge call failure fails the batch instead of acking through the generic catch', async () => {
         // The store wraps verdictless failures in the typed error; the
-        // world-agnostic catch must rethrow it — an ack here loses the
+        // backend-agnostic catch must rethrow it — an ack here loses the
         // merge whenever the saga did not commit. The Postgres path never
         // produces this type, so its handling is untouched.
         store.mergePersons.mockRejectedValue(
@@ -168,7 +168,7 @@ describe('PersonMergeService store-owned merges', () => {
     it.each([
         ['a NUL-bearing source id', 'anon\u0000one'],
         ['an over-length source id', 'x'.repeat(150) + '\u{1F600}'.repeat(300)],
-    ])('never merges through %s no world can store', async (_label, badId) => {
+    ])('never merges through %s no backend can store', async (_label, badId) => {
         // Postgres text cannot hold NUL and varchar(400) cannot hold the id,
         // so the server refuses the whole request INVALID_ARGUMENT on every
         // delivery. Settling client-side with the illegal warning is the

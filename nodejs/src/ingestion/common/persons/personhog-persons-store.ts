@@ -273,7 +273,7 @@ interface OpsLaneEntry {
  * the returned person carries the authoritative one.
  */
 export class PersonhogPersonsStore implements PersonsStore {
-    readonly world = 'personhog' as const
+    readonly backend = 'personhog' as const
 
     private options: PersonhogPersonsStoreOptions
     /**
@@ -698,9 +698,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         batchId: number
     ): [InternalPerson, PersonMessage[]] {
         // A local projection for the caller: the same application the
-        // Postgres world would perform, so the processor returns a
+        // Postgres backend would perform, so the processor returns a
         // sensible person. The leader's application at flush remains the
-        // authoritative one for this world.
+        // authoritative one for this backend.
         const refined = refineEventOps(ops, person.properties ?? {}, this.options.updateAllProperties, false)
         const [projected] = applyEventPropertyUpdates(refined, person)
         const scalarUpdates = computeOpsScalarUpdates(ops, projected)
@@ -1143,7 +1143,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // Wrapping it would turn one malformed id into a permanently
             // wedged partition, so it propagates raw to the merge service's
             // generic catch, which acks it loudly — the same terminal
-            // classification the Postgres world gives this class.
+            // classification the Postgres backend gives this class.
             if (error instanceof ConnectError && error.code === Code.InvalidArgument) {
                 personhogStoreMergeCallFailedCounter.inc({ error: 'InvalidArgumentSettled' })
                 throw error
@@ -1160,7 +1160,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 this.invalidateTeamAfterFailedMerge(request.teamId)
             }
             // No verdict arrived, so an ack would lose the merge whenever the
-            // saga did not commit. The typed wrapper makes the world-agnostic
+            // saga did not commit. The typed wrapper makes the backend-agnostic
             // merge service fail the batch — redelivery replays the saga
             // idempotently — while the Postgres path, which never produces
             // this type, keeps its current handling. Only the call wears the
@@ -1276,7 +1276,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (!updated) {
             return [person, [], false]
         }
-        // No ClickHouse message: the leader's changelog is this world's
+        // No ClickHouse message: the leader's changelog is this backend's
         // person feed, so emitting here would double-publish.
         return [updated, [], false]
     }
@@ -1344,7 +1344,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      * Ships every batch's folded lanes to the leader, one entry per
      * person, segments in order. There is deliberately no Postgres
      * fallback, and nothing publishes: the leader's changelog is this
-     * world's person feed. A missing person reships to whatever its
+     * backend's person feed. A missing person reships to whatever its
      * distinct id resolves to now; a person genuinely gone, and the
      * leader's size rejection, are counted and dropped, since neither can
      * succeed on retry. Identity lag that outlasts the reship's refresh
@@ -1978,7 +1978,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      * missed the merge, so they are marked to reship with source
      * precedence and land on the survivor without taking a key conflict
      * the target won. Postgres drops those buffered ops outright when it
-     * clears the source, so applying them late keeps writes that world
+     * clears the source, so applying them late keeps writes that backend
      * loses.
      */
     private reconcileMergedPersons(
