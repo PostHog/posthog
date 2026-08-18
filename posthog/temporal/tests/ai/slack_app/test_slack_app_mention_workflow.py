@@ -74,6 +74,8 @@ class _Recorder:
         self.create_reached: dict[str, asyncio.Event] = {}
         self.picker_posted = asyncio.Event()
         self.picker_workflow_id: str | None = None
+        # True holds untagged replies back on the thread creator's `ask` mode.
+        self.awaiting_confirmation = False
 
 
 def _fake_activities(rec: _Recorder) -> list:
@@ -92,6 +94,15 @@ def _fake_activities(rec: _Recorder) -> list:
         event_text: str,
     ) -> bool:
         return True
+
+    @activity.defn(name="request_untagged_followup_confirmation_activity")
+    async def request_confirmation(
+        inputs: PostHogCodeSlackMentionWorkflowInputs,
+        channel: str,
+        thread_ts: str,
+        slack_user_id: str,
+    ) -> bool:
+        return rec.awaiting_confirmation
 
     @activity.defn(name="forward_posthog_code_followup_activity")
     async def forward(
@@ -220,6 +231,7 @@ def _fake_activities(rec: _Recorder) -> list:
         mark_queued,
         quota,
         classify_followup,
+        request_confirmation,
         forward,
         collect,
         cascade,
