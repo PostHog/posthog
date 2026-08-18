@@ -30,7 +30,13 @@ import {
     WarehouseTablesCreateBody,
     WarehouseTablesRefreshSchemaCreateParams,
 } from '@/generated/data_warehouse/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    withInformationalResponse,
+    type WithPostHogUrl,
+    type WithInformationalResponse,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ManagedWarehouseMetricHistoryGetSchema = DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams
@@ -596,7 +602,10 @@ const WarehouseTablesCreateSchema = WarehouseTablesCreateBody.extend({
     ),
 })
 
-const warehouseTablesCreate = (): ToolBase<typeof WarehouseTablesCreateSchema, Schemas.Table> => ({
+const warehouseTablesCreate = (): ToolBase<
+    typeof WarehouseTablesCreateSchema,
+    WithInformationalResponse<Schemas.Table>
+> => ({
     name: 'warehouse-tables-create',
     schema: WarehouseTablesCreateSchema,
     handler: async (context: Context, params: z.infer<typeof WarehouseTablesCreateSchema>) => {
@@ -634,7 +643,11 @@ const warehouseTablesCreate = (): ToolBase<typeof WarehouseTablesCreateSchema, S
             'created_via',
             'columns',
         ]) as typeof result
-        return filtered
+        return withInformationalResponse(
+            filtered,
+            'warehouse-table-record',
+            "Use the returned columns only to describe the new table's schema to the user."
+        )
     },
 })
 
