@@ -1,6 +1,7 @@
-import dataclasses
 from datetime import datetime
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -17,7 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.s
 SHIPMAIL_BASE_URL = "https://shipmail.to/api/v1"
 
 
-@dataclasses.dataclass
+@frozen
 class ShipmailResumeConfig:
     cursor: str | None = None
 

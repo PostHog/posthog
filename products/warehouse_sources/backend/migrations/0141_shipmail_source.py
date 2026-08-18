@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0139_repin_linkedin_ads_api_version"),
+        ("warehouse_sources", "0140_scaffold_samcart_source"),
     ]
 
     operations = [
@@ -1315,6 +1315,7 @@ class Migration(migrations.Migration):
                     ("Dokploy", "Dokploy"),
                     ("Hootsuite", "Hootsuite"),
                     ("WisprFlow", "WisprFlow"),
+                    ("SamCart", "SamCart"),
                 ],
                 max_length=128,
             ),
@@ -2625,6 +2626,7 @@ class Migration(migrations.Migration):
                     ("Dokploy", "Dokploy"),
                     ("Hootsuite", "Hootsuite"),
                     ("WisprFlow", "WisprFlow"),
+                    ("SamCart", "SamCart"),
                 ],
                 max_length=128,
             ),
