@@ -2422,7 +2422,7 @@
         "feature": "data_catalog",
         "summary": "Create or refine a catalog metric",
         "title": "Create or refine a catalog metric",
-        "required_scopes": ["data_catalog:write", "insight:read"],
+        "required_scopes": ["data_catalog:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -2452,7 +2452,7 @@
         "feature": "data_catalog",
         "summary": "Update a catalog metric",
         "title": "Update a catalog metric",
-        "required_scopes": ["data_catalog:write", "insight:read"],
+        "required_scopes": ["data_catalog:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
