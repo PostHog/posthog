@@ -4605,6 +4605,19 @@ class TestBuildQuery:
         with pytest.raises(ValueError):
             _build_query("public", "events", True, "table", "id", None, None)
 
+    @pytest.mark.parametrize(
+        "field_type",
+        [IncrementalFieldType.Numeric, IncrementalFieldType.Integer],
+    )
+    def test_empty_string_last_value_falls_back_to_initial_value(self, field_type):
+        # Regression: a stored watermark of "" used to become a literal `''` in the WHERE
+        # clause, which Postgres rejects for a numeric/integer column with "invalid input
+        # syntax for type numeric" instead of falling back like a missing (None) watermark.
+        query = _build_query("public", "events", True, "table", "cursor", field_type, "")
+        rendered = self._render(query)
+        assert "''" not in rendered
+        assert '"cursor" > 0' in rendered
+
     def test_sampling_table(self):
         query = _build_query("public", "users", False, "table", None, None, None, add_sampling=True)
         rendered = self._render(query)
@@ -5083,6 +5096,19 @@ class TestBuildPartitionQuery:
         rendered = self._render(query)
         assert f'"cursor" {expected_operator} ' in rendered
 
+    def test_empty_string_last_value_falls_back_to_initial_value(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=True,
+            incremental_field="cursor",
+            incremental_field_type=IncrementalFieldType.Numeric,
+            db_incremental_field_last_value="",
+        )
+        rendered = self._render(query)
+        assert "''" not in rendered
+        assert '"cursor" > 0' in rendered
+
     def test_row_filter_full_refresh(self):
         query = build_partition_query(
             "public",
@@ -5134,6 +5160,12 @@ class TestBuildCountQuery:
         assert "'2024-01-01'" in rendered
         assert "ORDER BY" not in rendered
         assert "FROM (" not in rendered
+
+    def test_empty_string_last_value_falls_back_to_initial_value(self):
+        query = _build_count_query("public", "events", True, "cursor", IncrementalFieldType.Numeric, "")
+        rendered = self._render(query)
+        assert "''" not in rendered
+        assert '"cursor" > 0' in rendered
 
 
 class TestIsPartitionedTable:
