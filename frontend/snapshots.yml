@@ -8048,6 +8048,14 @@ snapshots:
         hash: v1.k794b7964.f347e4ff8f76a746a240161e8323fde6febf434555caecefad6f5e0cd2264ee6.UkoGJ7GaxDEB3dtD8EAWEStRL9WgDIxMLi31doNFR_4
     scenes-other-billing-product--billing-product-without-addons--light:
         hash: v1.k794b7964.04856a286b0b3933aa364d7f73c56420e890f19d7f490a5aa12ae5616bf3258b.xQP5mvdnr6fC8UHtO4XZU4e-_cG8ZLzhKbnq_Ezmv10
+    scenes-other-credential-review--all-credential-types--dark:
+        hash: v1.k794b7964.502de2b6676b7b578c902d3cbb62f51e35ddf348bb0cd2807162528bcce4c376.qbegw_vWoSN2EqdVGYyc55BMKO6jz8LhMU5ssJP9qY4
+    scenes-other-credential-review--all-credential-types--light:
+        hash: v1.k794b7964.95a77379640830486e534a182ff6ec6937e65aab9945f38596c4e422bc4bdf1c.Lqw7L3IhU-tm8Zq7_QQzpHD2uTOt1chCfXG8ZuCbebY
+    scenes-other-credential-review--only-a-connected-application--dark:
+        hash: v1.k794b7964.14e0bfc13bd434fb412e7688322ffe805598d812bda148ccfee38a59742b7f5b.BHnYq5Ccs1ZeM0XTA0fy1U6yFZIdtPweyitDoVvQhPw
+    scenes-other-credential-review--only-a-connected-application--light:
+        hash: v1.k794b7964.6f1328f34df3a352191dd7620d0d17b014f1ef6ae9f360cb2652e37f4bb1fe70.aPWGUNuNHG6RO7SE2PQbah7SnpcQOFcKY3N1mX-Y8HU
     scenes-other-integration-landing-page--connected--dark:
         hash: v1.k794b7964.1a2abf46a5f43ec0e9bcf1f02115c68f3fab54fc8e8aec6f903e2481689d9a8c.oi6z4uOWfKTWAHVA_UhnCwGg-Zjal3CQ1Se4fDLVOMQ
     scenes-other-integration-landing-page--connected--light:
