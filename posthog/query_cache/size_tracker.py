@@ -1,6 +1,6 @@
 import time
 from datetime import timedelta
-from typing import Optional
+from typing import Optional, cast
 
 from django.conf import settings
 from django.db import DatabaseError
@@ -177,7 +177,10 @@ class TeamCacheSizeTracker:
         if size_before + data_size > limit:
             evicted = self.evict_until_under_limit(limit, data_size)
 
-        self.redis_client.set(storage.entry_redis_key(cache_key), data, ex=ttl)
+        # SET ... GET returns the replaced value in the same atomic command, so an overwritten
+        # S3 pointer's blob can be deleted instead of lingering until the lifecycle rule.
+        replaced = self.redis_client.set(storage.entry_redis_key(cache_key), data, ex=ttl, get=True)
+        storage.schedule_stale_blob_delete(cast(Optional[bytes], replaced))
         self.track_cache_write(cache_key, data_size)
 
         total_size = self.get_total_size()
@@ -203,7 +206,8 @@ class TeamCacheSizeTracker:
         or logging. For the pointer swap, where the new value only ever shrinks usage; also
         runs on upload worker threads, so it must stay free of Django ORM calls.
         """
-        self.redis_client.set(storage.entry_redis_key(cache_key), data, ex=ttl)
+        replaced = self.redis_client.set(storage.entry_redis_key(cache_key), data, ex=ttl, get=True)
+        storage.schedule_stale_blob_delete(cast(Optional[bytes], replaced))
         self.track_cache_write(cache_key, len(data))
 
     def track_cache_write(self, cache_key: str, size_bytes: int) -> None:

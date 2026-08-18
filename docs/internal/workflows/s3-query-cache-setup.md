@@ -17,7 +17,7 @@ See `posthog/query_cache/storage.py`.
 
 ## Object layout and tagging
 
-Objects are written to `s3://{QUERY_CACHE_S3_BUCKET}/{OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{team_id}/{cache_key}/{upload_id}` with attribution tags (`cache_type=query_data`, `team_id=<id>`). Tags carry no expiry meaning. The per-upload suffix keeps overlapping recomputes of one query from overwriting each other's blob; superseded objects sit unreferenced until the lifecycle rule collects them.
+Objects are written to `s3://{QUERY_CACHE_S3_BUCKET}/{OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{team_id}/{cache_key}/{upload_id}` with attribution tags (`cache_type=query_data`, `team_id=<id>`). Tags carry no expiry meaning. The per-upload suffix keeps overlapping recomputes of one query from overwriting each other's blob. When a refresh overwrites a pointer in Redis, the superseded object is deleted in the background; the lifecycle rule is the backstop for deletes that never ran.
 
 ## Required S3 lifecycle rule
 
