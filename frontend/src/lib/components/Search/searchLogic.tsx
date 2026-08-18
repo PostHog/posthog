@@ -152,7 +152,6 @@ export interface searchLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
-    sections: SettingSection[] // settingsLogic
     isDev: boolean | undefined // preflightLogic
     cachedStarred: FileSystemEntry[] // projectTreeDataLogic
     shortcutDataHasLoaded: boolean // projectTreeDataLogic
@@ -161,6 +160,7 @@ export interface searchLogicValues {
     recentsHasLoaded: boolean // recentItemsModel
     sceneLogViewsByRef: Record<string, string> // recentItemsModel
     sceneLogViewsHasLoaded: boolean // recentItemsModel
+    sections: SettingSection[] // settingsLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     accountItems: SearchItem[]
