@@ -296,6 +296,7 @@ export const commonConfig = {
         '.mp3': 'file',
         '.sql': 'text',
         '.yaml': 'text',
+        '.md': 'text',
     },
     metafile: true,
 }
