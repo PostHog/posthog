@@ -61,8 +61,8 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                 ]}
             />
             {config.condition === ForecastConditionType.FUTURE_BREACH && (
-                <>
-                    <span>within the next</span>
+                <div className="flex items-center gap-2">
+                    <span className="whitespace-nowrap">within the next</span>
                     <LemonInput
                         type="number"
                         className="w-20"
@@ -73,23 +73,26 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                         onChange={(horizon) => onChange({ ...config, horizon: horizon ?? DEFAULT_HORIZON })}
                     />
                     <span>{unit}</span>
-                </>
+                </div>
             )}
-            <span className="text-secondary">Expected range</span>
-            <LemonSegmentedButton
-                size="small"
-                data-attr="alertForm-forecast-interval-width"
-                value={config.interval_width ?? DEFAULT_INTERVAL_WIDTH}
-                onChange={(interval_width) => onChange({ ...config, interval_width })}
-                options={[
-                    {
-                        value: 0.8,
-                        label: 'Narrower',
-                        tooltip: 'More sensitive. Fires on smaller deviations, with more noise.',
-                    },
-                    { value: DEFAULT_INTERVAL_WIDTH, label: 'Wider', tooltip: 'Fires only on clear deviations.' },
-                ]}
-            />
+            {/* The label and its control wrap as one unit, so the label never strands on the row above. */}
+            <div className="flex items-center gap-2">
+                <span className="text-secondary whitespace-nowrap">Expected range</span>
+                <LemonSegmentedButton
+                    size="small"
+                    data-attr="alertForm-forecast-interval-width"
+                    value={config.interval_width ?? DEFAULT_INTERVAL_WIDTH}
+                    onChange={(interval_width) => onChange({ ...config, interval_width })}
+                    options={[
+                        {
+                            value: 0.8,
+                            label: 'Narrower',
+                            tooltip: 'More sensitive. Fires on smaller deviations, with more noise.',
+                        },
+                        { value: DEFAULT_INTERVAL_WIDTH, label: 'Wider', tooltip: 'Fires only on clear deviations.' },
+                    ]}
+                />
+            </div>
         </div>
     )
 }
