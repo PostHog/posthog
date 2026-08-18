@@ -132,6 +132,27 @@ describe('mapEvaluationRunRow', () => {
         expect(run.skipped).toBe(expected)
     })
 
+    it.each([
+        ['LLM judge task', 'llm_judge'],
+        ['Hog workflow', 'hog'],
+    ] as const)('preserves the existing %s result branch', (_name, evaluationType) => {
+        const run = mapEvaluationRunRow(
+            makeEvaluationRunRow({
+                evaluationType,
+                evaluationSource: 'online',
+                resultType: 'boolean',
+                result: true,
+            })
+        )
+
+        expect(run).toMatchObject({
+            evaluation_type: evaluationType,
+            evaluation_source: 'online',
+            result_type: 'boolean',
+            result: true,
+        })
+    })
+
     it('maps an imported label result without coercing it to a boolean', () => {
         const run = mapEvaluationRunRow(makeEvaluationRunRow({ result: 'pass', resultType: 'label' }))
 
