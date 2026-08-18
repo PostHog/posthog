@@ -117,8 +117,7 @@ pub fn inject_pairs(
 ) -> Result<Vec<SourcePair>> {
     for pair in &mut pairs {
         let Some(chunk_id) = pair.get_chunk_id() else {
-            let sourcemap_json = serde_json::to_string(&pair.sourcemap.inner.content)?;
-            let chunk_id = stable_chunk_id(&pair.source.inner.content, &sourcemap_json);
+            let chunk_id = stable_chunk_id(&pair.source.inner.content);
             pair.add_chunk_id(chunk_id, release_id)?;
             continue;
         };
@@ -166,18 +165,17 @@ pub fn inject_pairs_legacy(
     Ok(pairs)
 }
 
-/// Deterministically derive a chunk id from the pristine minified source and its sourcemap
-/// (UUIDv5). Identical builds produce identical ids on every machine and rebuild, so uploads
-/// dedupe — no per-build random id. The sourcemap is part of the identity on purpose: a
-/// map-only change (e.g. enabling `sourcesContent`) mints a new chunk instead of conflicting
-/// with the symbol set already stored under the old id.
-fn stable_chunk_id(source_content: &str, sourcemap_content: &str) -> String {
-    let mut name = Vec::with_capacity(source_content.len() + sourcemap_content.len() + 1);
-    name.extend_from_slice(source_content.as_bytes());
-    // JSON serialization never contains a raw NUL, so it unambiguously separates the parts.
-    name.push(0);
-    name.extend_from_slice(sourcemap_content.as_bytes());
-    uuid::Uuid::new_v5(&CHUNK_ID_NAMESPACE, &name).to_string()
+/// Deterministically derive a chunk id from the pristine minified source (UUIDv5). Identical
+/// builds produce identical ids on every machine and rebuild, so uploads dedupe instead of
+/// minting a per-build random id.
+///
+/// The sourcemap is deliberately not part of the identity. It carries `sourcesContent`, so a
+/// comment-only edit rewrites the map while the minified code stays byte-identical, and folding
+/// the map in would mint a new chunk for code that never changed. The map still reaches the
+/// server, because the upload hashes the payload it sends: a map-only change is a content
+/// change, and event mode overwrites the stored symbol set with the newer map.
+fn stable_chunk_id(source_content: &str) -> String {
+    uuid::Uuid::new_v5(&CHUNK_ID_NAMESPACE, source_content.as_bytes()).to_string()
 }
 
 /// Resolve the release row whose id gets injected into the chunks. Reuses the release already
@@ -191,7 +189,16 @@ fn resolve_release_id(
     if let Some(r) = existing_release {
         return Ok(Some(r.id.to_string()));
     }
+    Ok(resolve_release(release)?.map(|r| r.id.to_string()))
+}
 
+/// Fetch or create the release identified by `release`, filling in whichever of name and version
+/// the flags left out from git and CI metadata. Returns `None` when neither source identifies a
+/// release.
+///
+/// Shared with the `release resolve` command, so a build tool that injects the release id itself
+/// lands on the same row `sourcemap inject --release-mode=event` would have injected.
+pub fn resolve_release(release: ReleaseArgs) -> Result<Option<Release>> {
     let cwd = std::env::current_dir()?;
     let release_args_were_provided =
         release.name.is_some() || release.version.is_some() || release.build.is_some();
@@ -200,7 +207,7 @@ fn resolve_release_id(
     if !builder.can_create() {
         return Ok(None);
     }
-    Ok(Some(builder.fetch_or_create()?.id.to_string()))
+    Ok(Some(builder.fetch_or_create()?))
 }
 
 pub fn get_release_for_maps<'a>(
@@ -267,6 +274,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::sourcemaps::plain::inject::is_javascript_file;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -347,13 +355,50 @@ mod tests {
         temp_root
     }
 
-    #[test]
-    fn stable_chunk_id_covers_source_and_sourcemap() {
-        let id = stable_chunk_id("code();", r#"{"mappings":"AAAA"}"#);
+    fn chunk_id_for(sourcemap: &str) -> String {
+        let dir = tempfile::tempdir().expect("failed to create temporary directory");
+        fs::write(
+            dir.path().join("app.js"),
+            "console.log(1);\n//# sourceMappingURL=app.js.map\n",
+        )
+        .expect("failed to write source");
+        fs::write(dir.path().join("app.js.map"), sourcemap).expect("failed to write sourcemap");
 
-        assert_eq!(id, stable_chunk_id("code();", r#"{"mappings":"AAAA"}"#));
-        assert_ne!(id, stable_chunk_id("code();", r#"{"mappings":"BBBB"}"#));
-        assert_ne!(id, stable_chunk_id("other();", r#"{"mappings":"AAAA"}"#));
+        let selection = FileSelection::from_roots(vec![dir.path().to_path_buf()])
+            .include(vec![])
+            .expect("failed to build selection")
+            .exclude(vec![])
+            .expect("failed to build selection");
+        let pairs = read_pairs(selection.into_iter().filter(is_javascript_file), &None);
+
+        inject_pairs(pairs, None)
+            .expect("failed to inject pairs")
+            .first()
+            .and_then(SourcePair::get_chunk_id)
+            .expect("injected pair carries a chunk id")
+    }
+
+    #[test]
+    fn map_only_changes_keep_the_chunk_id() {
+        // Bundlers embed the original file in `sourcesContent`, so editing a comment rewrites
+        // the map while the minified code stays byte-identical. Folding the map into the id
+        // would mint a new chunk on every such edit and orphan the symbol set already stored.
+        let one = chunk_id_for(
+            r#"{"version":3,"sources":["app.ts"],"sourcesContent":["// one\nconsole.log(1)\n"],"mappings":"AAAA","names":[]}"#,
+        );
+        let two = chunk_id_for(
+            r#"{"version":3,"sources":["app.ts"],"sourcesContent":["// two\nconsole.log(1)\n"],"mappings":"AAAA","names":[]}"#,
+        );
+
+        assert_eq!(one, two);
+    }
+
+    #[test]
+    fn stable_chunk_id_tracks_the_minified_source() {
+        let id = stable_chunk_id("code();");
+
+        assert_eq!(id, stable_chunk_id("code();"));
+        assert_ne!(id, stable_chunk_id("other();"));
     }
 
     #[test]

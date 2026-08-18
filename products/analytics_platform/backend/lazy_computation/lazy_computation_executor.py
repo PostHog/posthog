@@ -515,7 +515,7 @@ def _get_ch_expires_at(job: "PreaggregationJob", table: LazyComputationTable) ->
 
 
 @dataclass
-class QueryInfo:
+class LazyComputationQuery:
     """Normalized query information for lazy computation matching."""
 
     query: ast.SelectQuery
@@ -540,9 +540,9 @@ class LazyComputationResult:
     stale: bool = False
 
 
-def compute_query_hash(query_info: QueryInfo) -> str:
+def compute_query_hash(query_info: LazyComputationQuery) -> str:
     """
-    Compute a stable hash for a QueryInfo object.
+    Compute a stable hash for a LazyComputationQuery object.
     The hash is based on the normalized query structure and timezone.
     """
     # Use repr() to get a deterministic string representation of the AST
@@ -832,7 +832,7 @@ def _written_rows(insert_result: object) -> int:
 def run_lazy_computation_insert(
     team: Team,
     job: PreaggregationJob,
-    query_info: QueryInfo,
+    query_info: LazyComputationQuery,
 ) -> int:
     """Run the INSERT query to populate lazy-computed results in ClickHouse.
 
@@ -923,7 +923,7 @@ class LazyComputationExecutor:
     def execute(
         self,
         team: Team,
-        query_info: QueryInfo,
+        query_info: LazyComputationQuery,
         start: datetime,
         end: datetime,
         run_insert: Callable[[Team, PreaggregationJob], int | None] | None = None,
@@ -1438,7 +1438,7 @@ def ensure_precomputed(
     }
     parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
 
-    query_info = QueryInfo(
+    query_info = LazyComputationQuery(
         query=parsed_for_hash,
         table=table,
         timezone=team.timezone,

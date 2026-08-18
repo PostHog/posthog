@@ -79,6 +79,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             team_id=self.team.id,
             name="Acme",
             external_id="acme-1",
+            churned_at=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
             _properties={"stripe_customer_id": "cus_123"},
         )
 
@@ -132,6 +133,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             AccountsTableQuery(
                 columns=[
                     AccountsTableAccountFieldColumn(field=AccountsTableAccountField.STRIPE_CUSTOMER_ID),
+                    AccountsTableAccountFieldColumn(field=AccountsTableAccountField.CHURNED_AT),
                     AccountsTableTagsColumn(),
                     AccountsTableNoteCountColumn(),
                     AccountsTableRelationshipColumn(definitionId=str(relationship_definition.id)),
@@ -143,12 +145,16 @@ class TestAccountsTableQueryRunner(BaseTest):
                     ),
                 ],
                 filters=[],
+                includeChurned=True,
             )
         )
 
         rows = {row.id: row for row in response.results}
         full_row = rows[str(account.id)]
-        assert full_row.accountFields == {"stripe_customer_id": "cus_123"}
+        assert full_row.accountFields == {
+            "stripe_customer_id": "cus_123",
+            "churned_at": "2026-01-01T10:00:00+00:00",
+        }
         assert full_row.tags == ["enterprise", "priority"]
         assert full_row.noteCount == 1
         assert full_row.relationships == {str(relationship_definition.id): [self.user.id]}
@@ -159,6 +165,7 @@ class TestAccountsTableQueryRunner(BaseTest):
         assert [point.value for point in full_row.customPropertyHistory[str(numeric_definition.id)]] == [10.0, 20.0]
 
         empty_row = rows[str(empty_account.id)]
+        assert empty_row.accountFields == {"stripe_customer_id": None, "churned_at": None}
         assert empty_row.tags == []
         assert empty_row.noteCount == 0
         assert empty_row.relationships == {str(relationship_definition.id): []}
@@ -167,6 +174,31 @@ class TestAccountsTableQueryRunner(BaseTest):
             str(text_definition.id): None,
         }
         assert empty_row.customPropertyHistory == {str(numeric_definition.id): []}
+
+    @parameterized.expand(
+        [
+            ("default", False, ["Active"], 1),
+            ("include_churned", True, ["Active", "Churned"], 2),
+        ]
+    )
+    def test_churned_account_visibility(
+        self, _name: str, include_churned: bool, expected_names: list[str], expected_count: int
+    ) -> None:
+        create_account(team_id=self.team.id, name="Active")
+        create_account(team_id=self.team.id, name="Churned", churned_at=datetime(2026, 1, 1, tzinfo=UTC))
+
+        rows = self._run(AccountsTableQuery(columns=[], filters=[], includeChurned=include_churned)).results
+        metrics = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[],
+                metrics=[AccountsTableCountMetric()],
+                includeChurned=include_churned,
+            )
+        ).metricsResults
+
+        assert sorted(row.name for row in rows) == expected_names
+        assert metrics == [expected_count]
 
     def test_calculates_typed_metrics_against_the_filtered_account_set(self) -> None:
         definition = create_custom_property_definition(
