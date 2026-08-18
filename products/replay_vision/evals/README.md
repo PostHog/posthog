@@ -55,11 +55,16 @@ Use `--trials N` for variance on Gemini nondeterminism and `--eval <case-substri
 
 ## CI
 
-`.github/workflows/ci-replay-vision-evals.yml` runs a small version of this loop on PRs that touch the prompt templates or the evals themselves, and on manual dispatch with bigger `per_type`/`trials` knobs.
-Because the job executes the PR's own code with secrets, it only runs once a maintainer applies the `replay-vision-evals-ready` label to the PR (the same trust gate as `ci-ai.yml`'s `evals-ready`).
-It collects a fresh dataset on the ephemeral runner (so consent is re-verified every run; nothing is cached, uploaded, or persisted), runs the suite, and writes the score table to the job's step summary.
-It is advisory and never a required check: Gemini is nondeterministic and the dataset is re-sampled per run, so treat the scores as a directional signal.
-The job needs the `REPLAY_VISION_EVAL_POSTHOG_API_KEY` repo secret (a personal API key with scanner, session recording, export, and query read access to the dogfood project); without it the job skips green.
+`.github/workflows/ci-replay-vision-evals.yml` runs a small version of this loop against a PR, and on manual dispatch with bigger `per_type`/`trials` knobs (GitHub only offers the dispatch once the workflow is on master).
+
+Because the job executes the PR's own collector and harness code with secrets, a maintainer has to approve each revision by hand: it runs only on a `replay-vision-evals-ready` label event, on a PR whose diff touches the prompt templates or the evals.
+Pushing to a labeled PR does not re-run it, since the label approved the revision a maintainer looked at, not the PR.
+To score a new revision, remove the label and apply it again; removing it also cancels an in-flight run.
+
+It collects a fresh dataset on the ephemeral runner (so consent is re-verified every run; nothing is cached, uploaded, or persisted), runs the suite, and writes the aggregate scores to the job's step summary.
+Only those allowlisted summary lines are public: collector and harness output stay in runner-local files, because they carry session and observation ids.
+It is advisory and never a required check. Gemini is nondeterministic and the dataset is re-sampled per run, so treat the scores as a directional signal, and infra failures (provider 5xx, warehouse lag, an empty dataset) land in the step summary rather than as a red X.
+The job needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY` (a personal API key with scanner, session recording, export, and query read access to the dogfood project) plus the `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `BRAINTRUST_API_KEY` secrets `ci-ai.yml` already uses; if any is missing the job skips green and warns which.
 
 ## Data handling
 
