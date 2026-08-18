@@ -9,8 +9,29 @@ feature: posthog_ai
 url_prefix: /
 ui_apps: {}
 tools:
+    core-memory-create:
+        operation: core_memory_create
+        enabled: false
+    core-memory-list:
+        operation: core_memory_list
+        enabled: false
+    core-memory-partial-update:
+        operation: core_memory_partial_update
+        enabled: false
+    core-memory-retrieve:
+        operation: core_memory_retrieve
+        enabled: false
+    core-memory-update:
+        operation: core_memory_update
+        enabled: false
     docs-search:
         operation: docs_search
+        enabled: false
+    max-hands-free-synthesize-create:
+        operation: max_hands_free_synthesize_create
+        enabled: false
+    max-hands-free-token-create:
+        operation: max_hands_free_token_create
         enabled: false
     mcp-tools-create:
         operation: mcp_tools_create
