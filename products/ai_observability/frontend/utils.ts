@@ -13,7 +13,7 @@ import {
     EVALUATION_PASSED_HOGQL,
     EVALUATION_SUMMARY_MAX_RUNS,
 } from './evaluations/constants'
-import type { EvaluationResultType, EvaluationRun, EvaluationType } from './evaluations/types'
+import type { EvaluationResultType, EvaluationRun, EvaluationRuntime, EvaluationSource } from './evaluations/types'
 import {
     AnthropicDocumentMessage,
     AnthropicImageMessage,
@@ -1033,10 +1033,20 @@ type RawEvaluationRunRow = [
     sentiment_score: number | string | null,
     session_id: string | null,
     skipped: boolean | string | null,
+    target_span_id: string | null,
+    evaluation_run_id: string | null,
+    evaluation_source: string | null,
 ]
 
-export function normalizeEvaluationType(value: unknown): EvaluationType | undefined {
-    if (value === 'llm_judge' || value === 'hog' || value === 'sentiment') {
+export function normalizeEvaluationType(value: unknown): EvaluationRuntime | undefined {
+    if (value === 'llm_judge' || value === 'hog' || value === 'sentiment' || value === 'otel') {
+        return value
+    }
+    return undefined
+}
+
+function normalizeEvaluationSource(value: unknown): EvaluationSource | undefined {
+    if (value === 'online' || value === 'imported') {
         return value
     }
     return undefined
@@ -1133,10 +1143,13 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         id: row[0],
         timestamp: row[1],
         evaluation_id: row[2],
+        evaluation_run_id: row[16] || null,
         evaluation_name: row[3] || 'Unknown Evaluation',
         generation_id: row[4],
+        target_span_id: row[15] || null,
         trace_id: row[5],
         session_id: row[13] || null,
+        evaluation_source: normalizeEvaluationSource(row[17]),
         ...normalizedResult,
         skipped: isExplicitEvaluationPass(row[14]),
         reasoning: row[7] || 'No reasoning provided',
@@ -1182,7 +1195,10 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_sentiment_label as sentiment_label,
             properties.$ai_sentiment_score as sentiment_score,
             properties.$ai_session_id as session_id,
-            properties.$ai_evaluation_skipped as skipped
+            properties.$ai_evaluation_skipped as skipped,
+            properties.$ai_target_span_id as target_span_id,
+            properties.$ai_evaluation_run_id as evaluation_run_id,
+            properties.$ai_evaluation_type as evaluation_source
         FROM events
         WHERE
             event = '$ai_evaluation'

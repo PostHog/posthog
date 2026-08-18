@@ -10,6 +10,8 @@ import type {
 import { LLMProvider } from '../settings/llmProviderKeysLogic'
 
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
+export type EvaluationRuntime = EvaluationType | 'otel'
+export type EvaluationSource = 'online' | 'imported'
 export type EvaluationTarget = 'generation' | 'trace' | 'session'
 export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'
 export type EvaluationOutputType = 'boolean' | 'sentiment'
@@ -123,14 +125,17 @@ export interface EvaluationConditionSet {
 export interface EvaluationRun {
     id: string
     evaluation_id: string
+    evaluation_run_id?: string | null
     evaluation_name: string
     generation_id: string | null
+    target_span_id?: string | null
     trace_id: string
     // Session-target verdicts carry no $ai_trace_id, so the session id is the only thing that
     // identifies what was graded. Absent on every other target.
     session_id?: string | null
     timestamp: string
-    evaluation_type?: EvaluationType
+    evaluation_type?: EvaluationRuntime
+    evaluation_source?: EvaluationSource
     result_type?: EvaluationResultType
     result: boolean | string | number | null
     sentiment_label?: string | null

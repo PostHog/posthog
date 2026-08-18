@@ -13,6 +13,8 @@ use super::identity::extract_distinct_id_for_span;
 pub const EVALUATION_EVENT_NAME: &str = "gen_ai.evaluation.result";
 
 const EVALUATION_NAME: &str = "gen_ai.evaluation.name";
+const EVALUATION_RUNTIME: &str = "otel";
+const EVALUATION_TYPE: &str = "imported";
 const SCORE_VALUE: &str = "gen_ai.evaluation.score.value";
 const SCORE_LABEL: &str = "gen_ai.evaluation.score.label";
 const EXPLANATION: &str = "gen_ai.evaluation.explanation";
@@ -24,6 +26,16 @@ pub fn count_records(request: &ExportLogsServiceRequest) -> usize {
         .flat_map(|resource_logs| &resource_logs.scope_logs)
         .map(|scope_logs| scope_logs.log_records.len())
         .sum()
+}
+
+pub fn count_evaluation_records(request: &ExportLogsServiceRequest) -> usize {
+    request
+        .resource_logs
+        .iter()
+        .flat_map(|resource_logs| &resource_logs.scope_logs)
+        .flat_map(|scope_logs| &scope_logs.log_records)
+        .filter(|record| record.event_name == EVALUATION_EVENT_NAME)
+        .count()
 }
 
 pub fn expand_into_events(
@@ -99,7 +111,11 @@ fn evaluation_event(
 
     properties.insert(
         "$ai_evaluation_id".to_string(),
-        Value::String(evaluation_id(record).to_string()),
+        Value::String(evaluator_id(&evaluation_name).to_string()),
+    );
+    properties.insert(
+        "$ai_evaluation_run_id".to_string(),
+        Value::String(evaluation_run_id(record).to_string()),
     );
     properties.insert(
         "$ai_evaluation_name".to_string(),
@@ -107,7 +123,11 @@ fn evaluation_event(
     );
     properties.insert(
         "$ai_evaluation_runtime".to_string(),
-        Value::String("otel".to_string()),
+        Value::String(EVALUATION_RUNTIME.to_string()),
+    );
+    properties.insert(
+        "$ai_evaluation_type".to_string(),
+        Value::String(EVALUATION_TYPE.to_string()),
     );
     properties.insert(
         "$ai_ingestion_source".to_string(),
@@ -171,7 +191,14 @@ fn evaluation_event(
     })
 }
 
-fn evaluation_id(record: &LogRecord) -> Uuid {
+fn evaluator_id(evaluation_name: &str) -> Uuid {
+    Uuid::new_v5(
+        &Uuid::NAMESPACE_URL,
+        format!("{EVALUATION_RUNTIME}:{evaluation_name}").as_bytes(),
+    )
+}
+
+fn evaluation_run_id(record: &LogRecord) -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_URL, &record.encode_to_vec())
 }
 
@@ -248,6 +275,7 @@ mod tests {
         assert!(events[0].properties.get(SCORE_LABEL).is_none());
         assert!(events[0].properties.get(SCORE_VALUE).is_none());
         assert_eq!(events[0].properties["$ai_evaluation_runtime"], "otel");
+        assert_eq!(events[0].properties["$ai_evaluation_type"], "imported");
         assert_eq!(events[0].properties["$ai_trace_id"], hex::encode([1; 16]));
         assert_eq!(
             events[0].properties["$ai_target_span_id"],
@@ -276,15 +304,35 @@ mod tests {
     }
 
     #[test]
-    fn evaluation_id_is_stable_for_replays() {
-        let request = request(evaluation_record());
+    fn evaluator_identity_groups_runs_separately_from_run_identity() {
+        let original_request = request(evaluation_record());
+        let mut changed_record = evaluation_record();
+        changed_record.time_unix_nano += 1;
+        let changed_request = request(changed_record);
 
-        let first = expand_into_events(&request, "fallback");
-        let second = expand_into_events(&request, "fallback");
+        let first = expand_into_events(&original_request, "fallback");
+        let replay = expand_into_events(&original_request, "fallback");
+        let changed = expand_into_events(&changed_request, "fallback");
 
         assert_eq!(
             first[0].properties["$ai_evaluation_id"],
-            second[0].properties["$ai_evaluation_id"]
+            replay[0].properties["$ai_evaluation_id"]
+        );
+        assert_eq!(
+            first[0].properties["$ai_evaluation_id"],
+            changed[0].properties["$ai_evaluation_id"]
+        );
+        assert_eq!(
+            first[0].properties["$ai_evaluation_run_id"],
+            replay[0].properties["$ai_evaluation_run_id"]
+        );
+        assert_ne!(
+            first[0].properties["$ai_evaluation_run_id"],
+            changed[0].properties["$ai_evaluation_run_id"]
+        );
+        assert_ne!(
+            first[0].properties["$ai_evaluation_id"],
+            first[0].properties["$ai_evaluation_run_id"]
         );
     }
 

@@ -40,6 +40,26 @@ describe('EvalResultBadges', () => {
             expect(evalB.runCount).toBe(1)
         })
 
+        it('groups repeated imported runs by evaluator identity, not run identity', () => {
+            const summaries = getEvalSummaries([
+                makeRun({
+                    id: 'event-1',
+                    evaluation_id: 'imported-evaluator',
+                    evaluation_run_id: 'imported-run-1',
+                    evaluation_type: 'otel',
+                }),
+                makeRun({
+                    id: 'event-2',
+                    evaluation_id: 'imported-evaluator',
+                    evaluation_run_id: 'imported-run-2',
+                    evaluation_type: 'otel',
+                }),
+            ])
+
+            expect(summaries).toHaveLength(1)
+            expect(summaries[0].runCount).toBe(2)
+        })
+
         it('picks the latest run regardless of input order', () => {
             const older = makeRun({ id: 'old', evaluation_id: 'eval-a', timestamp: '2026-04-01T00:00:00Z' })
             const newer = makeRun({ id: 'new', evaluation_id: 'eval-a', timestamp: '2026-04-10T00:00:00Z' })
@@ -61,13 +81,37 @@ describe('EvalResultBadges', () => {
     describe('scopeRunsToTarget', () => {
         const generationRun = makeRun({ id: 'gen-run', generation_id: 'gen-1' })
         const otherGenerationRun = makeRun({ id: 'other-gen-run', generation_id: 'gen-2' })
+        const importedGenerationRun = makeRun({
+            id: 'imported-gen-run',
+            generation_id: '',
+            target_span_id: 'span-1',
+        })
+        const otherImportedGenerationRun = makeRun({
+            id: 'other-imported-gen-run',
+            generation_id: '',
+            target_span_id: 'span-2',
+        })
         // HogQL returns '' (not null) for a missing $ai_target_event_id on trace-target runs.
         const traceRunEmptyString = makeRun({ id: 'trace-run-empty', generation_id: '' })
         const traceRunNull = makeRun({ id: 'trace-run-null', generation_id: null })
-        const allRuns = [generationRun, otherGenerationRun, traceRunEmptyString, traceRunNull]
+        const allRuns = [
+            generationRun,
+            otherGenerationRun,
+            importedGenerationRun,
+            otherImportedGenerationRun,
+            traceRunEmptyString,
+            traceRunNull,
+        ]
 
         it('scoped to a generation, returns only that generation runs', () => {
             expect(scopeRunsToTarget(allRuns, 'gen-1').map((r) => r.id)).toEqual(['gen-run'])
+        })
+
+        it('scoped to a generation span, returns imported runs targeting that span', () => {
+            expect(scopeRunsToTarget(allRuns, 'gen-1', 'span-1').map((r) => r.id)).toEqual([
+                'gen-run',
+                'imported-gen-run',
+            ])
         })
 
         it('without a generation, returns only trace-target runs (empty string and null)', () => {

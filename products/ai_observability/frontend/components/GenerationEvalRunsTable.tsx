@@ -11,6 +11,18 @@ import type { generationEvaluationRunsLogicType } from '../generationEvaluationR
 import { EvaluationResultTag, getEvaluationResultSortValue } from './EvaluationResultTag'
 import { EvaluationRunTargetCell } from './EvaluationRunTargetCell'
 
+export function EvaluationRunName({ run }: { run: EvaluationRun }): JSX.Element {
+    if (run.evaluation_source === 'imported' || run.evaluation_type === 'otel') {
+        return <span className="font-medium">{run.evaluation_name}</span>
+    }
+
+    return (
+        <Link to={urls.aiObservabilityEvaluation(run.evaluation_id)} className="text-primary font-medium">
+            {run.evaluation_name}
+        </Link>
+    )
+}
+
 export function GenerationEvalRunsTable({
     generationRunsLogic,
 }: {
@@ -28,11 +40,7 @@ export function GenerationEvalRunsTable({
         {
             title: 'Evaluation',
             key: 'evaluation',
-            render: (_, run) => (
-                <Link to={urls.aiObservabilityEvaluation(run.evaluation_id)} className="text-primary font-medium">
-                    {run.evaluation_name}
-                </Link>
-            ),
+            render: (_, run) => <EvaluationRunName run={run} />,
         },
         {
             title: 'Target',
