@@ -1,16 +1,18 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPeople } from '@posthog/icons'
-import { LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { BarChart } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { urls } from 'scenes/urls'
 
 import { creditsToUsd, formatCreditsRange } from '../../utils/credits'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
+import { scannerSelfDrivingStatsLogic } from '../scannerSelfDrivingStatsLogic'
 import { ScannerType } from '../types'
 import { ScannerInsightsChart } from './ScannerInsightsChart'
 import { ScannerOverviewFilters } from './ScannerOverviewFilters'
@@ -188,6 +190,79 @@ function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | nul
                 >
                     Save as cohort
                 </LemonButton>
+            </div>
+        </OverviewPanel>
+    )
+}
+
+// One stage of the self-driving funnel: a big count over a muted label, matching the panel grid density.
+function SelfDrivingStage({ count, label }: { count: number; label: string }): JSX.Element {
+    return (
+        <div className="flex flex-col">
+            <span className="text-lg font-semibold tabular-nums">{count.toLocaleString()}</span>
+            <span className="text-xs text-muted">{label}</span>
+        </div>
+    )
+}
+
+function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { selfDrivingStats, selfDrivingStatsLoading } = useValues(scannerSelfDrivingStatsLogic({ scannerId }))
+
+    // Historical signals from before the toggle was turned off still count, so the off-state
+    // nudge only replaces the funnel when there is nothing to show.
+    const emitsSignals = !!scanner?.emits_signals
+    if (!emitsSignals && (!selfDrivingStats || selfDrivingStats.signals_emitted === 0)) {
+        return (
+            <OverviewPanel title="Self-driving" disabled>
+                <div className="text-muted text-sm">
+                    This scanner doesn't emit signals. Turn on self-driving in the{' '}
+                    <Link to={urls.replayVisionScannerConfigure(scannerId)}>scanner's configuration</Link> to feed its
+                    findings into Signals, where agents investigate and draft pull requests.
+                </div>
+            </OverviewPanel>
+        )
+    }
+    if (!selfDrivingStats || selfDrivingStats.signals_emitted === 0) {
+        return (
+            <OverviewPanel title="Self-driving">
+                <PanelEmpty
+                    loading={selfDrivingStatsLoading}
+                    message={
+                        selfDrivingStats
+                            ? 'No signals emitted yet. Findings flow into Signals as sessions are scanned.'
+                            : "Couldn't load self-driving stats."
+                    }
+                />
+            </OverviewPanel>
+        )
+    }
+    return (
+        <OverviewPanel title="Self-driving" subtitle="all time">
+            {/* Capped so the four stages read as one row on wide screens instead of drifting apart. */}
+            <div className="grid grid-cols-4 gap-4 max-w-3xl" data-attr="vision-self-driving-funnel">
+                <SelfDrivingStage
+                    count={selfDrivingStats.signals_emitted}
+                    label={selfDrivingStats.signals_emitted === 1 ? 'signal emitted' : 'signals emitted'}
+                />
+                <SelfDrivingStage
+                    count={selfDrivingStats.reports_contributed}
+                    label={
+                        selfDrivingStats.reports_contributed === 1 ? 'report contributed to' : 'reports contributed to'
+                    }
+                />
+                <SelfDrivingStage
+                    count={selfDrivingStats.prs_opened}
+                    label={selfDrivingStats.prs_opened === 1 ? 'PR opened' : 'PRs opened'}
+                />
+                <SelfDrivingStage
+                    count={selfDrivingStats.prs_merged}
+                    label={selfDrivingStats.prs_merged === 1 ? 'PR merged' : 'PRs merged'}
+                />
+            </div>
+            <div className="text-xs text-muted">
+                A report can combine signals from several scanners and other sources, so these are contributions, not
+                sole causes.
             </div>
         </OverviewPanel>
     )
@@ -539,6 +614,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
         <div className="flex flex-col gap-4">
             <ScannerOverviewFilters scannerId={scannerId} />
             {body}
+            <SelfDrivingOverview scannerId={scannerId} />
             <CreditLimitOverview scannerId={scannerId} />
         </div>
     )

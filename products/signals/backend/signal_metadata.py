@@ -115,6 +115,86 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
 
 
 @dataclass(frozen=True)
+class SourceSliceSignalStats:
+    """Aggregate over the latest versions of a source slice's non-deleted signals."""
+
+    signal_count: int
+    report_ids: list[str]
+
+
+# `extra` keys are interpolated into the query as quoted literals (JSON paths can't be HogQL
+# placeholders), so only plain identifier-shaped keys are accepted.
+_EXTRA_KEY_RE = re.compile(r"^[A-Za-z0-9_]{1,64}$")
+
+# Bounds the report-id set handed to Postgres `id__in` lookups; ordered by id only for determinism.
+_SOURCE_SLICE_REPORT_CAP = 300
+
+
+def fetch_signal_stats_for_source_slice(
+    team: Team, *, source_product: str, source_type: str, extra_equals: dict[str, str]
+) -> SourceSliceSignalStats:
+    """Count non-deleted signals of one source slice and collect the reports they were grouped into.
+
+    A slice is `(source_product, source_type)` narrowed by equality on `extra` keys (e.g. a Replay
+    Vision scanner's `scanner_id`). The slice fields are stable across a document's versions, so the
+    filter is pushed into a non-aggregating inner scan (the `extra_where` shape of
+    `_deduped_signals_subquery` — filtering beside the argMax would bind `metadata` to the aggregate
+    alias) and the argMax dedup runs over the matching rows only.
+    """
+    extra_conditions = ""
+    placeholders: dict[str, ast.Expr] = {
+        "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+        "source_product": ast.Constant(value=source_product),
+        "source_type": ast.Constant(value=source_type),
+    }
+    for index, (key, value) in enumerate(sorted(extra_equals.items())):
+        if not _EXTRA_KEY_RE.match(key):
+            raise ValueError(f"Invalid signal extra key: {key!r}")
+        extra_conditions += (
+            f"\n                  AND JSONExtractString(metadata, 'extra', '{key}') = {{extra_value_{index}}}"
+        )
+        placeholders[f"extra_value_{index}"] = ast.Constant(value=value)
+
+    ch_query = f"""
+        SELECT
+            count() as signal_count,
+            arraySlice(arrayReverseSort(groupUniqArrayIf(report_id, report_id != '')), 1, {_SOURCE_SLICE_REPORT_CAP}) as report_ids
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'report_id') as report_id,
+                JSONExtractBool(metadata, 'deleted') as is_deleted
+            FROM (
+                SELECT argMax(metadata, inserted_at) as metadata
+                FROM (
+                    SELECT document_id, metadata, inserted_at
+                    FROM document_embeddings
+                    WHERE model_name = {{model_name}}
+                      AND product = 'signals'
+                      AND document_type = 'signal'
+                      AND JSONExtractString(metadata, 'source_product') = {{source_product}}
+                      AND JSONExtractString(metadata, 'source_type') = {{source_type}}{extra_conditions}
+                )
+                GROUP BY document_id
+            )
+        )
+        WHERE NOT is_deleted
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFetchSignalStatsForSourceSlice",
+        query=ch_query,
+        team=team,
+        placeholders=placeholders,
+    )
+    rows = result.results or []
+    if not rows:
+        return SourceSliceSignalStats(signal_count=0, report_ids=[])
+    signal_count, report_ids = rows[0]
+    return SourceSliceSignalStats(signal_count=signal_count, report_ids=list(report_ids))
+
+
+@dataclass(frozen=True)
 class SignalSourceReference:
     """A link back to the external issue a report's signal was emitted from."""
 

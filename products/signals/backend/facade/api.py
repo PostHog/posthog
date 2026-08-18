@@ -1,3 +1,4 @@
+import uuid
 import dataclasses
 from collections.abc import Callable, Sequence
 from datetime import timedelta
@@ -19,7 +20,8 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
-from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.models import SignalReport, SignalSourceConfig
+from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
 
 if TYPE_CHECKING:
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
@@ -585,4 +587,52 @@ def forward_report_discussion_note(
         user_id=user_id,
         scoped_team_ids=scoped_team_ids,
         api_scopes=api_scopes,
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class SignalSourceSliceOutcomes:
+    """What one source slice's signals led to: reports they were grouped into and the PRs off those."""
+
+    signal_count: int
+    report_count: int
+    pr_count: int
+    merged_pr_count: int
+
+
+def get_outcomes_for_signal_source_slice(
+    *, team: Team, source_product: str, source_type: str, extra_equals: dict[str, str]
+) -> SignalSourceSliceOutcomes:
+    """Aggregate downstream outcomes for signals of `(source_product, source_type)` narrowed by
+    equality on `extra` keys (e.g. Replay Vision's `scanner_id`).
+
+    Reports are counted only if the row still exists for this team; a report usually aggregates
+    signals from several sources, so these are contributions, not sole causes. PR counts come from
+    the same implementation-PR resolution the inbox uses (latest PR-bearing task run per report).
+    """
+    from products.signals.backend.implementation_pr import (  # noqa: PLC0415 — keeps the tasks facade off this module's import path
+        fetch_implementation_pr_state_for_reports,
+    )
+
+    stats = fetch_signal_stats_for_source_slice(
+        team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
+    )
+    if not stats.report_ids:
+        return SignalSourceSliceOutcomes(signal_count=stats.signal_count, report_count=0, pr_count=0, merged_pr_count=0)
+    # CH metadata is not authoritative — keep only report ids that parse and still exist for this team.
+    candidate_ids = []
+    for report_id in stats.report_ids:
+        try:
+            candidate_ids.append(uuid.UUID(report_id))
+        except ValueError:
+            continue
+    report_ids = [
+        str(rid) for rid in SignalReport.objects.filter(team=team, id__in=candidate_ids).values_list("id", flat=True)
+    ]
+    prs = fetch_implementation_pr_state_for_reports(report_ids)
+    return SignalSourceSliceOutcomes(
+        signal_count=stats.signal_count,
+        report_count=len(report_ids),
+        pr_count=len(prs),
+        merged_pr_count=sum(1 for pr in prs.values() if pr.merged),
     )

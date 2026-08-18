@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
+from products.signals.backend.facade.api import SignalSourceSliceOutcomes, get_outcomes_for_signal_source_slice
+from products.signals.backend.implementation_pr import ImplementationPr
+from products.signals.backend.models import SignalReport
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
     SignalSourceReference,
+    fetch_signal_stats_for_source_slice,
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
 )
@@ -402,3 +408,86 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
         signals = fetch_signals_for_report_sync(self.team, "rA")
 
         assert [s["content"] for s in signals] == ["new text"]
+
+
+class TestFetchSignalStatsForSourceSlice(_SignalEmbeddingsTestBase):
+    def test_counts_only_the_slice_and_skips_deleted_latest_versions(self) -> None:
+        # Guards the extra_equals pushdown and the argMax dedup: a broken JSON path would leak other
+        # scanners' signals into the count, and filtering beside the argMax would raise on the alias.
+        self._emit_version(
+            document_id="d1", report_id="rA", source_product="errors", inserted_at=self.base, extra={"scanner_id": "sA"}
+        )
+        self._emit_version(
+            document_id="d2", report_id="", source_product="errors", inserted_at=self.base, extra={"scanner_id": "sA"}
+        )
+        # Latest version deleted: must drop out of the count entirely.
+        self._emit_version(
+            document_id="d3", report_id="rA", source_product="errors", inserted_at=self.base, extra={"scanner_id": "sA"}
+        )
+        self._emit_version(
+            document_id="d3",
+            report_id="rA",
+            source_product="errors",
+            inserted_at=self.base + timedelta(hours=1),
+            deleted=True,
+            extra={"scanner_id": "sA"},
+        )
+        # Other scanner and other source product: outside the slice.
+        self._emit_version(
+            document_id="d4", report_id="rB", source_product="errors", inserted_at=self.base, extra={"scanner_id": "sB"}
+        )
+        self._emit_version(
+            document_id="d5", report_id="rC", source_product="replay", inserted_at=self.base, extra={"scanner_id": "sA"}
+        )
+
+        stats = fetch_signal_stats_for_source_slice(
+            self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
+        )
+
+        assert stats.signal_count == 2
+        assert stats.report_ids == ["rA"]
+
+    def test_rejects_non_identifier_extra_keys(self) -> None:
+        with self.assertRaises(ValueError):
+            fetch_signal_stats_for_source_slice(
+                self.team, source_product="errors", source_type="some_type", extra_equals={"scanner id": "x"}
+            )
+
+
+class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
+    def test_counts_only_reports_that_still_exist_for_the_team(self) -> None:
+        # Guards the CH-to-Postgres handoff: CH report ids that are malformed or point at deleted
+        # reports must not inflate the report count or reach the PR resolution.
+        existing = SignalReport.objects.create(team=self.team, title="report", summary="s")
+        self._emit_version(
+            document_id="d1",
+            report_id=str(existing.id),
+            source_product="errors",
+            inserted_at=self.base,
+            extra={"scanner_id": "sA"},
+        )
+        self._emit_version(
+            document_id="d2",
+            report_id=str(uuid.uuid4()),
+            source_product="errors",
+            inserted_at=self.base,
+            extra={"scanner_id": "sA"},
+        )
+        self._emit_version(
+            document_id="d3",
+            report_id="not-a-uuid",
+            source_product="errors",
+            inserted_at=self.base,
+            extra={"scanner_id": "sA"},
+        )
+
+        with patch(
+            "products.signals.backend.implementation_pr.fetch_implementation_pr_state_for_reports",
+            return_value={str(existing.id): ImplementationPr(url="https://github.com/o/r/pull/1", merged=True)},
+        ) as mock_prs:
+            outcomes = get_outcomes_for_signal_source_slice(
+                team=self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
+            )
+
+        assert outcomes == SignalSourceSliceOutcomes(signal_count=3, report_count=1, pr_count=1, merged_pr_count=1)
+        assert mock_prs.call_args.args[0] == [str(existing.id)]
