@@ -2871,7 +2871,19 @@ class HogFlowViewSet(
         the next step boundary for runs mid-execution. Steps that already
         executed are not undone. Canceled runs can be re-run later via `rerun`.
         """
-        hog_flow = self.get_object()
+        # Workflow deletes are hard deletes, so a flow deleted with runs still parked has no row
+        # here while its jobs live on. Cancel must still reach those jobs: fall back to the URL id,
+        # which is safe because the service JWT pins team + flow and the sweep filters on both, so
+        # an id that never belonged to this team matches nothing.
+        try:
+            hog_flow = self.get_object()
+            hog_flow_id = str(hog_flow.id)
+        except Http404:
+            hog_flow = None
+            try:
+                hog_flow_id = str(uuid_mod.UUID(self.kwargs["pk"]))
+            except (ValueError, KeyError):
+                raise exceptions.NotFound()
 
         serializer = HogInvocationCancelRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -2890,7 +2902,7 @@ class HogFlowViewSet(
         sweep_deadline = monotonic() + 20
         data: dict = {"marked": 0, "remaining": 0, "done": False}
         for _ in range(5):
-            res = cancel_hog_flow_invocations(team_id=self.team_id, hog_flow_id=str(hog_flow.id), payload=payload)
+            res = cancel_hog_flow_invocations(team_id=self.team_id, hog_flow_id=hog_flow_id, payload=payload)
             if res.status_code != 200:
                 raise exceptions.APIException(detail=res.text, code="cancel_failed")
             page = res.json()
@@ -2902,11 +2914,12 @@ class HogFlowViewSet(
             if data["done"] or monotonic() >= sweep_deadline:
                 break
 
-        self._report_workflow_action(
-            "hog_flow_invocations_cancel_requested",
-            hog_flow,
-            {"mode": "ids" if invocation_ids is not None else "all", "marked": data["marked"]},
-        )
+        if hog_flow is not None:
+            self._report_workflow_action(
+                "hog_flow_invocations_cancel_requested",
+                hog_flow,
+                {"mode": "ids" if invocation_ids is not None else "all", "marked": data["marked"]},
+            )
         return Response(data)
 
     def _emit_resource_edited(self, instance: HogFlow) -> None:

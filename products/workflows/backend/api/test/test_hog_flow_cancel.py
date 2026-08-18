@@ -75,6 +75,33 @@ class TestHogFlowCancelInvocations(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         mock_cancel.assert_not_called()
 
+    def test_cancel_reaches_parked_runs_of_a_deleted_flow(self):
+        # Workflow deletes are hard deletes, so a flow deleted with runs still parked has no row.
+        # The cancel endpoint must still proxy for the URL id instead of 404ing before the sweep.
+        flow_id = str(self.hog_flow.id)
+        self.hog_flow.delete()
+
+        with patch(CANCEL_PROXY, return_value=_cdp_response()) as mock_cancel:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/cancel/",
+                data={"all": True},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_cancel.assert_called_once_with(team_id=self.team.id, hog_flow_id=flow_id, payload={"all": True})
+
+    def test_cancel_rejects_a_malformed_flow_id_without_proxying(self):
+        with patch(CANCEL_PROXY) as mock_cancel:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/not-a-uuid/invocations/cancel/",
+                data={"all": True},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_cancel.assert_not_called()
+
     def test_cancel_surfaces_cdp_failure_without_reporting_success(self):
         with patch(CANCEL_PROXY, return_value=MagicMock(status_code=503, text="cyclotron unavailable")):
             response = self._cancel({"all": True})
