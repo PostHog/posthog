@@ -1,7 +1,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldFileUploadConfig,
+    SourceFieldInputConfig,
+    SourceFieldSelectConfig,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_monitoring.gcp_cloud_monitoring import (
@@ -20,6 +26,19 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_monitoring.source"
 FILTER = 'resource.type="consumed_api"'
+
+# Only some members of the source-field union declare `required` — a switch group and an SSH
+# tunnel carry no such flag. Narrowing to the ones that do keeps a field that changes shape
+# visible as a KeyError instead of passing silently.
+_FIELDS_WITH_REQUIRED = (SourceFieldFileUploadConfig, SourceFieldInputConfig, SourceFieldSelectConfig)
+
+
+def _required_by_field_name() -> dict[str, bool]:
+    return {
+        field.name: field.required
+        for field in GcpCloudMonitoringSource().get_source_config.fields
+        if isinstance(field, _FIELDS_WITH_REQUIRED)
+    }
 
 
 def _config(**overrides):
@@ -63,14 +82,14 @@ class TestSourceIdentity:
         assert not GcpCloudMonitoringSource().get_source_config.unreleasedSource
 
     def test_key_file_and_filter_are_required(self):
-        fields = {field.name: field for field in GcpCloudMonitoringSource().get_source_config.fields}
-        assert fields["key_file"].required is True
-        assert fields["metric_filter"].required is True
+        required = _required_by_field_name()
+        assert required["key_file"] is True
+        assert required["metric_filter"] is True
 
     def test_aggregation_settings_are_optional(self):
-        fields = {field.name: field for field in GcpCloudMonitoringSource().get_source_config.fields}
+        required = _required_by_field_name()
         for name in ("per_series_aligner", "alignment_period_seconds", "cross_series_reducer", "group_by_fields"):
-            assert fields[name].required is False
+            assert required[name] is False
 
     def test_retargeting_the_project_re_requires_the_key(self):
         assert GcpCloudMonitoringSource().connection_host_fields == ["project_id"]
