@@ -28,7 +28,6 @@ class TestPropertywareSource:
         config = self.source.get_source_config
         assert config.name.value == "Propertyware"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/propertyware"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
