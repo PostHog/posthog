@@ -31,6 +31,7 @@ export function IssuesFilters(): JSX.Element {
                         <IssueSortButton />
                     </div>
                 </div>
+                <ErrorFilters.NegatedFilterWarning />
             </div>
         </ErrorFilters.Root>
     )

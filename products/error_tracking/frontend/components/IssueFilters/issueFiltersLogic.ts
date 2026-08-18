@@ -15,6 +15,7 @@ import {
 } from '~/types'
 
 import { updateSearchParams } from '../../utils'
+import { findNegatedUnsetPropertyKeys } from './negatedPropertyFilters'
 
 export const ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY = 'ErrorTrackingIssueScene'
 
@@ -38,6 +39,7 @@ export interface issueFiltersLogicValues {
     filterGroup: UniversalFiltersGroup
     filterTestAccounts: boolean
     mergedFilterGroup: UniversalFiltersGroup
+    negatedUnsetPropertyKeys: string[]
     searchInput: string
     searchQuery: string
 }
@@ -88,6 +90,7 @@ export interface issueFiltersLogicMeta {
             filterGroup: UniversalFiltersGroup,
             selectedQuickFilters: Record<string, SelectedQuickFilter>
         ) => UniversalFiltersGroup
+        negatedUnsetPropertyKeys: (filterGroup: UniversalFiltersGroup) => string[]
     }
 }
 
@@ -208,6 +211,10 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
         },
     })),
     selectors({
+        negatedUnsetPropertyKeys: [
+            (s) => [s.filterGroup],
+            (filterGroup: UniversalFiltersGroup): string[] => findNegatedUnsetPropertyKeys(filterGroup),
+        ],
         mergedFilterGroup: [
             (s) => [s.filterGroup, s.selectedQuickFilters],
             (
