@@ -65,6 +65,15 @@ export interface CanvasGenerationGateway {
   onAutoNamed?(taskId: string, title: string): void;
 }
 
+const TASK_TITLE_MAX = 80;
+
+function truncateForTitle(text: string): string {
+  const flattened = text.replace(/\s+/g, " ").trim();
+  return flattened.length > TASK_TITLE_MAX
+    ? `${flattened.slice(0, TASK_TITLE_MAX - 1)}…`
+    : flattened;
+}
+
 export type GenerateCanvasResult =
   | { ok: true; taskId: string }
   | { ok: false; reason: "no-model" }
@@ -155,9 +164,13 @@ export class CanvasApplicationService {
               templateId: input.templateId,
               instruction: input.instruction,
             }),
-        taskDescription: input.name
-          ? `Generate canvas "${input.name}"`
-          : `Generate a canvas in ${channelDisplayReference(input.channelName)}`,
+        // A placement fill is named after its widget — every fill on the same
+        // canvas would otherwise share one useless "Generate canvas Home" title.
+        taskDescription: input.placement
+          ? `Generate widget: ${truncateForTitle(input.instruction)}`
+          : input.name
+            ? `Generate canvas "${input.name}"`
+            : `Generate a canvas in ${channelDisplayReference(input.channelName)}`,
         // Unattended generation: run in auto mode so it doesn't stall on
         // edit-approval prompts.
         executionMode: "auto" as const,

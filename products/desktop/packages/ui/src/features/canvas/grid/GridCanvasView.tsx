@@ -165,6 +165,24 @@ export function GridCanvasView({
     [patch, currentVersionId],
   );
 
+  const reset = useCallback(
+    (placement: GridPlacement) => {
+      // Back to the describe box with the prompt intact; the stale task id is
+      // ignored outside the generating state and overwritten on re-dispatch.
+      void patch(
+        [
+          {
+            op: "update_placement",
+            id: placement.id,
+            changes: { status: "pending" },
+          },
+        ],
+        currentVersionId,
+      );
+    },
+    [patch, currentVersionId],
+  );
+
   const remove = useCallback(
     (placement: GridPlacement) => {
       void patch(
@@ -175,7 +193,7 @@ export function GridCanvasView({
     [patch, currentVersionId],
   );
 
-  const actions: PlacementTileActions = { describe, place, remove };
+  const actions: PlacementTileActions = { describe, place, reset, remove };
 
   if (isLoading || !layout || !placements || !dashboard) {
     return (
@@ -216,6 +234,16 @@ export function GridCanvasView({
           gap: `${grid.gap}px`,
           minHeight: surfaceRows(placements) * (grid.rowHeight + grid.gap),
           cursor: interactive ? "crosshair" : undefined,
+          // Edit mode reveals the grid itself: a soft dot at each cell center
+          // (the fade to transparent is the blur), sized to the real cell
+          // pitch so the lattice matches where tiles snap.
+          ...(interactive
+            ? {
+                backgroundImage:
+                  "radial-gradient(circle, var(--gray-7) 1px, transparent 4px)",
+                backgroundSize: `calc((100% + ${grid.gap}px) / ${grid.columns}) ${grid.rowHeight + grid.gap}px`,
+              }
+            : {}),
         }}
         onPointerDown={onSurfacePointerDown}
         onPointerMove={onPointerMove}

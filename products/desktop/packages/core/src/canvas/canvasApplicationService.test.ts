@@ -103,6 +103,11 @@ describe("CanvasApplicationService", () => {
     const [taskInput] = createTask.mock.calls[0];
     expect(taskInput.content).toContain("`composing-grid-canvases` skill");
     expect(taskInput.content).toContain('placement id: "p-1"');
+    // Named after the widget, not the canvas — every fill on the same canvas
+    // would otherwise share one "Generate canvas ..." title.
+    expect(taskInput.taskDescription).toBe(
+      "Generate widget: build a signups chart",
+    );
     expect(gateway.fileTask).toHaveBeenCalledWith("chan-1", "task-1");
     // The placement row carries the task id; the canvas itself is not
     // generating and must not be renamed from one widget's prompt.

@@ -10,17 +10,26 @@ import {
   Spinner,
   Text,
 } from "@posthog/quill";
+import { isTerminalStatus } from "@posthog/shared/domain-types";
 import { taskCardNavigation } from "@posthog/ui/features/canvas/taskCardNavigation";
+import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ComponentFrame } from "./ComponentFrame";
 import { useComponentStore } from "./useGridLayout";
+
+// Poll cadence for the fill task's run status while a tile is generating —
+// matches the canvas generation poll elsewhere.
+const FILL_TASK_POLL_MS = 5_000;
 
 export interface PlacementTileActions {
   /** Dispatch an agent task to fill this placement with the given ask. */
   describe: (placement: GridPlacement, prompt: string) => Promise<void>;
   /** Fill this placement with an existing store component. */
   place: (placement: GridPlacement, component: DashboardRecord) => void;
+  /** Put a stalled placement back to pending so it can be re-described. */
+  reset: (placement: GridPlacement) => void;
   /** Remove this placement from the layout. */
   remove: (placement: GridPlacement) => void;
 }
@@ -76,6 +85,50 @@ function GeneratingTile({
   actions: PlacementTileActions;
 }) {
   const navigate = useNavigate();
+  const taskId = placement.generationTaskId ?? null;
+  const { data: task } = useQuery({
+    ...taskDetailQuery(taskId ?? ""),
+    enabled: !!taskId,
+    refetchInterval: FILL_TASK_POLL_MS,
+  });
+  // The agent owns moving the placement to live or failed. A terminal run
+  // with the placement still generating means it never did (crashed, missing
+  // skill, gave up) — spinning forever would hide that.
+  const stalled =
+    !!task?.latest_run && isTerminalStatus(task.latest_run.status);
+
+  const viewTask = taskId ? (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => navigate(taskCardNavigation(channelId, taskId))}
+    >
+      {stalled ? "View task" : "View progress"}
+    </Button>
+  ) : null;
+
+  if (stalled) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
+        <Text size="sm" className="line-clamp-2">
+          The agent finished without updating this widget.
+        </Text>
+        <div className="flex items-center gap-1">
+          {interactive ? (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => actions.reset(placement)}
+            >
+              Try again
+            </Button>
+          ) : null}
+          {viewTask}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
       <Spinner />
@@ -83,22 +136,7 @@ function GeneratingTile({
         {placement.prompt ?? "Building this widget…"}
       </Text>
       <div className="flex items-center gap-1">
-        {placement.generationTaskId ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              navigate(
-                taskCardNavigation(
-                  channelId,
-                  placement.generationTaskId as string,
-                ),
-              )
-            }
-          >
-            View progress
-          </Button>
-        ) : null}
+        {viewTask}
         {interactive ? (
           <Button
             variant="default"
@@ -199,7 +237,10 @@ function DescribeTile({
               />
             </div>
             {placeable.length === 0 ? (
-              <DropdownMenuItem disabled>No components yet</DropdownMenuItem>
+              <DropdownMenuItem disabled>
+                No published components yet. Describe the widget instead to
+                build the first one.
+              </DropdownMenuItem>
             ) : (
               placeable.map((component) => (
                 <DropdownMenuItem
