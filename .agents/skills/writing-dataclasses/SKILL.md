@@ -37,7 +37,7 @@ class RunAccumulator: ...
 
 - `kw_only=True` is what actually prevents swaps at construction: `BillingPeriod(start=a, end=b)`, never `BillingPeriod(a, b)`. Don't override it without a reason.
 - `slots=True` blocks `functools.cached_property` and ad-hoc attributes; override with `slots=False` rather than dropping `@frozen`.
-- A bare `@dataclass` with no explicit `frozen=` fails the ratchet in `posthog/test/test_dataclass_defaults.py` and is flagged by the advisory `prefer-frozen-dataclasses` semgrep rule. `@dataclass(frozen=False)` passes; the ratchet asks for a stated choice, not immutability. If you only _moved_ an existing bare `@dataclass`, regenerate the baseline with `python posthog/test/test_dataclass_defaults.py` instead of decorating it.
+- A bare `@dataclass` with no explicit `frozen=` fails the ratchet in `posthog/test/repo_invariants/test_dataclass_defaults.py` and is flagged by the advisory `prefer-frozen-dataclasses` semgrep rule. `@dataclass(frozen=False)` passes; the ratchet asks for a stated choice, not immutability. If you only _moved_ an existing bare `@dataclass`, regenerate the baseline with `python posthog/test/repo_invariants/test_dataclass_defaults.py` instead of decorating it.
 - Don't add `frozen=False` to a bare `@dataclass` you didn't otherwise touch. The ratchet counts per file against a baseline; an unchanged count passes, and the edit is churn in someone else's file.
 - Facade contracts (`products/<name>/backend/facade/contracts.py`) are frozen dataclasses too, usually `pydantic.dataclasses.dataclass(frozen=True)` so they validate on construction. See [products/architecture.md](../../../products/architecture.md).
 
@@ -73,6 +73,6 @@ Three carve-outs, in priority order:
 
 ## What enforces this
 
-- `posthog/test/test_dataclass_defaults.py` (blocking ratchet): new bare `@dataclass` without `frozen=`.
+- `posthog/test/repo_invariants/test_dataclass_defaults.py` (blocking ratchet): new bare `@dataclass` without `frozen=`.
 - `.semgrep/rules/devex/prefer-frozen-dataclasses.yaml` and `tuple-return-prefer-dataclass.yaml` (advisory).
 - Everything else is review.
