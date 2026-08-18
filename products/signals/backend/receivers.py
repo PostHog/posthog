@@ -52,11 +52,15 @@ def mark_report_canvas_collaborative_from_message(
 def mark_report_canvas_collaborative_from_version(
     sender: type[object], instance: Any, created: bool, **kwargs: Any
 ) -> None:
-    if not created or instance.task_id is None:
+    if not created:
         return
-    SignalReportCanvas.objects.for_team(instance.team_id).filter(canvas_id=instance.canvas_id).exclude(
-        generation_task_id=instance.task_id
-    ).update(
+    canvases = SignalReportCanvas.objects.for_team(instance.team_id).filter(canvas_id=instance.canvas_id)
+    # A version's task_id is null only on a human or app publish (the sandbox publish path always
+    # stamps its task). That is a direct edit and always claims the canvas. A version stamped with
+    # this session's own generation task is the pipeline republishing, so it is excluded.
+    if instance.task_id is not None:
+        canvases = canvases.exclude(generation_task_id=instance.task_id)
+    canvases.update(
         collaboration_mode=SignalReportCanvas.CollaborationMode.COLLABORATIVE,
         updated_at=timezone.now(),
     )

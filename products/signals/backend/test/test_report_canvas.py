@@ -148,12 +148,25 @@ class TestReportCanvasGeneration(APIBaseTest):
         session.refresh_from_db()
         assert session.collaboration_mode == SignalReportCanvas.CollaborationMode.COLLABORATIVE
 
-    def test_pipeline_version_does_not_claim_a_human_owned_canvas(self) -> None:
+    @parameterized.expand(
+        [
+            # A human or app publish records no sandbox task, so a null task_id is a direct edit.
+            ("human_publish", None, SignalReportCanvas.CollaborationMode.COLLABORATIVE),
+            # A version stamped with an unrelated task (e.g. the discussion task) is not the pipeline.
+            ("other_task", "other", SignalReportCanvas.CollaborationMode.COLLABORATIVE),
+            # The pipeline republishing its own generation must leave the mode untouched.
+            ("pipeline_republish", "generation", SignalReportCanvas.CollaborationMode.MANAGED),
+        ]
+    )
+    def test_version_claims_canvas_unless_it_is_the_pipelines_own_publish(
+        self, _name: str, task_kind: str | None, expected_mode: str
+    ) -> None:
         report = self._report()
         with team_scope(self.team.id):
             channel = self.channel_model.objects.create(team=self.team, name="general")
         discussion = self.task_model.objects.create(team=self.team, channel=channel, title="Report")
         generation_task_id = uuid.uuid4()
+        version_task_id = {None: None, "other": uuid.uuid4(), "generation": generation_task_id}[task_kind]
         with team_scope(self.team.id):
             canvas = self.canvas_model.objects.create(team=self.team, channel=channel, name="Report")
             session = SignalReportCanvas.objects.create(
@@ -169,11 +182,11 @@ class TestReportCanvasGeneration(APIBaseTest):
                 source_hash="a" * 64,
                 source_object_key="canvas/test",
                 source_size=1,
-                task_id=uuid.uuid4(),
+                task_id=version_task_id,
             )
 
         session.refresh_from_db()
-        assert session.collaboration_mode == SignalReportCanvas.CollaborationMode.COLLABORATIVE
+        assert session.collaboration_mode == expected_mode
 
     def test_notifies_suggested_reviewers_after_a_usable_version_exists(self) -> None:
         report = self._report()
