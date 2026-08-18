@@ -506,6 +506,11 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
         # Before Filter.funnel_viz_type funnel trends were indicated by Filter.display being TRENDS_LINEAR
         if funnel_viz_type is None and filter.get("display") == "ActionsLineGraph":
             funnel_viz_type = FunnelVizType.TRENDS
+        # Resolve the default here instead of relying on the model default: callers serialize the
+        # converted query with `exclude_none`, which drops a None and leaves stored queries with no
+        # visualization type at all. The frontend reads that JSON raw, so it can't fall back.
+        if funnel_viz_type is None:
+            funnel_viz_type = FunnelVizType.STEPS
 
         insight_filter = {
             "funnelsFilter": FunnelsFilter(

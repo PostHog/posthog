@@ -3,6 +3,8 @@ from typing import Any, cast
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
@@ -1496,6 +1498,25 @@ class TestFilterToQuery(BaseTest):
                 # funnel_step_reference=FunnelStepReference.previous,
             ),
         )
+
+    @parameterized.expand(
+        [
+            ("no_viz_type", {"layout": "horizontal"}, "steps"),
+            ("legacy_trends_display", {"display": "ActionsLineGraph"}, "trends"),
+        ]
+    )
+    def test_funnels_filter_serializes_a_viz_type_when_filters_omit_it(
+        self, _name: str, extra_filter: dict[str, Any], expected_viz_type: str
+    ):
+        # Callers dump the converted query with exclude_none, so a None viz type disappears from the
+        # stored JSON and the frontend loses the layout switcher, conversion rate and results table.
+        filter: dict[str, Any] = {"insight": "FUNNELS", **extra_filter}
+
+        query = filter_to_query(filter)
+
+        assert isinstance(query, FunnelsQuery)
+        dumped = query.model_dump(exclude_none=True)
+        self.assertEqual(dumped["funnelsFilter"]["funnelVizType"], expected_viz_type)
 
     def test_retention_filter(self):
         filter: dict[str, Any] = {
