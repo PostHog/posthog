@@ -162,7 +162,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             // transitionToFailedTerminal) would otherwise wait for a later terminal
             // dequeue — under multi-replica that's a different worker, and under a
             // restart it's gone entirely.
-            await this.hogFunctionMonitoringService.flush().catch((err) => {
+            await Promise.all([
+                this.hogFunctionMonitoringService.flush(),
+                this.invocationResultsService.invocationResultsRowsService.flush(),
+            ]).catch((err) => {
                 logger.warn('⚠️', `${this.name} - failed to flush monitoring after resolver dequeue`, {
                     error: serializeError(err),
                 })
@@ -290,6 +293,17 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         // with a masking TTL re-enrolls the same audience on every scheduled run.
         const { masked, notMasked, release } = await this.hogMasker.filterByMasking(builtInvocations)
 
+        // Only the unmasked runs get a lifecycle row: a masked one is never enqueued, so a
+        // `running` row for it would sit in the invocations list forever with no terminal row.
+        //
+        // Queued before serializing, because queueLifecycleRow stamps `state.firstScheduledAt`
+        // on the invocation and the terminal row written after the run wakes has to inherit it —
+        // otherwise that row records the wake time and wins the ReplacingMergeTree collapse,
+        // mislabeling when the run started.
+        for (const invocation of notMasked) {
+            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+        }
+
         const children: CyclotronV2JobInit[] = notMasked.map((invocation) => invocationToV2JobInit(invocation))
 
         const newState: BatchResolverState = {
@@ -317,6 +331,11 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             // stall-recovery replay of this cursor would see the whole page as masked
             // and silently drop it. Undo the claims so the replay re-enrolls cleanly.
             await release()
+            // Same reasoning for the lifecycle rows queued above: the replay re-queues them,
+            // so leaving these would write each run's `running` row twice.
+            this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor(
+                notMasked.map((invocation) => invocation.id)
+            )
             throw err
         }
 
@@ -335,6 +354,24 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 'hog_flow'
             )
         }
+
+        // Mirrors the `triggered` metric the realtime trigger path emits per invocation, so
+        // batch runs count towards "workflows started" (and the derived in-progress count).
+        // Masked runs are excluded: counting one as started would leave it in progress forever,
+        // since it never runs and so never records a terminal `succeeded`.
+        // Keyed on the batch job id like every other metric a batch run emits; `instance_id`
+        // is left unset because this is a run-level, not a step-level, metric.
+        this.hogFunctionMonitoringService.queueAppMetrics(
+            notMasked.map((invocation) => ({
+                team_id: invocation.teamId,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
+                metric_kind: 'other' as const,
+                metric_name: 'triggered' as const,
+                count: 1,
+                app_source_version: { id: hogFlow.id, version: hogFlow.version },
+            })),
+            'hog_flow'
+        )
 
         if (pageTruncated) {
             this.emitTruncationLog(newState)
@@ -525,16 +562,20 @@ export function buildAccountHogFlowInvocation(params: {
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive long after
             // the send, so they attribute to the version that sent, not the one live by then.
             flowVersion: params.hogFlow.version,
-        } as any,
+        },
         teamId: params.team.id,
         functionId: params.hogFlow.id,
+        // In-memory only (persistence serializes just `state`), but load-bearing for
+        // monitoring: the invocation-results service classifies by shape (`'hogFlow' in
+        // invocation`), and a row not classified as hog_flow never shows up in the
+        // workflow invocations list.
         hogFlow: params.hogFlow,
         parentRunId: params.parentRunId,
         filterGlobals,
         queue: 'hogflow' as const,
         queuePriority: 1,
         queueScheduledAt: DateTime.now(),
-    } as CyclotronJobInvocationHogFlow
+    }
 }
 
 // Mirrors `createHogFlowInvocation` from the legacy Kafka consumer so children
@@ -565,15 +606,17 @@ function buildHogFlowInvocation(params: {
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive days after
             // the send, so they have to attribute to the version that sent, not the one live then.
             flowVersion: params.hogFlow.version,
-        } as any,
+        },
         teamId: params.team.id,
         functionId: params.hogFlow.id,
+        // See buildAccountHogFlowInvocation: in-memory only, but drives the shape-based
+        // hog_flow classification of the `running` lifecycle rows.
         hogFlow: params.hogFlow,
         parentRunId: params.parentRunId,
-        person: invocationGlobals.person as any,
+        person: invocationGlobals.person,
         filterGlobals,
         queue: 'hogflow' as const,
         queuePriority: 1,
         queueScheduledAt: DateTime.now(),
-    } as CyclotronJobInvocationHogFlow
+    }
 }

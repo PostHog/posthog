@@ -44,7 +44,7 @@ class ScannerModel(models.TextChoices):
 
     GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
     GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview", "Gemini 3 Flash"
-    GEMINI_3_6_FLASH = "gemini-3.6-flash", "Gemini 3.6 Flash"
+    GEMINI_3_7_FLASH = "gemini-3.7-flash", "Gemini 3.7 Flash"
 
 
 class ScannerOrigin(models.TextChoices):
@@ -203,6 +203,11 @@ class ReplayScanner(UUIDModel):
         validators=[MinValueValidator(1)],
         help_text="Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap.",
     )
+    limit_notified_period_start = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Billing period start this scanner was last reported as having reached its credit limit. Keeps the notification to one per period.",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
@@ -286,10 +291,23 @@ class ReplayScanner(UUIDModel):
                     type(self)
                     .all_origins.select_for_update()
                     .filter(pk=self.pk)
-                    .only("scanner_version", "enabled", *relevant)
+                    .only(
+                        "scanner_version",
+                        "enabled",
+                        "last_swept_at",
+                        "last_seen_session_id",
+                        "limit_notified_period_start",
+                        *relevant,
+                    )
                     .first()
                 )
                 if old is not None:
+                    if update_fields is None:
+                        # The sweep writes these via targeted updates; a stale full save must not
+                        # clobber a concurrent sweep's watermark or notification stamp.
+                        self.last_swept_at = old.last_swept_at
+                        self.last_seen_session_id = old.last_seen_session_id
+                        self.limit_notified_period_start = old.limit_notified_period_start
                     changed = {f for f in relevant if getattr(old, f) != getattr(self, f)}
                     extra_fields = []
                     if changed:

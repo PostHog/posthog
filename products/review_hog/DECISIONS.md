@@ -3149,6 +3149,46 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
 
 ---
 
+### 🧯 Live statuses in the Code review UI — baseline polling + idle deferred to publish (BUILT 2026-08-13)
+
+The Code review scene went stale without a manual refresh, three ways, all rooted in the list poll arming only
+while an in-progress row was already visible: externally-triggered runs (label / inbox / MCP / a teammate) never
+appeared on an already-open page; the run-end race froze rows on "Not published" (finalize wrote `idle` before the
+publish stage wrote `published_head_sha`, and a poll tick landing in that window was the poll's last — it disposes
+itself at the first at-rest response); and the stats cards and an open drawer never refreshed at all.
+
+**Decisions (and the alternatives weighed):**
+
+- **The poll never stops; it changes cadence.** 10s while a run is in progress or freshly triggered, 30s idle,
+  paused on hidden tabs (the disposables plugin), one immediate refresh on tab return (a non-pausing
+  `visibilitychange` listener — a pausing one would be re-attached mid-dispatch of the very event it must observe,
+  and listeners added during dispatch don't run for that event). Rejected: stop-after-N-idle (a state machine to
+  save a flag-gated dogfood page a 30s request) and a push channel (nothing else on the scene justifies the
+  infrastructure).
+- **Finalize defers the idle write on publishing runs** (`will_publish` on `BuildBodyInput` →
+  `finalize_review_report`); `publish_persisted_review` returns the report to `idle` on every outcome (posted — in
+  the same save as the watermark —, already-posted skip, and no-post), and `fail_status_comment_activity` restores
+  rest on a dead run. The failure-path write lives inside that existing activity, not as a new workflow command,
+  because a new unconditional command breaks replay for in-flight histories. Rejected: a `publishing` status enum
+  value (a migration plus every status reader, for a state that lasts seconds) and a frontend-only reconciliation
+  delay (leaves the API reporting `in_progress=false, published=false` for a state that is neither).
+- **The publish window reads "finalizing".** With `run_count` already bumped there are no in-flight findings, so
+  `progress_payload` otherwise falls through and misreads the finished turn's working state as "deduplicating".
+  The branch is scoped to the not-yet-published head deliberately: a resolution run holds the same
+  ACTIVE-at-completed-head shape at a _published_ head and keeps its pre-existing label — the proper `resolving`
+  stage (serializer enum + frontend labels + regenerated types) is a separate change, in flight on its own
+  (maintainer, 2026-08-13), tracked in ARCHITECTURE.md's known issues.
+- **A poll response is the fan-out point.** A run observed finishing (its `in_progress` dropping or `run_count`
+  bumping between responses) reloads the perspective stats, and the drawer's detail when it is open on that
+  report. The error banner keys off a new `markInitialLoadFailed` (dispatched only when the failing surface has
+  nothing loaded), so a background poll blip retries silently instead of flashing the page-level failure banner.
+
+Known residuals, deliberate: the list's `published` flag is still report-lifetime (the drawer-flag TODO in
+ARCHITECTURE.md's known issues), and `_in_progress_report_ids`' 30-minute staleness cutoff can still hide a run
+whose current stage stays quiet longer than that.
+
+---
+
 ### 🔮 Future directions (product, post-Stage-5 — not scheduled)
 
 #### Adversarial validation — a 3-skeptic panel instead of a single verify pass (noted 2026-07-03)

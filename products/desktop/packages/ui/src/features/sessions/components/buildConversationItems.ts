@@ -79,9 +79,17 @@ export interface BuildResult {
   items: ConversationItem[];
   lastTurnInfo: LastTurnInfo | null;
   isCompacting: boolean;
+  /** A `/clear` is in flight (its status row shows the dedicated spinner), so
+   *  the generic "Generating…" footer must stay hidden — same as compaction. */
+  isClearing: boolean;
   /** Number of tool calls settled into a terminal status so far. Monotonic
    *  within a thread; consumers treat a change as "a tool/MCP call finished". */
   completedToolCallCount: number;
+  /** Timestamp (ms) of the most recent event applied to the thread, or null
+   *  when none have been. Lets the footer say how long the agent has been
+   *  silent: a turn can sit minutes inside one tool call or thinking block
+   *  with nothing new to render, and a frozen status word reads as a hang. */
+  lastActivityAt: number | null;
 }
 
 interface ProgressCardState {
@@ -122,6 +130,7 @@ export interface ItemBuilder {
   pendingPrompts: Map<number | string, TurnState>;
   shellExecutes: Map<string, { item: UserShellExecute; index: number }>;
   isCompacting: boolean;
+  isClearing: boolean;
   nextId: () => number;
   /** Progress cards keyed by the backend-supplied `group` id. The first event
    *  for a group opens the card inline where it arrived; every subsequent
@@ -138,6 +147,9 @@ export interface ItemBuilder {
    *  Drives the generating indicator's status word so it advances on real work
    *  finishing rather than on a timer. */
   completedToolCallCount: number;
+  /** Timestamp (ms) of the newest event fed to this builder. See the field of
+   *  the same name on `BuildResult`. */
+  lastActivityAt: number | null;
   /** Runs that emitted `_posthog/run_started`; until then the setup card's
    *  "agent" step stays in_progress rather than completing at HTTP-boot time. */
   runStartedRunIds: Set<string>;
@@ -152,12 +164,22 @@ export function createItemBuilder(): ItemBuilder {
     pendingPrompts: new Map(),
     shellExecutes: new Map(),
     isCompacting: false,
+    isClearing: false,
     nextId: () => idCounter++,
     progressCards: new Map(),
     lowestTouchedProgressIndex: Number.POSITIVE_INFINITY,
     completedToolCallCount: 0,
+    lastActivityAt: null,
     runStartedRunIds: new Set(),
   };
+}
+
+/** Record that an event landed at `ts`. Events are usually fed in order, but a
+ *  rebuild sorts them and an append can carry a stale ts, so keep the max. */
+function noteActivity(b: ItemBuilder, ts: number) {
+  if (b.lastActivityAt === null || ts > b.lastActivityAt) {
+    b.lastActivityAt = ts;
+  }
 }
 
 const TERMINAL_TOOL_STATUSES = new Set(["completed", "failed", "cancelled"]);
@@ -271,7 +293,9 @@ export function buildConversationItems(
     items: b.items,
     lastTurnInfo,
     isCompacting: b.isCompacting,
+    isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
+    lastActivityAt: b.lastActivityAt,
   };
 }
 
@@ -286,6 +310,7 @@ export function processEvent(
   options?: BuildConversationOptions,
 ) {
   const msg = event.message;
+  noteActivity(b, event.ts);
 
   if (isJsonRpcNotification(msg)) {
     handleNotification(b, msg, event.ts, options);
@@ -325,7 +350,9 @@ export function buildAgentConversationItems(
     items: b.items,
     lastTurnInfo: readLastTurnInfo(b),
     isCompacting: b.isCompacting,
+    isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
+    lastActivityAt: b.lastActivityAt,
   };
 }
 
@@ -333,6 +360,8 @@ export function processAgentConversationEvent(
   b: ItemBuilder,
   event: AgentConversationEvent,
 ): void {
+  noteActivity(b, event.timestamp);
+
   if (event.type === "user_message") {
     handlePromptRequest(
       b,
@@ -717,6 +746,13 @@ function handleNotification(
     return;
   }
 
+  if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED)) {
+    ensureImplicitTurn(b, ts);
+    markRuntimeStatusComplete(b, "clearing");
+    pushItem(b, { sessionUpdate: "conversation_cleared" });
+    return;
+  }
+
   if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.STATUS)) {
     ensureImplicitTurn(b, ts);
     const params = msg.params as {
@@ -777,6 +813,26 @@ function handleRuntimeStatus(
     return;
   } else if (status.status === "retrying" && status.isComplete) {
     markRuntimeStatusComplete(b, "retrying");
+    return;
+  } else if (status.status === "clearing") {
+    if (status.isComplete) {
+      markRuntimeStatusComplete(b, "clearing");
+      return;
+    }
+    // The /clear prompt RPC keeps isPromptPending true for the whole swap,
+    // so without this flag the generic "Generating…" footer would render
+    // alongside the dedicated "Clearing…" row (compaction has the same
+    // gate via isCompacting).
+    b.isClearing = true;
+  } else if (status.status === "clearing_failed") {
+    // A timed-out clear emits no `conversation_cleared` marker, so clear
+    // the spinner and render the outcome as its own status row.
+    markRuntimeStatusComplete(b, "clearing");
+    pushItem(b, {
+      sessionUpdate: "status",
+      status: "clearing_failed",
+      error: status.error,
+    });
     return;
   }
 
@@ -896,6 +952,9 @@ function normalizeStepStatus(raw: string | undefined): StepStatus {
 function markRuntimeStatusComplete(b: ItemBuilder, status: string) {
   if (status === "compacting") {
     b.isCompacting = false;
+  }
+  if (status === "clearing") {
+    b.isClearing = false;
   }
   for (let i = b.items.length - 1; i >= 0; i--) {
     const item = b.items[i];

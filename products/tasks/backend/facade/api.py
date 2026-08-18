@@ -78,6 +78,10 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
+from products.tasks.backend.logic.services.network_policy import (
+    MAX_SANDBOX_ALLOWED_DOMAINS,
+    normalize_requested_domains,
+)
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
@@ -94,6 +98,7 @@ from products.tasks.backend.models import (
     SandboxSnapshot,
     Task,
     TaskActivity,
+    TaskArtifact,
     TaskAutomation,
     TaskClientProvenance,
     TaskCommentActivity,
@@ -171,6 +176,7 @@ __all__ = [
     "build_sandbox_custom_image",
     "create_sandbox_custom_image",
     "create_sandbox_environment",
+    "create_channel_task",
     "create_task",
     "create_task_automation",
     "create_task_without_run",
@@ -254,8 +260,9 @@ __all__ = [
     "soft_delete_task",
     "start_task_run",
     "task_accessible_for_run_view",
+    "task_channel_id",
+    "task_exempt_from_code_access",
     "task_exists",
-    "task_is_in_channel",
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
@@ -397,6 +404,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "run_source",
         "runtime_adapter",
         "sandbox_environment_id",
+        "slack_artifact_delivery",
+        "slack_chart_delivery",
         "slack_thread_url",
     }
 )
@@ -758,12 +767,55 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).exists()
 
 
-def task_is_in_channel(task_id: str | UUID, team_id: int, channel_id: str | UUID) -> bool:
-    return Task.objects.filter(id=task_id, team_id=team_id, channel_id=channel_id, deleted=False).exists()
+def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
+    """The channel a (non-deleted) task is filed in, or None."""
+    return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
 
 
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
+
+
+def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
+    """Whether this task's cloud runs are entitled outside PostHog Desktop.
+
+    The run/command endpoints gate on Desktop access (``code_access_required_response``) but
+    also serve the generally-available Inbox, whose tasks must run without the waitlist. Only
+    server-verifiable Inbox shapes qualify:
+
+    - ``SIGNAL_REPORT`` linked to a report in this team and repo-less (Inbox "Discuss").
+      Reports are minted by scouts and the link is team-scoped by the write serializer, so a
+      caller can't forge one. Acting on a report is entitled through self-driving
+      (`product-autonomy`). Repository-backed report tasks require Desktop access.
+    - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
+      scout-chat endpoint; the write serializer rejects it from API callers. Only while
+      repo-less: chat tasks are minted without repositories, and attaching one via update
+      would turn the exemption into ungated cloud code work.
+
+    A bare ``SIGNAL_REPORT`` origin without a report link deliberately does not qualify:
+    ``origin_product`` is client input, so an FK-less claim would be a one-field waitlist
+    bypass. The report's own team is re-checked here even though the write serializer
+    already enforces it, so a future write path can't silently widen the exemption.
+    """
+    return Task.objects.filter(
+        Q(
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report__team_id=team_id,
+            repository__isnull=True,
+            repositories=[],
+            github_integration__isnull=True,
+            github_user_integration__isnull=True,
+        )
+        | Q(
+            origin_product=Task.OriginProduct.SIGNALS_CHAT,
+            repository__isnull=True,
+            repositories=[],
+            github_integration__isnull=True,
+            github_user_integration__isnull=True,
+        ),
+        id=task_id,
+        team_id=team_id,
+    ).exists()
 
 
 def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:
@@ -1252,13 +1304,17 @@ def create_task_without_run(
     description: str = "",
     repository: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+    channel: Channel | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
     For callers that own run creation themselves — e.g. the sandbox warm path, which boots the first
     run via the warming facade. ``team`` is a core ``posthog.Team`` (not a tasks model).
     """
-    channel = None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
+    if channel is None:
+        channel = (
+            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
+        )
     task = Task.create_without_run(
         team=team,
         title=title,
@@ -1270,6 +1326,26 @@ def create_task_without_run(
         mcp_builtin_agent_key=mcp_builtin_agent_key,
     )
     return task.id
+
+
+def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, title: str, description: str) -> UUID:
+    """Create a task filed into a channel, as the user — for product surfaces
+    (canvas actions) that file work into their own channel. No initial run:
+    the channel's feed shows it and the user drives it from there.
+    """
+    channel = (
+        Channel.objects.for_team(team_id).filter(Channel.visible_to_q(user_id), id=channel_id, deleted=False).first()
+    )
+    if channel is None:
+        raise ValueError("Channel not found in this team.")
+    return create_task_without_run(
+        team=Team.objects.get(id=team_id),
+        user_id=user_id,
+        origin_product=Task.OriginProduct.USER_CREATED,
+        title=title,
+        description=description,
+        channel=channel,
+    )
 
 
 def create_run(
@@ -1437,7 +1513,7 @@ def upsert_internal_sandbox_env(
         "repositories": [],
     }
     if allowed_domains is not None:
-        defaults["allowed_domains"] = allowed_domains
+        defaults["allowed_domains"] = normalize_sandbox_allowed_domains(allowed_domains)
         defaults["include_default_domains"] = include_default_domains
     try:
         env, _ = SandboxEnvironment.objects.update_or_create(
@@ -1537,6 +1613,12 @@ def _validate_user_sandbox_env_vars(environment_variables: dict | None) -> None:
             raise ValueError(f"Environment variable key {key!r} is not allowed")
 
 
+def normalize_sandbox_allowed_domains(allowed_domains: list[str]) -> list[str]:
+    if len(allowed_domains) > MAX_SANDBOX_ALLOWED_DOMAINS:
+        raise ValueError(f"You can allow up to {MAX_SANDBOX_ALLOWED_DOMAINS} domains")
+    return list(normalize_requested_domains(allowed_domains))
+
+
 def _accessible_sandbox_envs(team_id: int, user_id: int):
     return (
         SandboxEnvironment.objects.filter(team_id=team_id)
@@ -1584,12 +1666,13 @@ def create_sandbox_environment(
     """Create a team environment owned by the user and return it as a DTO."""
     _validate_user_sandbox_env_vars(environment_variables)
     _validate_custom_image_id(team_id, user_id, custom_image_id)
+    normalized_allowed_domains = normalize_sandbox_allowed_domains(allowed_domains)
     env = SandboxEnvironment.objects.create(
         team_id=team_id,
         created_by_id=user_id,
         name=name,
         network_access_level=network_access_level,
-        allowed_domains=allowed_domains,
+        allowed_domains=normalized_allowed_domains,
         include_default_domains=include_default_domains,
         repositories=repositories,
         environment_variables=environment_variables,
@@ -1610,6 +1693,8 @@ def update_sandbox_environment(
         _validate_user_sandbox_env_vars(fields["environment_variables"])
     if "custom_image_id" in fields:
         _validate_custom_image_id(team_id, user_id, fields["custom_image_id"])
+    if "allowed_domains" in fields:
+        fields["allowed_domains"] = normalize_sandbox_allowed_domains(fields["allowed_domains"])
     for key, value in fields.items():
         setattr(env, key, value)
     env.save()
@@ -2435,6 +2520,7 @@ def update_task_run(
     *,
     validated_data: dict,
     only_if_non_terminal: bool = False,
+    caller_is_agent: bool = False,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
 
@@ -2479,6 +2565,7 @@ def update_task_run(
         old_status = run.status
         old_environment = run.environment
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+        old_commit_head = _commit_push_head_sha(run.output)
 
         for key, value in validated_data.items():
             if key == "output" and isinstance(value, dict):
@@ -2571,6 +2658,10 @@ def update_task_run(
         except Exception:
             logger.warning("task_run.pr_progress_emit_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
+    new_commit_head = _commit_push_head_sha(run.output)
+    if caller_is_agent and isinstance(run.output, dict) and new_commit_head and new_commit_head != old_commit_head:
+        post_commits_pushed_thread_update(run, run.output["commit_push"])
+
     return _task_run_detail_to_dto(run)
 
 
@@ -2656,6 +2747,31 @@ def append_task_run_log(
     run.append_log(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
+
+
+def clear_task_run_conversation(
+    run_id: str | UUID, task_id: str | UUID, team_id: int
+) -> tuple[Literal["cleared", "not_found", "not_terminal"], contracts.TaskRunDetailDTO | None]:
+    """Write a `/clear` boundary into a finished run's log, for the next run to resume from.
+
+    Only for a finished run: a live one has a sandbox that owns the clear (and a writer
+    streaming into the same log object, which this read-modify-write append would race),
+    so the caller sends `/clear` to it as an ordinary message instead.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return "not_found", None
+    with transaction.atomic():
+        # Hold the row lock across the append: resume_task_run_in_cloud locks this same
+        # row to flip a finished run back to QUEUED, so locking here keeps the terminal
+        # check true while the boundary is written, and serializes concurrent clears so
+        # the dedup in emit_conversation_cleared holds. The block writes nothing to
+        # Postgres; the lock is mutual exclusion only.
+        run = _task_run_queryset().select_for_update(of=("self",)).get(pk=run.pk)
+        if not run.is_terminal:
+            return "not_terminal", None
+        run.emit_conversation_cleared()
+    return "cleared", _task_run_detail_to_dto(run)
 
 
 def ensure_task_run_session(run_id: str | UUID) -> UUID:
@@ -2889,7 +3005,12 @@ def _save_artifact_manifest(run: TaskRun, manifest: list[dict]) -> None:
 
 
 def upload_task_run_artifacts(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifacts: list[dict]
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    artifacts: list[dict],
+    uploaded_by: Literal["agent", "user"] | None = None,
 ) -> tuple[list[dict], list[dict]] | None:
     """Write artifact bytes to S3 and append them to the run manifest.
 
@@ -2952,6 +3073,9 @@ def upload_task_run_artifacts(
         manifest = [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids]
         manifest.extend(uploaded)
         _save_artifact_manifest(run, manifest)
+
+    if uploaded_by == "agent":
+        _announce_agent_artifact_uploads(run, uploaded, manifest)
 
     # Same download URL the finalize-upload path returns, so a caller that reaches storage
     # through this endpoint instead of a presigned POST still gets a link to surface. Built
@@ -3109,9 +3233,14 @@ def finalize_task_run_artifact_uploads(
             merged = [entry for entry in (locked_run.artifacts or []) if entry.get("id") not in new_ids]
             merged.extend(new_entries)
             _save_artifact_manifest(locked_run, merged)
+        # Count versions from the locked merge, or a concurrent same-named finalize is missed.
+        manifest = merged
 
     for storage_path in new_storage_paths:
         _tag_artifact_object(run, storage_path)
+
+    if uploaded_by == "agent":
+        _announce_agent_artifact_uploads(run, new_entries, manifest)
 
     # Attach a download URL per response entry so the caller (e.g. the upload_artifact
     # tool) can surface a link to the file. The app URL redirects to a fresh presigned
@@ -3166,6 +3295,7 @@ def create_task_run_living_artifact(
     team_id: int,
     *,
     artifact: dict,
+    caller_is_agent: bool = False,
 ) -> tuple[dict | None, str | None]:
     from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
         create_living_artifact,
@@ -3180,7 +3310,10 @@ def create_task_run_living_artifact(
     except Exception as exc:
         logger.warning("Failed to create living artifact for task run %s: %s", run.id, exc)
         return None, str(exc)
-    return serialize_task_artifact(created), None
+    serialized = serialize_task_artifact(created)
+    if caller_is_agent:
+        post_artifact_thread_update(run, serialized, revised=False)
+    return serialized, None
 
 
 def edit_task_run_living_artifact(
@@ -3188,6 +3321,7 @@ def edit_task_run_living_artifact(
     task_id: str | UUID,
     team_id: int,
     *,
+    caller_is_agent: bool = False,
     artifact_id: str | UUID,
     content: str | None = None,
     content_bytes: bytes | None = None,
@@ -3224,7 +3358,10 @@ def edit_task_run_living_artifact(
     except Exception as exc:
         logger.warning("Failed to edit living artifact %s for task run %s: %s", artifact_id, run.id, exc)
         return None, str(exc)
-    return serialize_task_artifact(updated), None
+    serialized = serialize_task_artifact(updated)
+    if caller_is_agent:
+        post_artifact_thread_update(run, serialized, revised=True)
+    return serialized, None
 
 
 def presign_task_run_artifact(
@@ -3492,10 +3629,10 @@ def signal_task_run_user_message(
     from products.tasks.backend.exceptions import (
         ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
     )
-    from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+    from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
 
-    if is_compute_quota_exhausted(run.task):
-        raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)})
+    if reason := get_compute_quota_denial_reason(run.task):
+        raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
@@ -4639,7 +4776,14 @@ def create_task(
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
     channel = validated_data.get("channel")
-    if channel is not None and "repositories" not in validated_data and "repository" not in validated_data:
+    if (
+        channel is not None
+        and "repositories" not in validated_data
+        and "repository" not in validated_data
+        # A signal_report task's repo must come from the report (resolved below), never a
+        # channel-carried one, or the code-access exemption runs against an attacker-picked repo.
+        and validated_data["origin_product"] != Task.OriginProduct.SIGNAL_REPORT
+    ):
         validated_data["repositories"] = channel.repositories
         validated_data["github_integration"] = channel.github_integration
     if "repositories" in validated_data:
@@ -4702,11 +4846,13 @@ def create_task(
             from products.tasks.backend.exceptions import (
                 ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
             )
-            from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+            from products.tasks.backend.logic.services.compute_quota import (  # noqa: PLC0415
+                get_compute_quota_denial_reason,
+            )
 
-            if is_compute_quota_exhausted(warm_task):
+            if reason := get_compute_quota_denial_reason(warm_task):
                 raise ComputeBillingLimitError(
-                    {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}
+                    {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}, reason
                 )
             description = (validated_data.get("description") or "").strip()
             update_fields: list[str] = []
@@ -4743,11 +4889,6 @@ def create_task(
     # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
     signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
 
-    if not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
-        if default_integration:
-            validated_data["github_integration"] = default_integration
-
     # Inbox "Create PR" / "Discuss" don't pre-select a repo, so resolve one here rather than
     # creating a report-linked task that can never open a PR.
     signal_report = validated_data.get("signal_report")
@@ -4780,6 +4921,11 @@ def create_task(
         )
         if resolved_repository:
             validated_data["repository"] = resolved_repository
+
+    if validated_data.get("repository") and not validated_data.get("github_integration"):
+        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        if default_integration:
+            validated_data["github_integration"] = default_integration
 
     if (
         validated_data.get("repository")
@@ -4857,6 +5003,12 @@ def update_task(
     validated_data.pop("signal_report_task_relationship", None)
     validated_data.pop("origin_product", None)
     validated_data.pop("branch", None)
+    # Repo is immutable for code-access-exempt tasks; a mutable repo reopens the gate (see task_exempt_from_code_access).
+    if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        validated_data.pop("repository", None)
+        validated_data.pop("repositories", None)
+        validated_data.pop("github_integration", None)
+        validated_data.pop("github_user_integration", None)
     if "repositories" in validated_data:
         repositories = validated_data["repositories"]
         validated_data["repository"] = repositories[0] if repositories else None
@@ -5338,7 +5490,6 @@ def warm_task_sandbox(
     extra_state: dict = {
         "branch": branch,
         "initial_permission_mode": initial_permission_mode,
-        "use_modal_network_allowlist": False,
     }
     if sandbox_environment is not None:
         extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
@@ -6600,6 +6751,7 @@ def record_comment_activity(
         target_owner_id=target_owner_id,
         activity_at=activity_at,
     )
+    post_comment_thread_update(team_id=team_id, comment_id=comment_id)
 
 
 def enqueue_comment_activity_retry(
@@ -6978,7 +7130,13 @@ def _create_agent_thread_message(task: Task, content: str, *, event: str, payloa
         payload=payload or {},
         content=content,
     )
-    project_thread_message_activity(message)
+    try:
+        # A projection failure must not roll back the caller's dedup transaction with
+        # the announcement in it; the savepoint contains a database error.
+        with transaction.atomic():
+            project_thread_message_activity(message)
+    except Exception:
+        logger.exception("Failed to project thread message activity", extra={"message_id": str(message.id)})
     try:
         mentioned_user_ids = resolve_mentioned_user_ids(
             User, message.content, team_id=message.team_id, author_id=message.author_id
@@ -7007,6 +7165,231 @@ def _agent_thread_updates_enabled(creator: User | None) -> bool:
         return False
 
 
+def _commit_push_head_sha(output: object) -> str:
+    if not isinstance(output, dict) or not isinstance(output.get("commit_push"), dict):
+        return ""
+    commits = output["commit_push"].get("commits")
+    if not isinstance(commits, list) or not commits or not isinstance(commits[-1], dict):
+        return ""
+    sha = commits[-1].get("sha")
+    return sha[:64] if isinstance(sha, str) else ""
+
+
+def post_commits_pushed_thread_update(run: TaskRun, push: dict) -> None:
+    try:
+        head_sha = _commit_push_head_sha({"commit_push": push})
+        if not head_sha:
+            return
+        task = Task.objects.select_related("created_by").filter(id=run.task_id, team_id=run.team_id).first()
+        if task is None or not _agent_thread_updates_enabled(task.created_by):
+            return
+        raw_commits = push.get("commits")
+        if not isinstance(raw_commits, list):
+            return
+        commits = [
+            {
+                "sha": str(commit.get("sha") or "")[:64],
+                "subject": str(commit.get("subject") or "")[:120],
+                "url": str(commit.get("url") or "")[:2048],
+            }
+            for commit in raw_commits[-10:]
+            if isinstance(commit, dict) and commit.get("sha")
+        ]
+        if not commits:
+            return
+        with transaction.atomic():
+            Task.objects.select_for_update().filter(id=task.id).first()
+            if (
+                TaskThreadMessage.objects.for_team(task.team_id)
+                .filter(task_id=task.id, event="commits_pushed", payload__head_sha=head_sha)
+                .exists()
+            ):
+                return
+            # Branch is caller-controlled and flows into rendered markdown content
+            # and the server-side mention scanner. Strip the bracket and newline
+            # characters that would otherwise forge a [label](url) link, a
+            # ![alt](url) image, or an @[name](email) mention (the canvas-name and
+            # PR-URL guards below sanitize their equivalents for the same reason).
+            branch = re.sub(r"[\[\]\n]", " ", str(push.get("branch") or "")).strip()[:255]
+            count = len(raw_commits)
+            content = f"{count} commit{'s' if count != 1 else ''} pushed"
+            _create_agent_thread_message(
+                task,
+                f"{content} to {branch}" if branch else content,
+                event="commits_pushed",
+                payload={
+                    "run_id": str(run.id),
+                    "branch": branch,
+                    "repository": str(push.get("repository") or "")[:255],
+                    "commits": commits,
+                    "total": count,
+                    "head_sha": head_sha,
+                },
+            )
+    except Exception:
+        logger.exception("Failed to post commits-pushed thread update", extra={"task_id": str(run.task_id)})
+
+
+def _comment_target_name(task: Task, *, scope: str, item_id: str | None) -> str | None:
+    """The commented artifact's display name for the row label; None on the task's own scope."""
+    if scope != "task_artifact" or not item_id:
+        return None
+    try:
+        name = (
+            TaskArtifact.objects.for_team(task.team_id)
+            .filter(task_id=task.id, id=item_id)
+            .values_list("name", flat=True)
+            .first()
+        )
+    except (ValueError, DjangoValidationError):
+        name = None
+    if not name:
+        run = (
+            TaskRun.objects.filter(team_id=task.team_id, task_id=task.id, artifacts__contains=[{"id": item_id}])
+            .values_list("artifacts", flat=True)
+            .first()
+        )
+        name = next((entry.get("name") for entry in run or [] if entry.get("id") == item_id), None)
+    return str(name)[:255] if name else None
+
+
+def post_comment_thread_update(*, team_id: int, comment_id: UUID) -> None:
+    """Draw a comment on the task timeline: identity-only payload, the commenter as author.
+
+    Root comments and resolve/reopen replies each get a row; plain replies stay in the
+    Comments tab so a busy thread cannot flood the timeline.
+    """
+    from posthog.models.comment import Comment  # noqa: PLC0415 — keeps the comments app off the api import path
+
+    from products.tasks.backend.logic.services.comment_activity import comment_task_id  # noqa: PLC0415
+
+    try:
+        comment = Comment.objects.filter(team_id=team_id, id=comment_id, deleted=False).first()
+        if comment is None or comment.created_by_id is None:
+            return
+        context = comment.item_context if isinstance(comment.item_context, dict) else {}
+        thread_state = context.get("threadState")
+        if comment.source_comment_id and thread_state in ("resolved", "open"):
+            event = "comment_state_changed"
+        elif comment.source_comment_id:
+            return
+        else:
+            event = "comment_added"
+        task_id = comment_task_id(comment)
+        if task_id is None:
+            return
+        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+        if task is None or not _agent_thread_updates_enabled(task.created_by):
+            return
+        payload: dict = {
+            "comment_id": str(comment.id),
+            "root_comment_id": str(comment.source_comment_id or comment.id),
+            "scope": comment.scope,
+            "item_id": str(comment.item_id) if comment.item_id else None,
+            "target_name": _comment_target_name(task, scope=comment.scope, item_id=comment.item_id),
+        }
+        if event == "comment_state_changed":
+            payload["state"] = thread_state
+            content = "Resolved a comment thread" if thread_state == "resolved" else "Reopened a comment thread"
+        else:
+            content = "Commented"
+        with transaction.atomic():
+            Task.objects.select_for_update().filter(id=task.id).first()
+            if (
+                TaskThreadMessage.objects.for_team(task.team_id)
+                .filter(task_id=task.id, event=event, payload__comment_id=str(comment.id))
+                .exists()
+            ):
+                return
+            # Not _create_agent_thread_message: the commenter is the author, and the
+            # comment path already projected activity and indexed mentions.
+            TaskThreadMessage.objects.for_team(task.team_id).create(
+                team_id=task.team_id,
+                task_id=task.id,
+                author_id=comment.created_by_id,
+                author_kind=TaskThreadMessage.AuthorKind.HUMAN,
+                event=event,
+                payload=payload,
+                content=content,
+            )
+    except Exception:
+        logger.exception("Failed to post comment thread update", extra={"comment_id": str(comment_id)})
+
+
+def _announce_agent_artifact_uploads(run: TaskRun, new_entries: list[dict], manifest: list[dict]) -> None:
+    """Announce files the agent delivered as task outputs.
+
+    The manifest also holds internal state such as git handoff checkpoints and skill
+    bundles. Those files support the run but are not deliverables for the timeline.
+    Manifest entries carry no version, so same-named output entries determine whether
+    an upload created or revised a file. The artifact id deduplicates retried uploads.
+    """
+    output_entries = [entry for entry in new_entries if entry.get("type") == "output"]
+    new_output_ids = {entry.get("id") for entry in output_entries}
+    announced_in_batch: dict[str, int] = {}
+    for entry in output_entries:
+        name = entry.get("name")
+        prior_versions = sum(
+            1
+            for other in manifest
+            if other.get("type") == "output" and other.get("name") == name and other.get("id") not in new_output_ids
+        ) + announced_in_batch.get(name or "", 0)
+        announced_in_batch[name or ""] = announced_in_batch.get(name or "", 0) + 1
+        post_artifact_thread_update(
+            run,
+            {
+                "id": entry.get("id"),
+                "name": name,
+                "artifact_type": entry.get("type"),
+                "current_version": prior_versions + 1,
+            },
+            revised=prior_versions > 0,
+        )
+
+
+def post_artifact_thread_update(run: TaskRun, artifact: dict, *, revised: bool) -> None:
+    try:
+        artifact_id = str(artifact.get("id") or "")
+        # Caller-controlled, rendered as markdown, and scanned for mentions: strip
+        # link/mention syntax like the commits-pushed branch field.
+        name = re.sub(r"[\[\]\n]", " ", str(artifact.get("name") or "")).strip()[:255]
+        if not artifact_id or not name:
+            return
+        raw_version = artifact.get("current_version")
+        version = raw_version if isinstance(raw_version, int) else 1
+        task = Task.objects.select_related("created_by").filter(id=run.task_id, team_id=run.team_id).first()
+        if task is None or not _agent_thread_updates_enabled(task.created_by):
+            return
+        event = "artifact_revised" if revised else "artifact_created"
+        with transaction.atomic():
+            Task.objects.select_for_update().filter(id=task.id).first()
+            if (
+                TaskThreadMessage.objects.for_team(task.team_id)
+                .filter(task_id=task.id, event=event, payload__artifact_id=artifact_id, payload__version=version)
+                .exists()
+            ):
+                return
+            _create_agent_thread_message(
+                task,
+                f"{'Revised' if revised else 'Created'} {name}",
+                event=event,
+                payload={
+                    "run_id": str(run.id),
+                    "artifact_id": artifact_id,
+                    "name": name,
+                    "artifact_type": str(artifact.get("artifact_type") or "")[:64],
+                    "version": version,
+                },
+            )
+    except Exception:
+        logger.exception("Failed to post artifact thread update", extra={"task_id": str(run.task_id)})
+
+
+def _thread_safe_canvas_name(canvas_name: str) -> str:
+    # Brackets and newlines in the name would break the [label](url) token.
+    return re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+
+
 def post_canvas_created_thread_update(
     task_id: str | UUID, team_id: int, *, acting_user_id: int | None, canvas_name: str, canvas_url: str | None
 ) -> None:
@@ -7026,8 +7409,7 @@ def post_canvas_created_thread_update(
             return
         if not _agent_thread_updates_enabled(task.created_by):
             return
-        # Brackets and newlines in the name would break the [label](url) token.
-        name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+        name = _thread_safe_canvas_name(canvas_name)
         content = f"[{name}]({canvas_url}) has been created" if canvas_url else f"{name} has been created"
         _create_agent_thread_message(
             task,
@@ -7037,6 +7419,197 @@ def post_canvas_created_thread_update(
         )
     except Exception:
         logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
+
+
+def post_canvas_error_thread_update(
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    canvas_id: str,
+    canvas_name: str,
+    build_id: str,
+    source_version_id: str | None,
+    error_type: str,
+    origin: str,
+    error_codes: list[str] | None = None,
+) -> str:
+    """File a canvas failure report (``event="canvas_error_reported"``) in the authoring task's thread.
+
+    ``error_type``/``error_codes`` must already be validated identifiers — the canvas
+    backend owns that sanitization because everything here lands in agent-visible text.
+    The task id is resolved server-side from the canvas record, never caller-named, so
+    a teammate can't plant reports in an unrelated task's thread. Dedupes per
+    ``(build_id, error_type)`` under the task row lock, mirroring ``pr_created``.
+    Returns ``filed`` / ``duplicate`` / ``skipped``; never raises.
+    """
+    try:
+        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+        if task is None or not _agent_thread_updates_enabled(task.created_by):
+            return "skipped"
+        with transaction.atomic():
+            Task.objects.select_for_update().filter(id=task.id).first()
+            if (
+                TaskThreadMessage.objects.for_team(task.team_id)
+                .filter(
+                    task_id=task.id,
+                    event="canvas_error_reported",
+                    payload__build_id=build_id,
+                    payload__error_type=error_type,
+                )
+                .exists()
+            ):
+                return "duplicate"
+            name = _thread_safe_canvas_name(canvas_name)
+            if origin == "build":
+                codes = ", ".join(error_codes or []) or "unknown"
+                content = f'Canvas "{name}" build failed ({codes})'
+            else:
+                content = f'Canvas "{name}" hit a runtime error ({error_type}) in a rendering session'
+            _create_agent_thread_message(
+                task,
+                content,
+                event="canvas_error_reported",
+                payload={
+                    "canvas_id": canvas_id,
+                    "canvas_name": name,
+                    "build_id": build_id,
+                    "source_version_id": source_version_id,
+                    "error_type": error_type,
+                    "origin": origin,
+                    "error_codes": error_codes or [],
+                },
+            )
+        return "filed"
+    except Exception:
+        logger.exception("Failed to post canvas-error thread update", extra={"task_id": str(task_id)})
+        return "skipped"
+
+
+def _canvas_fix_denial_outcome(reason: str) -> str:
+    """Map a compute-quota denial to a canvas fix outcome.
+
+    Deactivation and quota exhaustion need different copy: a retry clears a spent
+    quota but never a deactivation.
+    """
+    from products.tasks.backend.logic.services.compute_quota import (  # noqa: PLC0415
+        ORGANIZATION_DEACTIVATED_DENIAL_CODE,
+    )
+
+    return "organization_deactivated" if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE else "quota_exhausted"
+
+
+def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting_user_id: int | None) -> str:
+    """Wake a task's agent to fix a canvas: signal the live run, else seed a fresh run with ``prompt``.
+
+    Creator-only, like every run-driving surface (``forward_thread_message``,
+    ``task_control_q``): the dispatched run executes with the task creator's
+    credentials, so nobody else may start or steer it. The task row is locked
+    for the duration so overlapping fix requests serialize instead of each
+    creating a paid run. The fresh-run path mirrors ``run_task_automation``:
+    create the run inside the transaction and dispatch its processing workflow
+    on commit with ``skip_user_check``.
+    Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
+    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
+    """
+    from products.tasks.backend.exceptions import (
+        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+    )
+    from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
+
+    with transaction.atomic():
+        # of=("self",): FOR UPDATE cannot span the nullable created_by join.
+        task = (
+            Task.objects.select_for_update(of=("self",))
+            .select_related("team", "created_by")
+            .filter(id=task_id, team_id=team_id)
+            .first()
+        )
+        if task is None:
+            return "not_found"
+        if acting_user_id is None or task.created_by_id != acting_user_id:
+            return "forbidden"
+        if reason := get_compute_quota_denial_reason(task):
+            return _canvas_fix_denial_outcome(reason)
+        run = task.latest_run
+        if run is not None and not run.is_terminal:
+            try:
+                if signal_task_run_user_message(
+                    run.id, task.id, team_id, content=prompt, artifact_ids=[], actor_user_id=acting_user_id
+                ):
+                    return "signaled"
+            except ComputeBillingLimitError as error:
+                return _canvas_fix_denial_outcome(error.reason)
+            if run.status == TaskRun.Status.QUEUED and (run.state or {}).get("pending_user_message"):
+                # A queued, prompt-seeded run whose workflow hasn't registered yet
+                # is a fix run a just-committed request dispatched (creation is
+                # serialized on this row lock). Another run would double-bill.
+                return "already_queued"
+            # The workflow is gone despite the non-terminal row (evicted or stale); fall
+            # through to a fresh run rather than reporting a dead end.
+        task_run = task.create_run(mode="background", extra_state={"pending_user_message": prompt})
+        transaction.on_commit(
+            lambda: _dispatch_server_run(
+                team_id=task.team_id,
+                user_id=task.created_by_id,
+                task_id=str(task.id),
+                run_id=str(task_run.id),
+            )
+        )
+    return "new_run"
+
+
+def request_canvas_change(
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    prompt: str,
+    viewer_prompt: str,
+    acting_user_id: int | None,
+) -> str:
+    """Dispatch a creator's canvas request, or file a teammate's request for review."""
+    with transaction.atomic():
+        task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id).first()
+        if task is None:
+            return "not_found"
+        if acting_user_id is None:
+            return "not_found"
+        is_creator = task.created_by_id == acting_user_id
+    if not is_creator:
+        # A teammate can reach this through a canvas they can see while the authoring
+        # task is deleted or filed in a space they can't — the thread message is then
+        # dropped, so surface the miss instead of reporting a delivery that didn't happen.
+        filed = create_thread_message(
+            task_id,
+            team_id,
+            acting_user_id,
+            content=f"Requested from the canvas:\n\n{viewer_prompt}",
+        )
+        return "reported" if filed is not None else "not_found"
+    outcome = request_canvas_fix(task_id, team_id, prompt=prompt, acting_user_id=acting_user_id)
+    # already_queued is a deduplicated repeat: the request that queued the run
+    # already wrote this entry, so writing another would double the record.
+    if outcome in {"signaled", "new_run"}:
+        create_thread_message(task_id, team_id, acting_user_id, content="Run requested from the canvas")
+    return outcome
+
+
+def _dispatch_server_run(*, team_id: int, user_id: int | None, task_id: str, run_id: str) -> None:
+    """Dispatch a server-originated run's processing workflow, bypassing the per-user check.
+
+    Nothing canvas-specific: the same shape as ``automation_service``'s dispatch, kept
+    here because that module puts temporalio on its import path and this one must not.
+    """
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        execute_task_processing_workflow,
+    )
+
+    execute_task_processing_workflow(
+        task_id=task_id,
+        run_id=run_id,
+        team_id=team_id,
+        user_id=user_id,
+        skip_user_check=True,
+    )
 
 
 _GITHUB_PR_PATH_PATTERN = re.compile(r"/([^/]+)/([^/]+)/pull/(\d+)/?", re.IGNORECASE)

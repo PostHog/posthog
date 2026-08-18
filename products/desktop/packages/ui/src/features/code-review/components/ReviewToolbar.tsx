@@ -12,6 +12,7 @@ import {
   type ReviewMode,
   useReviewNavigationStore,
 } from "@posthog/ui/features/code-review/reviewNavigationStore";
+import { useReviewInRightPanel } from "@posthog/ui/features/navigation/useReviewInRightPanel";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { Flex, Separator, Text } from "@radix-ui/themes";
 import { FoldVertical, Maximize, Minimize, UnfoldVertical } from "lucide-react";
@@ -114,6 +115,11 @@ export const ReviewToolbar = memo(function ReviewToolbar({
     setReviewMode(taskId, "closed");
   };
 
+  // The panel's own switcher opens and closes the review there, and its column
+  // has one width, which the expanded mode has no way to take. Both controls
+  // would sit dead in the panel, so they stay with the Code scene.
+  const inRightPanel = useReviewInRightPanel();
+
   const visibleFileSummary = getVisibleFileSummary(
     commentFilter,
     fileCount,
@@ -136,7 +142,7 @@ export const ReviewToolbar = memo(function ReviewToolbar({
       style={{
         zIndex: 2,
       }}
-      className="sticky top-0 h-[32px] shrink-0 border-b border-b-(--gray-6) bg-(--color-background)"
+      className="sticky top-0 h-[32px] shrink-0 border-b border-b-(--gray-6) bg-(--color-background) ps-3"
     >
       <Flex align="center" gap="2">
         <Text className="font-medium text-[13px]">{fileCountLabel}</Text>
@@ -201,24 +207,26 @@ export const ReviewToolbar = memo(function ReviewToolbar({
           </Button>
         </Tooltip>
 
-        <Tooltip
-          content={
-            reviewMode === "expanded" ? "Collapse review" : "Expand review"
-          }
-        >
-          <Button
-            size="icon-sm"
-            onClick={handleToggleExpand}
-            aria-selected={reviewMode === "expanded"}
-            className="rounded-xs"
+        {!inRightPanel && (
+          <Tooltip
+            content={
+              reviewMode === "expanded" ? "Collapse review" : "Expand review"
+            }
           >
-            {reviewMode === "expanded" ? (
-              <Minimize size={12} />
-            ) : (
-              <Maximize size={12} />
-            )}
-          </Button>
-        </Tooltip>
+            <Button
+              size="icon-sm"
+              onClick={handleToggleExpand}
+              aria-selected={reviewMode === "expanded"}
+              className="rounded-xs"
+            >
+              {reviewMode === "expanded" ? (
+                <Minimize size={12} />
+              ) : (
+                <Maximize size={12} />
+              )}
+            </Button>
+          </Tooltip>
+        )}
 
         <Separator orientation="vertical" size="1" />
 
@@ -231,11 +239,13 @@ export const ReviewToolbar = memo(function ReviewToolbar({
           onHideViewedFilesChange={onHideViewedFilesChange}
         />
 
-        <Tooltip content="Close review">
-          <Button size="icon-sm" onClick={handleClose} className="rounded-xs">
-            <X size={14} />
-          </Button>
-        </Tooltip>
+        {!inRightPanel && (
+          <Tooltip content="Close review">
+            <Button size="icon-sm" onClick={handleClose} className="rounded-xs">
+              <X size={14} />
+            </Button>
+          </Tooltip>
+        )}
       </Flex>
     </Flex>
   );
