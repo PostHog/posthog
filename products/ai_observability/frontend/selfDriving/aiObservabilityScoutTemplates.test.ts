@@ -18,7 +18,11 @@ describe('AI observability scout templates', () => {
         '$title creates an enabled 9 a.m. daily scout with the product tag',
         ({ initialValues, schedule }) => {
             expect(initialValues.name).toMatch(/^signals-scout-ai-observability-/)
-            expect(initialValues.body).toBeTruthy()
+            expect(initialValues.description).toBeTruthy()
+            // The body is read out of a SKILL.md whose frontmatter carries name and description as
+            // separate form fields. A broken strip would push `---\nname: ...` into Instructions.
+            expect(initialValues.body).not.toMatch(/^---/)
+            expect(initialValues.body).toMatch(/^# /)
             expect(schedule).toBe('Daily at 9:00 AM')
             expect(initialValues.config).toMatchObject({
                 enabled: true,
