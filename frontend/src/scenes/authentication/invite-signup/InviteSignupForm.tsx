@@ -161,18 +161,23 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
         <AuthScene notes={["// you've been invited", `// ${org.toLowerCase()} is waiting`]}>
             <AuthSceneCard top={inviteHeader} footer={footer}>
                 <AuthCardTitle title="Create your account" sub="Your teammates are already in. This takes a minute." />
-                {signupManualErrors?.generic && (
-                    <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
-                        {signupManualErrors.generic.detail || 'Could not complete your signup.'}{' '}
-                        <Link
-                            data-attr="invite-signup-error-contact-support"
-                            onClick={() => openSupportForm({ kind: 'support' })}
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
-                        >
-                            Need help?
-                        </Link>
-                    </div>
-                )}
+                {signupManualErrors?.generic &&
+                    (signupManualErrors.generic.retryable ? (
+                        <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-warning-highlight border border-warning rounded">
+                            {signupManualErrors.generic.detail}
+                        </div>
+                    ) : (
+                        <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
+                            {signupManualErrors.generic.detail || 'Could not complete your signup.'}{' '}
+                            <Link
+                                data-attr="invite-signup-error-contact-support"
+                                onClick={() => openSupportForm({ kind: 'support' })}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            >
+                                Need help?
+                            </Link>
+                        </div>
+                    ))}
                 {passkeyError && (
                     <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         {passkeyError}

@@ -40,6 +40,11 @@ export function TurnstileChallenge({ siteKey, onSuccess, tokenReceived, email }:
 
     return (
         <div className="flex flex-col items-center gap-2">
+            {/* Text is span-wrapped so Chrome's in-page translation (which replaces bare text nodes
+                with <font> elements) can't break React sibling ops — react#11538 */}
+            <p className="mb-0 text-sm text-secondary text-center">
+                <span>Quick check to confirm you're human. It only takes a moment.</span>
+            </p>
             <Turnstile
                 ref={turnstileRef}
                 siteKey={siteKey}

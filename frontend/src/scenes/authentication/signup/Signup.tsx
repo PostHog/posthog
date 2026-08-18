@@ -377,7 +377,7 @@ function SignupProfilePanel(): JSX.Element {
                     </span>
                 }
             />
-            {signupPanelOnboardingManualErrors?.generic && (
+            {signupPanelOnboardingManualErrors?.generic && !challengeRequired && (
                 <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                     <span>{signupPanelOnboardingManualErrors.generic.detail || 'Could not complete your signup.'}</span>
                     {preflight?.cloud && (

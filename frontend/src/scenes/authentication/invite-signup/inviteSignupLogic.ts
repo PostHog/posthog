@@ -332,15 +332,28 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                     // misleading signup error.
                     const targetEmail = values.invite?.target_email
                     if ((error.status === undefined || error.status >= 500) && targetEmail) {
+                        let accountCreated = false
                         try {
                             await api.create('api/signup/precheck', { email: targetEmail })
                         } catch (probeError) {
                             const probe = probeError as Record<string, any>
-                            if (probe.status === 409 || probe.code === 'account_exists') {
-                                location.href = '/login'
-                                return
-                            }
+                            accountCreated = probe.status === 409 || probe.code === 'account_exists'
                         }
+                        if (accountCreated) {
+                            location.href = '/login'
+                            return
+                        }
+                        // The probe found no account, so this transient failure created nothing. Tell the
+                        // user it is safe to submit again instead of pointing them at support.
+                        actions.resetChallenge()
+                        actions.setSignupManualErrors({
+                            generic: {
+                                code: error.code,
+                                detail: "Something went wrong on our end and your account wasn't created. Please try again.",
+                                retryable: true,
+                            },
+                        })
+                        throw e
                     }
 
                     actions.resetChallenge()
