@@ -50,7 +50,7 @@ function BuyHedgehogCoffeeModal(): JSX.Element {
                     You've been happily under the free allowance for a while now — thanks for being part of PostHog.
                 </p>
                 <p className="m-0">
-                    If PostHog has saved you a bit of money, would you consider passing some of it on? A small donation
+                    If you've enjoyed using PostHog, we'd like you to consider passing it on by donating to our favourite cause: Hedgehogs. A small donation
                     to the{' '}
                     <Link to={HERTS_WILDLIFE_TRUST_DONATE_URL} target="_blank" disableClientSideRouting>
                         Herts Wildlife Trust
