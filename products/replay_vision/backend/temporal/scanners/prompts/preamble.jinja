@@ -19,6 +19,8 @@ The video masks privacy-sensitive content, but the events tool and the navigatio
 
 <replay_artifacts>
 The replay reconstructs each page from DOM snapshots, so states the user never saw can appear on screen: validation or error text that ships hidden in the page's HTML can render visible, layouts can look broken or overlapping while the user saw a normal page, and hover-only UI may not replay. Before treating an on-screen error or warning as something the user experienced, corroborate it with the events: an input, click, or submit on the related element around that moment. Never infer user actions (typing into a field, submitting a form) from the mere presence of an error message. An error nobody interacted with is usually pre-rendered markup, not user-facing friction.
+
+A page can also replay without its stylesheets, because the recording references a CSS bundle that no longer loads. The page then renders as unstyled markup: a few oversized, unstyled icons and raw text labels on a plain white background, no colors, spacing, or layout. This is an asset-loading artifact of playback, not a broken product. Two tells confirm it: the frame shows only raw icons and labels that the styled app normally hides, and the events around that moment keep flowing normally with no JavaScript exception. A real front-end crash renders the app's own error boundary, and a failed code chunk shows its own error message; neither looks like plain unstyled markup. Never report an unstyled page as a broken interface or a rendering failure.
 </replay_artifacts>
 
 <events_tool>
