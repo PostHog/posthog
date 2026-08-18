@@ -29,6 +29,8 @@ export function ClusteringSplitPane({ logicKey, defaultWidth, list, detail }: Cl
     return (
         <div
             className={cn(
+                // Viewport minus the app chrome, tab strip, status row and scorecards above it,
+                // so both panes scroll internally instead of the page scrolling as a whole.
                 'w-full h-[calc(100vh-22rem)] min-h-[25rem] flex',
                 isVerticalLayout ? 'flex-col gap-2' : 'flex-row gap-2'
             )}

@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { Card, CardContent } from '@posthog/quill-primitives'
+
 import { cn } from 'lib/utils/css-classes'
 
 import { type ClusterFilter, type RouteShapeCounts, mcpClusteringLogic } from './mcpClusteringLogic'
@@ -61,26 +63,33 @@ export function ClusterScorecards(): JSX.Element {
                         data-attr={`mcp-clustering-scorecard-${card.filter}`}
                         aria-pressed={isActive}
                         onClick={() => setClusterFilter(isActive ? 'all' : card.filter)}
-                        className={cn(
-                            'flex flex-col items-start rounded border p-3 text-left transition-colors',
-                            isActive
-                                ? 'border-accent bg-accent-highlight-secondary'
-                                : 'border-primary bg-surface-primary hover:bg-accent-highlight-secondary'
-                        )}
+                        className="w-full text-left"
                     >
-                        <span className="text-muted text-xs font-medium uppercase">{card.label}</span>
-                        <span className="mt-1 flex items-baseline gap-1">
-                            <span
-                                className={cn(
-                                    'text-2xl font-semibold tabular-nums',
-                                    card.danger && count > 0 ? 'text-danger' : ''
-                                )}
-                            >
-                                {count}
-                            </span>
-                            <span className="text-muted text-sm">of {routeShapeCounts.total}</span>
-                        </span>
-                        <span className="text-muted mt-1 text-xs">{card.description}</span>
+                        <Card
+                            size="sm"
+                            className={cn(
+                                'h-full transition-colors',
+                                isActive
+                                    ? 'border-accent bg-accent-highlight-secondary'
+                                    : 'hover:bg-accent-highlight-secondary'
+                            )}
+                        >
+                            <CardContent className="flex flex-col items-start">
+                                <span className="text-muted text-xs font-medium uppercase">{card.label}</span>
+                                <span className="mt-1 flex items-baseline gap-1">
+                                    <span
+                                        className={cn(
+                                            'text-2xl font-semibold tabular-nums',
+                                            card.danger && count > 0 ? 'text-danger' : ''
+                                        )}
+                                    >
+                                        {count}
+                                    </span>
+                                    <span className="text-muted text-sm">of {routeShapeCounts.total}</span>
+                                </span>
+                                <span className="text-muted mt-1 text-xs">{card.description}</span>
+                            </CardContent>
+                        </Card>
                     </button>
                 )
             })}

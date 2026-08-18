@@ -1,5 +1,7 @@
 import { memo, useEffect, useRef } from 'react'
 
+import { Badge } from '@posthog/quill-primitives'
+
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -10,10 +12,12 @@ export const ClusterListRow = memo(function ClusterListRow({
     cluster,
     isActive,
     onSelect,
+    barColor,
 }: {
     cluster: MCPIntentClusterApi
     isActive: boolean
     onSelect: (clusterId: number) => void
+    barColor: string
 }): JSX.Element {
     const ref = useRef<HTMLButtonElement>(null)
 
@@ -43,15 +47,16 @@ export const ClusterListRow = memo(function ClusterListRow({
         >
             {/* Labels run long and some are a sentence; two lines beats truncating to a stub. */}
             <span className="font-medium line-clamp-2">{cluster.label}</span>
-            <RoutingBar cluster={cluster} />
+            <RoutingBar cluster={cluster} color={barColor} />
             <div className="flex items-center justify-between gap-2 text-secondary">
                 <span className="truncate font-mono">
                     {topTool ? `${topTool.tool} ${topTool.pct.toFixed(0)}%` : 'no tools recorded'}
                 </span>
-                <span className="shrink-0 tabular-nums">
+                <span className="flex shrink-0 items-center gap-1.5 tabular-nums">
                     {humanFriendlyNumber(cluster.call_count)} calls
+                    {/* Pill rather than red text, matching how tool quality shows an error rate. */}
                     {cluster.error_count > 0 ? (
-                        <span className="text-danger"> · {cluster.error_rate_pct.toFixed(1)}% err</span>
+                        <Badge variant="destructive">{cluster.error_rate_pct.toFixed(1)}%</Badge>
                     ) : null}
                 </span>
             </div>

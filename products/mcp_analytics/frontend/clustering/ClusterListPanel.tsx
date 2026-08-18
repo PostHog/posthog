@@ -14,8 +14,11 @@ import {
     SelectValue,
 } from '@posthog/quill-primitives'
 
+import { useChartTheme } from 'lib/charts/hooks'
+
 import { ClusterListRow } from './ClusterListRow'
 import { ClusterSortKey, mcpClusteringLogic } from './mcpClusteringLogic'
+import { PRIMARY_SERIES, seriesColor } from './seriesColors'
 
 const SORT_OPTIONS: { value: ClusterSortKey; label: string }[] = [
     { value: 'calls', label: 'Most calls' },
@@ -28,6 +31,9 @@ export function ClusterListPanel(): JSX.Element {
     const { filteredClusters, selectedClusterId, sortKey, toolSearch, clusterFilter, totalClusterCount, clusters } =
         useValues(mcpClusteringLogic)
     const { selectCluster, setSortKey, setToolSearch, setClusterFilter } = useActions(mcpClusteringLogic)
+    // Resolved once here: the row component renders per cluster and the theme hook is not free.
+    const theme = useChartTheme()
+    const barColor = seriesColor(theme, PRIMARY_SERIES)
 
     const isNarrowed = clusterFilter !== 'all' || toolSearch.trim() !== ''
 
@@ -97,6 +103,7 @@ export function ClusterListPanel(): JSX.Element {
                                     cluster={cluster}
                                     isActive={cluster.id === selectedClusterId}
                                     onSelect={selectCluster}
+                                    barColor={barColor}
                                 />
                             </li>
                         ))}
