@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-DESKTOP_ACCESS_CACHE_PREFIX = "desktop_access"
+DESKTOP_ACCESS_CACHE_PREFIX = "desktop_access:v2"
 
 
 def _redis_key(user_id: int) -> str:

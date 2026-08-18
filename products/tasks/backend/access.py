@@ -1,5 +1,8 @@
 from typing import TYPE_CHECKING
 
+from django.db.models import Q
+from django.utils import timezone
+
 import posthoganalytics
 
 from posthog.models.user import User
@@ -30,13 +33,17 @@ def _is_flag_enabled(flag_key: str, user: User, team: "Team | None" = None) -> b
 def has_tasks_access(user: User) -> bool:
     """
     User has access to PostHog Desktop if the `tasks` feature flag is enabled for them
-    OR they have redeemed an invite code.
+    or they redeemed an active invite code that has not expired.
     """
     if not user or not user.is_authenticated:
         return False
     if _is_flag_enabled("tasks", user):
         return True
-    return CodeInviteRedemption.objects.filter(user=user).exists()
+    return (
+        CodeInviteRedemption.objects.filter(user=user, invite_code__is_active=True)
+        .filter(Q(invite_code__expires_at__isnull=True) | Q(invite_code__expires_at__gt=timezone.now()))
+        .exists()
+    )
 
 
 def has_loops_access(user: User, team: "Team | None" = None) -> bool:

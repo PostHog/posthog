@@ -103,6 +103,16 @@ class TestDesktopAccessResolver:
         assert http.get.await_count == 1
 
     @pytest.mark.asyncio
+    async def test_legacy_cached_grant_is_ignored(self) -> None:
+        redis = _FakeRedis()
+        redis.store["desktop_access:7"] = json.dumps({"has_access": True}).encode()
+        http = _make_http_client(_make_response(200, {"has_access": False}))
+        resolver = _make_resolver(redis, http)
+
+        assert await resolver.has_access(7, "Bearer tok") is False
+        assert http.get.await_count == 1
+
+    @pytest.mark.asyncio
     async def test_denial_cached_more_briefly_than_grant(self) -> None:
         settings = get_settings()
         redis = _FakeRedis()

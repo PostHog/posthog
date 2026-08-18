@@ -19,6 +19,7 @@ from llm_gateway.rate_limiting.throttles import (
     get_rate_limit_multiplier,
     is_usage_unlimited,
 )
+from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT
 
 logger = structlog.get_logger(__name__)
 
@@ -247,7 +248,7 @@ class _UserCostThrottleBase(CostThrottle):
         return config
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
-        if not context.end_user_id:
+        if not context.end_user_id or context.product == POSTHOG_CODE_PRODUCT:
             return ThrottleResult.allow()
         if is_usage_unlimited(context.user):
             return ThrottleResult.allow()
@@ -258,7 +259,7 @@ class _UserCostThrottleBase(CostThrottle):
         return await super().allow_request(context)
 
     async def get_status(self, context: ThrottleContext) -> CostStatus:
-        if is_usage_unlimited(context.user):
+        if context.product == POSTHOG_CODE_PRODUCT or is_usage_unlimited(context.user):
             # Staff have no per-user cap: report an effectively unlimited budget
             # so the usage endpoint computes 0% used and never flags the user as
             # rate limited. `float("inf")` never crosses the wire — only
@@ -274,7 +275,7 @@ class _UserCostThrottleBase(CostThrottle):
         return await super().get_status(context)
 
     async def record_cost(self, context: ThrottleContext, cost: float) -> None:
-        if not context.end_user_id:
+        if not context.end_user_id or context.product == POSTHOG_CODE_PRODUCT:
             return
         await super().record_cost(context, cost)
 

@@ -1179,29 +1179,18 @@ class TestRateLimitPoisoningPrevention:
 
 class TestPostHogCodeUserThrottling:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("throttle_type", "code_usage_billed"),
-        [
-            (UserCostBurstThrottle, False),
-            (UserCostBurstThrottle, True),
-            (UserCostSustainedThrottle, False),
-            (UserCostSustainedThrottle, True),
-        ],
-    )
-    async def test_posthog_code_enforces_user_cost_limit(
-        self, throttle_type: type[_UserCostThrottleBase], code_usage_billed: bool
-    ) -> None:
+    @pytest.mark.parametrize("throttle_type", [UserCostBurstThrottle, UserCostSustainedThrottle])
+    async def test_posthog_code_has_no_user_cost_limit(self, throttle_type: type[_UserCostThrottleBase]) -> None:
         throttle = throttle_type(redis=None)
-        context = make_context(
-            product="posthog_code", plan_key=None, seat_missing=True, code_usage_billed=code_usage_billed
-        )
+        context = make_context(product="posthog_code", plan_key=None, seat_missing=True)
 
-        await throttle.record_cost(context, 1000.0)
+        await throttle.record_cost(context, 600.0)
 
         result = await throttle.allow_request(context)
         status = await throttle.get_status(context)
-        assert result.allowed is False
-        assert status.exceeded is True
+        assert result.allowed is True
+        assert status.exceeded is False
+        assert status.limit_usd == float("inf")
 
     @pytest.mark.asyncio
     async def test_non_code_product_ignores_plan(self) -> None:

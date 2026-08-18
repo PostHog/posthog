@@ -8919,14 +8919,31 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(response.json()["has_access"])
 
-    def test_check_access_flag_off_with_redemption(self):
+    @parameterized.expand(
+        [
+            ("active", True, None, True),
+            ("future_expiry", True, timedelta(minutes=1), True),
+            ("inactive", False, None, False),
+            ("expired", True, timedelta(minutes=-1), False),
+        ]
+    )
+    def test_check_access_flag_off_with_redemption(
+        self, _name: str, is_active: bool, expires_in: timedelta | None, expected_access: bool
+    ):
         self.set_tasks_feature_flag(False)
-        invite = CodeInvite.objects.create(code="ACCESSCODE", max_redemptions=0, is_active=True)
+        expires_at = django_timezone.now() + expires_in if expires_in is not None else None
+        invite = CodeInvite.objects.create(
+            code=f"ACCESS-{_name}",
+            max_redemptions=1,
+            redemption_count=1,
+            is_active=is_active,
+            expires_at=expires_at,
+        )
         CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
 
         response = self.client.get("/api/code/invites/check-access/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["has_access"])
+        self.assertIs(response.json()["has_access"], expected_access)
 
     def test_authentication_required(self):
         task = self.create_task()
