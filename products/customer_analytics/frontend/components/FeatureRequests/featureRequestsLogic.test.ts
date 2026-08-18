@@ -8,13 +8,22 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import * as generatedApi from '../../generated/api'
-import type { FeatureRequestApi } from '../../generated/api.schemas'
+import type { AccountApi, FeatureRequestApi } from '../../generated/api.schemas'
 import {
     FEATURE_REQUESTS_PAGE_SIZE,
     featureRequestSearchParams,
     featureRequestsLogic,
     parseFeatureRequestSearchParams,
 } from './featureRequestsLogic'
+
+const account: AccountApi = {
+    id: 'account-1',
+    name: 'Acme',
+    notebooks: [],
+    created_at: '2026-01-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+}
 
 const createdRequest: FeatureRequestApi = {
     id: 'request-1',
@@ -82,6 +91,29 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.productAreaIds).toEqual(['area-1'])
         expect(logic.values.createRequestOpen).toBe(true)
         expect(logic.values.submittingRequest).toBe(false)
+    })
+
+    it('allows a request without a description', async () => {
+        const createSpy = jest.spyOn(generatedApi, 'featureRequestsCreate').mockResolvedValue(createdRequest)
+        logic.actions.openCreateRequest()
+        logic.actions.setTitle(createdRequest.title)
+        logic.actions.setAccountId(createdRequest.account.id)
+        logic.actions.setProductAreaIds(['area-1'])
+
+        await expectLogic(logic, () => logic.actions.submitRequest()).toFinishAllListeners()
+
+        expect(createSpy).toHaveBeenCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ description: '' })
+        )
+    })
+
+    it('keeps the selected account name while search results reload', () => {
+        logic.actions.loadAccountsSuccess([account])
+        logic.actions.setAccountId(account.id)
+        logic.actions.loadAccountsSuccess([])
+
+        expect(logic.values.accountOptions).toEqual([{ key: account.id, label: account.name }])
     })
 
     it('reloads request rows after a linked product area changes', async () => {

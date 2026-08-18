@@ -470,12 +470,20 @@ def build_thread_context_update_block(
 
 
 def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str:
-    """Construct the dispatch workflow id from webhook inputs."""
+    """Construct the dispatch workflow id from webhook inputs.
+
+    Doubles as the queue workflow's dedupe key, so a confirmed re-dispatch has to
+    read as its own unit of work: the same Slack event already came through once
+    to raise the prompt, and reusing that id would have the queue swallow the
+    confirmation as a redelivery.
+    """
     event = inputs.event
     if inputs.slack_event_id:
         suffix = inputs.slack_event_id
     else:
         suffix = f"{event.get('channel', '')}:{event.get('ts', '')}"
+    if inputs.untagged_followup_confirmed:
+        suffix = f"{suffix}:confirmed"
     return f"posthog-code-mention-{inputs.slack_team_id}:{suffix}"
 
 

@@ -9,11 +9,13 @@ from pydantic import BaseModel, model_validator
 RASTERIZE_RENDER_TIMEOUT = timedelta(minutes=30)
 RASTERIZE_RENDER_MAX_ATTEMPTS = 2
 
-# execution_timeout for a caller that wants the full render retry envelope: both attempts plus the
-# prep (5m) and finalize (2m) activities with headroom. A tighter caller timeout silently converts
-# the second render attempt into an untyped WorkflowExecutionTimeout, bypassing every
-# error-code-based failure classification downstream.
-RASTERIZE_WORKFLOW_EXECUTION_TIMEOUT = RASTERIZE_RENDER_TIMEOUT * RASTERIZE_RENDER_MAX_ATTEMPTS + timedelta(minutes=10)
+# Envelope for the whole workflow: the render's retry budget plus room for the prep and finalize
+# activities and queue wait. The exports API uses this both as the workflow's execution_timeout and
+# as the age at which it reports an export stuck, so the two can't drift and start calling a render
+# that is still legitimately working a failure. A tighter caller timeout silently converts the second
+# render attempt into an untyped WorkflowExecutionTimeout, bypassing error-code-based failure
+# classification downstream.
+RASTERIZE_WORKFLOW_TIMEOUT = RASTERIZE_RENDER_TIMEOUT * RASTERIZE_RENDER_MAX_ATTEMPTS + timedelta(minutes=15)
 
 # execution_timeout that funds exactly one render attempt plus prep/finalize headroom, for callers
 # with their own phase budget (the replay_vision sweep and evaluation). It still exceeds the render

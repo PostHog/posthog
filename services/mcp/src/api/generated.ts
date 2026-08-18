@@ -34628,6 +34628,8 @@ export namespace Schemas {
       readonly access_method: AccessMethodEnum;
       /** Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works. */
       readonly supports_hogql: boolean;
+      /** Whether this option is the built-in PostHog managed warehouse connection. */
+      readonly is_builtin_managed_warehouse: boolean;
       /**
          * User-set description of the source, shown as its display name in the connection picker when set.
          * @nullable
@@ -36636,8 +36638,8 @@ export namespace Schemas {
          * @maxLength 400
          */
       title: string;
-      /** Required customer-facing request description in Markdown. */
-      description: string;
+      /** Optional customer-facing request description in Markdown. */
+      description?: string;
       /** ID of the affected Customer Analytics account. */
       account_id: string;
       /** One or more active product area IDs. Duplicate IDs are ignored. */
@@ -36773,7 +36775,7 @@ export namespace Schemas {
          * @maxLength 400
          */
       title?: string;
-      /** Updated customer-facing request description in Markdown. */
+      /** Updated optional customer-facing request description in Markdown. */
       description?: string;
       /** Updated affected Customer Analytics account ID. */
       account_id?: string;
@@ -42031,6 +42033,8 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Whether SAML is fully configured on this config. */
       readonly has_saml: boolean;
+      /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
+      readonly saml_relay_state: string;
       /**
          * SAML IdP entity ID (issuer).
          * @maxLength 512
@@ -52364,13 +52368,6 @@ export namespace Schemas {
       readonly deletions: number;
       /** Files changed, recorded when the pull request merges. */
       readonly changed_files: number;
-      /** Digest bucket this merged PR belongs to; blank unless it was digest-eligible. */
-      readonly audience_key: string;
-      /**
-         * ID of the digest run that reported this merged PR, if any.
-         * @nullable
-         */
-      readonly digest_run: string | null;
       /** When this pull request was first captured. */
       readonly created_at: string;
       /** When this pull request was last updated. */
@@ -57559,7 +57556,7 @@ export namespace Schemas {
          * @maxLength 400
          */
       title?: string;
-      /** Updated customer-facing request description in Markdown. */
+      /** Updated optional customer-facing request description in Markdown. */
       description?: string;
       /** Updated affected Customer Analytics account ID. */
       account_id?: string;
@@ -58108,6 +58105,8 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Whether SAML is fully configured on this config. */
       readonly has_saml?: boolean;
+      /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
+      readonly saml_relay_state?: string;
       /**
          * SAML IdP entity ID (issuer).
          * @maxLength 512
@@ -90551,7 +90550,7 @@ export namespace Schemas {
 
     export type SdkHealthReportRetrieveParams = {
     /**
-     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. Use sparingly — data is refreshed every 12 hours by a background job.
+     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. A background job refreshes this data once a day, so the cached answer is usually current. Use sparingly.
      */
     force_refresh?: boolean;
     };
