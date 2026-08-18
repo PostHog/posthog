@@ -5,6 +5,9 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { urls } from 'scenes/urls'
+
+import { InsightShortId } from '~/types'
 
 import { AccountabilityPanel } from './AccountabilityPanel'
 import type { BriefSectionApi, BriefSectionCitationApi } from './generated/api.schemas'
@@ -16,8 +19,14 @@ function assertNever(value: never): never {
 }
 
 export function BriefDetail(): JSX.Element | null {
-    const { briefDetail, briefDetailLoading, briefDetailLoadFailed, briefDetailSections, selectedBriefId } =
-        useValues(pulseLogic)
+    const {
+        briefDetail,
+        briefDetailLoading,
+        briefDetailLoadFailed,
+        briefDetailSections,
+        briefDetailGoal,
+        selectedBriefId,
+    } = useValues(pulseLogic)
     const { loadBriefDetail } = useActions(pulseLogic)
 
     if (briefDetailLoadFailed && selectedBriefId) {
@@ -55,6 +64,14 @@ export function BriefDetail(): JSX.Element | null {
         case ProductBriefStatusEnumApi.Ready:
             return (
                 <div className="flex flex-col gap-6">
+                    {briefDetailGoal !== null && (
+                        <div className="text-muted text-sm flex flex-col gap-1">
+                            <div>
+                                <span className="font-semibold">Goal:</span> {briefDetailGoal}
+                            </div>
+                            <GoalProgress />
+                        </div>
+                    )}
                     {briefDetailSections.map((section, index) => (
                         <BriefSectionCard key={`${section.kind}-${index}`} section={section} />
                     ))}
@@ -64,6 +81,34 @@ export function BriefDetail(): JSX.Element | null {
         default:
             return assertNever(briefDetail.status)
     }
+}
+
+function GoalProgress(): JSX.Element | null {
+    const { briefDetailGoalStatus } = useValues(pulseLogic)
+
+    if (!briefDetailGoalStatus) {
+        return null
+    }
+    const { metric_label, insight_short_id, current_rate, previous_rate, delta_pct } = briefDetailGoalStatus
+    const label =
+        insight_short_id != null ? (
+            <Link to={urls.insightView(insight_short_id as InsightShortId)}>{metric_label || insight_short_id}</Link>
+        ) : (
+            <span>{metric_label}</span>
+        )
+
+    return (
+        <div className="flex items-center gap-1 flex-wrap">
+            <span>Metric {label}:</span>
+            <span className="font-semibold text-default">{current_rate}</span>
+            <span>now, {previous_rate} before</span>
+            {delta_pct != null && (
+                <span className={delta_pct >= 0 ? 'text-success' : 'text-danger'}>
+                    ({delta_pct >= 0 ? '▲' : '▼'} {Math.abs(delta_pct).toFixed(1)}%)
+                </span>
+            )}
+        </div>
+    )
 }
 
 function BriefSectionCard({ section }: { section: BriefSectionApi }): JSX.Element {

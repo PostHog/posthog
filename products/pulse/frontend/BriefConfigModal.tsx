@@ -13,8 +13,14 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { pulseLogic } from './pulseLogic'
 
 export function BriefConfigModal(): JSX.Element {
-    const { configModalOpen, editingConfig, isConfigFormSubmitting } = useValues(pulseLogic)
-    const { closeConfigModal, submitConfigForm } = useActions(pulseLogic)
+    const {
+        configModalOpen,
+        editingConfig,
+        isConfigFormSubmitting,
+        goalMetricInsightOptions,
+        goalMetricInsightsLoading,
+    } = useValues(pulseLogic)
+    const { closeConfigModal, submitConfigForm, setGoalMetricSearch } = useActions(pulseLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
 
     return (
@@ -46,6 +52,31 @@ export function BriefConfigModal(): JSX.Element {
                     info="Free text steering what the brief pays attention to and its tone."
                 >
                     <LemonTextArea placeholder="e.g. Increase adoption of our new onboarding flow and cut week-one drop-off" />
+                </LemonField>
+                <LemonField
+                    name="goal"
+                    label="Goal"
+                    info="What should this focus be driving toward? Briefs open with progress toward it and rank opportunities by goal impact."
+                >
+                    <LemonTextArea placeholder='e.g. "increase subscription usage"' />
+                </LemonField>
+                <LemonField
+                    name="goal_metric_short_id"
+                    label="Goal metric insight"
+                    info="Optional: a trends insight measuring the goal. Briefs state its current vs previous per-day rate."
+                >
+                    {({ value, onChange }) => (
+                        <LemonInputSelect
+                            mode="single"
+                            singleValueAsSnack
+                            placeholder="Search trends insights…"
+                            value={value ? [value as string] : []}
+                            options={goalMetricInsightOptions}
+                            loading={goalMetricInsightsLoading}
+                            onInputChange={setGoalMetricSearch}
+                            onChange={(newValues) => onChange(newValues[0] ?? '')}
+                        />
+                    )}
                 </LemonField>
                 <LemonField
                     name="dashboards"

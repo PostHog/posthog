@@ -1,1 +1,1 @@
-0003_briefconfig_accountability_min_age_days_and_more
+0004_briefconfig_goal_briefconfig_goal_metric_and_more
