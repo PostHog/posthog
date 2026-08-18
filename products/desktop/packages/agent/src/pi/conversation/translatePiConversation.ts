@@ -1,10 +1,10 @@
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { AgentConversationEvent } from "@posthog/shared";
 import { createPiMessageTranslator } from "./translatePiMessage";
 
 type AgentMessage = Extract<
-  AgentSessionEvent,
+  JsonAgentSessionEvent,
   { type: "message_end" }
 >["message"];
 
@@ -100,21 +100,28 @@ export interface PiDirectBashResult {
   output: string;
 }
 
+interface ActiveAssistantStream {
+  timestamp: number;
+  textByContentIndex: Map<number, string>;
+  thinkingByContentIndex: Map<number, string>;
+}
+
 export interface PiConversationTranslator {
   beginDirectBash(command: string): AgentConversationEvent[];
   completeDirectBash(result: PiDirectBashResult): AgentConversationEvent[];
   failDirectBash(message: string): AgentConversationEvent[];
   translateHistoryMessage(message: AgentMessage): AgentConversationEvent[];
-  translateEvent(event: AgentSessionEvent): AgentConversationEvent[];
+  translateEvent(event: JsonAgentSessionEvent): AgentConversationEvent[];
 }
 
 export function createPiConversationTranslator(): PiConversationTranslator {
   const messageTranslator = createPiMessageTranslator();
-  const streamedAssistantTimestamps = new Set<number>();
   let historyTurnActive = false;
+  let activeAssistantStream: ActiveAssistantStream | undefined;
   let latestRuntimeTimestamp = 0;
   let latestConversationTimestamp = 0;
   let pendingRuntimeError: AgentConversationEvent | undefined;
+  let settledStopReason: string | undefined;
   let retrying = false;
   let directBashSequence = 0;
 
@@ -260,37 +267,119 @@ export function createPiConversationTranslator(): PiConversationTranslator {
     return events;
   }
 
-  function translateEvent(event: AgentSessionEvent): AgentConversationEvent[] {
-    if (event.type === "message_update") {
-      const update = event.assistantMessageEvent;
+  function reconcileAssistantContent(
+    message: AssistantMessage,
+    events: AgentConversationEvent[],
+    stream: ActiveAssistantStream,
+  ): AgentConversationEvent[] {
+    const textContentIndexes = message.content.flatMap((content, index) =>
+      content.type === "text" ? [index] : [],
+    );
+    const thinkingContentIndexes = message.content.flatMap((content, index) =>
+      content.type === "thinking" ? [index] : [],
+    );
+    const reconciled: AgentConversationEvent[] = [];
+    let textIndex = 0;
+    let thinkingIndex = 0;
+
+    for (const translated of events) {
+      let contentIndex: number | undefined;
+      let streamed = "";
+
+      if (translated.type === "assistant_message_chunk") {
+        contentIndex = textContentIndexes[textIndex++];
+        streamed = stream.textByContentIndex.get(contentIndex ?? -1) ?? "";
+      } else if (translated.type === "assistant_thought_chunk") {
+        contentIndex = thinkingContentIndexes[thinkingIndex++];
+        streamed = stream.thinkingByContentIndex.get(contentIndex ?? -1) ?? "";
+      } else {
+        reconciled.push(translated);
+        continue;
+      }
+
+      if (translated.content.type !== "text" || !streamed) {
+        reconciled.push(translated);
+        continue;
+      }
+
+      const finalText = translated.content.text;
+      if (finalText === streamed) {
+        continue;
+      }
+      if (!finalText.startsWith(streamed)) {
+        continue;
+      }
+
+      reconciled.push({
+        ...translated,
+        content: { type: "text", text: finalText.slice(streamed.length) },
+      });
+    }
+
+    return reconciled;
+  }
+
+  function translateEvent(
+    event: JsonAgentSessionEvent,
+  ): AgentConversationEvent[] {
+    if (event.type === "message_start") {
+      activeAssistantStream = undefined;
+      if (event.message.role !== "assistant") {
+        return [];
+      }
+
+      activeAssistantStream = {
+        timestamp: event.message.timestamp,
+        textByContentIndex: new Map(),
+        thinkingByContentIndex: new Map(),
+      };
       latestRuntimeTimestamp = Math.max(
         latestRuntimeTimestamp,
-        event.message.timestamp,
+        activeAssistantStream.timestamp,
       );
       latestConversationTimestamp = Math.max(
         latestConversationTimestamp,
-        event.message.timestamp,
+        activeAssistantStream.timestamp,
       );
+      return [];
+    }
 
+    if (event.type === "message_update") {
+      const stream = activeAssistantStream;
+      if (!stream) {
+        return [];
+      }
+
+      const update = event.assistantMessageEvent;
       if (update.type === "text_delta" && update.delta) {
-        streamedAssistantTimestamps.add(event.message.timestamp);
+        const streamedText = stream.textByContentIndex.get(update.contentIndex);
+        stream.textByContentIndex.set(
+          update.contentIndex,
+          `${streamedText ?? ""}${update.delta}`,
+        );
         return [
-          ...completeRetry(event.message.timestamp),
+          ...completeRetry(stream.timestamp),
           {
             type: "assistant_message_chunk",
-            timestamp: event.message.timestamp,
+            timestamp: stream.timestamp,
             content: { type: "text", text: update.delta },
           },
         ];
       }
 
       if (update.type === "thinking_delta" && update.delta) {
-        streamedAssistantTimestamps.add(event.message.timestamp);
+        const streamedThinking = stream.thinkingByContentIndex.get(
+          update.contentIndex,
+        );
+        stream.thinkingByContentIndex.set(
+          update.contentIndex,
+          `${streamedThinking ?? ""}${update.delta}`,
+        );
         return [
-          ...completeRetry(event.message.timestamp),
+          ...completeRetry(stream.timestamp),
           {
             type: "assistant_thought_chunk",
-            timestamp: event.message.timestamp,
+            timestamp: stream.timestamp,
             content: { type: "text", text: update.delta },
           },
         ];
@@ -377,6 +466,13 @@ export function createPiConversationTranslator(): PiConversationTranslator {
     }
 
     if (event.type === "message_end") {
+      const assistantStream =
+        event.message.role === "assistant" &&
+        activeAssistantStream?.timestamp === event.message.timestamp
+          ? activeAssistantStream
+          : undefined;
+      activeAssistantStream = undefined;
+
       latestRuntimeTimestamp = Math.max(
         latestRuntimeTimestamp,
         event.message.timestamp,
@@ -390,6 +486,10 @@ export function createPiConversationTranslator(): PiConversationTranslator {
         return customMessageEvents(event.message);
       }
 
+      if (isAssistantMessage(event.message)) {
+        settledStopReason = event.message.stopReason;
+      }
+
       const events = messageTranslator.translate(event.message);
       const runtimeError = events.find(
         (translated) => translated.type === "runtime_error",
@@ -401,21 +501,19 @@ export function createPiConversationTranslator(): PiConversationTranslator {
       const visibleEvents = events.filter(
         (translated) => translated.type !== "runtime_error",
       );
-      if (
-        event.message.role !== "assistant" ||
-        !streamedAssistantTimestamps.has(event.message.timestamp)
-      ) {
+      if (event.message.role !== "assistant" || !assistantStream) {
         return visibleEvents;
       }
 
-      return visibleEvents.filter(
-        (translated) =>
-          translated.type !== "assistant_message_chunk" &&
-          translated.type !== "assistant_thought_chunk",
+      return reconcileAssistantContent(
+        event.message,
+        visibleEvents,
+        assistantStream,
       );
     }
 
     if (event.type === "agent_end") {
+      activeAssistantStream = undefined;
       const runtimeError = pendingRuntimeError;
       pendingRuntimeError = undefined;
 
@@ -512,13 +610,17 @@ export function createPiConversationTranslator(): PiConversationTranslator {
     }
 
     if (event.type === "agent_settled") {
-      streamedAssistantTimestamps.clear();
+      activeAssistantStream = undefined;
 
       const timestamp = Math.max(Date.now(), latestRuntimeTimestamp);
       const hadRuntimeActivity = latestRuntimeTimestamp > 0;
+      const stopReason = settledStopReason;
       latestRuntimeTimestamp = 0;
+      settledStopReason = undefined;
 
-      return hadRuntimeActivity ? [{ type: "turn_completed", timestamp }] : [];
+      return hadRuntimeActivity
+        ? [{ type: "turn_completed", timestamp, stopReason }]
+        : [];
     }
 
     return [];

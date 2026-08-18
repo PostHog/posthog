@@ -4,6 +4,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { useLayoutEffect, useState } from 'react'
 
+import type { ErrorEventType } from 'lib/components/Errors/types'
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -14,6 +15,10 @@ import { ErrorTrackingQueryResponse, NodeKind } from '~/queries/schema/schema-ge
 import { errorTrackingQueryResponse, errorTrackingTypeIssue } from './__mocks__/error_tracking_query'
 import { TEST_EVENTS } from './__mocks__/events'
 import { results as stackFrameResults } from './__mocks__/stack_frames/batch_get'
+import { BreakdownPreset } from './components/Breakdowns/consts'
+import { miniBreakdownsLogic } from './components/Breakdowns/miniBreakdownsLogic'
+import { issueFilterPreviewLogic, IssueFilterPreview } from './components/IssueFilterPreview/issueFilterPreviewLogic'
+import { errorTrackingIssueSceneLogic } from './scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 const ISSUE_ID = 'issue-id'
 const FINGERPRINT = String(TEST_EVENTS.javascript_resolved.properties.$exception_fingerprint)
@@ -35,6 +40,7 @@ const STORY_EVENT_UUIDS = STORY_TIMESTAMPS.map((_, index) => `story-event-${inde
 const STORY_EVENT_PROPERTIES = JSON.stringify({
     ...TEST_EVENTS.javascript_resolved.properties,
     $exception_fingerprint: FINGERPRINT,
+    release_channel: 'stable',
 })
 const STORY_EXCEPTION_LIST = TEST_EVENTS.javascript_resolved.properties.$exception_list
 const STORY_TIMELINE_RESPONSE = {
@@ -69,6 +75,126 @@ const STORY_EVENTS_RESPONSE = {
         timestamp,
         STORY_PERSON,
     ]),
+}
+const STORY_EMPTY_EVENTS_RESPONSE = {
+    columns: ['*', 'timestamp', 'person'],
+    hasMore: false,
+    results: [],
+}
+const STORY_BREAKDOWNS_RESPONSE = {
+    results: {
+        $browser: {
+            values: [
+                { value: 'Chrome', count: 24 },
+                { value: 'Firefox', count: 9 },
+                { value: 'Safari', count: 5 },
+            ],
+            total_count: 38,
+        },
+        $device_type: {
+            values: [
+                { value: 'Desktop', count: 30 },
+                { value: 'Mobile', count: 8 },
+            ],
+            total_count: 38,
+        },
+        $os: {
+            values: [
+                { value: 'Mac OS X', count: 20 },
+                { value: 'Windows', count: 12 },
+                { value: 'Linux', count: 6 },
+            ],
+            total_count: 38,
+        },
+        $pathname: {
+            values: [
+                { value: '/billing', count: 19 },
+                { value: '/settings', count: 11 },
+                { value: '/dashboard', count: 8 },
+            ],
+            total_count: 38,
+        },
+        $user_id: {
+            values: [
+                { value: 'user-101', count: 16 },
+                { value: 'user-205', count: 12 },
+                { value: 'user-309', count: 10 },
+            ],
+            total_count: 38,
+        },
+        $ip: {
+            values: [
+                { value: '192.0.2.10', count: 18 },
+                { value: '198.51.100.20', count: 12 },
+                { value: '203.0.113.30', count: 8 },
+            ],
+            total_count: 38,
+        },
+        $current_url: {
+            values: [
+                { value: 'https://example.com/billing', count: 21 },
+                { value: 'https://example.com/settings', count: 11 },
+                { value: 'https://example.com/dashboard', count: 6 },
+            ],
+            total_count: 38,
+        },
+        release_channel: {
+            values: [
+                { value: 'stable', count: 25 },
+                { value: 'beta', count: 9 },
+                { value: 'canary', count: 4 },
+            ],
+            total_count: 38,
+        },
+    },
+}
+const STORY_MANY_CUSTOM_PROPERTIES = Object.fromEntries(
+    Array.from({ length: 18 }, (_, index) => [`custom_property_${index + 1}`, `value_${index + 1}`])
+)
+const STORY_MANY_EVENT_PROPERTIES = JSON.stringify({
+    ...JSON.parse(STORY_EVENT_PROPERTIES),
+    ...STORY_MANY_CUSTOM_PROPERTIES,
+})
+const STORY_MANY_BREAKDOWNS_RESPONSE = {
+    results: {
+        ...STORY_BREAKDOWNS_RESPONSE.results,
+        ...Object.fromEntries(
+            Object.keys(STORY_MANY_CUSTOM_PROPERTIES).map((property, index) => [
+                property,
+                {
+                    values: [
+                        { value: `value_${index + 1}`, count: 20 },
+                        { value: 'other', count: 18 },
+                    ],
+                    total_count: 38,
+                },
+            ])
+        ),
+    },
+}
+Object.assign(STORY_BREAKDOWNS_RESPONSE.results, STORY_MANY_BREAKDOWNS_RESPONSE.results)
+const STORY_PROPERTY_DEFINITIONS = {
+    count: 2,
+    next: null,
+    previous: null,
+    results: [
+        {
+            id: 'current-url',
+            name: '$current_url',
+            description: 'The current URL of the page',
+            property_type: 'String',
+            type: 1,
+            verified: true,
+        },
+        {
+            id: 'plan',
+            name: 'plan',
+            description: 'The account plan',
+            property_type: 'String',
+            type: 1,
+            verified: false,
+        },
+    ],
 }
 const STORY_POSITION_EVENT = {
     uuid: STORY_EVENT_UUIDS[0],
@@ -109,7 +235,6 @@ const STORY_SUMMARY_RESPONSE: ErrorTrackingQueryResponse = {
         },
     ],
 }
-
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/ErrorTracking',
@@ -130,7 +255,7 @@ const meta: Meta = {
                     {
                         logs_distinct_id_attribute_key: 'posthogDistinctId',
                         logs_distinct_id_attribute_keys: ['posthogDistinctId'],
-                        logs_session_id_attribute_keys: ['posthogSessionId'],
+                        logs_session_id_attribute_keys: ['sessionId'],
                     },
                 ],
                 '/api/environments/:team_id/error_tracking/issues/exists/': [200, { exists: true }],
@@ -151,6 +276,7 @@ const meta: Meta = {
                 '/api/environments/:team_id/error_tracking/spike_events': [200, { results: [] }],
                 // Empty keeps this story's snapshot unchanged; the populated section has its own story.
                 '/api/projects/:team_id/signals/reports/': [200, { next: null, results: [] }],
+                '/api/projects/:team_id/property_definitions/': [200, STORY_PROPERTY_DEFINITIONS],
                 '/api/environments/:team_id/session_recordings/:id/capture_diagnostics/': [
                     200,
                     { properties: { $has_recording: true, $recording_status: 'active' } },
@@ -159,6 +285,9 @@ const meta: Meta = {
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
                     const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
+                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                        return [200, STORY_BREAKDOWNS_RESPONSE]
+                    }
                     if (body.query?.kind === NodeKind.EventsQuery) {
                         return body.query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
@@ -218,6 +347,57 @@ export const ListPageWithSourceMapsBanner: Story = {
 }
 // Autocapture must be on for the issue list to render instead of the full setup prompt,
 // and it comes from the bootstrap app context, so an msw override isn't enough
+function IssueScenePreviewStory({
+    activePreview,
+    selectedEventProperties,
+    openBreakdown,
+    propertyFilter,
+}: {
+    activePreview: IssueFilterPreview
+    selectedEventProperties?: string
+    openBreakdown?: BreakdownPreset
+    propertyFilter?: { key: string; value: string }
+}): JSX.Element {
+    const { applyPropertyFilter, setActivePreview } = useActions(issueFilterPreviewLogic)
+    const { selectEvent } = useActions(errorTrackingIssueSceneLogic({ id: ISSUE_ID }))
+    const { openBreakdownDetails } = useActions(miniBreakdownsLogic({ issueId: ISSUE_ID }))
+
+    useLayoutEffect(() => {
+        setActivePreview(activePreview)
+        if (selectedEventProperties) {
+            selectEvent({
+                event: '$exception',
+                uuid: STORY_EVENT_UUIDS[0],
+                timestamp: STORY_TIMESTAMPS[0],
+                distinct_id: STORY_PERSON.distinct_id,
+                properties: JSON.parse(selectedEventProperties),
+                person: {
+                    id: STORY_PERSON.id,
+                    distinct_ids: [STORY_PERSON.distinct_id],
+                    properties: STORY_PERSON.properties,
+                },
+            } as ErrorEventType)
+        }
+        if (openBreakdown) {
+            openBreakdownDetails(openBreakdown)
+        }
+        if (propertyFilter) {
+            applyPropertyFilter(propertyFilter.key, propertyFilter.value)
+        }
+    }, [
+        activePreview,
+        applyPropertyFilter,
+        openBreakdown,
+        openBreakdownDetails,
+        propertyFilter,
+        selectEvent,
+        selectedEventProperties,
+        setActivePreview,
+    ])
+
+    return <App />
+}
+
 function IngestionWarningStory(): JSX.Element | null {
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
     const [ready, setReady] = useState(false)
@@ -245,6 +425,122 @@ export const ListPageWithIngestionWarning: Story = {
 export const GroupPage: Story = {
     name: 'Issue scene',
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+}
+
+export const GroupPageContentSizedBreakdownPanel: Story = {
+    name: 'Issue scene with content-sized breakdown panel',
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    render: () => <IssueScenePreviewStory activePreview="properties" />,
+}
+
+export const GroupPageCappedBreakdownPanel: Story = {
+    name: 'Issue scene with capped breakdown panel',
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    render: () => (
+        <IssueScenePreviewStory activePreview="properties" selectedEventProperties={STORY_MANY_EVENT_PROPERTIES} />
+    ),
+}
+
+export const GroupPageBreakdownLoading: Story = {
+    name: 'Issue scene with loading breakdown panel',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
+                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                        return new Promise<never>(() => {})
+                    }
+                    if (body.query?.kind === NodeKind.EventsQuery) {
+                        return body.query.select?.includes('properties.$exception_list')
+                            ? [200, STORY_TIMELINE_RESPONSE]
+                            : [200, STORY_EVENTS_RESPONSE]
+                    }
+                    return body.query?.kind === NodeKind.HogQLQuery
+                        ? [200, { results: [] }]
+                        : [200, STORY_SUMMARY_RESPONSE]
+                },
+            },
+        }),
+    ],
+    render: () => <IssueScenePreviewStory activePreview="properties" />,
+}
+
+export const GroupPageBreakdownModal: Story = {
+    name: 'Issue scene with breakdown modal',
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    render: () => (
+        <IssueScenePreviewStory activePreview="properties" openBreakdown={{ property: '$browser', title: 'Browser' }} />
+    ),
+}
+
+export const GroupPageBreakdownModalLoading: Story = {
+    name: 'Issue scene with loading breakdown modal',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as {
+                        query?: { kind?: string; select?: string[]; maxValuesPerProperty?: number }
+                    }
+                    if (
+                        body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery &&
+                        body.query.maxValuesPerProperty === 100
+                    ) {
+                        return new Promise<never>(() => {})
+                    }
+                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                        return [200, STORY_BREAKDOWNS_RESPONSE]
+                    }
+                    if (body.query?.kind === NodeKind.EventsQuery) {
+                        return body.query.select?.includes('properties.$exception_list')
+                            ? [200, STORY_TIMELINE_RESPONSE]
+                            : [200, STORY_EVENTS_RESPONSE]
+                    }
+                    return body.query?.kind === NodeKind.HogQLQuery
+                        ? [200, { results: [] }]
+                        : [200, STORY_SUMMARY_RESPONSE]
+                },
+            },
+        }),
+    ],
+    render: () => (
+        <IssueScenePreviewStory activePreview="properties" openBreakdown={{ property: '$browser', title: 'Browser' }} />
+    ),
+}
+
+export const GroupPageEmptyWithFilter: Story = {
+    name: 'Issue scene with no matching exceptions',
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
+                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                        return [200, STORY_BREAKDOWNS_RESPONSE]
+                    }
+                    if (body.query?.kind === NodeKind.EventsQuery) {
+                        return body.query.select?.includes('properties.$exception_list')
+                            ? [200, STORY_TIMELINE_RESPONSE]
+                            : [200, STORY_EMPTY_EVENTS_RESPONSE]
+                    }
+                    return body.query?.kind === NodeKind.HogQLQuery
+                        ? [200, { results: [] }]
+                        : [200, STORY_SUMMARY_RESPONSE]
+                },
+            },
+        }),
+    ],
+    render: () => <IssueScenePreviewStory activePreview="time" propertyFilter={{ key: '$browser', value: 'Chrome' }} />,
 }
 
 export const GroupPageLoading: Story = {

@@ -117,6 +117,29 @@ import {
   shapeAgentAnalytics,
 } from "./agent-analytics";
 import {
+  compactCount,
+  dailySparkPoints,
+  decorateFlagPreview,
+  decorateSurveyPreview,
+  type EvidencePreview,
+  exposureFact,
+  gridRows,
+  hogqlEscape,
+  shapeActionPreview,
+  shapeCohortPreview,
+  shapeDashboardPreview,
+  shapeErrorIssuePreview,
+  shapeEvaluationPreview,
+  shapeEventDefinitionPreview,
+  shapeExperimentPreview,
+  shapeFlagPreview,
+  shapePersonPreview,
+  shapeRecordingPreview,
+  shapeSurveyPreview,
+  shapeTicketPreview,
+  shapeTracePreview,
+} from "./evidence-previews";
+import {
   ApiRequestError,
   buildApiFetcher,
   type FetchImplementation,
@@ -124,6 +147,7 @@ import {
 } from "./fetcher";
 import { createApiClient, type Schemas } from "./generated";
 import type {
+  McpAgentGrantScope,
   McpAuditCounts,
   McpAuditEvent,
   McpAuditPage,
@@ -190,6 +214,8 @@ export type UsageLimitType = "burst" | "sustained" | null;
 
 // Stable message so callers recognize this after a saga reduces the error to a string.
 export const CLOUD_USAGE_LIMIT_ERROR_MESSAGE = "Cloud usage limit reached";
+export const DESKTOP_BILLING_LIMIT_ERROR_CODE =
+  "posthog_code_billing_limit_exceeded";
 
 export const SESSION_LOGS_MAX_PAGE_SIZE = 5000;
 
@@ -206,6 +232,12 @@ export interface TaskListOptions {
   channel?: string;
   /** Caller-side cap for surfaces that only show the newest few. */
   limit?: number;
+  /**
+   * Which end of the list the page is cut from. A surface that asks for a short page and means
+   * "what has been happening here" has to say so, or the server hands back the newest-created
+   * few and a long-running session never makes the page.
+   */
+  ordering?: "-last_activity_at" | "-created_at";
 }
 
 export interface TaskSearchResult {
@@ -1750,6 +1782,76 @@ export class PostHogAPIClient {
     }
   }
 
+  /** The user's linked Slack identities. Empty until they run the Sign-in-with-Slack flow. */
+  async listSlackUserIntegrations(): Promise<
+    {
+      slack_user_id: string;
+      slack_team_id: string;
+      slack_team_name: string | null;
+    }[]
+  > {
+    const urlPath = `/api/users/@me/integrations/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    url.searchParams.set("kind", "slack");
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to list Slack integrations: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      results?: {
+        slack_user_id: string;
+        slack_team_id: string;
+        slack_team_name: string | null;
+      }[];
+    };
+    return data.results ?? [];
+  }
+
+  /**
+   * `POST .../integrations/slack/start`. Returns the Sign-in-with-Slack URL; Slack tells the
+   * callback which user authorized, so nobody types a Slack ID.
+   */
+  async startSlackUserIntegrationConnect(
+    teamId?: number,
+  ): Promise<{ install_url: string }> {
+    const id = teamId ?? (await this.getTeamId());
+    const urlPath = `/api/users/@me/integrations/slack/start/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify({ team_id: id }) },
+    });
+    if (!response.ok) {
+      const err = (await response.json().catch(() => ({}))) as {
+        detail?: unknown;
+      };
+      throw new Error(
+        typeof err.detail === "string"
+          ? err.detail
+          : `Failed to start Slack connect: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { install_url: string };
+  }
+
+  /** Patch the user's server-side notification settings. Merged server-side, so pass only the keys you change. */
+  async updateNotificationSettings(
+    settings: Record<string, unknown>,
+  ): Promise<void> {
+    await this.api.patch("/api/users/{uuid}/", {
+      path: { uuid: "@me" },
+      body: { notification_settings: settings } as Record<string, unknown>,
+    });
+  }
+
   async switchOrganization(orgId: string): Promise<void> {
     await this.api.patch("/api/users/{uuid}/", {
       path: { uuid: "@me" },
@@ -2242,6 +2344,10 @@ export class PostHogAPIClient {
       params.channel = options.channel;
     }
 
+    if (options?.ordering) {
+      params.ordering = options.ordering;
+    }
+
     const data = await this.api.get(`/api/projects/{project_id}/tasks/`, {
       path: { project_id: teamId.toString() },
       query: params,
@@ -2449,13 +2555,15 @@ export class PostHogAPIClient {
     const teamId = await this.getTeamId();
     const { origin_product: originProduct, ...taskOptions } = options;
 
-    const data = await this.api.post(`/api/projects/{project_id}/tasks/`, {
-      path: { project_id: teamId.toString() },
-      body: {
-        ...taskOptions,
-        origin_product: originProduct ?? "user_created",
-      } as unknown as Schemas.Task,
-    });
+    const data = await this.withCloudUsageLimitCheck(() =>
+      this.api.post(`/api/projects/{project_id}/tasks/`, {
+        path: { project_id: teamId.toString() },
+        body: {
+          ...taskOptions,
+          origin_product: originProduct ?? "user_created",
+        } as unknown as Schemas.Task,
+      }),
+    );
 
     return normalizeTaskResponse(data, { teamId });
   }
@@ -3004,6 +3112,7 @@ export class PostHogAPIClient {
     } catch (error) {
       if (error instanceof CloudCommandError) throw error;
       if (error instanceof ApiRequestError) {
+        this.throwIfCloudUsageLimit(error);
         const backendError = cloudCommandBackendError(error.body);
         throw new CloudCommandError(
           method,
@@ -3076,34 +3185,36 @@ export class PostHogAPIClient {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/tasks/warm/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({
-          repository: options.repository,
-          repositories: options.repositories,
-          github_integration: options.github_integration,
-          branch: options.branch ?? null,
-          runtime_adapter: options.runtime_adapter ?? null,
-          model: options.model ?? null,
-          reasoning_effort: options.reasoning_effort ?? null,
-          ...(options.context_window
-            ? { context_window: options.context_window }
-            : {}),
-          ...(options.fast_mode != null
-            ? { fast_mode: options.fast_mode }
-            : {}),
-          ...(options.sandbox_environment_id
-            ? { sandbox_environment_id: options.sandbox_environment_id }
-            : {}),
-          ...(options.custom_image_id
-            ? { custom_image_id: options.custom_image_id }
-            : {}),
-        }),
-      },
-    });
+    const response = await this.withCloudUsageLimitCheck(() =>
+      this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify({
+            repository: options.repository,
+            repositories: options.repositories,
+            github_integration: options.github_integration,
+            branch: options.branch ?? null,
+            runtime_adapter: options.runtime_adapter ?? null,
+            model: options.model ?? null,
+            reasoning_effort: options.reasoning_effort ?? null,
+            ...(options.context_window
+              ? { context_window: options.context_window }
+              : {}),
+            ...(options.fast_mode != null
+              ? { fast_mode: options.fast_mode }
+              : {}),
+            ...(options.sandbox_environment_id
+              ? { sandbox_environment_id: options.sandbox_environment_id }
+              : {}),
+            ...(options.custom_image_id
+              ? { custom_image_id: options.custom_image_id }
+              : {}),
+          }),
+        },
+      }),
+    );
     if (!response.ok) {
       throw new Error(`Failed to warm task: ${response.statusText}`);
     }
@@ -3396,11 +3507,13 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
-    });
+    const response = await this.withCloudUsageLimitCheck(() =>
+      this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
+      }),
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to resume run in cloud: ${response.statusText}`);
@@ -5155,6 +5268,11 @@ export class PostHogAPIClient {
     options: {
       gateway_server_id: string;
       enabled: boolean;
+      /**
+       * Reach of the caller's own share. The server defaults an omitted
+       * scope to "personal", so re-enabling without it resets a team share.
+       */
+      scope?: McpAgentGrantScope;
       /** Agent-scope tool policies to set alongside the grant. */
       policies?: McpToolPolicyEntry[];
     },
@@ -5250,26 +5368,29 @@ export class PostHogAPIClient {
     try {
       return await fn();
     } catch (error) {
-      const parsed = this.parseFetcherError(error);
-      if (
-        parsed &&
-        parsed.status === 429 &&
-        parsed.body.code === "usage_limit_exceeded"
-      ) {
-        const limitType = parsed.body.limit_type;
-        throw new CloudUsageLimitError({
-          limitType:
-            limitType === "burst" || limitType === "sustained"
-              ? limitType
-              : null,
-          resetAt:
-            typeof parsed.body.reset_at === "string"
-              ? parsed.body.reset_at
-              : null,
-          isPro: parsed.body.is_pro === true,
-        });
-      }
+      this.throwIfCloudUsageLimit(error);
       throw error;
+    }
+  }
+
+  private throwIfCloudUsageLimit(error: unknown): void {
+    const parsed = this.parseFetcherError(error);
+    if (
+      parsed &&
+      parsed.status === 429 &&
+      (parsed.body.code === "usage_limit_exceeded" ||
+        parsed.body.code === DESKTOP_BILLING_LIMIT_ERROR_CODE)
+    ) {
+      const limitType = parsed.body.limit_type;
+      throw new CloudUsageLimitError({
+        limitType:
+          limitType === "burst" || limitType === "sustained" ? limitType : null,
+        resetAt:
+          typeof parsed.body.reset_at === "string"
+            ? parsed.body.reset_at
+            : null,
+        isPro: parsed.body.is_pro === true,
+      });
     }
   }
 
@@ -6949,6 +7070,264 @@ export class PostHogAPIClient {
       throw new Error(data.error);
     }
     return data;
+  }
+
+  /**
+   * The insight's identity and query node, by short id. Backs saved-insight
+   * chart cards in agent messages: the caller plans and runs the query.
+   */
+  async getInsightDefinition(shortId: string): Promise<{
+    name: string | null;
+    description: string | null;
+    query: unknown;
+  } | null> {
+    const projectId = (await this.getTeamId()).toString();
+    const page = await this.api.get("/api/projects/{project_id}/insights/", {
+      path: { project_id: projectId },
+      query: { short_id: shortId },
+    });
+    const insight = page.results[0];
+    if (!insight) return null;
+    return {
+      name: insight.name || insight.derived_name || null,
+      description: insight.description || null,
+      query: insight.query ?? null,
+    };
+  }
+
+  /**
+   * Resolves an `evidence:<kind>/<id>` citation from an agent message to a
+   * small live summary of the object it points at. Returns null for kinds
+   * without a lookup and for ids that don't resolve, so the caller can fall
+   * back to a static reference. Query-backed kinds (hogql, insight) resolve
+   * in the UI instead, where chart shaping lives.
+   */
+  async getEvidencePreview(
+    kind: string,
+    id: string,
+  ): Promise<EvidencePreview | null> {
+    const projectId = (await this.getTeamId()).toString();
+    const numericId = /^\d+$/.test(id) ? Number(id) : null;
+
+    switch (kind) {
+      case "flag": {
+        let flag: Schemas.FeatureFlag | undefined;
+        if (numericId !== null) {
+          flag = await this.api.get(
+            "/api/projects/{project_id}/feature_flags/{id}/",
+            { path: { project_id: projectId, id: numericId } },
+          );
+        } else {
+          // Agents often cite flags by key; the API only retrieves by
+          // numeric id, so find the exact key through the list search.
+          const page = await this.api.get(
+            "/api/projects/{project_id}/feature_flags/",
+            { path: { project_id: projectId }, query: { search: id } },
+          );
+          flag = page.results.find((entry) => entry.key === id);
+        }
+        if (!flag) return null;
+        // Depth: PostHog's own staleness verdict, and whether anything still
+        // evaluates the flag (7-day call volume).
+        const [status, volume] = await Promise.all([
+          this.api
+            .get("/api/projects/{project_id}/feature_flags/{id}/status/", {
+              path: { project_id: projectId, id: flag.id },
+            })
+            .catch(() => null),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(flag.key)}' AND timestamp >= now() - INTERVAL 7 DAY GROUP BY day ORDER BY day`,
+          }).catch(() => ({})),
+        ]);
+        return decorateFlagPreview(
+          shapeFlagPreview(flag),
+          status,
+          gridRows(volume),
+        );
+      }
+      case "experiment": {
+        if (numericId === null) return null;
+        const experiment = await this.api.get(
+          "/api/projects/{project_id}/experiments/{id}/",
+          { path: { project_id: projectId, id: numericId } },
+        );
+        const preview = shapeExperimentPreview(experiment);
+        // Depth: unique persons exposed per variant, showing the experiment
+        // is collecting and roughly balanced.
+        if (!experiment.start_date || !experiment.feature_flag_key) {
+          return preview;
+        }
+        const until = experiment.end_date
+          ? ` AND timestamp <= parseDateTimeBestEffort('${hogqlEscape(experiment.end_date)}')`
+          : "";
+        const exposures = await this.runQuery({
+          kind: "HogQLQuery",
+          query: `SELECT toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(experiment.feature_flag_key)}' AND timestamp >= parseDateTimeBestEffort('${hogqlEscape(experiment.start_date)}')${until} GROUP BY variant ORDER BY variant`,
+        }).catch(() => ({}));
+        const fact = exposureFact(gridRows(exposures));
+        return fact
+          ? { ...preview, facts: [...(preview.facts ?? []), fact] }
+          : preview;
+      }
+      case "error": {
+        // The issue's identity plus its 30-day activity: total events, users
+        // affected, and a daily-occurrence spark answering "still firing?".
+        const scope = `event = '$exception' AND properties.$exception_issue_id = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 30 DAY`;
+        const [issue, totals, daily] = await Promise.all([
+          this.api.get(
+            "/api/environments/{project_id}/error_tracking/issues/{id}/",
+            { path: { project_id: projectId, id } },
+          ),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT count(), uniq(person_id) FROM events WHERE ${scope}`,
+          }).catch(() => ({})),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE ${scope} GROUP BY day ORDER BY day`,
+          }).catch(() => ({})),
+        ]);
+        const preview = shapeErrorIssuePreview(issue);
+        const totalRow = gridRows(totals)[0];
+        const facts = [...(preview.facts ?? [])];
+        const users = totalRow ? Number(totalRow[1]) : 0;
+        const events = totalRow ? Number(totalRow[0]) : 0;
+        if (Number.isFinite(users) && users > 0) {
+          facts.unshift(
+            `${compactCount(users)} users · ${compactCount(events)} events (30d)`,
+          );
+        }
+        const points = dailySparkPoints(gridRows(daily));
+        return {
+          ...preview,
+          facts,
+          spark:
+            points.length > 1 ? { points, render: "bar" as const } : undefined,
+        };
+      }
+      case "event": {
+        // Verify the event against its definition (also yields the id that
+        // makes the reference clickable), then chart its 14-day volume.
+        const definition = await this.api
+          .get("/api/projects/{project_id}/event_definitions/by_name/", {
+            path: { project_id: projectId },
+            query: { name: id },
+          })
+          .catch(() => null);
+        if (!definition) return null;
+        const volume = await this.runQuery({
+          kind: "HogQLQuery",
+          query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day`,
+        }).catch(() => ({}));
+        const preview = shapeEventDefinitionPreview(definition);
+        const points = dailySparkPoints(gridRows(volume));
+        const total = points.reduce((sum, value) => sum + value, 0);
+        return {
+          ...preview,
+          facts:
+            total > 0 ? [`${compactCount(total)} events (14d)`] : undefined,
+          spark:
+            points.length > 1 ? { points, render: "line" as const } : undefined,
+        };
+      }
+      case "ticket": {
+        const ticket = await this.api.get(
+          "/api/projects/{project_id}/conversations/tickets/{id}/",
+          { path: { project_id: projectId, id } },
+        );
+        return shapeTicketPreview(ticket);
+      }
+      case "person": {
+        const page = await this.api.get("/api/projects/{project_id}/persons/", {
+          path: { project_id: projectId },
+          query: { search: id },
+        });
+        const person = page.results?.[0];
+        return person ? shapePersonPreview(person) : null;
+      }
+      case "replay": {
+        const recording = await this.api.get(
+          "/api/projects/{project_id}/session_recordings/{id}/",
+          { path: { project_id: projectId, id } },
+        );
+        return shapeRecordingPreview(recording);
+      }
+      case "survey": {
+        const [survey, stats] = await Promise.all([
+          this.api.get("/api/projects/{project_id}/surveys/{id}/", {
+            path: { project_id: projectId, id },
+          }),
+          this.api
+            .get("/api/projects/{project_id}/surveys/{id}/stats/", {
+              path: { project_id: projectId, id },
+              query: {},
+            })
+            .catch(() => null),
+        ]);
+        return decorateSurveyPreview(
+          shapeSurveyPreview(survey),
+          stats as Record<string, unknown> | null,
+        );
+      }
+      case "trace": {
+        const rollup = await this.runQuery({
+          kind: "HogQLQuery",
+          query: `SELECT count(), round(sum(toFloat(properties.$ai_total_cost_usd)), 3), round(sum(toFloat(properties.$ai_latency)), 1), groupUniqArray(properties.$ai_model), countIf(toString(properties.$ai_is_error) IN ('true', '1')) FROM events WHERE event IN ('$ai_generation', '$ai_embedding') AND properties.$ai_trace_id = '${hogqlEscape(id)}'`,
+        });
+        const row = gridRows(rollup)[0];
+        return row ? shapeTracePreview(row) : null;
+      }
+      case "dashboard": {
+        if (numericId === null) return null;
+        const dashboard = await this.api.get(
+          "/api/projects/{project_id}/dashboards/{id}/",
+          { path: { project_id: projectId, id: numericId }, query: {} },
+        );
+        return shapeDashboardPreview(dashboard);
+      }
+      case "cohort": {
+        if (numericId === null) return null;
+        const cohort = await this.api.get(
+          "/api/projects/{project_id}/cohorts/{id}/",
+          { path: { project_id: projectId, id: numericId } },
+        );
+        return shapeCohortPreview(cohort);
+      }
+      case "action": {
+        if (numericId === null) return null;
+        const [action, volume] = await Promise.all([
+          this.api.get("/api/projects/{project_id}/actions/{id}/", {
+            path: { project_id: projectId, id: numericId },
+            query: {},
+          }),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE matchesAction(${numericId}) AND timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day`,
+          }).catch(() => ({})),
+        ]);
+        const preview = shapeActionPreview(action);
+        const points = dailySparkPoints(gridRows(volume));
+        const total = points.reduce((sum, value) => sum + value, 0);
+        const facts = [...(preview.facts ?? [])];
+        if (total > 0) facts.unshift(`${compactCount(total)} matches (14d)`);
+        return {
+          ...preview,
+          facts,
+          spark:
+            points.length > 1 ? { points, render: "line" as const } : undefined,
+        };
+      }
+      case "eval": {
+        const evaluation = await this.api.get(
+          "/api/environments/{project_id}/evaluations/{id}/",
+          { path: { project_id: projectId, id } },
+        );
+        return shapeEvaluationPreview(evaluation);
+      }
+      default:
+        return null;
+    }
   }
 
   /**

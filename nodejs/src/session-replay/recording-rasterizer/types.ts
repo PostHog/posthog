@@ -3,6 +3,10 @@ import type { InactivityPeriod as BaseInactivityPeriod } from '@posthog/replay-h
 export interface RasterizeRecordingInput {
     session_id: string
     team_id: number
+    // Team-scoped read token minted by the Python build_rasterization_input activity and relayed to
+    // recording-api (the rasterizer cannot mint its own). Optional only during migration, before the
+    // minting side has shipped.
+    recording_api_token?: string
     max_virtual_time?: number // max virtual-time seconds before stopping capture (default: unlimited)
     playback_speed?: number // 1-360, defaults to 4
     start_offset_s?: number // seconds from session start to begin playback
@@ -77,12 +81,10 @@ export interface CaptureConfig {
 
 /** Internal result from the recorder before S3 upload */
 export interface RecordingResult {
-    video_path: string
     playback_speed: number
     capture_duration_s: number // wall-clock seconds of useful capture (up to RECORDING_ENDED)
     frame_count: number // total frames captured
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
-    custom_fps: number
     timings: Pick<ActivityTimings, 'setup_s' | 'capture_s'>
 }

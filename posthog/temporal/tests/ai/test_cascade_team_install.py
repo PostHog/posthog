@@ -15,11 +15,14 @@ from posthog.temporal.ai.slack_app import (
 )
 
 
-def _make_inputs(integration_id: int, slack_team_id: str = "T_SLACK") -> PostHogCodeSlackMentionWorkflowInputs:
+def _make_inputs(
+    integration_id: int, user_id: int, slack_team_id: str = "T_SLACK"
+) -> PostHogCodeSlackMentionWorkflowInputs:
     return PostHogCodeSlackMentionWorkflowInputs(
         event={"channel": "C123", "ts": "1234.5678", "user": "U_ALICE", "text": "<@BOT> fix the thing"},
         integration_id=integration_id,
         slack_team_id=slack_team_id,
+        user_id=user_id,
     )
 
 
@@ -52,7 +55,7 @@ class TestCascadeTeamInstall(TestCase):
             )
 
         outcome = cascade_posthog_code_repository_activity(
-            _make_inputs(self.slack_integration.id), "fix the thing", self.user.id
+            _make_inputs(self.slack_integration.id, self.user.id), "fix the thing", self.user.id
         )
 
         assert outcome.mode == "no_repo"
@@ -75,7 +78,7 @@ class TestCascadeTeamInstall(TestCase):
         mock_user_github_class.return_value = mock_user_github
 
         outcome = cascade_posthog_code_repository_activity(
-            _make_inputs(self.slack_integration.id), "fix the thing", self.user.id
+            _make_inputs(self.slack_integration.id, self.user.id), "fix the thing", self.user.id
         )
 
         assert outcome.mode == "auto"

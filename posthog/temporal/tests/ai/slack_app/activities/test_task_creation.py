@@ -24,7 +24,9 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
     _format_author_token,
     _indent_body,
     build_thread_context_update_block,
+    derive_mention_workflow_id,
 )
+from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 
 
 def test_format_author_token_builds_labeled_mention():
@@ -78,21 +80,23 @@ def test_build_description_keeps_the_prompt_bare_without_a_context_block(thread_
 
 
 @pytest.mark.parametrize(
-    "living_enabled,canvas_flag_enabled,granted_scopes,expected_mode",
+    "living_enabled,canvas_flag_enabled,granted_scopes,expected_mode,expected_charts",
     [
-        (True, True, "chat:write,canvases:write,files:write", "canvas_file"),
-        (True, True, "chat:write,canvases:write", "message"),
-        (True, True, "chat:write", "message"),
-        (True, False, "chat:write,canvases:write,files:write", "message"),
-        (False, True, "chat:write,canvases:write,files:write", "none"),
+        (True, True, "chat:write,canvases:write,files:write", "canvas_file", True),
+        (True, True, "chat:write,canvases:write", "message", True),
+        (True, True, "chat:write", "message", True),
+        (True, False, "chat:write,canvases:write,files:write", "message", False),
+        (False, True, "chat:write,canvases:write,files:write", "none", False),
     ],
 )
 def test_artifact_delivery_mode_offers_only_what_delivery_accepts(
-    living_enabled, canvas_flag_enabled, granted_scopes, expected_mode
+    living_enabled, canvas_flag_enabled, granted_scopes, expected_mode, expected_charts
 ):
-    # The agent offers whatever this mode says, so it must never claim more than the
+    # The agent offers whatever this state says, so it must never claim more than the
     # workspace has: canvas/file needs its flag AND both scopes AND the umbrella gate,
-    # or the agent promises an artifact the adapters then reject.
+    # or the agent promises an artifact the adapters then reject. Charts clear on the flag
+    # and the umbrella gate alone, which is why the two rows with the flag on but a scope
+    # missing still get charts while dropping to message mode.
     integration = Integration(kind="slack", config={"scope": granted_scopes})
 
     with (
@@ -105,7 +109,10 @@ def test_artifact_delivery_mode_offers_only_what_delivery_accepts(
             return_value=canvas_flag_enabled,
         ),
     ):
-        assert _artifact_delivery_state_updates(integration) == {"slack_artifact_delivery": expected_mode}
+        assert _artifact_delivery_state_updates(integration) == {
+            "slack_artifact_delivery": expected_mode,
+            "slack_chart_delivery": expected_charts,
+        }
 
 
 def test_build_description_renders_labeled_mention_for_each_author():
@@ -455,3 +462,30 @@ class TestBuildThreadContextUpdateBlock:
         ]
         block, _ = build_thread_context_update_block(msgs, last_forwarded_ts="1.000", event_ts="2.000")
         assert block == snapshot
+
+
+class TestDeriveMentionWorkflowId:
+    """The id doubles as the queue workflow's dedupe key, so a confirmed
+    re-dispatch has to look different from the pass that raised the prompt —
+    otherwise clicking "Yes, take a look" is swallowed as a redelivery."""
+
+    def _inputs(self, **overrides) -> PostHogCodeSlackMentionWorkflowInputs:
+        fields = {
+            "event": {"channel": "C001", "ts": "1001.0000"},
+            "integration_id": 1,
+            "slack_team_id": "T_SLACK",
+            "slack_event_id": "Ev123",
+            "user_id": 1,
+            **overrides,
+        }
+        return PostHogCodeSlackMentionWorkflowInputs(**fields)
+
+    def test_confirmed_redispatch_gets_its_own_id(self):
+        original = derive_mention_workflow_id(self._inputs(untagged_followup=True))
+        confirmed = derive_mention_workflow_id(self._inputs(untagged_followup=True, untagged_followup_confirmed=True))
+        assert original != confirmed
+        assert confirmed.startswith(original)
+
+    def test_id_is_stable_without_a_slack_event_id(self):
+        inputs = self._inputs(slack_event_id=None)
+        assert derive_mention_workflow_id(inputs) == "posthog-code-mention-T_SLACK:C001:1001.0000"

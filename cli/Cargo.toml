@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "posthog-cli"
-version = "0.10.0"
+version = "0.13.0"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",
@@ -50,7 +50,7 @@ serde_yaml = "0.9"
 colored = "3.0"
 regex = "1.12"
 tracing = "0.1.41"
-uuid = { version = "1.16.0", features = ["v7"] }
+uuid = { version = "1.16.0", features = ["v5", "v7"] }
 thiserror = "2.0.12"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 posthog-rs = { version = "0.15.0", default-features = false, features = ["error-tracking"] }
