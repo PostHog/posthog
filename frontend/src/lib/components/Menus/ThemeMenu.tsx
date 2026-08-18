@@ -8,6 +8,7 @@ import { Link } from 'lib/lemon-ui/Link/Link'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { MenuSubmenu } from 'lib/ui/Menus/MenuSubmenu'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -23,65 +24,57 @@ export function ThemeMenu(): JSX.Element {
     }
 
     return (
-        <Menu.SubmenuRoot>
-            <Menu.SubmenuTrigger
-                openOnHover={false}
-                render={
-                    <ButtonPrimitive menuItem data-attr="more-menu-theme-button">
-                        <IconPalette />
-                        Color theme
-                        <div className="ml-auto flex items-center gap-1">
-                            <LemonTag>{themeMode}</LemonTag>
-                            <MenuOpenIndicator intent="sub" className="ml-auto" />
-                        </div>
-                    </ButtonPrimitive>
-                }
-            />
-            <Menu.Portal>
-                <Menu.Positioner className="z-[var(--z-popover)]" collisionPadding={{ top: 50, bottom: 50 }}>
-                    <Menu.Popup className="primitive-menu-content">
-                        <div className="primitive-menu-content-inner flex flex-col gap-px p-1">
-                            <Menu.Item
-                                onClick={() => handleThemeChange('light')}
-                                render={
-                                    <ButtonPrimitive active={themeMode === 'light'} menuItem>
-                                        <IconDay />
-                                        Light mode
-                                    </ButtonPrimitive>
-                                }
-                            />
-                            <Menu.Item
-                                onClick={() => handleThemeChange('dark')}
-                                render={
-                                    <ButtonPrimitive active={themeMode === 'dark'} menuItem>
-                                        <IconNight />
-                                        Dark mode
-                                    </ButtonPrimitive>
-                                }
-                            />
-                            <Menu.Item
-                                onClick={() => handleThemeChange('system')}
-                                render={
-                                    <ButtonPrimitive active={themeMode === 'system'} menuItem>
-                                        <IconLaptop />
-                                        Sync with system
-                                    </ButtonPrimitive>
-                                }
-                            />
-                            {customCssEnabled && (
-                                <Menu.Item
-                                    render={(props) => (
-                                        <Link {...props} to={urls.customCss()} buttonProps={{ menuItem: true }}>
-                                            <IconPalette />
-                                            Edit custom CSS
-                                        </Link>
-                                    )}
-                                />
-                            )}
-                        </div>
-                    </Menu.Popup>
-                </Menu.Positioner>
-            </Menu.Portal>
-        </Menu.SubmenuRoot>
+        <MenuSubmenu
+            trigger={
+                <ButtonPrimitive menuItem data-attr="more-menu-theme-button">
+                    <IconPalette />
+                    Color theme
+                    <div className="ml-auto flex items-center gap-1">
+                        <LemonTag>{themeMode}</LemonTag>
+                        <MenuOpenIndicator intent="sub" className="ml-auto" />
+                    </div>
+                </ButtonPrimitive>
+            }
+        >
+            <div className="primitive-menu-content-inner flex flex-col gap-px p-1">
+                <Menu.Item
+                    onClick={() => handleThemeChange('light')}
+                    render={
+                        <ButtonPrimitive active={themeMode === 'light'} menuItem>
+                            <IconDay />
+                            Light mode
+                        </ButtonPrimitive>
+                    }
+                />
+                <Menu.Item
+                    onClick={() => handleThemeChange('dark')}
+                    render={
+                        <ButtonPrimitive active={themeMode === 'dark'} menuItem>
+                            <IconNight />
+                            Dark mode
+                        </ButtonPrimitive>
+                    }
+                />
+                <Menu.Item
+                    onClick={() => handleThemeChange('system')}
+                    render={
+                        <ButtonPrimitive active={themeMode === 'system'} menuItem>
+                            <IconLaptop />
+                            Sync with system
+                        </ButtonPrimitive>
+                    }
+                />
+                {customCssEnabled && (
+                    <Menu.Item
+                        render={(props) => (
+                            <Link {...props} to={urls.customCss()} buttonProps={{ menuItem: true }}>
+                                <IconPalette />
+                                Edit custom CSS
+                            </Link>
+                        )}
+                    />
+                )}
+            </div>
+        </MenuSubmenu>
     )
 }

@@ -23,6 +23,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { MenuSubmenu } from 'lib/ui/Menus/MenuSubmenu'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -166,41 +167,28 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <DropdownMenuSeparator />
 
                                 {isAuthenticatedTeam(currentTeam) && (
-                                    <Menu.SubmenuRoot>
-                                        <Menu.SubmenuTrigger
-                                            openOnHover={false}
-                                            render={
-                                                <ButtonPrimitive
-                                                    menuItem
-                                                    data-attr="new-account-menu-all-projects-button"
-                                                >
-                                                    <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-4 dark:text-tertiary text-[8px]">
-                                                        {String.fromCodePoint(
-                                                            currentTeam.name.codePointAt(0)!
-                                                        ).toLocaleUpperCase()}
-                                                    </div>
-                                                    <span className="truncate font-semibold">
-                                                        {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
-                                                    </span>
-                                                    {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
-                                                    <MenuOpenIndicator intent="sub" className="ml-auto" />
-                                                </ButtonPrimitive>
-                                            }
-                                        />
-                                        <Menu.Portal>
-                                            <Menu.Positioner
-                                                className="z-[var(--z-popover)]"
-                                                collisionPadding={{ top: 50, bottom: 50 }}
-                                            >
-                                                <Menu.Popup className="primitive-menu-content w-min max-w-[var(--available-width)]">
-                                                    {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
-                                                    <div onKeyDown={(e) => e.stopPropagation()}>
-                                                        <ProjectSwitcher dialog={false} />
-                                                    </div>
-                                                </Menu.Popup>
-                                            </Menu.Positioner>
-                                        </Menu.Portal>
-                                    </Menu.SubmenuRoot>
+                                    <MenuSubmenu
+                                        popupClassName="w-min max-w-[var(--available-width)]"
+                                        trigger={
+                                            <ButtonPrimitive menuItem data-attr="new-account-menu-all-projects-button">
+                                                <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-4 dark:text-tertiary text-[8px]">
+                                                    {String.fromCodePoint(
+                                                        currentTeam.name.codePointAt(0)!
+                                                    ).toLocaleUpperCase()}
+                                                </div>
+                                                <span className="truncate font-semibold">
+                                                    {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
+                                                </span>
+                                                {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
+                                                <MenuOpenIndicator intent="sub" className="ml-auto" />
+                                            </ButtonPrimitive>
+                                        }
+                                    >
+                                        {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
+                                        <div onKeyDown={(e) => e.stopPropagation()}>
+                                            <ProjectSwitcher dialog={false} />
+                                        </div>
+                                    </MenuSubmenu>
                                 )}
 
                                 <Menu.Item
@@ -265,47 +253,32 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     )}
                                 </Label>
                                 <DropdownMenuSeparator />
-                                <Menu.SubmenuRoot>
-                                    <Menu.SubmenuTrigger
-                                        openOnHover={false}
-                                        render={
-                                            <ButtonPrimitive
-                                                menuItem
-                                                data-attr="new-account-menu-all-organizations-button"
-                                            >
-                                                {currentOrganization ? (
-                                                    <UploadedLogo
-                                                        name={currentOrganization.name}
-                                                        entityId={currentOrganization.id}
-                                                        mediaId={currentOrganization.logo_media_id}
-                                                        size="xsmall"
-                                                    />
-                                                ) : (
-                                                    <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
-                                                )}
-                                                <span className="truncate font-semibold">
-                                                    {currentOrganization
-                                                        ? currentOrganization.name
-                                                        : 'Select organization'}
-                                                </span>
-                                                <MenuOpenIndicator intent="sub" className="ml-auto" />
-                                            </ButtonPrimitive>
-                                        }
-                                    />
-                                    <Menu.Portal>
-                                        <Menu.Positioner
-                                            className="z-[var(--z-popover)]"
-                                            collisionPadding={{ top: 50, bottom: 50 }}
-                                        >
-                                            <Menu.Popup className="primitive-menu-content w-min max-w-[var(--available-width)]">
-                                                {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
-                                                <div onKeyDown={(e) => e.stopPropagation()}>
-                                                    <OrgSwitcher dialog={false} />
-                                                </div>
-                                            </Menu.Popup>
-                                        </Menu.Positioner>
-                                    </Menu.Portal>
-                                </Menu.SubmenuRoot>
+                                <MenuSubmenu
+                                    popupClassName="w-min max-w-[var(--available-width)]"
+                                    trigger={
+                                        <ButtonPrimitive menuItem data-attr="new-account-menu-all-organizations-button">
+                                            {currentOrganization ? (
+                                                <UploadedLogo
+                                                    name={currentOrganization.name}
+                                                    entityId={currentOrganization.id}
+                                                    mediaId={currentOrganization.logo_media_id}
+                                                    size="xsmall"
+                                                />
+                                            ) : (
+                                                <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
+                                            )}
+                                            <span className="truncate font-semibold">
+                                                {currentOrganization ? currentOrganization.name : 'Select organization'}
+                                            </span>
+                                            <MenuOpenIndicator intent="sub" className="ml-auto" />
+                                        </ButtonPrimitive>
+                                    }
+                                >
+                                    {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
+                                    <div onKeyDown={(e) => e.stopPropagation()}>
+                                        <OrgSwitcher dialog={false} />
+                                    </div>
+                                </MenuSubmenu>
 
                                 {isCloudOrDev && canAccessBilling ? (
                                     <Menu.Item

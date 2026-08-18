@@ -49,6 +49,7 @@ describe('LemonDropdown', () => {
             <LemonDropdown
                 trigger="hover"
                 startVisible
+                hoverCloseDelayMs={0}
                 onVisibilityChange={onVisibilityChange}
                 overlay={<div>Menu</div>}
             >
@@ -66,6 +67,36 @@ describe('LemonDropdown', () => {
         expect(() => fireEvent.mouseLeave(overlay!, { relatedTarget })).not.toThrow()
 
         // The "cursor has left" branch should still run, closing the dropdown.
+        expect(onVisibilityChange).toHaveBeenCalledWith(false)
+    })
+
+    it('keeps a hover dropdown open while the pointer crosses into the overlay', () => {
+        jest.useFakeTimers()
+        const onVisibilityChange = jest.fn()
+
+        render(
+            <LemonDropdown
+                trigger="hover"
+                startVisible
+                hoverCloseDelayMs={100}
+                onVisibilityChange={onVisibilityChange}
+                overlay={<div>Menu</div>}
+            >
+                <button>Open</button>
+            </LemonDropdown>
+        )
+
+        // Leaving the trigger for the gap above the overlay only schedules the close.
+        fireEvent.mouseLeave(screen.getByText('Open'), { relatedTarget: document.body })
+        expect(onVisibilityChange).not.toHaveBeenCalled()
+
+        fireEvent.mouseEnter(document.querySelector('.Popover')!)
+        act(() => jest.advanceTimersByTime(100))
+        expect(onVisibilityChange).not.toHaveBeenCalled()
+
+        // Leaving the overlay for good still closes, once the grace period is up.
+        fireEvent.mouseLeave(document.querySelector('.Popover')!, { relatedTarget: document.body })
+        act(() => jest.advanceTimersByTime(100))
         expect(onVisibilityChange).toHaveBeenCalledWith(false)
     })
 })

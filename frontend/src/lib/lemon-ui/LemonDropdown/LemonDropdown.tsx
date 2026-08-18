@@ -19,6 +19,13 @@ export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'vis
     /** @default 'click' */
     trigger?: 'click' | 'hover'
     hoverOpenDelayMs?: number
+    /**
+     * Grace period before a hover dropdown closes, so the pointer can cross the gap between the
+     * trigger and the overlay without the overlay disappearing on the way. Set to 0 to close
+     * as soon as the pointer leaves.
+     * @default 100
+     */
+    hoverCloseDelayMs?: number
     children: React.ReactElement<
         Record<string, any> & {
             onClick: MouseEventHandler
@@ -36,10 +43,12 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
             onVisibilityChange,
             onClickOutside,
             onClickInside,
+            onMouseEnterInside,
             onMouseLeaveInside,
             closeOnClickInside = true,
             trigger = 'click',
             hoverOpenDelayMs = 0,
+            hoverCloseDelayMs = 100,
             children,
             startVisible,
             ...popoverProps
@@ -54,6 +63,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
         const floatingRef = useRef<HTMLDivElement>(null)
         const referenceRef = useRef<HTMLSpanElement>(null)
         const hoverOpenTimeoutRef = useRef<number | null>(null)
+        const hoverCloseTimeoutRef = useRef<number | null>(null)
 
         const clearHoverOpenTimeout = (): void => {
             if (hoverOpenTimeoutRef.current !== null) {
@@ -62,10 +72,20 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
             }
         }
 
+        const clearHoverCloseTimeout = (): void => {
+            if (hoverCloseTimeoutRef.current !== null) {
+                window.clearTimeout(hoverCloseTimeoutRef.current)
+                hoverCloseTimeoutRef.current = null
+            }
+        }
+
         useEffect(
             () => () => {
                 if (hoverOpenTimeoutRef.current !== null) {
                     window.clearTimeout(hoverOpenTimeoutRef.current)
+                }
+                if (hoverCloseTimeoutRef.current !== null) {
+                    window.clearTimeout(hoverCloseTimeoutRef.current)
                 }
             },
             []
@@ -78,6 +98,18 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                 setLocalVisible(value)
             }
             onVisibilityChange?.(value)
+        }
+
+        const scheduleHoverClose = (): void => {
+            clearHoverCloseTimeout()
+            if (hoverCloseDelayMs <= 0) {
+                setVisible(false)
+                return
+            }
+            hoverCloseTimeoutRef.current = window.setTimeout(() => {
+                hoverCloseTimeoutRef.current = null
+                setVisible(false)
+            }, hoverCloseDelayMs)
         }
 
         return (
@@ -96,15 +128,21 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                     closeOnClickInside && setVisible(false)
                     onClickInside?.(e)
                 }}
+                onMouseEnterInside={(e) => {
+                    // The pointer made it into the overlay, so a close scheduled on the way out of
+                    // the trigger no longer applies.
+                    clearHoverCloseTimeout()
+                    onMouseEnterInside?.(e)
+                }}
                 onMouseLeaveInside={(e) => {
                     // relatedTarget is null when leaving the window and isn't always a Node, so
-                    // Node.contains() would throw — treat anything that isn't a contained Node as "left".
+                    // Node.contains() would throw. Treat anything that isn't a contained Node as "left".
                     const relatedTarget = e.relatedTarget
                     if (
                         trigger === 'hover' &&
                         !(relatedTarget instanceof Node && referenceRef.current?.contains(relatedTarget))
                     ) {
-                        setVisible(false)
+                        scheduleHoverClose()
                     }
                     onMouseLeaveInside?.(e)
                 }}
@@ -125,6 +163,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                     onMouseEnter: (): void => {
                         if (trigger === 'hover') {
                             clearHoverOpenTimeout()
+                            clearHoverCloseTimeout()
                             if (hoverOpenDelayMs > 0) {
                                 hoverOpenTimeoutRef.current = window.setTimeout(() => {
                                     hoverOpenTimeoutRef.current = null
@@ -142,7 +181,7 @@ export const LemonDropdown = React.forwardRef<HTMLDivElement, LemonDropdownProps
                             trigger === 'hover' &&
                             !(relatedTarget instanceof Node && floatingRef.current?.contains(relatedTarget))
                         ) {
-                            setVisible(false)
+                            scheduleHoverClose()
                         }
                     },
                     'aria-haspopup': 'true',

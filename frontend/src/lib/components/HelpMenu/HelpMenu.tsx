@@ -12,6 +12,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { MenuSubmenu } from 'lib/ui/Menus/MenuSubmenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -239,86 +240,72 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                 )}
 
                                 {user?.is_staff && (
-                                    <Menu.SubmenuRoot>
-                                        <Menu.SubmenuTrigger
-                                            render={
-                                                <ButtonPrimitive menuItem data-attr="help-menu-admin-button">
-                                                    Admin (Lucky you!)
-                                                    <MenuOpenIndicator intent="sub" />
-                                                </ButtonPrimitive>
-                                            }
-                                        />
-                                        <Menu.Portal>
-                                            <Menu.Positioner
-                                                className="z-[var(--z-popover)]"
-                                                collisionPadding={{ top: 50, bottom: 50 }}
-                                            >
-                                                <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[250px]">
-                                                    <ScrollableShadows
-                                                        direction="vertical"
-                                                        styledScrollbars
-                                                        className="flex flex-col gap-px overflow-x-hidden"
-                                                        innerClassName="primitive-menu-content-inner p-1 "
+                                    <MenuSubmenu
+                                        popupClassName="max-h-[calc(var(--available-height)-4px)] min-w-[250px]"
+                                        trigger={
+                                            <ButtonPrimitive menuItem data-attr="help-menu-admin-button">
+                                                Admin (Lucky you!)
+                                                <MenuOpenIndicator intent="sub" />
+                                            </ButtonPrimitive>
+                                        }
+                                    >
+                                        <ScrollableShadows
+                                            direction="vertical"
+                                            styledScrollbars
+                                            className="flex flex-col gap-px overflow-x-hidden"
+                                            innerClassName="primitive-menu-content-inner p-1 "
+                                        >
+                                            <Menu.Item
+                                                render={(props) => (
+                                                    <Link
+                                                        {...props}
+                                                        to="/admin/"
+                                                        buttonProps={{ menuItem: true }}
+                                                        data-attr="help-menu-django-admin-button"
+                                                        disableClientSideRouting
                                                     >
-                                                        <Menu.Item
-                                                            render={(props) => (
-                                                                <Link
-                                                                    {...props}
-                                                                    to="/admin/"
-                                                                    buttonProps={{ menuItem: true }}
-                                                                    data-attr="help-menu-django-admin-button"
-                                                                    disableClientSideRouting
-                                                                >
-                                                                    <IconShieldLock />
-                                                                    Django admin
-                                                                </Link>
-                                                            )}
-                                                        />
-                                                        <Menu.Item
-                                                            render={(props) => (
-                                                                <Link
-                                                                    {...props}
-                                                                    to={urls.instanceStatus()}
-                                                                    buttonProps={{ menuItem: true }}
-                                                                    tooltip="Async migrations"
-                                                                    tooltipPlacement="right"
-                                                                    data-attr="help-menu-instance-panel-button"
-                                                                >
-                                                                    <IconServer />
-                                                                    Instance panel
-                                                                </Link>
-                                                            )}
-                                                        />
+                                                        <IconShieldLock />
+                                                        Django admin
+                                                    </Link>
+                                                )}
+                                            />
+                                            <Menu.Item
+                                                render={(props) => (
+                                                    <Link
+                                                        {...props}
+                                                        to={urls.instanceStatus()}
+                                                        buttonProps={{ menuItem: true }}
+                                                        tooltip="Async migrations"
+                                                        tooltipPlacement="right"
+                                                        data-attr="help-menu-instance-panel-button"
+                                                    >
+                                                        <IconServer />
+                                                        Instance panel
+                                                    </Link>
+                                                )}
+                                            />
 
-                                                        {user?.is_impersonated ||
-                                                        preflight?.is_debug ||
-                                                        preflight?.instance_preferences?.debug_queries ? (
-                                                            <Menu.Item
-                                                                onClick={() => {
-                                                                    openCHQueriesDebugModal()
-                                                                }}
-                                                                render={
-                                                                    <ButtonPrimitive
-                                                                        menuItem
-                                                                        data-attr="help-menu-debug-ch-queries-button"
-                                                                    >
-                                                                        <IconDatabase />
-                                                                        Debug CH queries
-                                                                        <KeyboardShortcut
-                                                                            command
-                                                                            option
-                                                                            tab
-                                                                            className="ml-auto"
-                                                                        />
-                                                                    </ButtonPrimitive>
-                                                                }
-                                                            />
-                                                        ) : null}
-                                                    </ScrollableShadows>
-                                                </Menu.Popup>
-                                            </Menu.Positioner>
-                                        </Menu.Portal>
-                                    </Menu.SubmenuRoot>
+                                            {user?.is_impersonated ||
+                                            preflight?.is_debug ||
+                                            preflight?.instance_preferences?.debug_queries ? (
+                                                <Menu.Item
+                                                    onClick={() => {
+                                                        openCHQueriesDebugModal()
+                                                    }}
+                                                    render={
+                                                        <ButtonPrimitive
+                                                            menuItem
+                                                            data-attr="help-menu-debug-ch-queries-button"
+                                                        >
+                                                            <IconDatabase />
+                                                            Debug CH queries
+                                                            <KeyboardShortcut command option tab className="ml-auto" />
+                                                        </ButtonPrimitive>
+                                                    }
+                                                />
+                                            ) : null}
+                                        </ScrollableShadows>
+                                    </MenuSubmenu>
                                 )}
 
                                 {billing?.account_owner?.email && billing?.account_owner?.name && (
