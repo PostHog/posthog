@@ -5,11 +5,13 @@ window query the agent is steered to run comes back empty, every case degrades t
 route, and the suite scores the fallback path instead of the recipe.
 
 Events go straight to ClickHouse, the way the error-tracking seeder does, so the seed depends on
-neither Kafka nor the demo matrix having produced anything. The session replay row goes through
-``produce_replay_summary`` so a session lookup finds a real recording rather than nothing, which
-would send the agent down a "this session does not exist" path for reasons unrelated to what the
-suite measures. That helper writes through ``ClickhouseProducer``, which only bypasses Kafka while
-``settings.TEST`` holds — true under the harness, which runs with ``TEST=1``.
+neither Kafka nor the demo matrix having produced anything. The session replay row is inserted the
+same way, with ``sync_execute(INSERT_SINGLE_SESSION_REPLAY, ...)``, so a session lookup finds a real
+recording rather than nothing, which would send the agent down a "this session does not exist" path
+for reasons unrelated to what the suite measures. It deliberately does not use
+``produce_replay_summary``: that helper writes through ``ClickhouseProducer``, which only bypasses
+Kafka while the process-global ``settings.TEST`` holds, and the harness flips it to False inside
+another case's concurrent team setup, so the row could leave through Kafka and never land.
 
 One function per case: the seeder contract passes only the context, so case-specific data cannot
 arrive as a parameter.
@@ -24,7 +26,7 @@ from typing import Any
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.event.sql import INSERT_EVENT_SQL
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import INSERT_SINGLE_SESSION_REPLAY
 
 from products.signals.evals.constants import (
     ELEMENT_TEXT_CASE,
@@ -100,21 +102,36 @@ def _install(context: CustomPromptSandboxContext, case: AttributionCase) -> dict
         _insert_event(team_id=context.team_id, case=case, seeded=seeded)
 
     recording_end = case.recording_start_time + timedelta(seconds=case.start_time + _RECORDING_PADDING_SECONDS)
-    produce_replay_summary(
-        team_id=context.team_id,
-        session_id=case.session_id,
-        distinct_id=_DISTINCT_ID,
-        first_timestamp=case.recording_start_time,
-        last_timestamp=recording_end,
-        first_url=case.url,
-        click_count=sum(1 for event in case.events if event.elements_chain),
-        mouse_activity_count=len(case.events),
-        active_milliseconds=(case.start_time + _RECORDING_PADDING_SECONDS) * 1000,
-        console_error_count=sum(1 for event in case.events if event.event == "$exception"),
-        snapshot_source="web",
-        # The case writes its own events above; the helper's filler event would add an unrelated
-        # row to the same session.
-        ensure_analytics_event_in_session=False,
+    # Direct insert rather than produce_replay_summary: see the module docstring. It avoids the
+    # process-global settings.TEST that the helper's ClickhouseProducer reads, and writes no filler
+    # analytics event (the case seeds its own events above).
+    sync_execute(
+        INSERT_SINGLE_SESSION_REPLAY,
+        {
+            "session_id": case.session_id,
+            "team_id": context.team_id,
+            "distinct_id": _DISTINCT_ID,
+            "first_timestamp": _clickhouse_timestamp(case.recording_start_time),
+            "last_timestamp": _clickhouse_timestamp(recording_end),
+            "first_url": case.url,
+            "all_urls": [],
+            "click_count": sum(1 for event in case.events if event.elements_chain),
+            "keypress_count": 0,
+            "mouse_activity_count": len(case.events),
+            "active_milliseconds": (case.start_time + _RECORDING_PADDING_SECONDS) * 1000,
+            "console_log_count": 0,
+            "console_warn_count": 0,
+            "console_error_count": sum(1 for event in case.events if event.event == "$exception"),
+            "snapshot_source": "web",
+            "snapshot_library": None,
+            "size": 0,
+            "block_urls": [],
+            "block_first_timestamps": [],
+            "block_last_timestamps": [],
+            "retention_period_days": 30,
+            "is_deleted": 0,
+            "_timestamp": case.recording_start_time.timestamp(),
+        },
     )
     return {
         "session_id": case.session_id,
