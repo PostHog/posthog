@@ -1,13 +1,15 @@
 import time
 import datetime as dt
-import dataclasses
 from collections.abc import Iterable, Iterator
+from dataclasses import field
 from typing import Any
 
 import jwt
 import requests
 import structlog
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -48,17 +50,18 @@ class GooglePlayConsoleAuthError(Exception):
     """The service account key could not be exchanged for a Play Reporting access token."""
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class ServiceAccountKey:
     """The fields the source needs out of an uploaded Google service account JSON key."""
 
     client_email: str
-    private_key: str
+    # Kept out of `repr` so a traceback that prints the key object doesn't carry the PEM.
+    private_key: str = field(repr=False)
     private_key_id: str | None = None
     token_uri: str | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class GooglePlayConsoleResumeConfig:
     # Package name currently being fetched — apps are walked in sorted order, so anything
     # sorting before this one has already been synced.
