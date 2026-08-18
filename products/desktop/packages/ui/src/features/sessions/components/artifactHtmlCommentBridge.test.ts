@@ -1,3 +1,9 @@
+// jsdom ships no types and this workspace does not install @types/jsdom, but
+// the posthog repo root does, and local runs pick it up through node_modules
+// traversal. The import is untyped only in workspace-only installs (CI), so an
+// expect-error directive would be "unused" locally; only a ts-ignore fits both.
+// biome-ignore lint/suspicious/noTsIgnore: the auto-fix (an expect-error directive) breaks repo-root installs (see above)
+// @ts-ignore
 import { JSDOM } from "jsdom";
 import { describe, expect, it, vi } from "vitest";
 import { injectArtifactHtmlCommentBridge } from "./artifactHtmlCommentBridge";
