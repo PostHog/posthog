@@ -17,6 +17,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ParentClosePolicy
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
@@ -544,7 +545,7 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
         return False
 
 
-@dataclass
+@frozen
 class ReportHasAssignedSignalsInput:
     team_id: int
     report_id: str
