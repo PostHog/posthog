@@ -949,7 +949,9 @@ class CDCExtractActivity:
                     legacy=sorted(s.name for s in self.cdc_schemas if s.name not in self._buffered_table_names),
                 )
 
-        attempt = activity.info().attempt
+        # Guarded like the metric meter: CDC activity bodies are also exercised by direct
+        # instantiation outside an activity context, where activity.info() raises.
+        attempt = activity.info().attempt if activity.in_activity() else 1
         if attempt > 1:
             metrics.get_extract_retry_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
             self.log.info("cdc_extract_retry_attempt", attempt=attempt)
