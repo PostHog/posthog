@@ -6,6 +6,7 @@ import { useRef } from 'react'
 
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { AnalysisNudge } from 'products/replay_vision/frontend/components/AnalysisNudge'
 import { ObservationsDock } from 'products/replay_vision/frontend/components/ObservationsDock'
 import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
 
@@ -103,9 +104,14 @@ function SessionRecordingPlayerInternal({
                 'SessionRecordingPlayerWrapper--stacked-vertically': withSidebar && sidebarOpen && isVerticallyStacked,
             })}
         >
-            <div className="flex flex-col flex-1 min-w-0 min-h-0">
+            <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
                 <PurePlayer noMeta={noMeta} noBorder={noBorder} />
-                {visionSurfaceShown(logicProps) && <ObservationsDock />}
+                {visionSurfaceShown(logicProps) && (
+                    <>
+                        <ObservationsDock />
+                        <AnalysisNudge />
+                    </>
+                )}
             </div>
             {withSidebar && <PlayerSidebar />}
         </div>
