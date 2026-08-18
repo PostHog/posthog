@@ -515,8 +515,8 @@ tools:
             (e.g. 10,000 → 10K; only valid for numeric display types). `target_type` picks what the property attaches
             to: `account` (default; value set manually or from a materialized view), `person`, or `group` (person/group
             properties are populated from a warehouse table or a materialized view via a custom property source and
-            become usable like any other person/group property in feature flags, cohorts, and insights). For `group` targets, also pass
-            `group_type_index` (0-4) selecting the group type. Person and group targets require the
+            become usable like any other person/group property in feature flags, cohorts, and insights). For `group`
+            targets, also pass `group_type_index` (0-4) selecting the group type. Person and group targets require the
             `warehouse-person-properties` feature; creating a `group` target additionally requires the `group:write`
             scope. Definitions are team-scoped; for account targets, set the value a specific account holds via the
             account custom property value tools.
@@ -618,8 +618,9 @@ tools:
             Person- and group-property sources only: start a backfill that reads the whole warehouse table or view and
             populates person or group properties for its historical rows. Backfill is per table or view — one call
             refreshes every enabled property mapped from it — and it coalesces if one is already running for that table
-            or view (the response's `already_running` is then true). Returns 400 for a source that is not an enabled person- or group-property
-            source. Backfilling a group-target source additionally requires the `group:write` scope.
+            or view (the response's `already_running` is then true). Returns 400 for a source that is not an enabled
+            person- or group-property source. Backfilling a group-target source additionally requires the `group:write`
+            scope.
         feature_flag: warehouse-person-properties
     custom-property-sources-create:
         operation: custom_property_sources_create
