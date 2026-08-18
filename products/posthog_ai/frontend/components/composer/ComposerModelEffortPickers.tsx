@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 
-import { IconChevronDown, IconChevronLeft, IconRevert, IconRefresh } from '@posthog/icons'
+import { IconChevronDown, IconChevronLeft, IconRevert } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -52,7 +52,8 @@ export interface ComposerModelEffortPickersProps {
     /** The selection shown is the resolved default (user/project preference), not an explicit pick for
      * this run — the model trigger renders a "Default ·" prefix so that's visible at a glance. */
     isDefaultSelection?: boolean
-    /** Clears the explicit pick so the run falls back to the resolved default. Omit to hide the row. */
+    /** Clears the explicit pick so the run falls back to the resolved default. Omit on a surface with no
+     * configured default and the reset row falls back to the ladder's balanced notch. */
     onResetToDefault?: () => void
 }
 
@@ -88,9 +89,9 @@ function PickerSection({ title, current, value, onValueChange, children }: Picke
  * send time), the new-task composer wires it to the form that seeds the first run.
  *
  * One chip opens the Faster/Smarter capability slider, whose stops are model + effort pairings from the shared ladder.
- * Behind Advanced sits the full Harness → Model → Reasoning cascade and a reset row. This mirrors the desktop app's
- * merged model + reasoning control so the two surfaces read the same. Every option comes from the passed catalogue;
- * nothing about a specific model is hardcoded here.
+ * Behind Advanced sits the full Harness → Model → Reasoning cascade; a single reset row closes both views. This mirrors
+ * the desktop app's merged model + reasoning control so the two surfaces read the same. Every option comes from the
+ * passed catalogue; nothing about a specific model is hardcoded here.
  */
 export function ComposerModelEffortPickers({
     models,
@@ -264,21 +265,6 @@ export function ComposerModelEffortPickers({
                                 ))}
                             </PickerSection>
                         )}
-
-                        {stops.length > 0 && (
-                            <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                    onClick={() =>
-                                        // The middle notch is the balanced default for the whole ladder.
-                                        selectAndClose(() => selectStop(stops[Math.floor((stops.length - 1) / 2)]))
-                                    }
-                                >
-                                    <IconRevert />
-                                    Reset to default
-                                </DropdownMenuItem>
-                            </>
-                        )}
                     </>
                 ) : (
                     <ComposerReasoningSlider
@@ -292,17 +278,21 @@ export function ComposerModelEffortPickers({
                     />
                 )}
 
-                {onResetToDefault && (
+                {/* One reset for both meanings of "default": drop the pick so the configured project/user
+                    default applies where a surface knows about one, else land on the ladder's balanced
+                    notch. Two rows for the two notions read as a duplicate, since only one ever acts. */}
+                {(onResetToDefault || stops.length > 0) && (
                     <>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                            disabled={isDefaultSelection}
-                            onClick={() => {
-                                onResetToDefault()
-                                setOpen(false)
-                            }}
+                            disabled={Boolean(onResetToDefault) && isDefaultSelection}
+                            onClick={() =>
+                                selectAndClose(
+                                    onResetToDefault ?? (() => selectStop(stops[Math.floor((stops.length - 1) / 2)]))
+                                )
+                            }
                         >
-                            <IconRefresh />
+                            <IconRevert />
                             Reset to default
                         </DropdownMenuItem>
                     </>
