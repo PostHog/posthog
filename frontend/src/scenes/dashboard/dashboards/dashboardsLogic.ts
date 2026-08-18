@@ -322,10 +322,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         `api/environments/${teamId}/dashboards/?${params.toString()}`
                     )
                     breakpoint()
-                    // Findability signal for the dashboards-list-view experiment (flag: dashboards-list-view ·
-                    // experiment: 379125) — fires once per settled search (the 250ms breakpoint + the post-fetch
-                    // breakpoint() drop keystrokes and superseded queries). Remove with the experiment cleanup.
-                    eventUsageLogic.actions.reportDashboardListSearched(term.length, response.results?.length ?? 0)
                     return response.results ?? []
                 },
             },
