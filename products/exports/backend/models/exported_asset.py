@@ -85,6 +85,14 @@ class ExportedAsset(models.Model):
         ExportFormat.JSONL,
     ]
 
+    # Formats rendered by the Temporal rasterizer (headless Chromium replaying the recording) rather
+    # than the browserless image/CSV path. Values are the ffmpeg output format each one renders to.
+    RASTERIZED_FORMATS: dict[str, str] = {
+        ExportFormat.MP4: "mp4",
+        ExportFormat.WEBM: "webm",
+        ExportFormat.GIF: "gif",
+    }
+
     # Relations
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
@@ -198,6 +206,12 @@ class ExportedAsset(models.Model):
             self.export_format == self.ExportFormat.JSONL
             and (self.export_context or {}).get("kind") == DATASET_EXPORT_KIND
         )
+
+    @property
+    def is_rasterized_export(self) -> bool:
+        """Rendered by the rasterize-recording Temporal workflow, so it lives under that workflow's
+        timing envelope rather than the query/screenshot timeouts the other formats inherit."""
+        return self.export_format in self.RASTERIZED_FORMATS
 
     @property
     def is_session_recording_export(self) -> bool:
