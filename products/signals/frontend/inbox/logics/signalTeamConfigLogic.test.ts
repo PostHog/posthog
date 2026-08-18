@@ -196,6 +196,41 @@ describe('signalTeamConfigLogic', () => {
         expect(logic.values.draftMaxReportsPerDay).toBe(7)
     })
 
+    it('throttles rapid tab-return refreshes to one request per window', async () => {
+        let getCount = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/config/': () => {
+                    getCount += 1
+                    return [
+                        200,
+                        {
+                            id: 'cfg-1',
+                            autostart_enabled: true,
+                            default_autostart_priority: 'P4',
+                            autostart_base_branches: {},
+                        },
+                    ]
+                },
+            },
+        })
+        initKeaTests()
+        logic = signalTeamConfigLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(getCount).toBe(1)
+
+        // jsdom's visibilityState is 'visible', so each dispatch is a return-to-tab.
+        document.dispatchEvent(new Event('visibilitychange'))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(getCount).toBe(2)
+
+        // A second return within the throttle window must not fire another GET.
+        document.dispatchEvent(new Event('visibilitychange'))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(getCount).toBe(2)
+    })
+
     it('stays out of the updating state during a background tab-return refresh', async () => {
         let getCount = 0
         let resolveRefresh: (() => void) | undefined
