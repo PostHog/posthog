@@ -24,13 +24,12 @@ import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
-import {
-  PROMPT_RECALL_HINT_KEY,
-  type PromptRecallHandler,
-} from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
+import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { sessionStoreSetters } from "@posthog/ui/features/sessions/sessionStore";
 import { useSettingsStore as useFeatureSettingsStore } from "@posthog/ui/features/settings/settingsStore";
-import { type ToastOptions, toast } from "@posthog/ui/primitives/toast";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
+import { hintToast } from "@posthog/ui/primitives/hintToast";
+import { toast } from "@posthog/ui/primitives/toast";
 import { isSendMessageSubmitKey } from "@posthog/ui/utils/sendMessageKey";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
@@ -216,20 +215,9 @@ function hasVisibleSuggestionPopup(sessionId: string): boolean {
   );
 }
 
-function showHintOnce(
-  key: string,
-  title: string,
-  detail: string | ToastOptions,
-): void {
-  const store = useFeatureSettingsStore.getState();
-  if (!store.shouldShowHint(key)) return;
-  store.recordHintShown(key);
-  toast.info(title, detail);
-}
-
 function showMessageNavHint(): void {
-  showHintOnce(
-    PROMPT_RECALL_HINT_KEY,
+  hintToast(
+    TIP_KEYS.recallMessageNav,
     "Recalled a sent prompt",
     `Use ${formatHotkey(SHORTCUTS.MESSAGE_PREV)} and ${formatHotkey(SHORTCUTS.MESSAGE_NEXT)} to jump between your messages in the conversation.`,
   );
@@ -237,14 +225,10 @@ function showMessageNavHint(): void {
 
 function showPasteHint(message: string, description: string): void {
   const key =
-    message === "Pasted as file attachment" ? "paste-as-file" : "paste-inline";
-  showHintOnce(key, message, {
-    description,
-    action: {
-      label: "Got it",
-      onClick: () => useFeatureSettingsStore.getState().markHintLearned(key),
-    },
-  });
+    message === "Pasted as file attachment"
+      ? TIP_KEYS.pasteAsFile
+      : TIP_KEYS.pasteInline;
+  hintToast(key, message, description);
 }
 
 export function useTiptapEditor(options: UseTiptapEditorOptions) {
@@ -383,7 +367,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
                 if (!text?.trim()) return;
                 useFeatureSettingsStore
                   .getState()
-                  .markHintLearned("paste-inline");
+                  .markHintLearned(TIP_KEYS.pasteInline);
                 await pasteTextAsFile(view, text, pasteCountRef);
               } catch (_error) {
                 toast.error("Failed to paste as file attachment");
@@ -568,7 +552,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
               if (lastConverted.kind === "file") {
                 useFeatureSettingsStore
                   .getState()
-                  .markHintLearned("paste-as-file");
+                  .markHintLearned(TIP_KEYS.pasteAsFile);
               }
               return true;
             }
@@ -577,7 +561,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
               lastConverted.status = "canceled";
               useFeatureSettingsStore
                 .getState()
-                .markHintLearned("paste-as-file");
+                .markHintLearned(TIP_KEYS.pasteAsFile);
               view.dispatch(view.state.tr.insertText(lastConverted.insertText));
               return true;
             }
