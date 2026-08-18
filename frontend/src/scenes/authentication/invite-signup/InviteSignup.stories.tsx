@@ -13,7 +13,7 @@ import { inviteSignupLogic } from './inviteSignupLogic'
 const MOCK_INVITE_ID = '1234'
 
 type StoryArgs = {
-    scenario: 'new-user' | 'existing-account' | 'invalid-link'
+    scenario: 'new-user' | 'existing-account' | 'invalid-link' | 'recipient-mismatch'
     cloud: boolean
     googleOAuth: boolean
     github: boolean
@@ -58,7 +58,7 @@ const meta: Meta<StoryArgs> = {
         scenario: {
             control: 'select',
             name: 'Scenario',
-            options: ['new-user', 'existing-account', 'invalid-link'],
+            options: ['new-user', 'existing-account', 'invalid-link', 'recipient-mismatch'],
         },
         cloud: { control: 'boolean', name: 'Cloud' },
         googleOAuth: { control: 'boolean', name: 'Google OAuth' },
@@ -84,10 +84,27 @@ export default meta
 const Template: StoryFn<StoryArgs> = ({ scenario, cloud, googleOAuth, github, gitlab, ssoEnforcement }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     const isExistingAccount = scenario === 'existing-account'
+    const isRecipientMismatch = scenario === 'recipient-mismatch'
     const inviteId = scenario === 'invalid-link' ? 'not-found' : MOCK_INVITE_ID
 
     useStorybookMocks({
         get: {
+            // A signed-in user whose address doesn't match the invite gets a 400 with the invited
+            // address, driving the mismatch screen's log-out-and-continue action.
+            ...(isRecipientMismatch
+                ? {
+                      [`/api/signup/${MOCK_INVITE_ID}/`]: () => [
+                          400,
+                          {
+                              type: 'validation_error',
+                              code: 'invalid_recipient',
+                              detail: 'This invite is intended for another email address.',
+                              attr: null,
+                              target_email: 'jane@acme.com',
+                          },
+                      ],
+                  }
+                : {}),
             '/_preflight': {
                 ...preflightJson,
                 cloud,
@@ -103,7 +120,9 @@ const Template: StoryFn<StoryArgs> = ({ scenario, cloud, googleOAuth, github, gi
             },
             '/api/users/@me': isExistingAccount
                 ? () => [200, { email: 'jane@acme.com', first_name: 'Jane Doe', organization: { name: 'Acme Corp' } }]
-                : () => [500, null],
+                : isRecipientMismatch
+                  ? () => [200, { email: 'bob@othercorp.com', first_name: 'Bob', organization: { name: 'Other Corp' } }]
+                  : () => [500, null],
         },
         post: {
             '/api/login/precheck': { sso_enforcement: enforcement, saml_available: false },
@@ -142,6 +161,9 @@ ExistingAccount.args = { scenario: 'existing-account' }
 
 export const InvalidLink: StoryFn<StoryArgs> = Template.bind({})
 InvalidLink.args = { scenario: 'invalid-link' }
+
+export const RecipientMismatch: StoryFn<StoryArgs> = Template.bind({})
+RecipientMismatch.args = { scenario: 'recipient-mismatch' }
 
 export const SSOEnforced: StoryFn<StoryArgs> = Template.bind({})
 SSOEnforced.args = { ssoEnforcement: 'google-oauth2' }

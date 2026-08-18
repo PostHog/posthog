@@ -2221,6 +2221,8 @@ class TestInviteSignupAPI(APIBaseTest):
         self.client.force_login(user)
         response = self.client.get(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # The invited address is returned so the mismatch screen can name it and offer to log out
+        # and continue as that address.
         self.assertEqual(
             response.json(),
             {
@@ -2228,6 +2230,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "code": "invalid_recipient",
                 "detail": "This invite is intended for another email address.",
                 "attr": None,
+                "target_email": "test+49@posthog.com",
             },
         )
 

@@ -23,6 +23,8 @@ export enum ErrorCodes {
 export interface ErrorInterface {
     code: ErrorCodes
     detail?: string
+    /** The invited address, surfaced on a recipient mismatch so the screen can name it. */
+    targetEmail?: string
 }
 
 export interface AcceptInvitePayloadInterface {
@@ -253,7 +255,11 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                     } catch (e: any) {
                         if (e.status === 400) {
                             if (e.code === 'invalid_recipient') {
-                                actions.setError({ code: ErrorCodes.InvalidRecipient, detail: e.detail })
+                                actions.setError({
+                                    code: ErrorCodes.InvalidRecipient,
+                                    detail: e.detail,
+                                    targetEmail: e.data?.target_email,
+                                })
                             } else if (e.code === 'user_already_member') {
                                 actions.setError({ code: ErrorCodes.UserAlreadyMember, detail: e.detail })
                             } else if (e.code === 'account_exists') {

@@ -711,11 +711,30 @@ class InviteSignupViewset(generics.CreateAPIView):
 
         user = request.user if request.user.is_authenticated else None
 
-        invite.validate(
-            user=user,
-            invite_email=invite.target_email,
-            request_path=f"/signup/{invite_id}",
-        )
+        try:
+            invite.validate(
+                user=user,
+                invite_email=invite.target_email,
+                request_path=f"/signup/{invite_id}",
+            )
+        except exceptions.ValidationError as e:
+            # A signed-in user whose address doesn't match the invite lands on the mismatch screen.
+            # Return the invited address so that screen can name it and offer to log out and continue
+            # as that address. The invite UUID already authorizes reading target_email (the anonymous
+            # prevalidate path below returns it), so this discloses nothing new to the link holder.
+            if invite.target_email and "invalid_recipient" in e.get_codes():
+                detail = e.detail[0] if isinstance(e.detail, list) else e.detail
+                return response.Response(
+                    {
+                        "type": "validation_error",
+                        "code": "invalid_recipient",
+                        "detail": str(detail),
+                        "attr": None,
+                        "target_email": invite.target_email,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            raise
 
         return response.Response(
             {

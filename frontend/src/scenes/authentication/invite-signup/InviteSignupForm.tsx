@@ -23,6 +23,7 @@ import { loginLogic } from 'scenes/authentication/login/loginLogic'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { OrgTile } from 'scenes/authentication/shared/authScene/OrgTile'
+import { submitLogoutForm } from 'scenes/authentication/shared/logout'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -363,6 +364,7 @@ function InviteInvalid(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
 
     const code = error?.code ?? ErrorCodes.Unknown
+    const invitedEmail = error?.targetEmail
 
     const titles: Record<ErrorCodes, string> = {
         [ErrorCodes.InvalidInvite]: 'This invite link is invalid or expired',
@@ -391,18 +393,20 @@ function InviteInvalid(): JSX.Element {
                 different email address.
             </>
         ),
-        [ErrorCodes.InvalidRecipient]: (
+        [ErrorCodes.InvalidRecipient]: user ? (
             <>
-                {error?.detail}{' '}
-                {user ? (
+                You're signed in as <b>{user.email}</b>, but this invite is for{' '}
+                {invitedEmail ? <b>{invitedEmail}</b> : 'a different email address'}. Log out to continue
+                {invitedEmail ? (
                     <>
-                        You can log out and create a new account under the invited email address, or ask the
-                        organization admin to send a new invite to <b>{user.email}</b>.
+                        {' '}
+                        as <b>{invitedEmail}</b>
                     </>
-                ) : (
-                    'Log in with the invited email address above, or create your own password.'
-                )}
+                ) : null}
+                .
             </>
+        ) : (
+            <>{error?.detail} Log in with the invited email address above, or create your own password.</>
         ),
         [ErrorCodes.Unknown]: (
             <>
@@ -448,9 +452,32 @@ function InviteInvalid(): JSX.Element {
                     </p>
                     <div className="flex flex-col gap-2.5 w-full">
                         {user ? (
-                            <LemonButton size="large" center fullWidth type="primary" to={urls.default()}>
-                                Go back to PostHog
-                            </LemonButton>
+                            <>
+                                {code === ErrorCodes.InvalidRecipient && (
+                                    <LemonButton
+                                        size="large"
+                                        center
+                                        fullWidth
+                                        type="primary"
+                                        onClick={() =>
+                                            submitLogoutForm(window.location.pathname + window.location.search)
+                                        }
+                                    >
+                                        {invitedEmail
+                                            ? `Log out and continue as ${invitedEmail}`
+                                            : 'Log out and continue'}
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    size="large"
+                                    center
+                                    fullWidth
+                                    type={code === ErrorCodes.InvalidRecipient ? 'secondary' : 'primary'}
+                                    to={urls.default()}
+                                >
+                                    Go back to PostHog
+                                </LemonButton>
+                            </>
                         ) : code === ErrorCodes.InvalidRecipient ? (
                             <LemonButton
                                 size="large"
