@@ -2807,6 +2807,31 @@ describe('variant rollout sum validation', () => {
         expect(logic.values.featureFlagHasErrors).toBe(hasErrors)
     })
 
+    // Valid keys are load-bearing: a bad key already opens the panel via the older key check, so
+    // only a sum-only failure proves the rollout error reaches submitFeatureFlagFailure.
+    it('opens the collapsed variant panels so the blocked save shows a reason', async () => {
+        logic.actions.setFeatureFlag({
+            ...MOCK_FEATURE_FLAG,
+            filters: {
+                groups: [],
+                multivariate: {
+                    variants: [
+                        { key: 'control', name: '', rollout_percentage: 50 },
+                        { key: 'test', name: '', rollout_percentage: 20 },
+                    ],
+                },
+                payloads: {},
+            },
+        })
+        logic.actions.setOpenVariants([])
+
+        await expectLogic(logic, () => {
+            logic.actions.submitFeatureFlag()
+        }).toFinishAllListeners()
+
+        expect(logic.values.openVariants).toEqual(expect.arrayContaining(['variant-0', 'variant-1']))
+    })
+
     it('does not block a boolean flag, which carries no variants', () => {
         logic.actions.setFeatureFlag({
             ...MOCK_FEATURE_FLAG,

@@ -87,10 +87,33 @@ describe('FeatureFlagSchedule', () => {
 
     // A bad sum is only rejected when the change fires, long after it was scheduled.
     it.each([
-        { name: 'sums to 100', percentages: [50, 50], expectedDisabled: false },
-        { name: 'falls short', percentages: [50, 20], expectedDisabled: true },
-        { name: 'exceeds 100', percentages: [60, 60], expectedDisabled: true },
-    ])('variant rollout $name: Schedule disabled=$expectedDisabled', ({ percentages, expectedDisabled }) => {
+        {
+            name: 'sums to 100',
+            percentages: [50, 50],
+            operation: ScheduledChangeOperationType.UpdateVariants,
+            expectedDisabled: false,
+        },
+        {
+            name: 'falls short',
+            percentages: [50, 20],
+            operation: ScheduledChangeOperationType.UpdateVariants,
+            expectedDisabled: true,
+        },
+        {
+            name: 'exceeds 100',
+            percentages: [60, 60],
+            operation: ScheduledChangeOperationType.UpdateVariants,
+            expectedDisabled: true,
+        },
+        // Variants are read from the flag whatever the operation, so a legacy flag stored at 70
+        // must still be schedulable for a change that leaves them alone.
+        {
+            name: 'falls short but the operation leaves variants untouched',
+            percentages: [50, 20],
+            operation: ScheduledChangeOperationType.UpdateStatus,
+            expectedDisabled: false,
+        },
+    ])('variant rollout $name: Schedule disabled=$expectedDisabled', ({ percentages, operation, expectedDisabled }) => {
         const featureFlag = buildFeatureFlag({ active: true, rolloutPercentage: 100 })
         featureFlag.filters.multivariate = {
             variants: percentages.map((rollout_percentage, index) => ({
@@ -99,7 +122,7 @@ describe('FeatureFlagSchedule', () => {
                 rollout_percentage,
             })),
         }
-        renderSchedule(featureFlag, ScheduledChangeOperationType.UpdateVariants)
+        renderSchedule(featureFlag, operation)
 
         act(() => {
             featureFlagLogic(logicProps).actions.setScheduleDateMarker(dayjs('2030-01-01T00:00:00Z'))

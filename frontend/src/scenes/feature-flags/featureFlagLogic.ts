@@ -462,7 +462,6 @@ export function validateFeatureFlagVariantKey(key: string): string | undefined {
             : undefined
 }
 
-/** Sums the way the API does, so both agree on what reaches 100. */
 function getVariantRolloutSum(variants: MultivariateFlagVariant[] = []): number {
     return variants.reduce((sum, { rollout_percentage }) => sum + (rollout_percentage || 0), 0)
 }
@@ -745,7 +744,6 @@ export interface featureFlagLogicValues {
     activeSchedules: ScheduledChangeType[]
     activeTab: FeatureFlagsTab
     aggregationTargetName: string
-    areVariantRolloutsValid: boolean
     availableTabs: FeatureFlagsTab[]
     breadcrumbs: Breadcrumb[]
     canCreateEarlyAccessFeature: boolean
@@ -940,7 +938,6 @@ export interface featureFlagLogicValues {
     urlIntentApplied: boolean
     urlTemplateApplied: boolean
     variantErrors: VariantError[]
-    variantRolloutSum: number
     variants: MultivariateFlagVariant[]
 }
 
@@ -1918,8 +1915,6 @@ export interface featureFlagLogicMeta {
         ) => boolean
         variants: (featureFlag: FeatureFlagType) => MultivariateFlagVariant[]
         nonEmptyVariants: (variants: MultivariateFlagVariant[]) => MultivariateFlagVariant[]
-        variantRolloutSum: (variants: MultivariateFlagVariant[]) => number
-        areVariantRolloutsValid: (variants: MultivariateFlagVariant[], variantRolloutSum: number) => boolean
         aggregationTargetName: (
             featureFlag: FeatureFlagType,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
@@ -2107,8 +2102,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
             },
             errors: ({ key, filters, is_remote_configuration }) => {
-                // The sum belongs to the whole set, so every percentage carries the error and
-                // becomes a scroll target.
                 const rolloutSumError = validateVariantRolloutSum(filters?.multivariate?.variants)
                 return {
                     key: validateFeatureFlagKey(key),
@@ -2117,6 +2110,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             variants: filters?.multivariate?.variants?.map(
                                 ({ key: variantKey }: MultivariateFlagVariant) => ({
                                     key: validateFeatureFlagVariantKey(variantKey),
+                                    // One string on the array key (the usual form) can't say which
+                                    // panels to expand, so the set-level error fans out per index.
                                     rollout_percentage: rolloutSumError,
                                 })
                             ),
@@ -4259,17 +4254,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         nonEmptyVariants: [
             (s) => [s.variants],
             (variants: MultivariateFlagVariant[]) => variants.filter(({ key }) => !!key),
-        ],
-        variantRolloutSum: [
-            (s) => [s.variants],
-            (variants: MultivariateFlagVariant[]) =>
-                variants.reduce((total: number, { rollout_percentage }) => total + rollout_percentage, 0),
-        ],
-        areVariantRolloutsValid: [
-            (s) => [s.variants, s.variantRolloutSum],
-            (variants: MultivariateFlagVariant[], variantRolloutSum: number) =>
-                variants.every(({ rollout_percentage }) => rollout_percentage >= 0 && rollout_percentage <= 100) &&
-                variantRolloutSum === 100,
         ],
         aggregationTargetName: [
             (s) => [s.featureFlag, s.aggregationLabel],

@@ -12,6 +12,7 @@ from products.feature_flags.backend.filters_validation import (
     CROSS_FIELD_CHECKS,
     Violation,
     check_groups_non_empty_for_create,
+    check_variant_rollout_sum,
     collect_cross_field_violations,
     collect_filters_violations,
     flatten_structural_errors,
@@ -40,6 +41,12 @@ class TestFiltersValidation(SimpleTestCase):
                 "variant_sum_100_with_float_drift",
                 {"multivariate": _multivariate(("a", 0.01), ("b", 64.04), ("c", 35.95))},
                 [],
+            ),
+            # The smallest miss the flag UI can express, so the tolerance cannot swallow it.
+            (
+                "variant_sum_short_by_smallest_step",
+                {"multivariate": _multivariate(("a", 50), ("b", 49.99))},
+                ["cross_field.variant_rollout_sum_not_100"],
             ),
             (
                 "variant_keys_duplicated",
@@ -265,6 +272,11 @@ class TestFiltersValidation(SimpleTestCase):
         }
         rule_ids = [violation.rule_id for violation in collect_filters_violations(filters)]
         assert rule_ids == ["structural.payloads.invalid_payload_json"]
+
+    def test_variant_rollout_sum_violation_message_hides_float_artifacts(self) -> None:
+        violations = check_variant_rollout_sum({"multivariate": _multivariate(("a", 0.01), ("b", 64.04), ("c", 35))})
+
+        assert violations[0].message == "Variant rollout percentages must sum to 100, got 99.05."
 
     def test_collect_filters_violations_end_to_end(self) -> None:
         structural = collect_filters_violations({"groups": [{"properties": [{"type": "person"}]}]})

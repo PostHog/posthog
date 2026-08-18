@@ -1,6 +1,8 @@
 """Shared rule for when multivariate rollout percentages add up (issue #50084).
 
-Used by the cross-field write validation and the scheduled-changes apply path.
+The tolerance moves the audit gate: rows within it are in-policy, so audit_flag_filters stops
+reporting them and the cross_field.variant_rollout_sum_not_100 counter steps down at deploy.
+A baseline collected before that deploy is not comparable to one after.
 """
 
 # Absorbs float drift (0.01/64.04/35.95 adds up to 100.00000000000001) while staying below the
