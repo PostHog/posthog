@@ -32,6 +32,7 @@ from products.stamphog.backend.facade import (
     api as facade_api,
     contracts,
 )
+from products.stamphog.backend.facade.enums import ReviewTrigger
 
 from ..facade.github import (
     StamphogGitHubError,
@@ -383,6 +384,7 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
             repository=self.request.query_params.get("repository"),
             pr_number=pr_number_value,
             status=self.request.query_params.get("status"),
+            trigger=self.request.query_params.get("trigger"),
         )
 
     def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
@@ -413,6 +415,14 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
                 OpenApiParameter.QUERY,
                 required=False,
                 description="Filter by review run status.",
+            ),
+            OpenApiParameter(
+                "trigger",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                enum=[t.value for t in ReviewTrigger],
+                description="Filter by what caused the run: self_driving, label, or all.",
             ),
         ],
         responses={200: ReviewRunSerializer(many=True)},
