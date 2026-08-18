@@ -11,9 +11,12 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend.report_canvas import CanvasGenerationState
-from products.signals.backend.models import SignalReport, SignalReportCanvas
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice, SuggestedReviewers
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCanvas
 from products.signals.backend.report_canvas import (
     ReportCanvasGeneration,
+    _generation_prompt,
     ensure_and_start_report_canvas_generation,
     finalize_report_canvas_generation,
 )
@@ -78,6 +81,38 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert discussion.channel_id == canvas.channel_id
         assert discussion.state is not None
         assert discussion.state["activity_target"] == {"scope": "desktop_canvas", "id": str(canvas.id)}
+
+    def test_generation_prompt_includes_current_report_decisions_and_rejects_fake_controls(self) -> None:
+        report = self._report()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=ActionabilityAssessment(
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                explanation="The change is isolated and verified.",
+                already_addressed=False,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=SuggestedReviewers.model_validate([{"github_login": "reviewer-example"}]),
+            attribution=ArtefactAttribution.system(),
+            reevaluate_autostart=False,
+        )
+
+        prompt = _generation_prompt(
+            report,
+            uuid.uuid4(),
+            collaborative=False,
+            signals=[],
+            pr_url=None,
+        )
+
+        assert "reviewer-example" in prompt
+        assert "immediately_actionable" in prompt
+        assert "Do not render controls that merely look clickable" in prompt
 
     @parameterized.expand([SignalReport.Status.POTENTIAL, SignalReport.Status.SUPPRESSED])
     def test_skips_reports_outside_the_initial_statuses(self, status: str) -> None:

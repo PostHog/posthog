@@ -13,6 +13,7 @@ from posthog.models import Team
 from posthog.models.scoping import with_team_scope
 
 from products.canvas.backend import report_canvas as canvas_api
+from products.signals.backend.artefact_schemas import ArtefactContentValidationError, parse_artefact_content
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCanvas
 from products.signals.backend.report_generation.resolve_reviewers import (
@@ -28,6 +29,9 @@ from products.tasks.backend.facade import api as tasks_facade
 
 REPORT_CANVAS_FEATURE_FLAG = "signals-report-canvases"
 REPORT_CANVAS_CHANNEL_NAME = "general"
+_MAX_CONTEXT_ARTEFACTS = 16
+_MAX_CONTEXT_SIGNALS = 8
+_MAX_CONTEXT_STRING_LENGTH = 4_000
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -76,6 +80,7 @@ def _report_fingerprint(report: SignalReport) -> str:
             "charts": report.charts,
             "pr_url": pr_url,
             "run_count": report.run_count,
+            "artefacts": _report_artefact_context(report),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -89,6 +94,41 @@ def _reviewer_user_ids(report: SignalReport) -> set[int]:
     )
     logins = normalized_github_logins_from_suggested_reviewer_artefacts(artefacts)
     return {user.id for user in resolve_org_github_login_to_users(report.team_id, logins).values()}
+
+
+def _bounded_context_value(value: object) -> object:
+    if isinstance(value, str):
+        return value[:_MAX_CONTEXT_STRING_LENGTH]
+    if isinstance(value, list):
+        return [_bounded_context_value(item) for item in value[:20]]
+    if isinstance(value, dict):
+        return {str(key): _bounded_context_value(item) for key, item in list(value.items())[:30]}
+    return value
+
+
+def _report_artefact_context(report: SignalReport) -> list[dict]:
+    artefacts: list[dict] = []
+    seen_status_types: set[str] = set()
+    seen_signal_ids: set[str] = set()
+
+    for row in report.artefacts.order_by("-created_at")[:100]:
+        if row.type in SignalReportArtefact.STATUS_ARTEFACT_TYPES:
+            if row.type in seen_status_types:
+                continue
+            seen_status_types.add(row.type)
+        try:
+            content = parse_artefact_content(row.type, row.content).model_dump(mode="json")
+        except ArtefactContentValidationError:
+            continue
+        if row.type == SignalReportArtefact.ArtefactType.SIGNAL_FINDING:
+            signal_id = str(content.get("signal_id") or "")
+            if signal_id in seen_signal_ids:
+                continue
+            seen_signal_ids.add(signal_id)
+        artefacts.append({"type": row.type, "content": _bounded_context_value(content)})
+        if len(artefacts) >= _MAX_CONTEXT_ARTEFACTS:
+            break
+    return artefacts
 
 
 def _generation_prompt(
@@ -112,12 +152,22 @@ def _generation_prompt(
         "pending_input_reason": report.error,
         "charts": report.charts,
         "implementation_pr_url": pr_url,
-        "signals": signals,
+        "signals": _bounded_context_value(signals[:_MAX_CONTEXT_SIGNALS]),
+        "artefacts": _report_artefact_context(report),
     }
     return f"""Build a useful report canvas for Signal report {report.id}.
 
 Use the building-canvases skill. Update the existing canvas with id {canvas_id}; never create another canvas.
-Tell the report's story visually, lead with the clearest evidence, show uncertainty honestly, and make the next step obvious. Use live PostHog data or report charts when the supplied query nodes support them. If a PR exists, make review status and the PR the primary outcome.
+Make the canvas useful before anyone starts a conversation:
+- Put the conclusion and why it matters above the fold.
+- Lead with representative evidence. Link to the underlying PostHog or GitHub source when a real URL is available.
+- Prefer a relevant chart, replay, or source-specific visualization over prose when the supplied data supports it.
+- Show confidence, uncertainty, open questions, suggested reviewers, existing work, and PR state when present.
+- End with one clear recommended next step.
+
+The canvas is presentation, not a trusted action surface. Do not render controls that merely look clickable. A button or link is allowed only when it navigates to a real supplied URL; otherwise present the next step as plain text. Desktop provides agent, PR, and lifecycle actions outside the canvas.
+
+If a PR exists, make review status and the PR the primary outcome. Use live PostHog data or report charts when the supplied query nodes support them.
 
 {save_instruction} Poll the resulting build until it is ready or failed before finishing.
 
