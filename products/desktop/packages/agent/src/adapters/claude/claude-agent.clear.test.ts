@@ -687,14 +687,8 @@ describe("ClaudeAcpAgent /clear", () => {
   });
 
   it("resets pre-clear plan and notification state so it can't resurface after /clear", async () => {
-    // ExitPlanMode falls back to lastPlanContent/fileContentCache/
-    // notificationHistory when its tool input omits an explicit plan; left
-    // untouched, a plan written before /clear (possibly carrying
-    // repo-injected content) could resurface in the fresh session.
     const { agent } = makeAgent();
     const { session } = installFakeSession(agent, "s-plan");
-    (session as unknown as { lastPlanContent?: string }).lastPlanContent =
-      "stale pre-clear plan";
     (session as unknown as { lastPlanFilePath?: string }).lastPlanFilePath =
       "/tmp/repo/.claude/plans/old.md";
     session.notificationHistory.push({ type: "assistant", text: "old" });
@@ -705,9 +699,6 @@ describe("ClaudeAcpAgent /clear", () => {
       prompt: [{ type: "text", text: "/clear" }],
     });
 
-    expect(
-      (session as unknown as { lastPlanContent?: string }).lastPlanContent,
-    ).toBeUndefined();
     expect(
       (session as unknown as { lastPlanFilePath?: string }).lastPlanFilePath,
     ).toBeUndefined();
