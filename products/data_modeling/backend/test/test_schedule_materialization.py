@@ -7,9 +7,13 @@ from products.data_modeling.backend.logic.cohort_scheduling import is_tier_sched
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
 from products.data_modeling.backend.models import DAG, Node
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import (
+    DataWarehouseSavedQuery,
+    V1SchedulingPathReached,
+)
 from products.data_modeling.backend.models.node import NodeType
 
+MODEL = "products.data_modeling.backend.models.datawarehouse_saved_query"
 SERVICE = "products.data_warehouse.backend.logic.data_load.saved_query_service"
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
@@ -50,11 +54,14 @@ class TestScheduleMaterializationV2Guard(BaseTest):
             mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=False),
             mock.patch.object(DataWarehouseSavedQuery, "setup_model_paths") as setup_paths,
             mock.patch(f"{NODE_MAT}.sync_connect") as sync_connect,
+            mock.patch(f"{MODEL}.capture_exception") as capture,
             self.captureOnCommitCallbacks(execute=True),
         ):
             self.sq.schedule_materialization()
         sync_wf.assert_not_called()
         setup_paths.assert_not_called()
+        # reporting on the healthy path would bury the one signal that matters
+        capture.assert_not_called()
         # a frequency-only call carries no enable intent, so it must not start a one-off run
         sync_connect.assert_not_called()
         self.sq.refresh_from_db()
@@ -88,11 +95,17 @@ class TestScheduleMaterializationV2Guard(BaseTest):
             mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=True),
             mock.patch(f"{RECONCILE}.schedule_exists", return_value=True),
             mock.patch.object(DataWarehouseSavedQuery, "setup_model_paths"),
+            mock.patch(f"{MODEL}.capture_exception") as capture,
         ):
             self.sq.schedule_materialization()
         sync_wf.assert_called_once()
         self.sq.refresh_from_db()
         assert self.sq.sync_frequency_interval == timedelta(hours=12)
+        # the fleet runs no v1 schedules, so an arrival here is the only evidence a minting path
+        # survives; losing this report reads as "minting is closed" and clears the workflow type
+        # for deregistration, which fails silently in production
+        assert isinstance(capture.call_args.args[0], V1SchedulingPathReached)
+        assert capture.call_args.args[1]["team_id"] == self.team.pk
 
     def test_virgin_dag_is_born_on_tiers_instead_of_minting_a_v1_schedule(self):
         # a brand-new team's DAG has no v2 schedule *and* no v1 schedules, so the v2 lookup says
