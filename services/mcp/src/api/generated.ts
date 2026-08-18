@@ -20058,8 +20058,8 @@ export namespace Schemas {
       severity?: DataQualityCheckSeverityEnum;
       /** Disabled checks are never run by any trigger. */
       enabled?: boolean;
-      /** Free-form labels for grouping and filtering. */
-      tags?: unknown;
+      /** Free-form string labels for grouping and filtering. */
+      tags?: string[];
       /**
          * Email of the human accountable for this check, or null.
          * @nullable
@@ -20068,7 +20068,7 @@ export namespace Schemas {
       /** Run after the view materializes. Never delays or fails the materialization itself. */
       run_on_materialization?: boolean;
       /**
-         * Independent cadence in minutes, minimum 5. Omit for no schedule of its own.
+         * Independent cadence in minutes, minimum 5. Null or omitted means no schedule.
          * @minimum 5
          * @maximum 2147483647
          * @nullable
@@ -20203,11 +20203,11 @@ export namespace Schemas {
       readonly trigger: string;
       /** running, completed, failed, or empty (nothing matched the trigger). */
       readonly status: string;
-      /** Set when the run targets exactly one subject.
-       *
-       * * `table` - table
-       * * `view` - view */
-      readonly subject_type: SubjectTypeEnum;
+      /**
+         * 'table' or 'view' when the run targets exactly one subject; null for a check-scoped or multi-subject run.
+         * @nullable
+         */
+      readonly subject_type: string | null;
       /**
          * Set when the run targets exactly one subject.
          * @nullable
@@ -56385,8 +56385,8 @@ export namespace Schemas {
       severity?: DataQualityCheckSeverityEnum;
       /** Disabled checks are never run by any trigger. */
       enabled?: boolean;
-      /** Free-form labels for grouping and filtering. */
-      tags?: unknown;
+      /** Free-form string labels for grouping and filtering. */
+      tags?: string[];
       /**
          * Email of the human accountable for this check, or null.
          * @nullable
@@ -56395,7 +56395,7 @@ export namespace Schemas {
       /** Run after the view materializes. Never delays or fails the materialization itself. */
       run_on_materialization?: boolean;
       /**
-         * Independent cadence in minutes, minimum 5. Omit for no schedule of its own.
+         * Independent cadence in minutes, minimum 5. Null or omitted means no schedule.
          * @minimum 5
          * @maximum 2147483647
          * @nullable
@@ -85421,6 +85421,10 @@ export namespace Schemas {
 
     export type DataQualityChecksListParams = {
     /**
+     * Filter the list to one check type.
+     */
+    check_type?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -85428,13 +85432,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    };
-
-    export type DataQualityChecksCreateParams = {
-    /**
-     * Filter the list to one check type.
-     */
-    check_type?: string;
     /**
      * Filter the list to 'table' or 'view' subjects.
      */

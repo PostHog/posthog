@@ -8,7 +8,7 @@ from typing import cast
 
 from django.db.models import QuerySet
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS
@@ -42,9 +42,11 @@ class _DataQualityGateMixin:
 
     team: Team
     # Authoring a check writes HogQL a worker will execute, running one executes it now, and the
-    # result columns are a count oracle over the underlying rows. Each needs query access on top of
-    # data_quality access, or a member denied `query` reads warehouse data through a check.
-    # Reading check *definitions* is not gated: that is schema metadata, already visible elsewhere.
+    # result columns are a count oracle over the underlying rows. Reading a check back exposes its
+    # denormalized last_status / last_run_at, and the health rollup exposes per-subject failure
+    # counts -- the same oracle, one step removed. Each needs query access on top of data_quality
+    # access, or a member denied `query` reads warehouse data through a check. Only the check-type
+    # *catalog* stays ungated: it is static schema metadata that carries no execution state.
     QUERY_GATED_ACTIONS: frozenset[str] = frozenset()
 
     def initial(self, request: Request, *args, **kwargs) -> None:
@@ -103,10 +105,21 @@ class _DataQualityGateMixin:
                 raise PermissionDenied("You don't have access to a table or view this check reads.")
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter("subject_type", str, description="Filter the list to 'table' or 'view' subjects."),
+            OpenApiParameter("subject_uuid", str, description="Filter the list to one table or view."),
+            OpenApiParameter("check_type", str, description="Filter the list to one check type."),
+        ],
+    ),
+)
 class DataQualityCheckViewSet(_DataQualityGateMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for data quality checks, plus the actions that run them and report on them."""
 
-    QUERY_GATED_ACTIONS = frozenset({"create", "update", "partial_update", "run", "run_for_subject", "runs"})
+    QUERY_GATED_ACTIONS = frozenset(
+        {"list", "retrieve", "create", "update", "partial_update", "run", "run_for_subject", "runs", "health"}
+    )
     scope_object = "data_quality"
     serializer_class = DataQualityCheckSerializer
     queryset = DataQualityCheck.objects.unscoped()
@@ -142,11 +155,6 @@ class DataQualityCheckViewSet(_DataQualityGateMixin, TeamAndOrgViewSetMixin, vie
     @extend_schema(
         description="Create a check, or refine the one already carrying the same fingerprint. "
         "Re-creating a semantically identical check returns 200 and the existing row, never a duplicate.",
-        parameters=[
-            OpenApiParameter("subject_type", str, description="Filter the list to 'table' or 'view' subjects."),
-            OpenApiParameter("subject_uuid", str, description="Filter the list to one table or view."),
-            OpenApiParameter("check_type", str, description="Filter the list to one check type."),
-        ],
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = self.get_serializer(data=request.data)
@@ -328,15 +336,35 @@ class DataQualitySuiteRunViewSet(
         return queryset.order_by("-created_at")
 
     def _denied_suite_subject_uuids(self, queryset: QuerySet[DataQualitySuiteRun], denied: set[str]) -> set[str]:
-        # The suite row keeps subject_type + subject_uuid but not the name, so resolve each distinct
-        # single-subject pair to the name the denial set is keyed by. Skipped entirely for the common
-        # caller with an empty denied set, so the resolve loop only runs for a restricted member.
+        # The suite row keeps subject_type + subject_uuid but not the name the denial set is keyed by.
+        # Resolving each distinct pair through the owning product would be one query per subject -- a
+        # restricted member listing a long history could trigger thousands. Instead map uuid -> name in
+        # bulk from the rows we already denormalize the name onto (check runs and check definitions
+        # carry it for the same team), and only fall back to a live resolve for a uuid neither table
+        # knows -- rare, and bounded by that residual set rather than the whole history. Skipped
+        # entirely for the common caller with an empty denied set.
+        pairs = list(queryset.exclude(subject_uuid__isnull=True).values_list("subject_type", "subject_uuid").distinct())
+        if not pairs:
+            return set()
+
+        subject_uuids = {str(subject_uuid) for _, subject_uuid in pairs}
+        name_by_uuid: dict[str, str] = {}
+        for source in (
+            DataQualityCheckRun.objects.for_team(self.team_id).filter(subject_uuid__in=subject_uuids),
+            DataQualityCheck.objects.for_team(self.team_id).filter(subject_uuid__in=subject_uuids),
+        ):
+            for known_uuid, known_name in source.values_list("subject_uuid", "subject_name").distinct():
+                name_by_uuid.setdefault(str(known_uuid), known_name)
+
         blocked: set[str] = set()
-        pairs = queryset.exclude(subject_uuid__isnull=True).values_list("subject_type", "subject_uuid").distinct()
         for subject_type, subject_uuid in pairs:
-            ref = api.resolve_subject(self.team_id, subject_type, str(subject_uuid))
-            if ref.exists and api.is_subject_denied(ref.name, denied):
-                blocked.add(str(subject_uuid))
+            key = str(subject_uuid)
+            name = name_by_uuid.get(key)
+            if name is None:
+                ref = api.resolve_subject(self.team_id, subject_type, key)
+                name = ref.name if ref.exists else None
+            if name and api.is_subject_denied(name, denied):
+                blocked.add(key)
         return blocked
 
     @extend_schema(

@@ -45,6 +45,11 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Type-specific configuration, validated against the check type's JSON schema.",
     )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Free-form string labels for grouping and filtering.",
+    )
     last_status = serializers.CharField(
         read_only=True,
         help_text="Outcome of the newest run: passed, failed, errored, skipped, or empty if never run.",
@@ -112,17 +117,18 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
                 "help_text": "Column the check applies to. Omit for table-scoped types like row_count.",
             },
             "enabled": {"required": False, "help_text": "Disabled checks are never run by any trigger."},
-            "tags": {"required": False, "help_text": "Free-form labels for grouping and filtering."},
             "run_on_materialization": {
                 "required": False,
                 "help_text": "Run after the view materializes. Never delays or fails the materialization itself.",
             },
             "schedule_interval_minutes": {
                 "required": False,
+                # Null clears an existing schedule; the due-checks scanner then stops picking it up.
+                "allow_null": True,
                 # The due-checks scanner ticks every 5 minutes, so a shorter cadence can't run any
                 # sooner and would only add scan load. Floor it to the scan interval.
                 "min_value": 5,
-                "help_text": "Independent cadence in minutes, minimum 5. Omit for no schedule of its own.",
+                "help_text": "Independent cadence in minutes, minimum 5. Null or omitted means no schedule.",
             },
             "fingerprint": {
                 "help_text": "sha256 of the subject, type, column, and config. Re-creating the same check upserts."
@@ -176,6 +182,16 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"config": str(err)})
         return attrs
 
+    def update(self, instance: DataQualityCheck, validated_data: dict) -> DataQualityCheck:
+        # ModelSerializer's default update would set fields and save without recomputing next_run_at,
+        # so PATCHing schedule_interval_minutes onto an unscheduled check would leave next_run_at null
+        # and the due-check scanner would never pick it up. update_check is the one place that keeps
+        # the two in sync, so route every write through it.
+        name = validated_data.get("name")
+        if name and name != instance.name:
+            api.ensure_name_available(instance.team_id, name, exclude_id=instance.id)
+        return api.update_check(instance, **validated_data)
+
 
 @extend_schema_serializer(component_name="DataQualityCheckRun")
 class DataQualityCheckRunSerializer(serializers.ModelSerializer):
@@ -217,6 +233,16 @@ class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
         read_only=True, help_text="running, completed, failed, or empty (nothing matched the trigger)."
     )
     trigger = serializers.CharField(read_only=True, help_text="manual, schedule, or materialization.")
+    subject_type = serializers.SerializerMethodField(
+        help_text="'table' or 'view' when the run targets exactly one subject; null for a "
+        "check-scoped or multi-subject run."
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_subject_type(self, obj: DataQualitySuiteRun) -> str | None:
+        # The model stores "" for a run that is not scoped to a single subject; the response schema
+        # only permits table/view, so surface the unscoped case as null rather than a blank string.
+        return obj.subject_type or None
 
     class Meta:
         model = DataQualitySuiteRun

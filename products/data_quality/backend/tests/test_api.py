@@ -12,7 +12,9 @@ from posthog.constants import AvailableFeature
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
+from products.data_quality.backend.logic import checks as checks_logic
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.data_quality.backend.presentation.serializers import DataQualitySuiteRunSerializer
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -134,6 +136,56 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         check.refresh_from_db()
         assert str(getattr(check, field)) != str(new_value)
+
+    @parameterized.expand(
+        [
+            ("enable_on_an_unscheduled_check", {}, 5, 5),
+            ("change_an_existing_cadence", {"schedule_interval_minutes": 15}, 5, 5),
+            ("clear_a_schedule", {"schedule_interval_minutes": 15}, None, None),
+        ]
+    )
+    def test_patching_the_schedule_recomputes_next_run_at(self, _name, create_overrides, patched, expected) -> None:
+        # Updates go through the serializer's default path, which would set the field without touching
+        # next_run_at -- so enabling a schedule would leave next_run_at null and the scanner would never
+        # pick the check up, and clearing one would leave a stale due time behind.
+        check = self._create_check(**create_overrides)
+
+        response = self.client.patch(f"{self.url}/{check.id}/", {"schedule_interval_minutes": patched})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        check.refresh_from_db()
+        assert check.schedule_interval_minutes == expected
+        assert (check.next_run_at is not None) == (expected is not None)
+
+    def test_a_racing_identical_create_returns_the_winning_row_not_a_500(self) -> None:
+        # Two identical creates can both miss the fingerprint lookup and race to insert; the uniqueness
+        # constraint lets only one win. Simulate the loser by making its lookup miss the row the winner
+        # already committed: it must catch the IntegrityError, refetch, and return the winner with 200.
+        winner = self._create_check()
+
+        with patch.object(checks_logic, "_find_by_fingerprint", side_effect=[None, winner]):
+            response = self.client.post(f"{self.url}/", self._payload(description="racing"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] == str(winner.id)
+        assert DataQualityCheck.objects.for_team(self.team.id).count() == 1
+
+    @parameterized.expand([("unscoped", "", None), ("single_view", SubjectType.VIEW, "view")])
+    def test_suite_run_subject_type_is_null_when_not_scoped_to_one_subject(self, _name, stored, expected) -> None:
+        # A manual check-id or multi-subject run stores a blank subject_type, but the response schema
+        # only permits table/view -- surface the unscoped case as null, never a blank string.
+        suite_run = DataQualitySuiteRun(team=self.team, trigger="manual", subject_type=stored)
+
+        assert DataQualitySuiteRunSerializer(suite_run).data["subject_type"] == expected
+
+    @parameterized.expand([("not_a_list", {"label": 1}), ("non_string_element", [{"nested": 1}])])
+    def test_tags_must_be_a_list_of_strings(self, _name, tags) -> None:
+        # The model field is untyped JSON; the serializer pins it to a list of strings so the generated
+        # client and Zod schema are typed rather than accepting arbitrary JSON.
+        response = self.client.post(f"{self.url}/", self._payload(tags=tags))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert DataQualityCheck.objects.for_team(self.team.id).count() == 0
 
     def test_a_workflow_that_cannot_start_does_not_strand_a_running_suite(self) -> None:
         check = self._create_check()
@@ -452,23 +504,40 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert self.client.get(f"{base}/{denied_suite.id}/").status_code == status.HTTP_404_NOT_FOUND
         assert self.client.get(f"{base}/{allowed_suite.id}/").status_code == status.HTTP_200_OK
 
-    @parameterized.expand([("create",), ("run",), ("runs",)])
-    def test_query_denied_members_cannot_author_or_execute_checks(self, surface: str) -> None:
-        # A check executes HogQL and its result columns are a count oracle over warehouse rows, so
-        # data_quality access alone must not be enough.
+    @parameterized.expand(
+        [
+            ("create", lambda self, check: self.client.post(f"{self.url}/", self._payload(column_name="total"))),
+            ("run", lambda self, check: self.client.post(f"{self.url}/{check.id}/run/")),
+            ("runs", lambda self, check: self.client.get(f"{self.url}/{check.id}/runs/")),
+            ("list", lambda self, check: self.client.get(f"{self.url}/")),
+            ("retrieve", lambda self, check: self.client.get(f"{self.url}/{check.id}/")),
+            (
+                "health",
+                lambda self, check: self.client.get(
+                    f"{self.url}/health/?subject_type={SubjectType.VIEW}&subject_uuid={self.view.id}"
+                ),
+            ),
+        ]
+    )
+    def test_query_denied_members_cannot_author_execute_or_read_check_outcomes(self, _name: str, call) -> None:
+        # A check executes HogQL and its result columns are a count oracle over warehouse rows, and
+        # reading a check back or its health rollup exposes the same counts one step removed, so
+        # data_quality access alone must not be enough for any of them.
         check = self._create_check()
         AccessControl.objects.create(team=self.team, resource="query", access_level="none")
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
         self.organization.save()
 
-        if surface == "create":
-            response = self.client.post(f"{self.url}/", self._payload(column_name="total"))
-        elif surface == "run":
-            response = self.client.post(f"{self.url}/{check.id}/run/")
-        else:
-            response = self.client.get(f"{self.url}/{check.id}/runs/")
+        assert call(self, check).status_code == status.HTTP_403_FORBIDDEN
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+    def test_check_types_catalog_stays_readable_without_query_access(self) -> None:
+        # The check-type catalog is static schema metadata with no execution state, so unlike the
+        # check rows it is not gated on query access -- an agent must be able to discover config shapes.
+        AccessControl.objects.create(team=self.team, resource="query", access_level="none")
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
+        self.organization.save()
+
+        assert self.client.get(f"{self.url}/check_types/").status_code == status.HTTP_200_OK
 
     def test_another_projects_checks_are_not_visible(self) -> None:
         check = self._create_check()

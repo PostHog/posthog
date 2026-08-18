@@ -12,6 +12,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from django.conf import settings
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
 from temporalio.common import RetryPolicy
@@ -95,11 +96,7 @@ def upsert_check(
         column_name=column_name,
         config=parsed.model_dump(mode="json"),
     )
-    existing = (
-        DataQualityCheck.objects.for_team(team.id)
-        .filter(subject_type=subject_type, subject_uuid=subject_uuid, fingerprint=fingerprint)
-        .first()
-    )
+    existing = _find_by_fingerprint(team.id, subject_type, subject_uuid, fingerprint)
     fields = {key: value for key, value in optional.items() if key in _UPSERTABLE_FIELDS and value is not None}
 
     # Checked here rather than before the fingerprint lookup: re-proposing an identical named check
@@ -107,23 +104,44 @@ def upsert_check(
     ensure_name_available(team.id, fields.get("name") or "", exclude_id=existing.id if existing else None)
 
     if existing is None:
-        check = DataQualityCheck.objects.for_team(team.id).create(
-            team=team,
-            created_by=user,
-            subject_type=subject_type,
-            subject_uuid=subject_uuid,
-            subject_name=subject.name,
-            subject_status=SubjectStatus.ACTIVE,
-            check_type=check_type,
-            column_name=column_name,
-            config=config,
-            fingerprint=fingerprint,
-            next_run_at=_initial_next_run_at(fields.get("schedule_interval_minutes")),
-            **fields,
-        )
-        return check, True
+        try:
+            # Savepoint so a lost race rolls back cleanly instead of poisoning an outer transaction.
+            with transaction.atomic():
+                check = DataQualityCheck.objects.for_team(team.id).create(
+                    team=team,
+                    created_by=user,
+                    subject_type=subject_type,
+                    subject_uuid=subject_uuid,
+                    subject_name=subject.name,
+                    subject_status=SubjectStatus.ACTIVE,
+                    check_type=check_type,
+                    column_name=column_name,
+                    config=config,
+                    fingerprint=fingerprint,
+                    next_run_at=_initial_next_run_at(fields.get("schedule_interval_minutes")),
+                    **fields,
+                )
+            return check, True
+        except IntegrityError:
+            # Check-then-insert race: a concurrent identical request inserted this fingerprint between
+            # the lookup above and this create. Refetch and refine the row it won with, so the loser
+            # gets the promised existing check (HTTP 200) rather than a 500. A collision on any other
+            # constraint (e.g. the name) is a genuine conflict, not this race -- re-raise it.
+            existing = _find_by_fingerprint(team.id, subject_type, subject_uuid, fingerprint)
+            if existing is None:
+                raise
 
     return update_check(existing, **fields, deleted=False), False
+
+
+def _find_by_fingerprint(
+    team_id: int, subject_type: str, subject_uuid: str, fingerprint: str
+) -> DataQualityCheck | None:
+    return (
+        DataQualityCheck.objects.for_team(team_id)
+        .filter(subject_type=subject_type, subject_uuid=subject_uuid, fingerprint=fingerprint)
+        .first()
+    )
 
 
 def update_check(check: DataQualityCheck, **fields: Any) -> DataQualityCheck:

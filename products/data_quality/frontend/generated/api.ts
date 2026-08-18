@@ -13,7 +13,6 @@ import type {
     DataQualityCheckRunApi,
     DataQualityCheckSuiteRunsListParams,
     DataQualityCheckTypeApi,
-    DataQualityChecksCreateParams,
     DataQualityChecksHealthRetrieveParams,
     DataQualityChecksListParams,
     DataQualityRunSubjectRequestApi,
@@ -140,20 +139,8 @@ export const dataQualityChecksList = async (
     })
 }
 
-export const getDataQualityChecksCreateUrl = (projectId: string, params?: DataQualityChecksCreateParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/data_quality/checks/?${stringifiedParams}`
-        : `/api/projects/${projectId}/data_quality/checks/`
+export const getDataQualityChecksCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_quality/checks/`
 }
 
 /**
@@ -162,10 +149,9 @@ export const getDataQualityChecksCreateUrl = (projectId: string, params?: DataQu
 export const dataQualityChecksCreate = async (
     projectId: string,
     dataQualityCheckApi: NonReadonly<DataQualityCheckApi>,
-    params?: DataQualityChecksCreateParams,
     options?: RequestInit
 ): Promise<DataQualityCheckApi> => {
-    return apiMutator<DataQualityCheckApi>(getDataQualityChecksCreateUrl(projectId, params), {
+    return apiMutator<DataQualityCheckApi>(getDataQualityChecksCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
