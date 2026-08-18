@@ -1145,37 +1145,20 @@ class TestBillingUsageRequestSerializer(TestCase):
         for key, value in data.items():
             self.assertEqual(serializer.validated_data[key], value)
 
-    def test_usage_types_rejects_comma_separated_values(self):
-        serializer = BillingUsageRequestSerializer(
-            data={"usage_types": "event_count_in_period, recording_count_in_period"}
-        )
+    @parameterized.expand(
+        [
+            ("usage_types_comma_separated", "usage_types", "event_count_in_period, recording_count_in_period"),
+            ("usage_types_json_non_array", "usage_types", '"event_count_in_period"'),
+            ("team_ids_comma_separated", "team_ids", "1,2,3"),
+            ("team_ids_json_string_values", "team_ids", '["1","2"]'),
+            ("breakdowns_comma_separated", "breakdowns", "type,team"),
+            ("breakdowns_unknown_values", "breakdowns", '["type","project"]'),
+        ]
+    )
+    def test_rejects_invalid_json_array_fields(self, _case_name: str, field_name: str, value: str):
+        serializer = BillingUsageRequestSerializer(data={field_name: value})
         self.assertFalse(serializer.is_valid())
-        self.assertIn("usage_types", serializer.errors)
-
-    def test_usage_types_rejects_json_non_array(self):
-        serializer = BillingUsageRequestSerializer(data={"usage_types": '"event_count_in_period"'})
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("usage_types", serializer.errors)
-
-    def test_team_ids_rejects_comma_separated_values(self):
-        serializer = BillingUsageRequestSerializer(data={"team_ids": "1,2,3"})
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("team_ids", serializer.errors)
-
-    def test_team_ids_rejects_json_string_values(self):
-        serializer = BillingUsageRequestSerializer(data={"team_ids": '["1","2"]'})
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("team_ids", serializer.errors)
-
-    def test_breakdowns_rejects_comma_separated_values(self):
-        serializer = BillingUsageRequestSerializer(data={"breakdowns": "type,team"})
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("breakdowns", serializer.errors)
-
-    def test_breakdowns_rejects_unknown_values(self):
-        serializer = BillingUsageRequestSerializer(data={"breakdowns": '["type","project"]'})
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("breakdowns", serializer.errors)
+        self.assertIn(field_name, serializer.errors)
 
     def test_empty_and_null_dates_are_valid(self):
         serializer = BillingUsageRequestSerializer(data={"start_date": "", "end_date": None})

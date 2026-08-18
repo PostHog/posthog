@@ -921,8 +921,8 @@
         },
         "feature_flag": "billing-alerts"
     },
-    "billing-list": {
-        "description": "Fetch the organization's current billing state: subscribed products and addons, available features, plan tier, usage summary against limits, spending limits, and trial status. Use this to understand what the customer is paying for, which features they have access to, or aggregate usage for the current billing period. For time-series breakdowns of usage call billing-usage-retrieve; for cost (spend) breakdowns call billing-spend-retrieve. To check whether the customer has access to a specific feature (e.g. group analytics, white-labelling), inspect `available_product_features` in the response.",
+    "billing-overview-get": {
+        "description": "Fetch the organization's current billing state: subscribed products and addons, available features, plan tier, usage summary against limits, spending limits, and trial status. Use this to understand what the customer is paying for, which features they have access to, or aggregate usage for the current billing period. For time-series breakdowns of usage call billing-usage-get; for cost (spend) breakdowns call billing-spend-get. To check whether the customer has access to a specific feature (e.g. group analytics, white-labelling), inspect `available_product_features` in the response.",
         "category": "Billing",
         "feature": "billing",
         "summary": "Get billing overview",
@@ -936,8 +936,8 @@
         },
         "feature_flag": "billing-mcp-read-tools"
     },
-    "billing-spend-retrieve": {
-        "description": "Fetch time-series spend (cost in USD) breakdowns for the organization across a date range. Same dimensional parameters as billing-usage-retrieve, but values are dollar amounts rather than usage volumes. Requires org admin-level access. Use this to investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams.",
+    "billing-spend-get": {
+        "description": "Fetch time-series spend (cost in USD) breakdowns for the organization across a date range. Same dimensional parameters as billing-usage-get, but values are dollar amounts rather than usage volumes. Requires org admin-level access. Use this to investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams.",
         "category": "Billing",
         "feature": "billing",
         "summary": "Get spend breakdown",
@@ -951,8 +951,8 @@
         },
         "feature_flag": "billing-mcp-read-tools"
     },
-    "billing-usage-retrieve": {
-        "description": "Fetch time-series usage breakdowns for the organization across a date range. Supports per-team (project) and per-usage-type dimensions. Requires org admin-level access. Use this to investigate usage spikes, compare periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-list; for cost (spend) breakdowns call billing-spend-retrieve.",
+    "billing-usage-get": {
+        "description": "Fetch time-series usage breakdowns for the organization across a date range. Supports per-team (project) and per-usage-type dimensions. Requires org admin-level access. Use this to investigate usage spikes, compare periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-overview-get; for cost (spend) breakdowns call billing-spend-get.",
         "category": "Billing",
         "feature": "billing",
         "summary": "Get usage breakdown",

@@ -801,14 +801,14 @@ describe('Tool Filtering - Feature Flags', () => {
 
     it('billing-mcp-read-tools flag gates billing read tools', () => {
         const off = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': false } })
-        expect(off).not.toContain('billing-list')
-        expect(off).not.toContain('billing-usage-retrieve')
-        expect(off).not.toContain('billing-spend-retrieve')
+        expect(off).not.toContain('billing-overview-get')
+        expect(off).not.toContain('billing-usage-get')
+        expect(off).not.toContain('billing-spend-get')
 
         const on = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': true } })
-        expect(on).toContain('billing-list')
-        expect(on).toContain('billing-usage-retrieve')
-        expect(on).toContain('billing-spend-retrieve')
+        expect(on).toContain('billing-overview-get')
+        expect(on).toContain('billing-usage-get')
+        expect(on).toContain('billing-spend-get')
     })
 
     it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
