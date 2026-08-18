@@ -24,8 +24,28 @@ rules:
       languages: [typescript, javascript]
       paths:
           include:
-              - 'docs/onboarding/**'
-      pattern-regex: '\.title\s*[!=]==\s*[''"`]'
+              - '/docs/onboarding/**'
+      patterns:
+          # The comparison itself is matched structurally, so operand order and
+          # strict vs loose equality are all covered.
+          - pattern-either:
+                - pattern: $TITLE == $LITERAL
+                - pattern: $TITLE != $LITERAL
+                - pattern: $TITLE === $LITERAL
+                - pattern: $TITLE !== $LITERAL
+                - pattern: $LITERAL == $TITLE
+                - pattern: $LITERAL != $TITLE
+                - pattern: $LITERAL === $TITLE
+                - pattern: $LITERAL !== $TITLE
+          # Anchored, because a nested pattern would also match `step.title` inside
+          # an expression like `step.title.length`, which is not title matching.
+          - metavariable-regex:
+                metavariable: $TITLE
+                regex: ^([A-Za-z_$][\w$]*\.title|[A-Za-z_$][\w$]*\[[\x27"]title[\x27"]\]|title)$
+          # A string or template literal on the other side.
+          - metavariable-regex:
+                metavariable: $LITERAL
+                regex: ^[\x27"`]
       metadata:
           category: best-practice
           subcategory:
