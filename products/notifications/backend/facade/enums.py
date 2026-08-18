@@ -21,6 +21,7 @@ class NotificationType(str, Enum):
     SUBSCRIPTION_NUDGE = "subscription_nudge"
     EMAIL_REPUTATION = "email_reputation"
     MATERIALIZATION_FAILURE = "materialization_failure"
+    DATA_QUALITY_CHECK_FAILURE = "data_quality_check_failure"
 
 
 class Priority(str, Enum):

@@ -45,7 +45,6 @@ BULK_DELETE_PERSONS_DB_MODELS: dict[str, str] = {
     "grouptypemapping": "Group Type Mappings",
     "person": "Persons",
     "persondistinctid": "Person Distinct IDs",
-    "personlessdistinctid": "Personless Distinct IDs",
 }
 
 
