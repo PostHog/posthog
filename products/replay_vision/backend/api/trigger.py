@@ -154,7 +154,7 @@ def start_apply_scanner_workflow(
     scanner: ReplayScanner,
     session_id: str,
     *,
-    triggered_by_user_id: int | None,
+    triggered_by_user_id: int,
     trigger: ObservationTrigger,
     team_in_flight_rows: int | None = None,
     scanner_in_flight_rows: int | None = None,

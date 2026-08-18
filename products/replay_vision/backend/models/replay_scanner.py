@@ -156,6 +156,11 @@ class ReplayScanner(UUIDModel):
         blank=True,
         help_text="Watermark for the periodic full-events-lookback catch-up sweep; null until the first regular sweep initializes it.",
     )
+    primed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the one-off priming pass over recent recordings ran; null until the first sweep primes the scanner.",
+    )
     sweep_read_bytes_by_hour = models.JSONField(
         null=True,
         blank=True,

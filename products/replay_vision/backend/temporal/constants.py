@@ -56,6 +56,12 @@ DEEP_SWEEP_INTERVAL = dt.timedelta(hours=6)
 # share: it is catch-up work, and a tick that overruns retries both queries.
 DEEP_SWEEP_MAX_EXECUTION_SECONDS = 60
 
+# One-off priming pass for a scanner that has never been swept: a few recent recordings scanned on
+# the first sweep tick, so the scanner has observations to show without waiting for new sessions.
+PRIMING_LOOKBACK = dt.timedelta(hours=24)
+PRIMING_SCAN_SESSIONS = 3
+PRIMING_MAX_EXECUTION_SECONDS = 30
+
 # Rolling 24h ClickHouse read budget per scanner. Above it, sweeps stretch their effective cadence
 # proportionally (skipped ticks batch into the next executed one, so no sessions are missed).
 # Sized an order of magnitude above the healthy post-optimization p95 so only pathological
