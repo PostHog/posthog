@@ -3,6 +3,7 @@ from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, Throttled, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -170,7 +171,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Land agent commits from a git bundle",
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, parser_classes=[MultiPartParser, FormParser])
     def commits(self, request: Request, **kwargs) -> Response:
         serializer = CommitBundleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

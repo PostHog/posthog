@@ -31,11 +31,13 @@ export const contextLayerCommitsCreate = async (
     commitBundleApi: CommitBundleApi,
     options?: RequestInit
 ): Promise<ContextLayerStatusApi> => {
+    const formData = new FormData()
+    formData.append(`bundle`, commitBundleApi.bundle)
+
     return apiMutator<ContextLayerStatusApi>(getContextLayerCommitsCreateUrl(organizationId), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(commitBundleApi),
+        body: formData,
     })
 }
 
