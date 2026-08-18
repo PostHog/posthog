@@ -52,6 +52,7 @@ procs:
             echo "=== Dropping and recreating databases ===" && \
             dropdb --if-exists posthog_e2e_test && \
             createdb posthog_e2e_test && \
+            bin/hogli db:restore-schema-if-fresh --target-db posthog_e2e_test && \
             echo "DROP DATABASE IF EXISTS posthog_test SYNC" | curl 'http://localhost:8123/' --data-binary @- && \
             echo "CREATE DATABASE posthog_test" | curl 'http://localhost:8123/' --data-binary @- && \
             echo "=== Detaching conflicting Kafka-engine tables from posthog DB (shared consumer group 'group1') ===" && \

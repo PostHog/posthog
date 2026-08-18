@@ -218,8 +218,8 @@ def test_restore_schema_if_fresh_recreates_empty_db(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(db_schema, "download_latest_compatible_schema", lambda **kwargs: None)
     monkeypatch.setattr(db_schema, "restore_schema_dump", lambda **kwargs: restore_calls.append(kwargs))
 
-    assert db_schema.restore_schema_if_fresh(target_db="posthog", mode="auto") is True
-    assert restore_calls == [{"target_db": "posthog", "recreate": True, "ensure_defaults": True}]
+    assert db_schema.restore_schema_if_fresh(target_db="posthog_e2e_test", mode="auto") is True
+    assert restore_calls == [{"target_db": "posthog_e2e_test", "recreate": True, "ensure_defaults": True}]
 
 
 def test_restore_schema_if_fresh_skips_when_db_populated_after_download(
