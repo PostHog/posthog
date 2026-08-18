@@ -274,20 +274,7 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewse
     )
     @action(methods=["GET"], detail=False, url_path="check_types", pagination_class=None)
     def check_types(self, request: Request, **kwargs) -> Response:
-        return Response(
-            CheckTypeSerializer(
-                [
-                    {
-                        "check_type": spec.type_name,
-                        "description": getattr(spec, "description", ""),
-                        "requires_column": spec.requires_column,
-                        "config_schema": spec.json_schema,
-                    }
-                    for spec in api.all_specs()
-                ],
-                many=True,
-            ).data
-        )
+        return Response(CheckTypeSerializer(api.list_check_types(), many=True).data)
 
 
 class SavedQueryCheckViewSet(_BaseCheckViewSet):

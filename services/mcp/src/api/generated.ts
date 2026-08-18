@@ -20117,6 +20117,15 @@ export namespace Schemas {
       readonly subject_type: SubjectTypeEnum;
       readonly subject_uuid: string;
       readonly subject_name: string;
+      /** Which assertion this run made.
+       *
+       * * `not_null` - not_null
+       * * `unique` - unique
+       * * `accepted_values` - accepted_values
+       * * `relationships` - relationships
+       * * `row_count` - row_count
+       * * `freshness` - freshness
+       * * `custom_sql` - custom_sql */
       readonly check_type: CheckTypeEnum;
       readonly column_name: string;
       /** passed, failed, errored, or skipped. */

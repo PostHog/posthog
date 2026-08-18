@@ -189,6 +189,13 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
 @extend_schema_serializer(component_name="DataQualityCheckRun")
 class DataQualityCheckRunSerializer(serializers.ModelSerializer):
     status = serializers.CharField(read_only=True, help_text="passed, failed, errored, or skipped.")
+    # Declared rather than derived: the model field carries no choices, so the schema would otherwise
+    # publish check_type as a bare string.
+    check_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in CheckType],
+        read_only=True,
+        help_text="Which assertion this run made.",
+    )
 
     class Meta:
         model = DataQualityCheckRun
