@@ -28,6 +28,7 @@ logger = structlog.get_logger(__name__)
 class WorkflowTasksJWTAuthentication(ScopedServiceJWTAuthentication):
     purpose = TASKS_CREATE_PURPOSE
 
+    # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract
     def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, Any]:
         user, _ = super()._authenticate_claims(request, claims)
         # The workflow is identified by the verified token, never by the request body, so a
@@ -127,10 +128,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
 
         owner_id = _resolve_workflow_owner(team_id, hog_flow_id)
         if owner_id is None:
-            return Response(
-                {"detail": "Workflow has no owner who can run tasks."},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
+            return _rejected("Workflow has no owner who can run tasks.", status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         try:
             result = create_workflow_task(
@@ -152,15 +150,9 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 {"connectors": f"MCP installation(s) not found or inactive: {error.invalid_ids}"}
             )
         except WorkflowTaskOwnerIneligible:
-            return Response(
-                {"detail": "Workflow has no owner who can run tasks."},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
+            return _rejected("Workflow has no owner who can run tasks.", status.HTTP_422_UNPROCESSABLE_ENTITY)
         except WorkflowTaskOriginKeyConflict:
-            return Response(
-                {"detail": "Idempotency key is already used by another workflow."},
-                status=status.HTTP_409_CONFLICT,
-            )
+            return _rejected("Idempotency key is already used by another workflow.", status.HTTP_409_CONFLICT)
         except WorkflowTaskLimitExceeded as error:
             logger.info(
                 "workflow_task_create_throttled",
@@ -168,15 +160,19 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 hog_flow_id=str(hog_flow_id),
                 in_flight=error.in_flight,
             )
-            return Response(
-                {"detail": f"Workflow already has {error.in_flight} tasks in flight (limit {error.limit})."},
-                status=status.HTTP_409_CONFLICT,
+            return _rejected(
+                f"Workflow already has {error.in_flight} tasks in flight (limit {error.limit}).",
+                status.HTTP_409_CONFLICT,
             )
 
         return Response(
-            {"id": result.task_id, "run_id": result.run_id},
+            WorkflowTaskResponseSerializer({"id": result.task_id, "run_id": result.run_id}).data,
             status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
         )
+
+
+def _rejected(detail: str, http_status: int) -> Response:
+    return Response(WorkflowTaskRejectedSerializer({"detail": detail}).data, status=http_status)
 
 
 def _resolve_workflow_owner(team_id: int, hog_flow_id: uuid.UUID) -> int | None:
