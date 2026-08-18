@@ -482,8 +482,10 @@ file. Turn that moment into a source file before you start grepping the descript
   hashed module names match everything or nothing.
 - **When `extra` already carries an `element`**, the scanner read it off the event log at that
   exact moment; prefer it over re-deriving one from the window.
-- **An empty window means no interaction happened** (a render, layout, or load failure).
-  Attribute by route and say the element is unknown rather than inventing one.
+- **An empty window means the events do not cover this moment**, not that nothing happened:
+  the moment may be a render, layout, or load with no interaction, or the interaction went
+  uncaptured (autocapture off) or the anchor is wrong. Attribute by route and say the element
+  is unknown rather than inventing one.
 
 Full recipe, including the queries and the mobile specifics: the
 `correlating-recordings-to-code` skill."""

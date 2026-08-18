@@ -157,9 +157,10 @@ Treat it as no anchor at all.
 
 ## 4. When the window is empty
 
-An empty window is information, not a failure. It means no interaction happened at that moment,
-which is what you would expect from a banner that rendered on load, a layout that broke on
-resize, or a crash mid-render.
+An empty window is information, not a failure, but it is not proof that nothing happened. It
+usually means no interaction at that moment, which is what you would expect from a banner that
+rendered on load, a layout that broke on resize, or a crash mid-render. It can also mean the
+interaction went uncaptured (autocapture is off for the team) or that the anchor is wrong.
 
 In that case:
 
