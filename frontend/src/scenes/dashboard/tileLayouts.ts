@@ -1,5 +1,5 @@
 import { Layout } from 'react-grid-layout'
-import { cloneLayout, type Compactor } from 'react-grid-layout/core'
+import { cloneLayout, collides, type Compactor } from 'react-grid-layout/core'
 
 import {
     DASHBOARD_WIDGET_CATALOG,
@@ -26,9 +26,33 @@ const MIN_WIDGET_TILE_WIDTH_COLS = 3
 const MIN_WIDGET_TILE_HEIGHT_ROWS = 4
 
 export const freePlacementCompactor: Compactor = {
-    type: 'vertical',
+    type: null,
     allowOverlap: false,
-    compact: (layout) => cloneLayout(layout),
+    compact: (layout) => {
+        const clonedLayout = cloneLayout(layout)
+        const placedItems: Array<(typeof clonedLayout)[number]> = []
+        const orderedItems = [...clonedLayout].sort((a, b) => {
+            if (!!a.static !== !!b.static) {
+                return a.static ? -1 : 1
+            }
+            if (!!a.moved !== !!b.moved) {
+                return a.moved ? -1 : 1
+            }
+            return a.y - b.y || a.x - b.x
+        })
+
+        for (const item of orderedItems) {
+            let collision = placedItems.find((placedItem) => collides(placedItem, item))
+            while (collision) {
+                item.y = collision.y + collision.h
+                collision = placedItems.find((placedItem) => collides(placedItem, item))
+            }
+            item.moved = false
+            placedItems.push(item)
+        }
+
+        return clonedLayout
+    },
 }
 
 /** Fallback tile dimensions (half-width, standard height) when a tile has no known layout yet. */

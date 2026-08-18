@@ -24,15 +24,17 @@ function textTileWithLayout(
 describe('calculating tile layouts', () => {
     it('pushes colliding tiles without compacting free space', () => {
         const layout = [
-            { i: 'moving', x: 0, y: 0, w: 6, h: 4 },
-            { i: 'neighbor', x: 0, y: 6, w: 6, h: 4 },
+            { i: 'neighbor', x: 0, y: 0, w: 6, h: 4 },
+            { i: 'moving', x: 6, y: 0, w: 6, h: 4 },
+            { i: 'next-neighbor', x: 0, y: 4, w: 6, h: 4 },
+            { i: 'unrelated', x: 6, y: 20, w: 6, h: 4 },
         ]
 
         const movedLayout = moveElement(
             layout,
-            layout[0],
+            layout[1],
             0,
-            6,
+            0,
             true,
             false,
             freePlacementCompactor.type,
@@ -41,8 +43,10 @@ describe('calculating tile layouts', () => {
         )
         const finalLayout = freePlacementCompactor.compact(movedLayout, 12)
 
-        expect(finalLayout.find(({ i }) => i === 'moving')?.y).toBe(6)
-        expect(finalLayout.find(({ i }) => i === 'neighbor')?.y).toBe(2)
+        expect(finalLayout.find(({ i }) => i === 'moving')?.y).toBe(0)
+        expect(finalLayout.find(({ i }) => i === 'neighbor')?.y).toBe(4)
+        expect(finalLayout.find(({ i }) => i === 'next-neighbor')?.y).toBe(8)
+        expect(finalLayout.find(({ i }) => i === 'unrelated')?.y).toBe(20)
     })
 
     it('minimum width and height are added if missing', () => {
