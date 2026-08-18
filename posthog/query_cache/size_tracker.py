@@ -198,6 +198,14 @@ class TeamCacheSizeTracker:
 
         return evicted
 
+    def replace_value(self, cache_key: str, data: bytes, ttl: int) -> None:
+        """Overwrite an entry's stored bytes and size accounting, without set()'s limit check
+        or logging. For the pointer swap, where the new value only ever shrinks usage; also
+        runs on upload worker threads, so it must stay free of Django ORM calls.
+        """
+        self.redis_client.set(storage.entry_redis_key(cache_key), data, ex=ttl)
+        self.track_cache_write(cache_key, len(data))
+
     def track_cache_write(self, cache_key: str, size_bytes: int) -> None:
         """Track a cache write with its size. Atomic via Lua script."""
         tracking_ttl = settings.CACHED_RESULTS_TTL + 86400

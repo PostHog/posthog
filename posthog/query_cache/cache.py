@@ -13,7 +13,7 @@ from posthog.query_cache.metrics import count_cache_write_data
 from posthog.query_cache.results import EntryFreshness, fetch_entry, fetch_entry_freshness
 from posthog.query_cache.serialization import CachedEntry, encode_split_cached_response
 from posthog.query_cache.size_tracker import TeamCacheSizeTracker
-from posthog.query_cache.storage import encode_inline_value, upload_for_pointer
+from posthog.query_cache.storage import encode_inline_value, schedule_upload_for_pointer
 
 logger = structlog.get_logger(__name__)
 
@@ -90,17 +90,17 @@ class QueryCache:
             storage_bytes = encode_inline_value(fresh_response_serialized)
             tracker = TeamCacheSizeTracker(self.team_id)
             tracker.set(self.cache_key, storage_bytes, settings.CACHED_RESULTS_TTL)
-            # The S3 upload runs after the inline write, so the fresh result serves reads for
-            # the upload's duration and a failed upload has nothing to undo. The pointer swap
-            # is last-write-wins, the semantics two concurrent store_results already have.
-            pointer = upload_for_pointer(
+            # The S3 upload runs on a background thread after the inline write: the fresh
+            # result is already cached, so the requester never waits on S3, and a failed or
+            # skipped upload leaves the valid inline entry in place. The pointer swap is
+            # last-write-wins, the semantics two concurrent store_results already have.
+            schedule_upload_for_pointer(
                 team_id=self.team_id,
                 cache_key=self.cache_key,
                 inline_value=storage_bytes,
                 last_refresh=_last_refresh_iso(response),
+                swap=lambda pointer: tracker.replace_value(self.cache_key, pointer, settings.CACHED_RESULTS_TTL),
             )
-            if pointer is not None:
-                tracker.set(self.cache_key, pointer, settings.CACHED_RESULTS_TTL)
         except Exception:
             logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)
             return

@@ -3,7 +3,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -213,6 +213,12 @@ class TestQueryCacheS3Routing(BaseTest):
         storage_patcher = patch("posthog.query_cache.storage.object_storage_client", return_value=self.storage)
         storage_patcher.start()
         self.addCleanup(storage_patcher.stop)
+        # Run uploads inline so assertions right after store_result see the swapped pointer.
+        inline_executor = MagicMock()
+        inline_executor.submit.side_effect = lambda fn: fn()
+        executor_patcher = patch("posthog.query_cache.storage._get_upload_executor", return_value=inline_executor)
+        executor_patcher.start()
+        self.addCleanup(executor_patcher.stop)
 
     def _large_response(self) -> dict:
         return {"is_cached": False, "results": [{"data": _incompressible_rows(10)}], "cache_key": "k"}

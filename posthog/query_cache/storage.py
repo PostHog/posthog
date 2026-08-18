@@ -1,8 +1,9 @@
 """The bytes stored in Redis for each query cache entry.
 
-encode_inline_value picks the bytes stored inline for a serialized result; upload_for_pointer
-uploads large frames to S3 and returns the pointer record that replaces them in Redis;
-decode_stored_value turns stored bytes back into the result. Everything else serves those.
+encode_inline_value picks the bytes stored inline for a serialized result;
+schedule_upload_for_pointer uploads large frames to S3 in the background and swaps in the
+pointer record that replaces them in Redis; decode_stored_value turns stored bytes back into
+the result. Everything else serves those.
 
 A Redis value is a bare byte string shared with older pods during rolling deploys, so each
 storage format announces itself in its first bytes:
@@ -26,6 +27,9 @@ mixed-version deploy costs at most one extra recompute per entry.
 import io
 import time
 import pickle
+import threading
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Literal, NoReturn, Optional, cast
 
@@ -166,26 +170,73 @@ def encode_inline_value(payload: bytes) -> bytes:
     return zstd.compress(payload, ZSTD_PRESET, ZSTD_THREADS)
 
 
-def upload_for_pointer(
-    *, team_id: int, cache_key: str, inline_value: bytes, last_refresh: Optional[str]
-) -> Optional[bytes]:
-    """The pointer bytes to replace an already-stored inline value with, or None to keep it.
+# Bounds the blob bytes held by queued uploads while S3 is slow or down; a skipped upload is
+# safe because the entry is already stored inline.
+_UPLOAD_MAX_PENDING = 8
+
+_upload_slots = threading.Semaphore(_UPLOAD_MAX_PENDING)
+_upload_executor: Optional[ThreadPoolExecutor] = None
+_upload_executor_lock = threading.Lock()
+
+
+def _get_upload_executor() -> ThreadPoolExecutor:
+    # Created on first use so the threads start in the serving process, not in a pre-fork
+    # parent whose threads would not survive the fork.
+    global _upload_executor
+    if _upload_executor is None:
+        with _upload_executor_lock:
+            if _upload_executor is None:
+                _upload_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="query-cache-s3")
+    return _upload_executor
+
+
+def schedule_upload_for_pointer(
+    *,
+    team_id: int,
+    cache_key: str,
+    inline_value: bytes,
+    last_refresh: Optional[str],
+    swap: Callable[[bytes], None],
+) -> None:
+    """Upload an already-stored inline value to S3 off the calling thread, then swap(pointer).
 
     Only zstd frames of at least QUERY_CACHE_S3_MIN_COMPRESSED_BYTES route to S3, gated by the
-    team's flag. "shadow" uploads but returns None, so Redis keeps the blob; "on" returns the
+    team's flag. "shadow" uploads without swapping, so Redis keeps the blob; "on" swaps in the
     pointer once the upload succeeded, so the blob stops counting against the team's Redis
-    cache budget. Never raises.
+    cache budget. The write mode resolves on the calling thread because it touches Postgres
+    and Django closes connections per request, not per worker thread. Never raises, and the
+    caller never waits on S3: with the pool saturated the upload is skipped and the entry
+    simply stays inline.
     """
     if (
         not inline_value.startswith(ZSTD_FRAME_MAGIC)
         or len(inline_value) < settings.QUERY_CACHE_S3_MIN_COMPRESSED_BYTES
     ):
-        return None
+        return
     mode = s3_write_mode(team_id)
     if mode == "off":
-        return None
-    pointer = write_blob(team_id=team_id, cache_key=cache_key, blob=inline_value, mode=mode, last_refresh=last_refresh)
-    return pointer if mode == "on" else None
+        return
+    if not _upload_slots.acquire(blocking=False):
+        _record_s3_write(mode, "saturated")
+        return
+
+    def _upload_and_swap() -> None:
+        try:
+            pointer = write_blob(
+                team_id=team_id, cache_key=cache_key, blob=inline_value, mode=mode, last_refresh=last_refresh
+            )
+            if mode == "on" and pointer is not None:
+                swap(pointer)
+        except Exception:
+            logger.warning("query_cache_s3_swap_failed", team_id=team_id, cache_key=cache_key, exc_info=True)
+        finally:
+            _upload_slots.release()
+
+    try:
+        _get_upload_executor().submit(_upload_and_swap)
+    except Exception:
+        _upload_slots.release()
+        logger.warning("query_cache_s3_upload_submit_failed", team_id=team_id, cache_key=cache_key, exc_info=True)
 
 
 def decode_stored_value(value: bytes, *, team_id: int, cache_key: str) -> Optional[bytes]:
