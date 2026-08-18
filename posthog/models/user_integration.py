@@ -106,7 +106,7 @@ class GitHubInstallRequest(UUIDModel):
     client-held marker: a row here is the fact of "approval requested"; the
     ``installation.created`` webhook (see ``posthog.api.github_callback.installation_events``)
     flips it to ``approved`` once an owner acts. User-scoped like ``UserIntegration``, not
-    team-scoped — the request predates any team's Integration row.
+    team-scoped, because the request predates any team's Integration row.
     """
 
     class Status(models.TextChoices):

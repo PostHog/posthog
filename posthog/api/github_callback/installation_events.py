@@ -15,7 +15,7 @@ silently pointed at a repository it can no longer reach.
 ``action == "created"`` is the other direction: an org owner approved a pending install
 request (see ``posthog.api.github_callback.install_requests``). The payload's
 ``requester.login`` is who asked, so matching pending ``GitHubInstallRequest`` rows by
-``github_login`` flip to approved — this is how the desktop learns the wait is over
+``github_login`` flip to approved, which is how the desktop learns the wait is over
 without polling GitHub itself.
 """
 

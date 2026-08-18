@@ -148,7 +148,6 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         self.assertEqual(len(results), 2)
-        # newest first
         self.assertEqual(results[0]["id"], str(approved.id))
         self.assertEqual(results[0]["status"], "approved")
         self.assertEqual(results[0]["installation_id"], "55555")
