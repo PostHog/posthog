@@ -250,7 +250,10 @@ export interface stepDelayLogicActions {
                             bytecode?: any
                             bytecode_error?: string | undefined
                             expression: string
+                            fallback_timezone?: string | null | undefined
                             offset?: string | undefined
+                            timezone?: string | null | undefined
+                            use_person_timezone?: boolean | undefined
                         }
                       | undefined
                   max_delay_duration?: string | undefined
@@ -522,7 +525,10 @@ export interface stepDelayLogicActions {
                             bytecode?: any
                             bytecode_error?: string | undefined
                             expression: string
+                            fallback_timezone?: string | null | undefined
                             offset?: string | undefined
+                            timezone?: string | null | undefined
+                            use_person_timezone?: boolean | undefined
                         }
                       | undefined
                   max_delay_duration?: string | undefined

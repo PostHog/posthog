@@ -256,7 +256,6 @@ describe('stepDelayLogic', () => {
         expect(descriptionOf(delayAction.id)).toBe(customDescription)
     })
 
-
     it('should auto-update the description when the action has no description', async () => {
         // Agent-created actions can arrive without a description key; editing one must not throw on .trim().
         const delayAction = {
