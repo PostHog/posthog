@@ -125,8 +125,12 @@ role "medium" {
 # role's objects, because migration_tools routes every migration to NodeRole.ALL when DEBUG
 # and not MULTINODE_CLICKHOUSE. Composed as the deduped union of the local-multi stacks it
 # hosts, so any name two of those roles declare fails this load instead of drifting.
+#
+# roles/all/local-single holds what only a collapsed topology produces: migration 0273
+# renames query_log_archive on OPS, which on one node hits the table the DATA steps just
+# made, leaving query_log_archive_old and writable_sharded_query_log_archive behind.
 role "all" {
-  env "local-single" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
+  env "local-single" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_small/local", "roles/ingestion_medium/local", "roles/all/local-single"] }
 }
 
 # role "endpoints" {

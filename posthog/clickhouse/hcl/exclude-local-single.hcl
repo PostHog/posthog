@@ -28,6 +28,13 @@ exclude {
     "*_backup",
     "*_backup_*",
 
+    # --- dropped here, but not on the multinode ingestion node ---
+    # Migration 0155 dropped the error-tracking embeddings suite on DATA while the
+    # objects were created on INGESTION_SMALL. On one node those are the same node, so
+    # the drop landed and roles/ingestion_small declares three objects this node lacks.
+    # 0253 cleans them up on the ingestion nodes too, but only on cloud.
+    "*error_tracking_issue_fingerprint_embeddings*",
+
     # --- out-of-band managed, same call as the multinode gate ---
     # Created out-of-band on cloud; what this node ends up with is an accident of DEBUG
     # routing every migration to one node, not declared intent.
