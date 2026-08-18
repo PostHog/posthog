@@ -2133,39 +2133,26 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_activity_skips_run_when_team_over_signals_quota(ateam):
+@pytest.mark.parametrize(
+    ("billing_limited", "daily_limited", "expected_skip_reason"),
+    [
+        (True, False, "quota_limited"),
+        (False, True, "daily_report_limit"),
+        (True, True, "quota_limited"),
+    ],
+)
+async def test_activity_skips_run_attributed_to_the_limit_that_fired(
+    ateam, billing_limited, daily_limited, expected_skip_reason
+):
     fake_arun = AsyncMock()
     with (
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
-            return_value=True,
-        ),
-        patch("products.signals.backend.scout_harness.runner.arun_signals_scout", fake_arun),
-    ):
-        env = ActivityEnvironment()
-        output = await env.run(
-            run_signals_scout_activity,
-            RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
-        )
-
-    fake_arun.assert_not_called()
-    assert output.run_id is None
-    assert output.status is None
-    assert output.skip_reason == "quota_limited"
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_activity_skips_run_when_team_over_daily_report_limit(ateam):
-    fake_arun = AsyncMock()
-    with (
-        patch(
-            "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
-            return_value=False,
+            return_value=billing_limited,
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.daily_report_limit_gate",
-            return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
+            return_value=DailyReportLimitGate(limited=daily_limited, limit=2, reports_today=2),
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.capture_signal_report_daily_limit_paused"
@@ -2181,8 +2168,13 @@ async def test_activity_skips_run_when_team_over_daily_report_limit(ateam):
     fake_arun.assert_not_called()
     assert output.run_id is None
     assert output.status is None
-    assert output.skip_reason == "daily_report_limit"
-    assert capture.call_args.kwargs["stage"] == "scout_run"
+    assert output.skip_reason == expected_skip_reason
+    # The capture event tracks its own gate: it fires whenever the daily limit binds, even when
+    # the quota skip wins the single-status run counter.
+    if daily_limited:
+        assert capture.call_args.kwargs["stage"] == "scout_run"
+    else:
+        capture.assert_not_called()
 
 
 @pytest.mark.asyncio

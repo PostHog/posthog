@@ -88,7 +88,13 @@ async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) ->
     that fired; the workflow only acts on the boolean.
     """
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    if await sync_to_async(is_team_signals_quota_limited)(team.api_token):
+    quota_limited = await sync_to_async(is_team_signals_quota_limited)(team.api_token)
+    daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
+    # Captured whenever the daily gate binds — even when the quota drop below wins the
+    # single-reason drop metric — so the daily-limit event stream stays complete on co-bound days.
+    if daily_gate.limited:
+        capture_signal_report_daily_limit_paused(team, report_id=None, stage="ingestion", gate=daily_gate)
+    if quota_limited:
         logger.info(
             "signals_buffer.dropped_batch_quota_limited",
             team_id=input.team_id,
@@ -96,7 +102,6 @@ async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) ->
         )
         metrics.increment_dropped(stage="ingestion", reason="quota_limited", count=input.signal_count)
         return True
-    daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
     if daily_gate.limited:
         logger.info(
             "signals_buffer.dropped_batch_daily_limit",
@@ -104,7 +109,6 @@ async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) ->
             signal_count=input.signal_count,
         )
         metrics.increment_dropped(stage="ingestion", reason="daily_report_limit", count=input.signal_count)
-        capture_signal_report_daily_limit_paused(team, report_id=None, stage="ingestion", gate=daily_gate)
         return True
     return False
 

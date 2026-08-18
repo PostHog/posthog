@@ -88,7 +88,13 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
     # before any LLM work: a scout run exists to feed signals into the pipeline, and ingestion
     # drops them while either limit binds.
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    if await database_sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(team.api_token):
+    quota_limited = await database_sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(team.api_token)
+    daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
+    # Captured whenever the daily gate binds — even when the quota skip below wins the
+    # single-status run counter — so the daily-limit event stream stays complete on co-bound days.
+    if daily_gate.limited:
+        capture_signal_report_daily_limit_paused(team, report_id=None, stage="scout_run", gate=daily_gate)
+    if quota_limited:
         logger.info(
             "signals_scout: skipping run, team over signals_credits quota",
             team_id=input.team_id,
@@ -104,7 +110,6 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
             skill_version=input.skill_version or 0,
             skip_reason="quota_limited",
         )
-    daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
     if daily_gate.limited:
         logger.info(
             "signals_scout: skipping run, team over daily report limit",
@@ -112,7 +117,6 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
             skill_name=input.skill_name,
         )
         metrics.increment_scout_run("daily_report_limit")
-        capture_signal_report_daily_limit_paused(team, report_id=None, stage="scout_run", gate=daily_gate)
         return RunSignalsScoutOutput(
             run_id=None,
             task_run_id=None,

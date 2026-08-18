@@ -122,6 +122,7 @@ async def test_under_quota_batch_flows_through():
     [
         (True, False, True, "quota_limited"),
         (False, True, True, "daily_report_limit"),
+        (True, True, True, "quota_limited"),
         (False, False, False, None),
     ],
 )
@@ -147,7 +148,9 @@ async def test_check_activity_attributes_drop_to_the_limit_that_fired(
         dropped.assert_not_called()
     else:
         dropped.assert_called_once_with(stage="ingestion", reason=expected_reason, count=3)
-    if expected_reason == "daily_report_limit":
+    # The capture event tracks its own gate: it fires whenever the daily limit binds, even when
+    # the quota drop wins the single-reason metric attribution.
+    if daily_limited:
         assert capture.call_args.kwargs["stage"] == "ingestion"
         assert capture.call_args.kwargs["report_id"] is None
     else:
