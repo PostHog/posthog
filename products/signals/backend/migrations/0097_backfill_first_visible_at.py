@@ -30,6 +30,12 @@ def backfill_first_visible_at(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    # Non-atomic so each batch's UPDATE commits and releases its row locks as it goes. The default
+    # wrapping transaction would instead hold every updated row locked until the whole backfill
+    # committed, which is the lock buildup the batching is meant to avoid. Safe to resume after a
+    # partial run because each pass only ever selects rows that are still unstamped.
+    atomic = False
+
     dependencies = [
         ("signals", "0096_signalreport_first_visible_index"),
     ]
