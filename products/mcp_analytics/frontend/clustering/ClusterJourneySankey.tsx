@@ -43,7 +43,7 @@ function nodeFill(kind: NodeKind): string {
             return 'var(--danger)'
         case 'tool':
         default:
-            return 'var(--accent)'
+            return 'var(--brand-red)'
     }
 }
 
@@ -171,7 +171,7 @@ export function ClusterJourneySankey({ journey }: Props): JSX.Element | null {
                     <g>
                         {layout.links.map((link, idx) => {
                             const path = linkGen(link) ?? ''
-                            const stroke = link.outcome === 'error' ? 'var(--danger)' : 'var(--accent)'
+                            const stroke = link.outcome === 'error' ? 'var(--danger)' : 'var(--brand-red)'
                             const sourceName = (link.source as unknown as JourneyNode).name
                             const targetName = (link.target as unknown as JourneyNode).name
                             const pct =

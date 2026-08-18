@@ -148,9 +148,9 @@ export function DiscoveryScatter(): JSX.Element | null {
                             cx={scale(point.fit, xDomain, plotX)}
                             cy={scale(point.discoveryRatePct, [0, 100], plotY)}
                             r={radius(point.callCount, maxCalls)}
-                            fill="var(--accent)"
+                            fill="var(--brand-red)"
                             fillOpacity={0.55}
-                            stroke="var(--accent)"
+                            stroke="var(--brand-red)"
                             className="cursor-help"
                         />
                     </Tooltip>
