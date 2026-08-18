@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
+from products.canvas.backend.report_canvas import CanvasGenerationState
 from products.signals.backend.models import SignalReport, SignalReportCanvas
 from products.signals.backend.report_canvas import (
     ReportCanvasGeneration,
@@ -167,7 +168,7 @@ class TestReportCanvasGeneration(APIBaseTest):
             patch("products.signals.backend.report_canvas.tasks_facade.task_run_is_terminal", return_value=True),
             patch(
                 "products.signals.backend.report_canvas.canvas_api.canvas_generation_result",
-                return_value=(True, False),
+                return_value=CanvasGenerationState(status="ready"),
             ),
             patch("products.signals.backend.report_canvas._reviewer_user_ids", return_value={self.user.id}),
             patch("products.signals.backend.report_canvas.tasks_facade.record_task_activity_for_users") as notify,
@@ -187,3 +188,46 @@ class TestReportCanvasGeneration(APIBaseTest):
             user_ids={self.user.id},
             kind="completed",
         )
+
+    def test_failed_build_finishes_generation_while_agent_run_is_still_open(self) -> None:
+        report = self._report()
+        generation_task_id = uuid.uuid4()
+        generation_run_id = uuid.uuid4()
+        with team_scope(self.team.id):
+            channel = self.channel_model.objects.create(team=self.team, name="general")
+            discussion = self.task_model.objects.create(team=self.team, channel=channel, title="Report")
+            canvas = self.canvas_model.objects.create(team=self.team, channel=channel, name="Report")
+            session = SignalReportCanvas.objects.create(
+                team=self.team,
+                report=report,
+                canvas_id=canvas.id,
+                discussion_task_id=discussion.id,
+                generation_task_id=generation_task_id,
+                generation_status=SignalReportCanvas.GenerationStatus.GENERATING,
+            )
+        generation = ReportCanvasGeneration(
+            canvas_id=canvas.id,
+            discussion_task_id=discussion.id,
+            generation_task_id=generation_task_id,
+            generation_run_id=generation_run_id,
+            fingerprint="f" * 64,
+        )
+
+        with (
+            patch("products.signals.backend.report_canvas.tasks_facade.task_run_is_terminal") as terminal,
+            patch(
+                "products.signals.backend.report_canvas.canvas_api.canvas_generation_result",
+                return_value=CanvasGenerationState(status="failed", failure_reason="Builder dependencies are missing."),
+            ),
+        ):
+            result = finalize_report_canvas_generation(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                generation=generation,
+            )
+
+        assert result is False
+        terminal.assert_not_called()
+        session.refresh_from_db()
+        assert session.generation_status == SignalReportCanvas.GenerationStatus.FAILED
+        assert session.failure_reason == "Builder dependencies are missing."
