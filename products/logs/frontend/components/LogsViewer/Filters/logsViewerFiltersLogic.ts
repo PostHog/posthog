@@ -153,7 +153,10 @@ export interface logsViewerFiltersLogicValues {
     dateRange: DateRange
     filterGroup: UniversalFiltersGroup
     filters: LogsViewerFilters
-    focusedFilter: { index: number; nonce: number } | null
+    focusedFilter: {
+        index: number
+        nonce: number
+    } | null
     id: string
     openFilterOnInsert: boolean
     personId: string | undefined
@@ -180,6 +183,9 @@ export interface logsViewerFiltersLogicActions {
         propertyType: PropertyFilterType
         value: string
     }
+    focusFilter: (index: number) => {
+        index: number
+    }
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     }
@@ -202,9 +208,6 @@ export interface logsViewerFiltersLogicActions {
     }
     setPinnedFilters: (pinnedFilters: UniversalFiltersGroup | undefined) => {
         pinnedFilters: UniversalFiltersGroup | undefined
-    }
-    focusFilter: (index: number) => {
-        index: number
     }
     setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => {
         searchTerm: string | undefined
