@@ -32,6 +32,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
@@ -299,7 +300,14 @@ async def compute_table_statistics_activity(inputs: ComputeTableStatisticsInputs
             # get_delta_table already re-raises known-transient object-store blips as
             # NonReportableError (see DeltaTableRef._capture_unless_transient) and intentionally
             # skips reporting them itself — don't undo that here.
-            if not isinstance(e, NonReportableError):
+            #
+            # The activity interceptor (posthog/temporal/common/posthog_client.py) already skips
+            # reporting a transient app-DB blip (e.g. a PgBouncer query_wait_timeout hit while
+            # resolving the Team/ExternalDataSchema/ExternalDataJob rows above) via
+            # is_transient_db_error — but only for exceptions that reach it unreported. The
+            # unconditional capture_exception call below would report it first, so apply the same
+            # classifier here to avoid double-reporting a condition nobody can act on.
+            if not isinstance(e, NonReportableError) and not is_transient_db_error(e):
                 capture_exception(e)
             try:
                 posthoganalytics.capture(
