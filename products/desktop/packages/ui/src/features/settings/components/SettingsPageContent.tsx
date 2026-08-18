@@ -60,10 +60,7 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
     EnvironmentsSettings,
   ),
   agents: defineSettingsPage("Agents", AgentsSettings),
-  "task-agent-defaults": defineSettingsPage(
-    "Task agents",
-    TaskAgentDefaultsSettings,
-  ),
+  "task-agent-defaults": defineSettingsPage("Model", TaskAgentDefaultsSettings),
   skills: defineSettingsPage(
     "Skills",
     SkillsView,

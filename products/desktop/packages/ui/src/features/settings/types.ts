@@ -64,7 +64,7 @@ export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   environments: "Environments",
   "cloud-environments": "Environments",
   agents: "Agents",
-  "task-agent-defaults": "Task agents",
+  "task-agent-defaults": "Model",
   skills: "Skills",
   "mcp-servers": "MCP servers",
   personalization: "Personalization",
