@@ -47,6 +47,8 @@ def lint_repo(root: Path | str) -> list[str]:
     for directory in sorted(MARKDOWN_DIRECTORIES):
         errors.extend(_lint_markdown_directory(root, directory))
 
+    errors.extend(_lint_scripts_directory(root))
+
     for path in sorted(root.rglob("*")):
         if ".git" in path.parts or not path.is_file() or path.is_symlink():
             continue
@@ -76,6 +78,22 @@ def _lint_markdown_directory(root: Path, directory: str) -> list[str]:
             errors.append(f"{relative}: decision pages must be named <YYYY-MM-DD>-<slug>.md")
         if directory == "channels" and "channel_id" not in _frontmatter_keys(path):
             errors.append(f"{relative}: channel pages need `channel_id` in their frontmatter")
+    return errors
+
+
+def _lint_scripts_directory(root: Path) -> list[str]:
+    base = root / "scripts"
+    if not base.is_dir():
+        return []
+
+    errors: list[str] = []
+    for path in sorted(base.rglob("*")):
+        relative = path.relative_to(root)
+        if path.is_symlink():
+            errors.append(f"{relative}: symlinks are only allowed for the root CLAUDE.md")
+            continue
+        if path.parent != base or path.name != "lint" or not path.is_file():
+            errors.append(f"{relative}: scripts/ may only contain the lint file")
     return errors
 
 
