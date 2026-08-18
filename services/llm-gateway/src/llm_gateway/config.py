@@ -37,7 +37,7 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     # Signals runs a customer started by hand (Inbox "Create PR" / "Discuss", scout chat).
     # Held apart from the scheduled pipeline's pool so a customer burning this budget can't
     # stall scouts and report research for every other customer.
-    "signals_interactive": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
+    "signals_interactive": ProductCostLimit(limit_usd=10000.0, window_seconds=86400),
     "posthog_ai": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "changelog_bot": ProductCostLimit(limit_usd=500.0, window_seconds=86400),
     # Path-cleaning suggestions: haiku-only, a few short calls per team per week. The product is
