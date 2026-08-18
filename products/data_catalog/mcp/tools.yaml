@@ -109,9 +109,6 @@ tools:
     data-catalog-metric-create:
         operation: data_catalog_metrics_create
         enabled: true
-        # No insight:read here even though linking needs it: tool scopes are all-or-nothing at
-        # catalog-filter time, so declaring it would hide the tool from a data_catalog:write-only
-        # credential doing an ordinary definition write. MetricViewSet requires it conditionally.
         scopes:
             - data_catalog:write
         annotations:
