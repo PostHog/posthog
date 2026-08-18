@@ -23,6 +23,7 @@ import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
@@ -259,6 +260,7 @@ export function useTaskCreation({
 
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
+      const submitStartedAt = Date.now();
       setIsCreatingTask(true);
 
       try {
@@ -343,6 +345,9 @@ export function useTaskCreation({
               label: a.label,
             })),
           });
+          // Let the composer land at the bottom of the page before the chat
+          // replaces it, so the two views read as one movement.
+          await waitForComposerExit(submitStartedAt);
           navigateToTaskPending(pendingTaskKey);
           if (!contentOverride) {
             editor.clear();
