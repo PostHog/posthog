@@ -236,17 +236,17 @@ def _importlinter_ignore_entries(pyproject_text: str | None = None) -> list[str]
     return [entry for contract in contracts for entry in contract.get("ignore_imports", [])]
 
 
-def ignored_import_edges(pyproject_text: str | None = None) -> set[tuple[str, str]]:
-    """The exact (importer, imported) edges the import-linter contracts ignore.
+def ignored_import_edges(pyproject_text: str | None = None) -> set[str]:
+    """The exact edges the import-linter contracts ignore, normalized to "importer -> imported".
 
     Wildcard entries are dropped: they only ever allow the presentation/facade trees, which the
     AST surface check permits outright."""
     edges = set()
     for entry in _importlinter_ignore_entries(pyproject_text):
-        if "*" in entry or " -> " not in entry:
+        if "*" in entry or "->" not in entry:
             continue
-        importer, imported = entry.split(" -> ", 1)
-        edges.add((importer.strip(), imported.strip()))
+        importer, imported = entry.split("->", 1)
+        edges.add(f"{importer.strip()} -> {imported.strip()}")
     return edges
 
 

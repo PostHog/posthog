@@ -1105,7 +1105,7 @@ class TestImportSurfaceCheck:
 
     def test_deferral_in_pyproject_is_honored(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         files = {"routes.py": "from products.p.backend.api import V\n", "api/__init__.py": ""}
-        edge = ("products.p.backend.routes", "products.p.backend.api")
+        edge = "products.p.backend.routes -> products.p.backend.api"
         ctx = self._ctx(tmp_path, files, monkeypatch, ignored={edge})
         assert ImportSurfaceCheck().run(ctx).issues == []
 
