@@ -591,7 +591,7 @@ class TestWarmQueriesOp(BaseTest):
             ),
             patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            mock_cm.return_value.lookup.return_value.entry = None
+            mock_cm.return_value.freshness.return_value = None
             warm_queries_op(
                 dagster.build_op_context(),
                 WarmQueriesConfig(),
@@ -643,7 +643,7 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.time.sleep") as mock_sleep,
             patch("products.web_analytics.dags.cache_warming.capture_exception") as mock_capture,
         ):
-            mock_cm.return_value.lookup.return_value.entry = None
+            mock_cm.return_value.freshness.return_value = None
             warm_queries_op(
                 dagster.build_op_context(),
                 WarmQueriesConfig(),
@@ -791,7 +791,7 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.wait", side_effect=fake_wait),
             patch("products.web_analytics.dags.cache_warming.os._exit", side_effect=_Exited) as mock_exit,
         ):
-            mock_cm.return_value.lookup.return_value.entry = None
+            mock_cm.return_value.freshness.return_value = None
             shapes = [
                 {
                     "team_id": self.team.pk,
@@ -845,7 +845,7 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.time", new=fake_time),
             patch("products.web_analytics.dags.cache_warming.os._exit", side_effect=_Exited) as mock_exit,
         ):
-            mock_cm.return_value.lookup.return_value.entry = None
+            mock_cm.return_value.freshness.return_value = None
             shapes = [
                 {
                     "team_id": self.team.pk,
@@ -942,7 +942,7 @@ class TestWarmQueriesOp(BaseTest):
                 patch("products.web_analytics.dags.cache_warming.wait", side_effect=interrupting_wait),
                 patch("products.web_analytics.dags.cache_warming.os._exit", side_effect=_Exited) as mock_exit,
             ):
-                mock_cm.return_value.lookup.return_value.entry = None
+                mock_cm.return_value.freshness.return_value = None
                 with self.assertRaises(_Exited):
                     warm_queries_op(
                         dagster.build_op_context(),
@@ -979,7 +979,7 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
             patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            mock_cm.return_value.lookup.return_value.entry = None
+            mock_cm.return_value.freshness.return_value = None
             warm_queries_op(
                 dagster.build_op_context(),
                 WarmQueriesConfig(team_ids=[self.team.pk], limit=2),
@@ -999,7 +999,7 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
             patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
-            mock_cm.return_value.lookup.return_value.entry = None
+            mock_cm.return_value.freshness.return_value = None
             warm_queries_op(
                 dagster.build_op_context(),
                 WarmQueriesConfig(),
