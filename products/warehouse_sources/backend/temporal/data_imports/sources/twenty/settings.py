@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
@@ -20,7 +22,7 @@ _INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@frozen
 class TwentyEndpointConfig:
     name: str
     # REST path segment (the object's `namePlural`), appended to the configured base URL.
