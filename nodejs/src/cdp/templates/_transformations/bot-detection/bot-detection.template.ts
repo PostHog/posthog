@@ -32,6 +32,18 @@ if (is_browser_traffic and inputs.filterKnownBotUserAgents and isKnownBotUserAge
     return null
 }
 
+// In-app browsers (Meta, Instagram, the Google Search app, Android WebView) are real people, not
+// bots, so this is a separate opt-in from the bot list. When on, drop events whose user agent
+// carries an in-app browser marker.
+if (is_browser_traffic and inputs.filterInAppBrowsers) {
+    let in_app_browser_patterns := ['FBAN', 'FBAV', 'FB_IAB', 'Instagram', 'GSA/', '; wv']
+    for (let pattern in in_app_browser_patterns) {
+        if (user_agent =~* pattern) {
+            return null
+        }
+    }
+}
+
 let bot_list := []
 
 if (notEmpty(inputs.customBotPatterns)) {
@@ -91,6 +103,16 @@ return event
             default: true,
             secret: false,
             required: true,
+        },
+        {
+            key: 'filterInAppBrowsers',
+            type: 'boolean',
+            label: 'Filter out in-app browsers',
+            description:
+                'Drop events from in-app browsers (Meta, Instagram, the Google Search app, Android WebView). These are real people, so this is off by default.',
+            default: false,
+            secret: false,
+            required: false,
         },
         {
             key: 'customBotPatterns',

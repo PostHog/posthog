@@ -8,6 +8,7 @@ const DEFAULT_INPUTS = {
     customBotPatterns: '',
     customIpPrefixes: '',
     filterKnownBotUserAgents: true,
+    filterInAppBrowsers: false,
     filterKnownBotIps: true,
     keepUndefinedUseragent: 'Yes',
 }
@@ -135,6 +136,60 @@ describe('bot-detection.template', () => {
             },
             mockGlobals
         )
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeTruthy()
+    })
+
+    it.each([
+        [
+            'Meta app (FBAN/FBAV)',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 [FBAN/FBIOS;FBAV/450.0.0.0]',
+        ],
+        [
+            'Meta in-app browser (FB_IAB)',
+            'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/450.0.0.0;]',
+        ],
+        [
+            'Instagram',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Instagram 300.0.0.0 (iPhone14,2)',
+        ],
+        [
+            'Google Search app (GSA/)',
+            'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 GSA/291.0.0.0',
+        ],
+        [
+            'Android WebView (; wv)',
+            'Mozilla/5.0 (Linux; Android 13; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36',
+        ],
+    ])('should filter out in-app browser %s when filterInAppBrowsers is on', async (_label, ua) => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $raw_user_agent: ua,
+                },
+            },
+        })
+
+        const response = await tester.invoke({ ...DEFAULT_INPUTS, filterInAppBrowsers: true }, mockGlobals)
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
+    })
+
+    it('should keep in-app browser traffic when filterInAppBrowsers is off', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $raw_user_agent:
+                        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Instagram 300.0.0.0 (iPhone14,2)',
+                },
+            },
+        })
+
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
         expect(response.finished).toBeTruthy()
         expect(response.error).toBeFalsy()
