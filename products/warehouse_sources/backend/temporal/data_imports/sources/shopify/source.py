@@ -28,6 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.co
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+    SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
+    SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
@@ -66,8 +68,13 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             # 4xx from Shopify's OAuth token endpoint — invalid/revoked app credentials.
-            # Retrying cannot recover; the user must reconnect the integration.
+            # Retrying cannot recover; the user must re-enter valid credentials.
             SHOPIFY_ACCESS_TOKEN_AUTH_ERROR: SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+            # 4xx `invalid_client` — the client ID or secret does not match a Shopify app.
+            SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR: SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
+            # 4xx `unsupported_grant_type` — the app can't use the client_credentials grant, so
+            # the user needs a Dev Dashboard app instead of a legacy custom app.
+            SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR: SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
             # 404 from the same endpoint — no store at this subdomain. Retrying cannot
             # recover; the user must correct the store id.
             SHOPIFY_STORE_NOT_FOUND_ERROR: SHOPIFY_STORE_NOT_FOUND_ERROR,
@@ -106,7 +113,11 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             name=SchemaExternalDataSourceType.SHOPIFY,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             iconPath="/static/services/shopify.png",
-            caption="""Enter your Shopify credentials to automatically pull your Shopify data into the PostHog Data warehouse.""",
+            caption=(
+                "Create a Shopify Dev Dashboard app, then enter its client ID and secret here to "
+                "pull your Shopify data into the PostHog Data warehouse. The docs walk through the "
+                "app setup steps."
+            ),
             docsUrl="https://posthog.com/docs/data-warehouse/sources/shopify",
             fields=cast(
                 list[FieldType],
@@ -136,7 +147,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         label="Secret",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="shpss_...",
+                        placeholder="client-secret",
                         secret=True,
                     ),
                 ],
