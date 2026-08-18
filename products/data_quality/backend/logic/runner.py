@@ -10,9 +10,13 @@ check must not take down the rest of its suite.
 import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import team_scope
@@ -39,18 +43,24 @@ class CheckOutcome:
     became_failing: bool = False
 
 
-def run_check(check: DataQualityCheck, suite_run: DataQualitySuiteRun, team: Team) -> CheckOutcome:
+def run_check(
+    check: DataQualityCheck,
+    suite_run: DataQualitySuiteRun,
+    team: Team,
+    database: "Database | None" = None,
+) -> CheckOutcome:
     """Compile, execute, and persist one check. Updates the check's denormalized status.
 
     Runs under an explicit team scope because there is no request context out here, and saving a
     check reads its own previous state through the fail-closed manager to build the activity log.
+    ``database`` overrides table resolution for write-audit-publish runs (see logic/staged_audit).
     """
     started_at = datetime.now(UTC)
     monotonic_start = time.monotonic()
     previous_status = check.last_status
 
     try:
-        outcome = _execute(check, team)
+        outcome = _execute(check, team, database)
     except Exception as err:
         outcome = CheckOutcome(status=CheckRunStatus.ERRORED, error=str(err))
 
@@ -67,7 +77,21 @@ def run_check(check: DataQualityCheck, suite_run: DataQualitySuiteRun, team: Tea
     return replace(outcome, became_failing=became_failing)
 
 
-def _execute(check: DataQualityCheck, team: Team) -> CheckOutcome:
+def record_unrunnable_check(
+    check: DataQualityCheck,
+    suite_run: DataQualitySuiteRun,
+    team: Team,
+    reason: str,
+) -> CheckOutcome:
+    """A check with no run row reads, in the health state and the API, exactly like one that passed."""
+    outcome = CheckOutcome(status=CheckRunStatus.ERRORED, error=reason)
+    with team_scope(team.id):
+        _record_run(check, suite_run, outcome, datetime.now(UTC), duration_ms=0)
+        _update_check(check, outcome)
+    return outcome
+
+
+def _execute(check: DataQualityCheck, team: Team, database: "Database | None" = None) -> CheckOutcome:
     if check.subject_uuid is None:
         check.subject_status = SubjectStatus.ORPHANED
         return CheckOutcome(status=CheckRunStatus.SKIPPED, error="The subject was deleted.")
@@ -96,7 +120,15 @@ def _execute(check: DataQualityCheck, team: Team) -> CheckOutcome:
         data_quality_subject_type=subject.subject_type,
         data_quality_subject_id=subject.subject_uuid,
     ):
-        response = execute_hogql_query(query=compiled.query, team=team, query_type=QUERY_TYPE)
+        if database is not None:
+            response = execute_hogql_query(
+                query=compiled.query,
+                team=team,
+                query_type=QUERY_TYPE,
+                context=HogQLContext(team_id=team.pk, database=database),
+            )
+        else:
+            response = execute_hogql_query(query=compiled.query, team=team, query_type=QUERY_TYPE)
     return _interpret(compiled, check.config, response.results, response.columns or [])
 
 

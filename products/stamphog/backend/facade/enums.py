@@ -56,3 +56,12 @@ class ChannelResolutionSource(StrEnum):
     STAMPHOG_CONFIG = "stamphog_config"
     # Reserved for the future owners.yaml contact.slack step (PR #68872) — not implemented yet.
     OWNERS_CONTACT = "owners_contact"
+
+
+class AudienceReason(StrEnum):
+    # Why a merged PR landed in an audience's digest.
+    # The PR author's own team, or the channel the repo declared under digest:.
+    AUTHORED = "authored"
+    REPO_DECLARED = "repo_declared"
+    # A team that owns at least one changed file, from the review's ownership resolution.
+    OWNED = "owned"

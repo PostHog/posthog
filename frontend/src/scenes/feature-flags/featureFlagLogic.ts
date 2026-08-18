@@ -686,6 +686,13 @@ function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     }
 }
 
+// Shape a freshly-loaded server flag into the `originalFeatureFlag` baseline the dirty check
+// compares against. Callers must pass server-authoritative state — never the in-progress
+// working copy — or an unsaved edit would be folded into the baseline and read as clean.
+function toFeatureFlagBaseline(flag: FeatureFlagType | null): FeatureFlagType | null {
+    return flag ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(flag)) as FeatureFlagType) : null
+}
+
 // Strip out sort_key from groups before saving. The sort_key is here for React to be able to
 // render the release conditions in the correct order.
 function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupType[] | undefined {
@@ -1512,6 +1519,9 @@ export interface featureFlagLogicActions {
     setOpenVariants: (openVariants: string[]) => {
         openVariants: string[]
     }
+    setOriginalFeatureFlag: (featureFlag: FeatureFlagType | null) => {
+        featureFlag: FeatureFlagType | null
+    }
     setPayloadExpanded: (expanded: boolean) => {
         expanded: boolean
     }
@@ -1982,6 +1992,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     actions({
         setFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
+        // Re-establishes the saved-state baseline the unsaved-changes guard diffs against.
+        // Only dispatch with server-authoritative state, so in-progress edits stay dirty.
+        setOriginalFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
         setFeatureFlagFilters: (filters: FeatureFlagType['filters'], errors: any) => ({ filters, errors }),
         setSelectedTab: (tab: FeatureFlagsTab) => ({ tab }),
         setFeatureFlagMissing: true,
@@ -2101,19 +2114,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         originalFeatureFlag: [
             null as FeatureFlagType | null,
             {
-                loadFeatureFlagSuccess: (_, { featureFlag }) => {
-                    // Transform the original flag when it's first loaded
-                    // Apply the same transformations we'd use when sending it back
-                    return featureFlag
-                        ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag)) as FeatureFlagType)
-                        : null
-                },
-                setFeatureFlag: (_, { featureFlag }) => {
-                    // Also set originalFeatureFlag when flag is set from cache (e.g., from list view)
-                    return featureFlag
-                        ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag)) as FeatureFlagType)
-                        : null
-                },
+                // Baseline the saved server state on load. NOT on every setFeatureFlag: a
+                // mid-edit setFeatureFlag (tag save, active/archive sync, cache reconcile) would
+                // otherwise re-baseline to the already-edited working copy, making the
+                // unsaved-changes guard read clean and silently discard release-condition edits on
+                // navigation. Server-authoritative re-baselines flow through setOriginalFeatureFlag.
+                loadFeatureFlagSuccess: (_, { featureFlag }) => toFeatureFlagBaseline(featureFlag),
+                setOriginalFeatureFlag: (_, { featureFlag }) => featureFlag,
             },
         ],
         featureFlag: [
@@ -3479,6 +3486,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             actions.setFeatureFlag(featureFlag)
+            // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
+            actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlag))
             actions.updateFlag(featureFlag)
             if (featureFlag.id && isOnFeatureFlagPage(props.id)) {
                 router.actions.replace(urls.featureFlag(featureFlag.id))
@@ -3554,7 +3563,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`)
-                actions.setFeatureFlag(featureFlagActiveUpdate)
+                // Only active/version were persisted, so fold just those onto the working copy and
+                // the baseline. Taking the whole server flag would drop any in-progress edit and
+                // re-baseline over it, leaving the guard clean.
+                const persisted = { active: featureFlagActiveUpdate.active, version: featureFlagActiveUpdate.version }
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
+                } else {
+                    actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
+                }
                 actions.updateFlag(featureFlagActiveUpdate)
             }
         },
@@ -3576,6 +3594,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     version: updatedFlag.version ?? values.featureFlag.version,
                 }
                 actions.setFeatureFlag(syncedFlag)
+                // Only active/version were persisted — fold them onto the baseline rather than the
+                // working copy, so any in-progress edits stay dirty instead of being swallowed.
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({
+                        ...values.originalFeatureFlag,
+                        active: newActive,
+                        version: syncedFlag.version,
+                    })
+                }
                 actions.updateFlag(syncedFlag)
                 refreshTreeItem('feature_flag', String(flagId))
             }
@@ -3584,14 +3611,41 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Reconcile the cache-painted flag with the freshly fetched server state, and keep
             // the list cache in sync so the two views agree.
             if (featureFlagRefresh) {
-                actions.setFeatureFlag(featureFlagRefresh)
+                if (values.originalFeatureFlag) {
+                    // This refresh exists to correct a stale cached `active`, and it lands while the
+                    // page is already interactive (its own loader key means no skeleton). Replacing
+                    // the whole flag here would discard an edit made during the request and
+                    // re-baseline over it, so the guard would read clean and lose it silently.
+                    const persisted = {
+                        active: featureFlagRefresh.active,
+                        archived: featureFlagRefresh.archived,
+                        version: featureFlagRefresh.version,
+                    }
+                    actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
+                } else {
+                    actions.setFeatureFlag(featureFlagRefresh)
+                    actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagRefresh))
+                }
                 actions.updateFlag(featureFlagRefresh)
             }
         },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.archived ? 'archived' : 'unarchived'}`)
-                actions.setFeatureFlag(featureFlagActiveUpdate)
+                // Archiving also disables the flag, so archived/active/version are the persisted
+                // fields. Fold only those, for the same reason as the active toggle above.
+                const persisted = {
+                    archived: featureFlagActiveUpdate.archived,
+                    active: featureFlagActiveUpdate.active,
+                    version: featureFlagActiveUpdate.version,
+                }
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
+                } else {
+                    actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagActiveUpdate))
+                }
                 actions.updateFlag(featureFlagActiveUpdate)
             }
         },
@@ -3944,6 +3998,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     name,
                 })
                 actions.setFeatureFlag({ ...flag, name: savedFlag.name })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, name: savedFlag.name })
+                }
                 actions.updateFlag({ ...flag, name: savedFlag.name })
                 lemonToast.success('Description saved')
             } catch {
@@ -3959,6 +4016,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // user's intent without waiting for the API.
             const previousTags = flag.tags
             actions.setFeatureFlag({ ...flag, tags })
+            // Tags are the only field being saved here — track them on the baseline directly so a
+            // concurrent release-condition edit isn't folded into it and silently marked as saved.
+            const baselineForTags = values.originalFeatureFlag
+            if (baselineForTags) {
+                actions.setOriginalFeatureFlag({ ...baselineForTags, tags })
+            }
             actions.updateFlag({ ...flag, tags })
 
             // Debounce — rapid changes (e.g. quickly removing several chips) collapse into a
@@ -3984,6 +4047,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const setsEqual = localSet.size === serverSet.size && tags.every((t) => serverSet.has(t))
                 if (!setsEqual) {
                     actions.setFeatureFlag({ ...flag, tags: serverTags })
+                    if (values.originalFeatureFlag) {
+                        actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, tags: serverTags })
+                    }
                     actions.updateFlag({ ...flag, tags: serverTags })
                 }
             } catch (error: any) {
@@ -3992,6 +4058,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     throw error
                 }
                 actions.setFeatureFlag({ ...flag, tags: previousTags })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, tags: previousTags })
+                }
                 actions.updateFlag({ ...flag, tags: previousTags })
                 lemonToast.error('Failed to save tags')
             }
@@ -4111,8 +4180,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // New flag — compare against form defaults via featureFlagChanged instead
                     return false
                 }
-                const currentCleaned = indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag))
-                return !objectsEqual(currentCleaned, originalFeatureFlag)
+                // Same transform as the baseline, so both sides of the diff stay in step by
+                // construction rather than by keeping two copies of it in sync.
+                return !objectsEqual(toFeatureFlagBaseline(featureFlag), originalFeatureFlag)
             },
         ],
         isFormDirty: [
@@ -4628,6 +4698,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         if (foundFlag) {
             const formatPayloadsWithFlag = variantKeyToIndexFeatureFlagPayloads(foundFlag)
             actions.setFeatureFlag(formatPayloadsWithFlag)
+            // The cache paint is the initial load for a list-navigated flag, so seed the baseline.
+            actions.setOriginalFeatureFlag(toFeatureFlagBaseline(formatPayloadsWithFlag))
             actions.loadRelatedInsights()
             actions.loadFeatureFlagStatus()
             actions.loadDependentFlags()

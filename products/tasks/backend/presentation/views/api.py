@@ -2914,6 +2914,8 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         started = perf_counter()
 
         def capture_render(*, failure_reason: str | None = None, export_asset_id: int | None = None) -> None:
+            raw_source = query.get("source") if isinstance(query, dict) else None
+            source: dict = raw_source if isinstance(raw_source, dict) else {}
             posthoganalytics.capture(
                 distinct_id=str(getattr(request.user, "distinct_id", None) or self.team.uuid),
                 event="task_chart_render_failed" if failure_reason else "task_chart_render_succeeded",
@@ -2921,6 +2923,11 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     "task_id": task_id,
                     "run_id": run_id,
                     "source": "query" if query is not None else "insight",
+                    "insight_id": request.validated_data.get("insight_id"),
+                    "query_kind": source.get("kind"),
+                    "display": next(
+                        (f["display"] for f in source.values() if isinstance(f, dict) and f.get("display")), None
+                    ),
                     "duration_ms": round((perf_counter() - started) * 1000, 2),
                     "failure_reason": failure_reason,
                     "export_asset_id": export_asset_id,
