@@ -1506,6 +1506,8 @@ async fn merge_works_on_a_configured_person_table() {
 // attach-first retry contract
 // ============================================================
 
+use async_trait::async_trait;
+use personhog_identity::leader::PropertyWriter;
 use personhog_identity::lifecycle::merge::MergeOpExecutor;
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::validation::RequestLimits;
@@ -1516,9 +1518,34 @@ use personhog_proto::personhog::identity::v1::{
     MergeCarriedOperations, MergePersonsRequest, MergePersonsResponse, MergeSource,
     MergeSourceOutcome,
 };
+use personhog_proto::personhog::types::v1::{
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+};
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use tonic::Request;
 
 impl MergeHarness {
+    fn service_with_writer(&self, writer: Arc<dyn PropertyWriter>) -> PersonHogIdentityService {
+        let engine = Arc::new(self.ctx.engine());
+        PersonHogIdentityService::new(
+            self.ctx.storage.clone(),
+            self.leader.clone(),
+            RequestLimits {
+                max_batch_size: 250,
+                max_distinct_id_length: 400,
+                max_extra_distinct_ids: 10,
+            },
+            MergeEntrance::new(
+                self.ctx.storage.clone(),
+                writer,
+                MergeOpExecutor::new(
+                    engine,
+                    MergeDriver::new(self.leader.clone(), self.ctx.tables.clone()),
+                ),
+            ),
+        )
+    }
+
     fn service_with_storage(&self, storage: Arc<dyn IdentityStorage>) -> PersonHogIdentityService {
         let engine = Arc::new(self.ctx.engine());
         PersonHogIdentityService::new(
@@ -2675,6 +2702,111 @@ fn carried(distinct_id: &str, set: serde_json::Value) -> MergeCarriedOperations 
         last_seen_at: None,
         expected_person_id: None,
     }
+}
+
+/// A PropertyWriter that records how many writes for one person are in
+/// flight at once. It yields on entry so a concurrently submitted sibling
+/// has the chance to enter before this write lands — overlap is what it
+/// exists to observe.
+struct OverlapProbe {
+    inner: Arc<SimLeader>,
+    in_flight: std::sync::Mutex<HashMap<i64, usize>>,
+    max_overlap: AtomicUsize,
+}
+
+impl OverlapProbe {
+    fn new(inner: Arc<SimLeader>) -> Self {
+        Self {
+            inner,
+            in_flight: std::sync::Mutex::new(HashMap::new()),
+            max_overlap: AtomicUsize::new(0),
+        }
+    }
+
+    fn max_same_person_overlap(&self) -> usize {
+        self.max_overlap.load(AtomicOrdering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl PropertyWriter for OverlapProbe {
+    async fn update_person_properties(
+        &self,
+        request: UpdatePersonPropertiesRequest,
+    ) -> Result<UpdatePersonPropertiesResponse, Status> {
+        let person = request.person_id;
+        {
+            let mut in_flight = self.in_flight.lock().unwrap();
+            let count = in_flight.entry(person).or_insert(0);
+            *count += 1;
+            self.max_overlap.fetch_max(*count, AtomicOrdering::SeqCst);
+        }
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        let result = self.inner.update_person_properties(request).await;
+        if let Some(count) = self.in_flight.lock().unwrap().get_mut(&person) {
+            *count -= 1;
+        }
+        result
+    }
+}
+
+/// Two carried entries that resolve to one person must apply one at a
+/// time, in request order: $set beats an earlier $set of the same key, so
+/// concurrent submission would make the person's final properties depend
+/// on leader scheduling even though both entries echo as applied. Entries
+/// for distinct persons still run concurrently; this pins the same-person
+/// lane only.
+#[tokio::test]
+async fn same_person_carried_writes_apply_sequentially_in_request_order() {
+    let h = MergeHarness::new().await;
+    let probe = Arc::new(OverlapProbe::new(h.leader.clone()));
+    let service = h.service_with_writer(probe.clone());
+    let shared = h.ctx.insert_person_with_distinct_id("carry-shared-a").await;
+    h.add_distinct_id(shared, "carry-shared-b").await;
+    h.ctx
+        .insert_person_with_distinct_id("carry-lane-target")
+        .await;
+    h.ctx
+        .insert_person_with_distinct_id("carry-lane-source")
+        .await;
+
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "carry-lane-target",
+        &["carry-lane-source"],
+        Uuid::now_v7(),
+    );
+    request.carried_operations = vec![
+        carried("carry-shared-a", json!({"lane": "first"})),
+        carried("carry-shared-b", json!({"lane": "second"})),
+    ];
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("merge succeeds")
+        .into_inner();
+
+    let mut applied = response.carried_applied.clone();
+    applied.sort();
+    assert_eq!(applied, vec!["carry-shared-a", "carry-shared-b"]);
+    assert_eq!(
+        probe.max_same_person_overlap(),
+        1,
+        "same-person carried writes must not be in flight together"
+    );
+    let lane: String = sqlx::query_scalar(&format!(
+        "SELECT properties->>'lane' FROM {} WHERE team_id = $1 AND id = $2",
+        h.ctx.tables.person
+    ))
+    .bind(h.ctx.team_id as i32)
+    .bind(shared)
+    .fetch_one(&h.ctx.pool)
+    .await
+    .expect("read shared person properties");
+    assert_eq!(lane, "second", "the later entry's write lands last");
+
+    h.ctx.cleanup().await.expect("cleanup");
 }
 
 /// Carried operations are the caller's still-buffered writes. They have to

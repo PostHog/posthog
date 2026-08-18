@@ -42,8 +42,10 @@ const PAYLOAD_NUMBERS_CLAMPED_TOTAL: &str =
     "personhog_identity_merge_payload_numbers_clamped_total";
 const CARRIED_WRITES: &str = "personhog_identity_merge_carried_writes_total";
 
-/// Carried writes go to distinct persons, so they have no ordering between
-/// them; the bound is on leader connections, not correctness.
+/// Carried writes to distinct persons commute, so their groups run
+/// concurrently; the bound is on leader connections, not correctness.
+/// Entries that resolved to one person are a different matter — see
+/// apply_carried_operations, which serializes them.
 const CARRIED_WRITE_CONCURRENCY: usize = 8;
 
 /// The full MergePersons flow, owned by the identity side of the crate.
@@ -352,16 +354,40 @@ impl MergeEntrance {
                 ))
             })
             .collect();
-        let results: Vec<_> = stream::iter(updates.into_iter().map(|(did, update)| {
+        // Group by resolved person, keeping request order within a group.
+        // Distinct ids are unique (validation rejects duplicates), but two
+        // of them can resolve to one person — a caller without
+        // expected_person_id, or one whose lanes are not person-keyed —
+        // and $set, $set_once, and $unset are order-sensitive, so writes
+        // to one person must land sequentially in request order. Groups
+        // for distinct persons commute and run concurrently.
+        let mut groups: Vec<(i64, Vec<(String, UpdatePersonPropertiesRequest)>)> = Vec::new();
+        for (did, update) in updates {
+            match groups
+                .iter_mut()
+                .find(|(person_id, _)| *person_id == update.person_id)
+            {
+                Some((_, group)) => group.push((did, update)),
+                None => groups.push((update.person_id, vec![(did, update)])),
+            }
+        }
+        let results: Vec<_> = stream::iter(groups.into_iter().map(|(_, entries)| {
             let writer = Arc::clone(&self.property_writer);
-            async move { (did, writer.update_person_properties(update).await) }
+            async move {
+                let mut settled = Vec::with_capacity(entries.len());
+                for (did, update) in entries {
+                    let result = writer.update_person_properties(update).await;
+                    settled.push((did, result));
+                }
+                settled
+            }
         }))
         .buffer_unordered(CARRIED_WRITE_CONCURRENCY)
         .collect()
         .await;
 
-        let mut applied = Vec::with_capacity(results.len());
-        for (distinct_id, result) in results {
+        let mut applied = Vec::new();
+        for (distinct_id, result) in results.into_iter().flatten() {
             match result {
                 Ok(_) => {
                     common_metrics::inc(
