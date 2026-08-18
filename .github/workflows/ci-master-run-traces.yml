@@ -12,16 +12,17 @@ name: Master run traces
 # once per completed run (~40 per master push) and `'*'` matches the listener itself,
 # so it self-triggers up to GitHub's 3-level workflow_run chain cap — thousands of
 # dispatches a day against a repo that has to respect a 500-runs/10s cap. One cron
-# tick that scans for newly-finished runs costs ~96 dispatches a day instead.
+# tick that scans for newly-finished runs costs 24 dispatches a day instead.
 #
 # The watermark is this workflow's own last successful run, read back from the Actions
 # API, so there is no cache or committed state to lose. A failed tick doesn't advance
 # it, so the next tick re-covers the gap.
 on:
     schedule:
-        # GitHub throttles this to ~hourly under load, which only means a tick batches
-        # more runs — the watermark is time-based, so nothing is missed.
-        - cron: '*/15 * * * *'
+        # Hourly. GitHub can delay a scheduled tick under load, which only means the next
+        # one batches more runs — the watermark is time-based, so nothing is missed. The
+        # 6h default lookback leaves plenty of headroom for a few skipped ticks.
+        - cron: '0 * * * *'
     workflow_dispatch:
         inputs:
             since:
