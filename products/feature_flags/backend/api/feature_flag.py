@@ -1630,6 +1630,26 @@ class FeatureFlagSerializer(
         if early_exit and not previously_enabled and not self._is_early_exit_enabled():
             raise serializers.ValidationError("early_exit is not available for this organization.")
 
+        # A running experiment reads its variants from this flag, so a save that strips
+        # them breaks the experiment's exposure and results queries. Mirrors the deletion
+        # guard in update(): draft/stopped/completed experiments don't block, so a flag
+        # can still be simplified to boolean once its experiment is over. Checked on the
+        # merged state — partial updates that don't touch multivariate keep the stored
+        # variants and pass through.
+        if self.instance is not None:
+            stored_variants = ((self.instance.filters or {}).get("multivariate") or {}).get("variants") or []
+            merged_variants = (merged.get("multivariate") or {}).get("variants") or []
+            if stored_variants and not merged_variants:
+                running_experiments = [
+                    exp for exp in self.instance.experiment_set.filter(deleted=False) if exp.is_running
+                ]
+                if running_experiments:
+                    experiment_names = ", ".join(f'"{exp.name}" (ID: {exp.id})' for exp in running_experiments)
+                    raise serializers.ValidationError(
+                        f"Cannot remove variants from a feature flag that is linked to running experiment(s): "
+                        f"{experiment_names}. Please stop the experiment(s) before removing variants."
+                    )
+
         # The normalization and the two contextual checks below ran on every write before
         # enforcement, junk shapes and all, so they stay outside the structurally_valid gate:
         # a stored-violating flag in log-only mode must not slip a dependency cycle past them
