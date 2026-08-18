@@ -43,4 +43,22 @@ describe('EvaluationDisplay', () => {
         expect(screen.getByText('N/A')).toBeInTheDocument()
         expect(screen.queryByText('False')).not.toBeInTheDocument()
     })
+
+    it('renders OTel scores and links to the target span', () => {
+        render(
+            <Provider>
+                <EvaluationDisplay
+                    eventProperties={{
+                        $ai_trace_id: 'trace-1',
+                        $ai_target_span_id: '0123456789abcdef',
+                        $ai_evaluation_score_label: 'pass',
+                        $ai_evaluation_score_value: 0.9,
+                    }}
+                />
+            </Provider>
+        )
+
+        expect(screen.getByText('Pass · 0.9')).toBeInTheDocument()
+        expect(screen.getByText('0123456789ab...')).toHaveAttribute('href', expect.stringContaining('0123456789abcdef'))
+    })
 })

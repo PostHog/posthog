@@ -1623,7 +1623,7 @@ def get_teams_with_ai_event_count_in_period(
                             if(event = '$ai_evaluation', 1, 0) AS allowance_kind,
                             relay_timestamp AS ledger_timestamp,
                             1 AS entry_kind,
-                            concat(event, '\\0', span_id) AS entry_id,
+                            concat(event, '\\0', relay_id) AS entry_id,
                             toInt64(-1) AS balance_delta
                         FROM (
                             SELECT
@@ -1633,16 +1633,20 @@ def get_teams_with_ai_event_count_in_period(
                                 {verified_expr} IN ('true', '1') AS verified,
                                 {relay_expr} IN ('true', '1') AS relay,
                                 if(verified AND relay, {trace_id_expr}, '') AS trace_id,
-                                if(verified AND relay, {span_id_expr}, '') AS span_id
+                                if(
+                                    verified AND relay,
+                                    if(event = '$ai_evaluation', {evaluation_id_expr}, {span_id_expr}),
+                                    ''
+                                ) AS relay_id
                             FROM {events_read_table(use_new)}
                             WHERE team_id IN %(relayed_team_ids)s
                               AND event IN %(ai_events)s
                               AND timestamp >= %(relay_begin)s AND timestamp < %(sponsor_end)s
                               AND {verified_expr} IN ('true', '1')
                               AND {relay_expr} IN ('true', '1')
-                            GROUP BY team_id, event, verified, relay, trace_id, span_id
+                            GROUP BY team_id, event, verified, relay, trace_id, relay_id
                         )
-                        WHERE verified AND relay AND trace_id != '' AND span_id != ''
+                        WHERE verified AND relay AND trace_id != '' AND relay_id != ''
                     )
                 )
             )

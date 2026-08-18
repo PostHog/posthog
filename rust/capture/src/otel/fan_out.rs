@@ -41,7 +41,7 @@ impl HasEventName for &SpanEvent {
     }
 }
 
-fn any_value_to_json(value: &any_value::Value) -> Value {
+pub(super) fn any_value_to_json(value: &any_value::Value) -> Value {
     match value {
         any_value::Value::StringValue(s) => Value::String(s.clone()),
         any_value::Value::BoolValue(b) => Value::Bool(*b),
@@ -77,7 +77,7 @@ pub(super) fn attributes_to_map(attrs: &[KeyValue]) -> Map<String, Value> {
 /// pass through since they don't match these prefixes.
 const NOISY_RESOURCE_PREFIXES: &[&str] = &["host.", "process.", "os.", "telemetry."];
 
-fn filter_resource_attributes(attrs: &[KeyValue]) -> Map<String, Value> {
+pub(super) fn filter_resource_attributes(attrs: &[KeyValue]) -> Map<String, Value> {
     attrs
         .iter()
         .filter_map(|kv| {
@@ -95,7 +95,7 @@ fn filter_resource_attributes(attrs: &[KeyValue]) -> Map<String, Value> {
         .collect()
 }
 
-fn apply_geoip_default(properties: &mut Map<String, Value>) {
+pub(super) fn apply_geoip_default(properties: &mut Map<String, Value>) {
     let alias = properties.remove("posthog.geoip_disable");
     if properties.contains_key("$geoip_disable") {
         return;
@@ -106,7 +106,7 @@ fn apply_geoip_default(properties: &mut Map<String, Value>) {
     );
 }
 
-fn nanos_to_datetime(nanos: u64) -> Option<DateTime<Utc>> {
+pub(super) fn nanos_to_datetime(nanos: u64) -> Option<DateTime<Utc>> {
     if nanos == 0 {
         return None;
     }
@@ -129,7 +129,7 @@ pub fn expand_into_events(
         .flat_map(|rs| &rs.scope_spans)
         .map(|ss| ss.spans.len())
         .sum();
-    let mut events = Vec::with_capacity(total_spans.min(super::MAX_SPANS_PER_REQUEST));
+    let mut events = Vec::with_capacity(total_spans.min(super::MAX_AI_EVENTS_PER_REQUEST));
 
     for rs in &request.resource_spans {
         let resource_attrs = rs

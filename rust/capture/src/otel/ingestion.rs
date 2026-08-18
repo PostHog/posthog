@@ -1,5 +1,6 @@
 use axum::http::HeaderMap;
 use bytes::Bytes;
+use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use prost::Message;
 use serde_json::Value;
@@ -95,6 +96,50 @@ pub fn parse_request(
     }
 }
 
+pub fn parse_logs_request(
+    body: &Bytes,
+    headers: &HeaderMap,
+    body_limit: usize,
+) -> Result<ExportLogsServiceRequest, CaptureError> {
+    let content_encoding = headers
+        .get("content-encoding")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let body = if content_encoding.eq_ignore_ascii_case("gzip") {
+        Bytes::from(decompress_gzip_to_bytes(body, body_limit)?)
+    } else if !content_encoding.is_empty() {
+        return Err(CaptureError::RequestDecodingError(format!(
+            "Unsupported content-encoding: {content_encoding}"
+        )));
+    } else {
+        body.clone()
+    };
+
+    let content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if content_type.starts_with("application/x-protobuf") {
+        ExportLogsServiceRequest::decode(&body[..])
+            .map_err(|e| CaptureError::RequestParsingError(format!("Invalid protobuf: {e}")))
+    } else if content_type.starts_with("application/json") {
+        let mut json_value: Value = serde_json::from_slice(&body)
+            .map_err(|e| CaptureError::RequestParsingError(format!("Invalid JSON: {e}")))?;
+
+        patch_otel_json(&mut json_value);
+
+        serde_json::from_value(json_value).map_err(|e| {
+            CaptureError::RequestParsingError(format!("Invalid OTLP logs format: {e}"))
+        })
+    } else {
+        Err(CaptureError::RequestDecodingError(
+            "Content-Type must be application/x-protobuf or application/json".to_string(),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +165,38 @@ mod tests {
                 schema_url: String::new(),
             }],
         }
+    }
+
+    #[test]
+    fn test_parse_logs_json() {
+        let body = Bytes::from(
+            serde_json::to_vec(&serde_json::json!({
+                "resourceLogs": [{
+                    "scopeLogs": [{
+                        "logRecords": [{
+                            "timeUnixNano": "1704067200000000000",
+                            "traceId": "01010101010101010101010101010101",
+                            "spanId": "0202020202020202",
+                            "eventName": "gen_ai.evaluation.result",
+                            "attributes": [{
+                                "key": "gen_ai.evaluation.name",
+                                "value": {"stringValue": "correctness"}
+                            }]
+                        }]
+                    }]
+                }]
+            }))
+            .unwrap(),
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+
+        let request = parse_logs_request(&body, &headers, 1024).unwrap();
+
+        let record = &request.resource_logs[0].scope_logs[0].log_records[0];
+        assert_eq!(record.event_name, "gen_ai.evaluation.result");
+        assert_eq!(record.trace_id, vec![1; 16]);
+        assert_eq!(record.span_id, vec![2; 8]);
     }
 
     #[test]

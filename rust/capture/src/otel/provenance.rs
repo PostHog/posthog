@@ -8,20 +8,26 @@ use crate::gateway_provenance as shared;
 
 use super::fan_out::SpanEvent;
 
-const SIGNATURE_SCOPE: &str = "otel-v1";
+pub const TRACE_SIGNATURE_SCOPE: &str = "otel-v1";
+pub const LOGS_SIGNATURE_SCOPE: &str = "otel-logs-v1";
 const RELAY_PROPERTY: &str = "$ai_gateway_relay";
 const REQUEST_ID_PROPERTY: &str = "$ai_gateway_request_id";
 const PROVENANCE_METRIC: &str = "capture_ai_otel_gateway_provenance";
 pub use crate::gateway_provenance::Provenance;
 
+pub struct SignedRequest<'a> {
+    pub token: &'a str,
+    pub content_type: &'a str,
+    pub content_encoding: &'a str,
+    pub body: &'a [u8],
+    pub signature_scope: &'a str,
+}
+
 pub fn verify(
     headers: &HeaderMap,
     secret: Option<&str>,
-    token: &str,
-    content_type: &str,
-    content_encoding: &str,
-    body: &[u8],
     now: DateTime<Utc>,
+    request: SignedRequest<'_>,
 ) -> Provenance {
     let Some(secret) = secret.filter(|value| !value.is_empty()) else {
         return Provenance::Invalid;
@@ -38,12 +44,12 @@ pub fn verify(
         return Provenance::Invalid;
     };
 
-    let body_digest = hex::encode(Sha256::digest(body));
+    let body_digest = hex::encode(Sha256::digest(request.body));
     let message = shared::canonical(&[
-        token,
-        SIGNATURE_SCOPE,
-        content_type,
-        content_encoding,
+        request.token,
+        request.signature_scope,
+        request.content_type,
+        request.content_encoding,
         &body_digest,
         &request_id,
         &signed_at,
@@ -116,11 +122,14 @@ mod tests {
             verify(
                 &signed_headers(),
                 Some(SECRET),
-                TOKEN,
-                "application/x-protobuf",
-                "gzip",
-                BODY,
                 now(),
+                SignedRequest {
+                    token: TOKEN,
+                    content_type: "application/x-protobuf",
+                    content_encoding: "gzip",
+                    body: BODY,
+                    signature_scope: TRACE_SIGNATURE_SCOPE,
+                },
             ),
             Provenance::Verified
         );
@@ -132,11 +141,14 @@ mod tests {
             verify(
                 &signed_headers(),
                 Some(SECRET),
-                TOKEN,
-                "application/x-protobuf",
-                "gzip",
-                b"tampered",
                 now(),
+                SignedRequest {
+                    token: TOKEN,
+                    content_type: "application/x-protobuf",
+                    content_encoding: "gzip",
+                    body: b"tampered",
+                    signature_scope: TRACE_SIGNATURE_SCOPE,
+                },
             ),
             Provenance::Invalid
         );
@@ -148,11 +160,14 @@ mod tests {
             verify(
                 &signed_headers(),
                 Some(SECRET),
-                TOKEN,
-                "application/x-protobuf",
-                "gzip",
-                BODY,
                 now() + chrono::Duration::seconds(shared::FRESHNESS_WINDOW_SECS + 1),
+                SignedRequest {
+                    token: TOKEN,
+                    content_type: "application/x-protobuf",
+                    content_encoding: "gzip",
+                    body: BODY,
+                    signature_scope: TRACE_SIGNATURE_SCOPE,
+                },
             ),
             Provenance::Stale
         );

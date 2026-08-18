@@ -59,12 +59,15 @@ Every run of an evaluation emits an `$ai_evaluation` event. Key properties:
 
 | Property                     | Meaning                                                         |
 | ---------------------------- | --------------------------------------------------------------- |
-| `$ai_evaluation_id`          | UUID of the evaluation config                                   |
+| `$ai_evaluation_id`          | Evaluation config UUID or deterministic imported record UUID    |
 | `$ai_evaluation_name`        | Human-readable name                                             |
 | `$ai_target_event_id`        | UUID of the `$ai_generation` event being scored                 |
+| `$ai_target_span_id`         | OTel span ID targeted by an imported evaluation                 |
 | `$ai_trace_id`               | Parent trace ID (for jumping to the trace UI)                   |
-| `$ai_evaluation_result_type` | Result kind: `boolean` or `sentiment`                           |
+| `$ai_evaluation_result_type` | Result kind: `boolean`, `sentiment`, `label`, or `number`       |
 | `$ai_evaluation_result`      | For boolean evaluations: `true` = pass, `false` = fail          |
+| `$ai_evaluation_score_label` | Label from an OTel `gen_ai.evaluation.result` EventRecord       |
+| `$ai_evaluation_score_value` | Numeric score from an OTel `gen_ai.evaluation.result` record    |
 | `$ai_evaluation_reasoning`   | Free-text explanation (set by the LLM judge or Hog code)        |
 | `$ai_evaluation_applicable`  | `false` when the evaluator decided the generation is N/A        |
 | `$ai_sentiment_label`        | For sentiment evaluations: `positive`, `neutral`, or `negative` |

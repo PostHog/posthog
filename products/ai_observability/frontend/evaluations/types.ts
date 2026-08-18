@@ -134,6 +134,8 @@ export interface EvaluationRun {
     result: boolean | null
     sentiment_label?: string | null
     sentiment_score?: number | null
+    score_label?: string | null
+    score_value?: number | null
     applicable?: boolean
     // A skipped run completed without grading anything. Its `result` is still false when the
     // evaluation disallows N/A, so it has to be read alongside this rather than on its own.
