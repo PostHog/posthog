@@ -118,6 +118,7 @@ import {
 import { toast } from "@posthog/ui/primitives/toast";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
+import { logger } from "@posthog/ui/shell/logger";
 import { Box, Flex } from "@radix-ui/themes";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
@@ -133,6 +134,8 @@ import {
   useState,
 } from "react";
 import { hostClient } from "../hostClient";
+
+const channelsLog = logger.scope("channels");
 
 /**
  * A row's clickable surface.
@@ -1273,11 +1276,15 @@ function useOpenPersonalChannel(): {
   const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
-  const { channels } = useChannels();
+  const { channels, isLoading } = useChannels();
 
   const ensureChannelId = (): string | undefined => {
     const meChannel = channels.find((c) => c.channelType === "personal");
     if (!meChannel) {
+      channelsLog.warn("Personal space missing from the channel list", {
+        channelCount: channels.length,
+        isLoading,
+      });
       toast.error("Couldn't open personal space", {
         description:
           "Your personal space is still loading. Try again in a moment.",
