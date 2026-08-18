@@ -11,24 +11,22 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 /**
  * The same trade as the image lane's cache, at a much lower cost per entry: a record here holds a
  * ref of approximately 60 bytes and no image bytes. A ref that this cache drops before its next
- * sighting produces a second time, which costs topic volume and one more ledger read in the
+ * arrival produces a second time, which costs topic volume and one more ledger read in the
  * fetcher, but never correctness. The fetcher dedupes on the same ref again.
  */
 const PRODUCED_REF_CACHE_MAX = 500_000
 
 /**
- * Bytes of URL payload one record may carry, against the 1,000,000 byte `message.max.bytes` default
- * that this producer does not override. The rest absorbs the envelope.
- *
- * A URL may be anything up to `MAX_URL_LEN`, so a fixed count is either unsafe for the longest URLs
- * or wasteful for ordinary ones.
+ * The URL payload one record may carry. The `message.max.bytes` default is 1,000,000 bytes and this
+ * producer does not override it, so the remainder holds the envelope. The budget counts bytes
+ * rather than URLs, because a URL can be as long as `MAX_URL_LEN`.
  */
 const MAX_RECORD_URL_BYTES = 512 * 1024
 
 /**
- * URLs one record may carry, whatever their size. Without this the collector's cap, which lives in
- * another crate, would decide it, and raising it there would produce records the fetcher refuses
- * whole. Must stay below MAX_URLS_PER_RECORD in `ml-mirror-image-fetch/collected-urls-record.ts`.
+ * The URL count one record may carry. Without it the collector's cap in another crate decides the
+ * count, and an increase there makes records the fetcher refuses whole. Keep it below
+ * `MAX_URLS_PER_RECORD` in `ml-mirror-image-fetch/collected-urls-record.ts`.
  */
 const MAX_RECORD_URLS = 512
 
@@ -78,8 +76,8 @@ export interface CollectedUrlsMessage {
  * would then lose them. The group-by-host step already removes most of the record count, `linger.ms`
  * makes the batches on the wire, and the ref cache stops a repeated image before it produces at all.
  *
- * Delivery is not awaited and never fails the message. The mirrored lines already carry the refs,
- * and a ref with no image behind it renders as a placeholder.
+ * Delivery is not awaited and never fails the message. The mirrored lines already carry the refs
+ * in namespaced sibling attributes, while media sources keep their placeholders.
  *
  * The `url` field is the original, unscrubbed URL. It is as sensitive as the raw replay payload, so
  * it goes only into the Kafka value. Log lines and metrics carry hosts and counts only.
@@ -197,8 +195,8 @@ export function createProduceCollectedUrlsStep<
 }
 
 /**
- * An entry always goes somewhere, even alone in a record over the budget, because dropping it here
- * would lose an image every earlier check accepted. `MAX_URL_LEN` bounds that case under the broker
+ * An entry always goes into a record, even alone in one above the budget, because a drop here loses
+ * an image that every earlier check accepted. `MAX_URL_LEN` keeps that record under the broker
  * limit.
  */
 function packByBytes(entries: RecordUrl[], maxBytes: number): RecordUrl[][] {
@@ -222,11 +220,9 @@ function packByBytes(entries: RecordUrl[], maxBytes: number): RecordUrl[][] {
 }
 
 /**
- * The JSON punctuation around the three fields, so packing measures what the record will hold.
- *
- * `JSON.stringify` widens a quote or a backslash, so this is a lower bound. Canonicalization
- * percent-encodes those upstream and the budget is half the broker limit, so the gap has room.
- * `ml_url_record_bytes` is what would show it closing.
+ * `JSON.stringify` widens a quote or a backslash, so this count is a lower bound. Canonicalization
+ * percent-encodes both upstream, and the budget is half the broker limit, so the estimate has room.
+ * The `ml_url_record_bytes` metric shows that margin if it shrinks.
  */
 const ENTRY_OVERHEAD_BYTES = '{"ref":"","url":"","host":""},'.length
 

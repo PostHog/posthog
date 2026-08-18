@@ -159,6 +159,14 @@ export enum SignalSourceConfigStatus {
     FAILED = 'failed',
 }
 
+// `SignalSourceConfig.config` keys the emission actionability gate reads. Mirrors
+// STEERING_KEY / DEFAULT_NOT_ACTIONABLE_KEY / STEERING_MAX_LENGTH in
+// products/signals/backend/contracts.py; the generated config type is an open object,
+// so the key names and cap only exist here and there.
+export const SOURCE_STEERING_KEY = 'steering'
+export const SOURCE_DEFAULT_NOT_ACTIONABLE_KEY = 'default_not_actionable'
+export const SOURCE_STEERING_MAX_LENGTH = 2000
+
 // ── Inbox 2.0 IA: tabs + scope ──────────────────────────────────────────────
 
 export type InboxTabKey = 'pulls' | 'reports' | 'not-actionable' | 'runs' | 'archived' | 'config'

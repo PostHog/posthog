@@ -379,10 +379,10 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         if self.jwks_uri and not self.jwks_uri.startswith("https://"):
             raise ValidationError("jwks_uri must be an https URL")
 
-        # A public client cannot authenticate, so a key set would never be consulted
-        # Rejecting the combination keeps token_endpoint_auth_method unambiguous.
-        if self.jwks_uri and not self.requires_client_authentication:
-            raise ValidationError("jwks_uri is only meaningful for a confidential client")
+        # A stored key set on a public client enables optional assertion authentication
+        # (verify_client_assertion) without requiring it: token_endpoint_auth_method reads
+        # requires_client_authentication first, so a public client derives NONE regardless
+        # of jwks_uri.
 
     def _validate_redirect_uris(self):
         validator = AllowedURIValidator(
@@ -687,14 +687,21 @@ def revoke_oauth_session(
             refresh_token.revoked = now
             refresh_token.save(update_fields=["revoked"])
     else:
-        # Delete all access tokens for this user+application
-        OAuthAccessToken.objects.filter(user=user, application=application).delete()
+        # Same ordering as revoke_application_sessions below, for the same two reasons:
+        # grants deleted first so this blocks on a racing code exchange's grant-row lock
+        # instead of missing tokens it mints; refresh revoked before access deleted so a
+        # mid-way failure can't leave a refresh token live after its access token is gone.
+        with transaction.atomic():
+            # Delete all grants for this user+application
+            OAuthGrant.objects.filter(user=user, application=application).delete()
 
-        # Revoke all refresh tokens for this user+application
-        OAuthRefreshToken.objects.filter(user=user, application=application, revoked__isnull=True).update(revoked=now)
+            # Revoke all refresh tokens for this user+application
+            OAuthRefreshToken.objects.filter(user=user, application=application, revoked__isnull=True).update(
+                revoked=now
+            )
 
-        # Delete all grants for this user+application
-        OAuthGrant.objects.filter(user=user, application=application).delete()
+            # Delete all access tokens for this user+application
+            OAuthAccessToken.objects.filter(user=user, application=application).delete()
 
 
 def _refresh_token_may_have_untracked_access_tokens(refresh_token: OAuthRefreshToken) -> bool:
@@ -737,10 +744,15 @@ def revoke_oauth_token_session(
         # posthog/api/oauth/views.py - and callers that create a refresh token before
         # its access token don't always back-fill refresh_token.access_token either), so
         # check both directions instead of trusting one.
-        OAuthRefreshToken.objects.filter(
-            Q(access_token=access_token) | Q(pk=access_token.source_refresh_token_id), revoked__isnull=True
-        ).update(revoked=now)
-        access_token.delete()
+        #
+        # Revoke the refresh token before deleting the access token, in one transaction,
+        # so a mid-way failure can't leave the refresh token live after its access token
+        # is already gone (same reasoning as revoke_application_sessions below).
+        with transaction.atomic():
+            OAuthRefreshToken.objects.filter(
+                Q(access_token=access_token) | Q(pk=access_token.source_refresh_token_id), revoked__isnull=True
+            ).update(revoked=now)
+            access_token.delete()
     elif refresh_token:
         if _refresh_token_may_have_untracked_access_tokens(refresh_token):
             # A leaked non-rotating refresh token can have minted any number of access
@@ -750,11 +762,15 @@ def revoke_oauth_token_session(
             # sweep revoke_token already uses for this exact case via RFC 7009.
             revoke_oauth_session(refresh_token=refresh_token)
             return
-        OAuthAccessToken.objects.filter(
-            Q(pk=refresh_token.access_token_id) | Q(source_refresh_token=refresh_token)
-        ).delete()
-        refresh_token.revoked = now
-        refresh_token.save(update_fields=["revoked"])
+        # Revoke before deleting the linked access token(s), in one transaction, so a
+        # mid-way failure can't leave this refresh token live (and able to mint a new
+        # access token) after its access token is already gone.
+        with transaction.atomic():
+            refresh_token.revoked = now
+            refresh_token.save(update_fields=["revoked"])
+            OAuthAccessToken.objects.filter(
+                Q(pk=refresh_token.access_token_id) | Q(source_refresh_token=refresh_token)
+            ).delete()
 
 
 def revoke_application_sessions(application: "OAuthApplication") -> None:
