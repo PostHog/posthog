@@ -4,8 +4,8 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { Setting } from '~/scenes/settings/types'
 
 /**
- * Kept apart from settingsLogic so setting-flag gating can be reused without pulling in the
- * full SettingsMap component graph.
+ * Kept apart from settingsLogic so consumers (e.g. command palette search) can gate on
+ * setting flags without statically importing the full SettingsMap component graph.
  */
 export const matchesFlagDefinition = (
     flagKey: Pick<Setting, 'flag'>['flag'],
