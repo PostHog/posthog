@@ -1243,6 +1243,32 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert expected_detail in response.json()["detail"]
 
+    @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_conditional_branch_validates_cohorts_nested_in_action_filters(self, _mock_flag):
+        # A cohort inside an action filter's own `properties` compiles just like a top-level one, so
+        # it must clear the same eligibility gate. An eligible top-level cohort turns cohort support
+        # on for the whole condition; a static cohort nested in an action entry must still be
+        # rejected rather than silently compiling and routing everyone down the wrong branch.
+        eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        static_cohort = Cohort.objects.create(team=self.team, name="static-cohort", is_static=True)
+        action = Action.objects.create(team=self.team, name="Converted", steps_json=[{"event": "converted"}])
+        filters = {
+            "properties": [{"key": "id", "type": "cohort", "value": eligible.id}],
+            "actions": [
+                {
+                    "id": str(action.id),
+                    "type": "actions",
+                    "properties": [{"key": "id", "type": "cohort", "value": static_cohort.id}],
+                }
+            ],
+        }
+        hog_flow = self._hog_flow_with_condition_filters("conditional_branch", filters)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert "is a static cohort" in response.json()["detail"]
+
     def test_hog_flow_conditional_branch_rejects_cohort_filters_without_flag(self):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         hog_flow = self._hog_flow_with_condition_filters(

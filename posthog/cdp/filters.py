@@ -321,6 +321,15 @@ def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
                     pass
 
     _walk(filters.get("properties") or [])
+    # Each event/action entry carries its own `properties`, which the compiler compiles too
+    # (hog_function_filters_to_expr), so a cohort leaf there must be eligibility-validated and
+    # must enable cohort compilation, exactly like a top-level one.
+    for key in ("events", "actions"):
+        entries = filters.get(key)
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    _walk(entry.get("properties") or [])
     return sorted(ids)
 
 
