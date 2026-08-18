@@ -18,7 +18,6 @@ import jsonschema
 
 from products.canvas.backend.actions import CANVAS_ACTIONS
 from products.canvas.backend.contract import (
-    GRID_COLUMN_CHOICES,
     MAX_COMPONENT_HEIGHT,
     MAX_COMPONENT_WIDTH,
     allowed_import_specifiers,
