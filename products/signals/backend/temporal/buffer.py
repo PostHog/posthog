@@ -14,6 +14,7 @@ from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
@@ -72,7 +73,7 @@ async def flush_signals_to_s3_activity(input: FlushBufferInput) -> FlushBufferOu
     return FlushBufferOutput(object_key=object_key, signal_count=len(input.signals))
 
 
-@dataclass
+@frozen
 class CheckSignalsQuotaInput:
     team_id: int
     # Defaults so activity inputs recorded before the field existed still decode on replay.

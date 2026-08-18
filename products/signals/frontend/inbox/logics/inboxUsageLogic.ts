@@ -38,8 +38,8 @@ export interface inboxUsageLogicValues {
     billingLoading: boolean // billingLogic
     canAccessBilling: boolean // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    currentTeamId: number | null // teamLogic
     dailyReportLimitReached: boolean // signalTeamConfigLogic
+    currentTeamId: number | null // teamLogic
     creditsPerPr: number | null
     customLimitUsd: number | null
     estimatedBudgetUsd: number | null

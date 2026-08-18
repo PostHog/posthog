@@ -123,11 +123,11 @@ export interface signalTeamConfigLogicMeta {
         maxReportsPerDay: (teamConfig: SignalTeamConfig | null) => number | null
         reportsGeneratedToday: (teamConfig: SignalTeamConfig | null) => number
         dailyReportLimitReached: (teamConfig: SignalTeamConfig | null) => boolean
+        teamConfigUpdating: (teamConfigLoading: boolean, teamConfig: SignalTeamConfig | null) => boolean
         saveMaxReportsPerDayDisabledReason: (
             draftMaxReportsPerDay: number | null,
             maxReportsPerDay: number | null
         ) => string | null
-        teamConfigUpdating: (teamConfigLoading: boolean, teamConfig: SignalTeamConfig | null) => boolean
         addBaseBranchOverrideDisabledReason: (
             draftBaseBranchRepo: string,
             draftBaseBranchBranch: string
