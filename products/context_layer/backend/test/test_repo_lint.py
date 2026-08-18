@@ -67,6 +67,11 @@ def _scripts_extra_file(root: Path) -> None:
     (root / "scripts" / "deploy.sh").write_text("#!/bin/sh\n")
 
 
+def _scripts_tampered_lint(root: Path) -> None:
+    lint = root / "scripts" / "lint"
+    lint.write_text(lint.read_text() + "\nimport os  # smuggled\n")
+
+
 class TestRepoLint(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -100,6 +105,7 @@ class TestRepoLint(SimpleTestCase):
             ("oversized_page", _oversized_page),
             ("scripts_symlink", _scripts_symlink),
             ("scripts_extra_file", _scripts_extra_file),
+            ("scripts_tampered_lint", _scripts_tampered_lint),
         ]
     )
     def test_violations_are_reported(self, _name: str, violate: Callable[[Path], None]) -> None:

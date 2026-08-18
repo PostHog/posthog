@@ -150,6 +150,23 @@ class TestContextLayerStore(BaseTest):
             commit_count = store._run_git(["rev-list", "--count", "HEAD"], cwd=checkout.path)
             assert commit_count == "1"
 
+    def test_landing_prunes_bundles_older_than_the_previous_head(self) -> None:
+        h0 = store.initialize_repo(self.organization.id).head_sha
+
+        def add_page(name: str):
+            def mutate(root: Path) -> None:
+                (root / "areas").mkdir(exist_ok=True)
+                (root / "areas" / f"{name}.md").write_text(f"# {name}\n")
+
+            return mutate
+
+        h1 = store.apply_changes(self.organization.id, message="Add a", mutate=add_page("a"))
+        h2 = store.apply_changes(self.organization.id, message="Add b", mutate=add_page("b"))
+
+        assert object_storage_module.read_bytes(store.bundle_key(self.organization.id, h0), missing_ok=True) is None
+        assert object_storage_module.read_bytes(store.bundle_key(self.organization.id, h1), missing_ok=True)
+        assert object_storage_module.read_bytes(store.bundle_key(self.organization.id, h2), missing_ok=True)
+
     def test_checkout_repo_without_config_raises(self) -> None:
         with self.assertRaises(store.RepoNotFoundError):
             with store.checkout_repo(self.organization.id):
