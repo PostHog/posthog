@@ -4,6 +4,8 @@ use prost::Message;
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
+use crate::api::CaptureError;
+
 use super::fan_out::{
     any_value_to_json, apply_geoip_default, attributes_to_map, filter_resource_attributes,
     nanos_to_datetime, SpanEvent,
@@ -31,9 +33,10 @@ pub fn count_records(request: &ExportLogsServiceRequest) -> usize {
 pub fn expand_into_events(
     request: &ExportLogsServiceRequest,
     request_fallback_distinct_id: &str,
-) -> Vec<SpanEvent> {
+) -> Result<Vec<SpanEvent>, CaptureError> {
     let mut events =
         Vec::with_capacity(count_records(request).min(super::MAX_AI_EVENTS_PER_REQUEST));
+    let mut expanded_bytes = 0usize;
 
     for resource_logs in &request.resource_logs {
         let resource_attributes = resource_logs
@@ -52,12 +55,35 @@ pub fn expand_into_events(
                 ) else {
                     continue;
                 };
+                if events.len() == super::MAX_AI_EVENTS_PER_REQUEST {
+                    return Err(CaptureError::RequestParsingError(format!(
+                        "Too many evaluation events: {} exceeds limit of {}",
+                        events.len() + 1,
+                        super::MAX_AI_EVENTS_PER_REQUEST
+                    )));
+                }
+                let event_bytes = serde_json::to_vec(&event.properties)
+                    .map_err(|error| CaptureError::InternalError(error.to_string()))?
+                    .len()
+                    + event.event_name.len()
+                    + event.distinct_id.len();
+                expanded_bytes = expanded_bytes.checked_add(event_bytes).ok_or_else(|| {
+                    CaptureError::RequestParsingError(
+                        "Expanded evaluation events exceed the byte limit".to_string(),
+                    )
+                })?;
+                if expanded_bytes > super::MAX_EXPANDED_AI_EVENT_BYTES {
+                    return Err(CaptureError::RequestParsingError(format!(
+                        "Expanded evaluation events exceed limit of {} bytes",
+                        super::MAX_EXPANDED_AI_EVENT_BYTES
+                    )));
+                }
                 events.push(event);
             }
         }
     }
 
-    events
+    Ok(events)
 }
 
 fn evaluation_event(
@@ -257,7 +283,7 @@ mod tests {
 
     #[test]
     fn maps_evaluation_result_event() {
-        let events = expand_into_events(&request(evaluation_record()), "fallback");
+        let events = expand_into_events(&request(evaluation_record()), "fallback").unwrap();
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_name, "$ai_evaluation");
@@ -290,7 +316,7 @@ mod tests {
             ..evaluation_record()
         };
 
-        let events = expand_into_events(&request(record), "fallback");
+        let events = expand_into_events(&request(record), "fallback").unwrap();
 
         assert_eq!(events[0].properties["$ai_evaluation_result"], 0.9);
         assert_eq!(events[0].properties["$ai_evaluation_result_type"], "number");
@@ -303,9 +329,9 @@ mod tests {
         changed_record.time_unix_nano += 1;
         let changed_request = request(changed_record);
 
-        let first = expand_into_events(&original_request, "fallback");
-        let replay = expand_into_events(&original_request, "fallback");
-        let changed = expand_into_events(&changed_request, "fallback");
+        let first = expand_into_events(&original_request, "fallback").unwrap();
+        let replay = expand_into_events(&original_request, "fallback").unwrap();
+        let changed = expand_into_events(&changed_request, "fallback").unwrap();
 
         assert_eq!(
             first[0].properties["$ai_evaluation_id"],
@@ -336,7 +362,9 @@ mod tests {
             ..evaluation_record()
         };
 
-        assert!(expand_into_events(&request(record), "fallback").is_empty());
+        assert!(expand_into_events(&request(record), "fallback")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -346,7 +374,9 @@ mod tests {
             ..evaluation_record()
         };
 
-        assert!(expand_into_events(&request(record), "fallback").is_empty());
+        assert!(expand_into_events(&request(record), "fallback")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -359,7 +389,9 @@ mod tests {
             ..evaluation_record()
         };
 
-        assert!(expand_into_events(&request(record), "fallback").is_empty());
+        assert!(expand_into_events(&request(record), "fallback")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -373,7 +405,7 @@ mod tests {
             ..evaluation_record()
         };
 
-        let events = expand_into_events(&request(record), "fallback");
+        let events = expand_into_events(&request(record), "fallback").unwrap();
 
         assert!(events[0]
             .properties
