@@ -2240,6 +2240,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     );
     if (modeId === "plan" && previousMode !== "plan") {
       this.session.modeBeforePlan = previousMode;
+      // A new planning cycle must not resolve against the prior cycle's plan
+      // file. Left set, an ExitPlanMode before this cycle's first plan write
+      // reads the old file, which passes validation and gets approved.
+      this.session.lastPlanFilePath = undefined;
     }
     try {
       await this.session.query.setPermissionMode(
@@ -2792,6 +2796,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         this.session.queryOptions.permissionMode = toSdkPermissionMode(newMode);
         if (newMode === "plan" && previousMode !== "plan") {
           this.session.modeBeforePlan = previousMode;
+          // Same reason as applySessionMode: a new cycle must not inherit the
+          // prior cycle's plan file.
+          this.session.lastPlanFilePath = undefined;
         }
       }
       await this.updateConfigOption("mode", newMode);

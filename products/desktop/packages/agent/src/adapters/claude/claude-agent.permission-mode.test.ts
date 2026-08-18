@@ -148,4 +148,19 @@ describe("ClaudeAcpAgent.setSessionMode — SDK permission-mode translation", ()
     expect(session.permissionMode).toBe("plan");
     expect(session.modeBeforePlan).toBe("auto");
   });
+
+  it("clears the prior cycle's plan file when a new planning cycle starts", async () => {
+    const { agent } = makeAgent();
+    installFakeSession(agent, "s-mode", "auto");
+    const session = (
+      agent as unknown as {
+        session: { lastPlanFilePath?: string };
+      }
+    ).session;
+    session.lastPlanFilePath = "/tmp/repo/.claude/plans/old-plan.md";
+
+    await agent.setSessionMode({ sessionId: "s-mode", modeId: "plan" });
+
+    expect(session.lastPlanFilePath).toBeUndefined();
+  });
 });
