@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -149,5 +150,28 @@ describe('dashboardTemplatesLogic', () => {
         await expectLogic(mounted).toFinishAllListeners()
 
         expect(listMock).toHaveBeenCalled()
+    })
+
+    it('does not crash when unmounted while the template list resolves after navigation', async () => {
+        ;(posthog.captureException as jest.Mock).mockClear()
+        let resolveList: ((page: { results: DashboardTemplateType[] }) => void) | undefined
+        ;(api.dashboardTemplates.list as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolveList = resolve
+            })
+        )
+        const mounted = dashboardTemplatesLogic({ scope: 'default' })
+        logic = mounted
+        mounted.mount()
+
+        const request = mounted.asyncActions.getAllTemplates()
+        mounted.unmount() // user navigates away before the list resolves
+        resolveList?.({ results: [] })
+
+        await request
+
+        expect(posthog.captureException).not.toHaveBeenCalledWith(
+            expect.objectContaining({ message: expect.stringContaining('Can not find path') })
+        )
     })
 })

@@ -106,6 +106,9 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
                     try {
                         return await environmentVisionQuotaRetrieve(String(teamId))
                     } catch {
+                        // The request can fail after the user navigates away, so guard the store read:
+                        // breakpoint() throws if the logic unmounted, and kea-loaders swallows that throw.
+                        breakpoint()
                         // Keep the last-known snapshot — nulling it would silently drop the exhausted-quota guards.
                         return values.quota
                     }

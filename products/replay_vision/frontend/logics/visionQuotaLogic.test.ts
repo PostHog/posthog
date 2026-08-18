@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { billingLogic } from 'scenes/billing/billingLogic'
 
@@ -111,5 +112,34 @@ describe('visionQuotaLogic', () => {
         await expectLogic(logic, () => logic.actions.loadQuota()).toDispatchActions(['loadQuotaSuccess'])
 
         expect(logic.values.quota?.projected_monthly_credits).toBe(500)
+    })
+
+    it('does not crash when unmounted while the quota request is in flight and fails', async () => {
+        ;(posthog.captureException as jest.Mock).mockClear()
+        await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
+
+        let failQuota: (() => void) | undefined
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/quota/': () =>
+                    new Promise<[number]>((resolve) => {
+                        failQuota = () => resolve([500])
+                    }),
+            },
+        })
+
+        const request = logic.asyncActions.loadQuota()
+        // The loader debounces 50ms before issuing the request; wait until it actually goes out.
+        while (!failQuota) {
+            await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        logic.unmount()
+        failQuota()
+
+        await request
+
+        expect(posthog.captureException).not.toHaveBeenCalledWith(
+            expect.objectContaining({ message: expect.stringContaining('Can not find path') })
+        )
     })
 })

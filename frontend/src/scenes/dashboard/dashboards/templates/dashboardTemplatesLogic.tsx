@@ -187,7 +187,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
         allTemplates: [
             [] as DashboardTemplateType[],
             {
-                getAllTemplates: async () => {
+                getAllTemplates: async (_, breakpoint) => {
                     const logicProps = props as DashboardTemplatesLogicProps
                     const featuredOnly = logicProps.listQuery?.is_featured === true
                     // Curated featured list (empty dashboards) must ignore `templateFilter` synced from the URL via
@@ -219,6 +219,9 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                         ...logicProps.listQuery,
                     }
                     const page = await api.dashboardTemplates.list(params)
+                    // The list can resolve after the user navigates away; breakpoint() throws if the logic
+                    // unmounted, so the reads below never hit a torn-down store.
+                    breakpoint()
                     if (!useSearch && listScope === undefined) {
                         return sortTemplatesTeamScopeBeforeOfficial(page.results, values.templateNameOrdering)
                     }
