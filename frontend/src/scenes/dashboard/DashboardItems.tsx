@@ -367,7 +367,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     )
 
     const handleResizeStart = useCallback(
-        (layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => {
+        (layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+            if (!newItem) {
+                return
+            }
             startInteraction(layout, newItem, 'resize')
         },
         [startInteraction]
@@ -387,7 +390,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
     const handleDragStart = useCallback(
-        (layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => {
+        (layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
+            if (!newItem) {
+                return
+            }
             startInteraction(layout, newItem, 'drag')
             scrollContainerRef.current = document.getElementById('main-content')
             scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
