@@ -131,8 +131,9 @@ function isValidRecordingOrderDirection(direction: unknown): boolean {
 
 const isReplayURLSearchParams = (x: ReplayURLSearchParamTypes): x is ReplayURLSearchParams => {
     const replayURLSearchParams = x as ReplayURLSearchParams
+    // `filters` validity is checked where it's applied, not here: a stray `filters` value must not
+    // block `order`/`order_direction`, which are independent params carried in the same URL.
     return (
-        (replayURLSearchParams.filters === undefined || isValidRecordingFilters(replayURLSearchParams.filters)) &&
         (replayURLSearchParams.order === undefined || isValidRecordingOrder(replayURLSearchParams.order)) &&
         (replayURLSearchParams.order_direction === undefined ||
             isValidRecordingOrderDirection(replayURLSearchParams.order_direction))
@@ -291,7 +292,8 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
 
     // A query node carries a `kind` field, for example an actors query. It is not a recording filter set.
     // Spreading one over the defaults builds a broken filter that dead-ends the recordings list. Reject it
-    // here so the caller falls back to the defaults.
+    // here so callers can skip it: the setFilters reducer resets to defaults, the URL path leaves the
+    // persisted filters untouched.
     if ('kind' in filters) {
         return false
     }
@@ -2053,9 +2055,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
             if (isReplayURLSearchParams(params)) {
                 const updatedFilters: Partial<RecordingUniversalFilters> = {
-                    // layer URL filters onto defaults, not the persisted state, so fields the URL
-                    // omits don't inherit stale values
-                    ...(params.filters && !equal(params.filters, values.filters)
+                    // Layer URL filters onto defaults, not the persisted state, so fields the URL
+                    // omits don't inherit stale values. Ignore an invalid `filters` value (e.g. a
+                    // stray query node) and leave the persisted filters as they are, rather than
+                    // spreading it into a broken filter set.
+                    ...(params.filters &&
+                    isValidRecordingFilters(params.filters) &&
+                    !equal(params.filters, values.filters)
                         ? {
                               ...getDefaultFilters(props.personUUID, props.pinnedFilters, params.filters),
                               ...params.filters,

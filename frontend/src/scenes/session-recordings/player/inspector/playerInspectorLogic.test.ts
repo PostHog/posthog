@@ -12,7 +12,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { SessionRecordingType } from '~/types'
+import { FilterLogicalOperator, RecordingUniversalFilters, SessionRecordingType } from '~/types'
 
 import { setupSessionRecordingTest } from '../__mocks__/test-setup'
 
@@ -265,6 +265,21 @@ describe('playerInspectorLogic', () => {
             },
         })
 
+        // A backend match whose filter set carries an event filter. The loader only calls
+        // matching_events for these, so the late-resolution tests must use one to exercise the race.
+        const backendFiltersWithEvent = (): RecordingUniversalFilters => ({
+            ...DEFAULT_RECORDING_FILTERS,
+            filter_group: {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [{ id: '$pageview', name: '$pageview', type: 'events' } as any],
+                    },
+                ],
+            },
+        })
+
         const mountLogics = (
             props: PlayerInspectorLogicProps
         ): {
@@ -352,7 +367,7 @@ describe('playerInspectorLogic', () => {
             const { playerLogic, matchingLogic } = mountLogics({
                 sessionRecordingId: '1',
                 playerKey: `user-${interaction}`,
-                matchingEventsMatchType: { matchType: 'backend' as const, filters: DEFAULT_RECORDING_FILTERS },
+                matchingEventsMatchType: { matchType: 'backend' as const, filters: backendFiltersWithEvent() },
             })
 
             loadRecordingMeta()
@@ -366,6 +381,32 @@ describe('playerInspectorLogic', () => {
                 'trySkipToFirstMatchingEvent',
             ])
             await expectLogic(playerLogic).toNotHaveDispatchedActions([playerLogic.actionCreators.seekToTime(9000)])
+
+            matchingLogic.unmount()
+            playerLogic.unmount()
+        })
+
+        it('skips the matching_events call when a backend filter set has no event filters', async () => {
+            // matching_events 400s on a query with no event, action, or event-property filter, and a
+            // backend match can carry exactly that (e.g. a recording-property-only filter set). The
+            // loader must skip the call so no error toast fires; there is nothing to highlight.
+            const matchingEventsCall = jest.fn(() => [200, { results: [] }])
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings/matching_events': matchingEventsCall,
+                },
+            })
+
+            const { playerLogic, matchingLogic } = mountLogics({
+                sessionRecordingId: '1',
+                playerKey: 'backend-no-events',
+                matchingEventsMatchType: { matchType: 'backend' as const, filters: DEFAULT_RECORDING_FILTERS },
+            })
+
+            await expectLogic(matchingLogic)
+                .toDispatchActions(['loadMatchingEventsSuccess'])
+                .toMatchValues({ matchingEvents: null })
+            expect(matchingEventsCall).not.toHaveBeenCalled()
 
             matchingLogic.unmount()
             playerLogic.unmount()
