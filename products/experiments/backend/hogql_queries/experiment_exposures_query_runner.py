@@ -98,6 +98,15 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             for variant in multivariate_data.get("variants", [])
             if variant.get("key") not in self.excluded_variants
         ]
+        # No variants means the exposure SQL (`variant IN {variants}`) matches nothing.
+        # For a running experiment that's a broken flag (variants stripped out from under
+        # it) — surface it rather than render an empty chart that reads as "no exposures".
+        # Stopped/draft experiments may legitimately keep a flag that was later simplified
+        # to boolean, so they fall through and degrade to an empty result instead.
+        if not multivariate_data.get("variants") and self.experiment.is_running:
+            raise ValidationError(
+                "This experiment's feature flag has no variants. Restore the flag's variants to see exposure data."
+            )
 
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(
