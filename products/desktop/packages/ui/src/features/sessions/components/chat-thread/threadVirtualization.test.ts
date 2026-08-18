@@ -10,6 +10,7 @@ import {
   nextThreadFollowState,
   type StickyAnchorEntry,
   sampleThreadScroll,
+  shouldVirtualizeThread,
   type ThreadScrollSample,
   type TurnRow,
 } from "./threadVirtualization";
@@ -206,6 +207,21 @@ describe("flattenTurnRows", () => {
     const flat = flattenTurnRows([streaming]);
     expect(flat.every((r) => r.turnTimestamp === undefined)).toBe(true);
   });
+});
+
+describe("shouldVirtualizeThread", () => {
+  // A short windowed thread must still virtualize: only the virtualized body
+  // pages in older history, so the non-virtualized body would dead-end it.
+  it.each([
+    { flatCount: 10, hasOlderHistory: true, expected: true },
+    { flatCount: 10, hasOlderHistory: false, expected: false },
+    { flatCount: 251, hasOlderHistory: false, expected: true },
+  ])(
+    "flatCount $flatCount, hasOlderHistory $hasOlderHistory -> $expected",
+    ({ flatCount, hasOlderHistory, expected }) => {
+      expect(shouldVirtualizeThread(flatCount, hasOlderHistory)).toBe(expected);
+    },
+  );
 });
 
 describe("countFlatRows", () => {
