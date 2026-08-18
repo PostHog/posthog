@@ -18,6 +18,10 @@ for all job payload data (mirrors how the Kafka backend serializes everything in
 Creates jobs via `createJob()` / `bulkCreateJobs()`.
 The bulk path uses `UNNEST` for efficient batch inserts.
 
+`cancelJobs()` flags in-flight jobs for cancellation (by ids or all jobs of a function) and pulls parked rows' wake time forward.
+It never writes a terminal status:
+the owning worker observes `cancel_requested_at` on dequeue and performs the actual cancellation together with its lifecycle/metric writes.
+
 ### Worker (consumer)
 
 Poll-based consumer using `FOR UPDATE SKIP LOCKED` to dequeue batches.
