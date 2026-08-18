@@ -93,7 +93,7 @@ class Command(BaseCommand):
                 flow.encrypted_inputs = merge_secret_maps(stripped, flow.encrypted_inputs)
                 update_fields += ["actions", "trigger", "encrypted_inputs"]
             if draft_plaintext:
-                draft = dict(flow.draft)
+                draft = dict(flow.draft or {})
                 stripped = strip_secrets_from_content(draft, template_cache)
                 flow.draft = draft
                 flow.draft_encrypted_inputs = merge_secret_maps(stripped, flow.draft_encrypted_inputs)
