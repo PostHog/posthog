@@ -4,7 +4,8 @@ import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
+import { cloneLayoutItem, Responsive as ReactGridLayout, useContainerWidth, verticalCompactor } from 'react-grid-layout'
+import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
 import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
@@ -20,6 +21,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { resizeNeighborToFitRow, restoreUnmovedItemPositions } from 'scenes/dashboard/dashboardResizeCompactor'
 import {
     BREAKPOINTS,
     BREAKPOINT_COLUMN_COUNTS,
@@ -46,6 +48,8 @@ const DRAG_AUTO_SCROLL_SPEED = 50
 const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
+
+type InteractionKind = 'drag' | 'resize'
 
 interface DashboardItemsProps {
     showCreateAnomalyAlertButton?: boolean
@@ -141,6 +145,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     // (every InsightCard) that make the dragged tile lag the cursor. Stash the latest layout and commit once on stop.
     const interactionInProgress = useRef(false)
     const pendingLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
+    const interactionBaselineLayout = useRef<Layout | null>(null)
+    const activeInteractionTileId = useRef<string | null>(null)
+    const activeInteractionKind = useRef<InteractionKind | null>(null)
     const dragEndTimeout = useRef<number | null>(null)
     const scrollAnimationRef = useRef<number | null>(null)
     const scrollContainerRef = useRef<HTMLElement | null>(null)
@@ -243,6 +250,26 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
+    const gridCompactor = useMemo<Compactor>(
+        () => ({
+            ...verticalCompactor,
+            compact: (layout: Layout, cols: number): Layout => {
+                const baseline = interactionBaselineLayout.current
+                const activeItemId = activeInteractionTileId.current
+                if (!baseline || !activeItemId) {
+                    return verticalCompactor.compact(layout, cols)
+                }
+
+                const restoredLayout = restoreUnmovedItemPositions(layout, baseline, activeItemId)
+                const layoutForCompaction =
+                    activeInteractionKind.current === 'resize'
+                        ? resizeNeighborToFitRow(restoredLayout, baseline, activeItemId)
+                        : restoredLayout
+                return verticalCompactor.compact(layoutForCompaction, cols)
+            },
+        }),
+        []
+    )
 
     const getInsertMenuItems = useCallback(
         (targetX: number, targetY: number, targetW?: number): LemonMenuItems =>
@@ -368,6 +395,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             updateLayouts(pendingLayouts.current)
             pendingLayouts.current = null
         }
+        interactionBaselineLayout.current = null
+        activeInteractionTileId.current = null
+        activeInteractionKind.current = null
         // Remeasure once the gesture settles, since height updates were suppressed during it.
         requestAnimationFrame(() => {
             if (containerRef.current) {
@@ -384,9 +414,19 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         [updateContainerWidth]
     )
 
-    const handleResizeStart = useCallback(() => {
+    const captureInteractionBaseline = useCallback((layout: Layout, item: LayoutItem, kind: InteractionKind): void => {
         interactionInProgress.current = true
+        interactionBaselineLayout.current = layout.map((layoutItem) => cloneLayoutItem(layoutItem))
+        activeInteractionTileId.current = item.i
+        activeInteractionKind.current = kind
     }, [])
+
+    const handleResizeStart = useCallback(
+        (layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => {
+            captureInteractionBaseline(layout, newItem, 'resize')
+        },
+        [captureInteractionBaseline]
+    )
 
     const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
         // Setting state to the same id bails out of re-rendering, so this only re-renders once per gesture.
@@ -401,11 +441,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }
     }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
-    const handleDragStart = useCallback(() => {
-        interactionInProgress.current = true
-        scrollContainerRef.current = document.getElementById('main-content')
-        scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
-    }, [])
+    const handleDragStart = useCallback(
+        (layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => {
+            captureInteractionBaseline(layout, newItem, 'drag')
+            scrollContainerRef.current = document.getElementById('main-content')
+            scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
+        },
+        [captureInteractionBaseline]
+    )
 
     const handleDrag = useCallback(
         (_layout: unknown, _oldItem: unknown, _newItem: unknown, _placeholder: unknown, e: unknown) => {
@@ -499,6 +542,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}
                         layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
+                        compactor={gridCompactor}
                         rowHeight={rowHeight}
                         margin={margin}
                         containerPadding={CONTAINER_PADDING}
