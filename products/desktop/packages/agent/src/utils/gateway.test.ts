@@ -281,6 +281,69 @@ describe("resolveGatewayTarget", () => {
     ).toBe(true);
   });
 
+  it("routes a skill-qualified scout stage via the plain product entry", () => {
+    expect(
+      resolveGatewayTarget({
+        product: "signals",
+        aiStage: "scout:web-analytics",
+        posthogHost: PY_HOST,
+        env: SIGNALS_ENV,
+      }),
+    ).toEqual({ baseUrl: GO, isAiGateway: true, aiProduct: "signals_scout" });
+  });
+
+  it("routes only the listed skill via a skill-qualified entry", () => {
+    const env = {
+      AI_GATEWAY_URL: GO,
+      AI_GATEWAY_PRODUCTS: "signals_scout:web-analytics",
+    };
+    expect(
+      resolveGatewayTarget({
+        product: "signals",
+        aiStage: "scout:web-analytics",
+        posthogHost: PY_HOST,
+        env,
+      }),
+    ).toEqual({ baseUrl: GO, isAiGateway: true, aiProduct: "signals_scout" });
+    expect(
+      resolveGatewayTarget({
+        product: "signals",
+        aiStage: "scout:logs",
+        posthogHost: PY_HOST,
+        env,
+      }),
+    ).toEqual({
+      baseUrl: "https://gateway.us.posthog.com/signals",
+      isAiGateway: false,
+      aiProduct: "signals_scout",
+    });
+  });
+
+  it("does not let a skill-qualified entry route the bare scout stage", () => {
+    expect(
+      resolveGatewayTarget({
+        product: "signals",
+        aiStage: "scout",
+        posthogHost: PY_HOST,
+        env: {
+          AI_GATEWAY_URL: GO,
+          AI_GATEWAY_PRODUCTS: "signals_scout:web-analytics",
+        },
+      }).isAiGateway,
+    ).toBe(false);
+  });
+
+  it("routes the custom stage when signals_custom is listed", () => {
+    expect(
+      resolveGatewayTarget({
+        product: "signals",
+        aiStage: "custom",
+        posthogHost: PY_HOST,
+        env: { AI_GATEWAY_URL: GO, AI_GATEWAY_PRODUCTS: "signals_custom" },
+      }),
+    ).toEqual({ baseUrl: GO, isAiGateway: true, aiProduct: "signals_custom" });
+  });
+
   it("honours an LLM_GATEWAY_URL override on the unrouted path", () => {
     expect(
       resolveGatewayTarget({
@@ -301,7 +364,15 @@ describe("resolveAiProduct", () => {
     ["research", "signals_research"],
     ["implementation", "signals_implementation"],
     ["repo_selection", "signals_repo_selection"],
+    ["custom", "signals_custom"],
   ])("maps the signals %s stage to %s", (aiStage, expected) => {
+    expect(resolveAiProduct({ product: "signals", aiStage })).toBe(expected);
+  });
+
+  it.each([
+    ["scout:web-analytics", "signals_scout"],
+    ["scout:customer-analytics-billing-and-usage", "signals_scout"],
+  ])("maps the skill-qualified %s stage to %s", (aiStage, expected) => {
     expect(resolveAiProduct({ product: "signals", aiStage })).toBe(expected);
   });
 
