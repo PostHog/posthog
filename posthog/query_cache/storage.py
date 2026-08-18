@@ -387,9 +387,8 @@ def _read_blob(pointer_bytes: bytes, *, team_id: int, cache_key: str) -> Optiona
         logger.warning("query_cache_s3_pointer_corrupt", team_id=team_id, cache_key=cache_key)
         return None
     if not settings.OBJECT_STORAGE_ENABLED:
-        # UnavailableStorage returns None for every read, indistinguishable from a missing
-        # blob; deleting on that signal would destroy valid pointers fleet-wide as soon as
-        # one pod runs without object storage. Miss for this pod, keep the pointer.
+        # UnavailableStorage would report these reads as "missing", which looks like data
+        # loss during a deliberate storage rollback; label them for what they are.
         _record_s3_read("storage_disabled")
         return None
     fetch_start = time.perf_counter()

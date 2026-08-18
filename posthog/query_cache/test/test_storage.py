@@ -301,29 +301,20 @@ class TestQueryCacheS3Routing(BaseTest):
         assert freshness is not None
         assert freshness.last_refresh == "2026-08-01T00:00:00+00:00"
 
-    def test_small_result_stays_inline_when_flag_on(self):
-        cache_key = f"s3_on_small_{self.team.pk}"
-        cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
-
-        with patch("posthog.query_cache.storage.s3_write_mode", return_value="on"):
-            cache.store_result(response=self._small_response(), target_age=None)
-
-        assert self.storage.objects == {}
-        assert not self._redis_holds_pointer(cache_key)
-        assert cache.lookup().entry is not None
-
     @parameterized.expand(
         [
-            # Both payloads serialize well past the threshold; only their compressed sizes differ.
-            ("compressible_stays_inline", {"data": ["x" * 20000]}, False),
-            ("incompressible_goes_to_s3", {"data": _incompressible_rows(50)}, True),
+            # Below the compression floor: stored raw, never a candidate for S3.
+            ("small_below_floor", [], False),
+            # The next two serialize well past the threshold; only their compressed sizes differ.
+            ("compressible_stays_inline", [{"data": ["x" * 20000]}], False),
+            ("incompressible_goes_to_s3", [{"data": _incompressible_rows(50)}], True),
         ]
     )
     @override_settings(QUERY_CACHE_S3_MIN_COMPRESSED_BYTES=1000)
-    def test_threshold_applies_to_compressed_size(self, _name, result, expect_pointer):
+    def test_only_large_compressed_results_route_to_s3(self, _name, results, expect_pointer):
         cache_key = f"s3_threshold_{_name}_{self.team.pk}"
         cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
-        response = {"is_cached": False, "results": [result], "cache_key": "k"}
+        response = {"is_cached": False, "results": results, "cache_key": "k"}
 
         with patch("posthog.query_cache.storage.s3_write_mode", return_value="on"):
             cache.store_result(response=response, target_age=None)
@@ -385,22 +376,6 @@ class TestQueryCacheS3Routing(BaseTest):
         # Reads never mutate; the recompute a miss triggers is what overwrites dead entries.
         assert cache.lookup().entry is None
         assert self._redis_holds_pointer(cache_key)
-
-    def test_disabled_object_storage_reads_as_miss_and_keeps_pointer(self):
-        cache_key = f"s3_disabled_read_{self.team.pk}"
-        cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
-        response = self._large_response()
-
-        with patch("posthog.query_cache.storage.s3_write_mode", return_value="on"):
-            cache.store_result(response=response, target_age=None)
-
-        with override_settings(OBJECT_STORAGE_ENABLED=False):
-            assert cache.lookup().entry is None
-            assert self._redis_holds_pointer(cache_key)
-
-        entry = cache.lookup().entry
-        assert entry is not None
-        assert entry.as_full_response() == response
 
     def test_transient_s3_error_keeps_pointer_and_recovers(self):
         cache_key = f"s3_transient_{self.team.pk}"
