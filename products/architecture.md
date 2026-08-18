@@ -133,6 +133,7 @@ myproduct/
     apps.py
     models.py          # Django ORM only
     logic.py           # Business logic
+    logic/             # ...or a package, once logic.py outgrows one file
 
     tasks/
       __init__.py
@@ -288,6 +289,10 @@ The alternative — returning ORM objects — works until it doesn't, then you'r
 # 6. Business Logic (backend/logic.py)
 
 Business logic lives here: validation, calculations, business rules, ORM queries.
+
+Start as a single `logic.py`.
+Once it outgrows one file, split it into a `logic/` package with one module per concern and mirror that split in `tests/logic/` — `products/visual_review/backend/logic/` is the reference, and `/splitting-oversized-modules` does the move.
+Import the submodule you need (`from .logic import runs`) rather than re-exporting through `__init__.py`: one binding per symbol keeps it obvious where behavior lives and keeps test patch targets on the real definition.
 
 Examples:
 
