@@ -59,8 +59,31 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         count_recordings_that_match_playlist_filters(playlist.id)
 
         playlist.refresh_from_db()
-        assert playlist.filters["date_from"] == "-21d"
+        assert playlist.filters == json.dumps({"date_from": "-21d"})
         assert self._get_counts_from_redis(playlist)["session_ids"] == []
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
+    def test_invalid_filters_invalidate_cached_count(
+        self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+    ) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="invalid filters",
+            filters="not a filter object",
+        )
+        self.redis_client.set(
+            f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", json.dumps({"session_ids": ["stale"]})
+        )
+
+        count_recordings_that_match_playlist_filters(playlist.id)
+
+        playlist.refresh_from_db()
+        assert playlist.last_counted_at is not None
+        assert self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}") is None
+        assert playlist.id not in fetch_playlists_to_count()
+        mock_list_recordings_from_query.assert_not_called()
         mock_capture_exception.assert_not_called()
 
     @patch("posthoganalytics.capture_exception")

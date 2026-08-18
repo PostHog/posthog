@@ -226,16 +226,17 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             playlist_filters = normalize_playlist_filters(playlist.filters)
             if playlist_filters is None:
                 REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="invalid_filters").inc()
+                redis_client.delete(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
+                playlist.last_counted_at = timezone.now()
+                playlist.save(update_fields=["last_counted_at"])
                 return
 
-            if playlist_filters != playlist.filters:
-                playlist.filters = playlist_filters
-                playlist.save(update_fields=["filters"])
+            playlist.filters = playlist_filters
 
             if should_skip_task(existing_value, playlist_filters):
                 return
 
-            query = convert_playlist_to_recordings_query(playlist)
+            query = convert_playlist_to_recordings_query(playlist, persist_legacy_conversion=False)
 
             should_query_incrementally = (
                 existing_value.get("refreshed_at", None)
