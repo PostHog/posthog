@@ -1,7 +1,7 @@
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, Throttled, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -21,6 +21,21 @@ from products.context_layer.backend.presentation.serializers import (
     WikiPageWriteSerializer,
     WikiTreeSerializer,
 )
+
+
+def _assert_no_private_projects(organization_id) -> None:  # noqa: ANN001
+    """The wiki is org-readable, so it goes dark the moment any project is private.
+
+    Enablement refuses orgs with private projects, but privacy can arrive later;
+    imported context must not stay readable to members the project now excludes.
+    Re-enabling access means removing the project restriction (or, later,
+    per-project partitioning).
+    """
+    if facade.organization_has_private_projects(organization_id):
+        raise PermissionDenied(
+            "This organization now has private projects, so its context wiki is unavailable. "
+            "The context layer does not support private projects yet."
+        )
 
 
 def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
@@ -98,6 +113,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False)
     def status(self, request: Request, **kwargs) -> Response:
+        _assert_no_private_projects(self.organization.id)
         try:
             config = facade.get_config(self.organization.id)
         except facade.ContextLayerStoreError as error:
@@ -110,6 +126,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False)
     def tree(self, request: Request, **kwargs) -> Response:
+        _assert_no_private_projects(self.organization.id)
         try:
             wiki_tree = facade.get_tree(self.organization.id)
         except facade.ContextLayerStoreError as error:
@@ -127,6 +144,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False, url_path="pages", url_name="pages")
     def page(self, request: Request, **kwargs) -> Response:
+        _assert_no_private_projects(self.organization.id)
         try:
             wiki_page = facade.get_page(self.organization.id, request.query_params.get("path", ""))
         except facade.ContextLayerStoreError as error:
@@ -144,6 +162,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @page.mapping.put
     def update_page(self, request: Request, **kwargs) -> Response:
+        _assert_no_private_projects(self.organization.id)
         serializer = WikiPageWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = request.user
@@ -175,6 +194,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["POST"], detail=False, parser_classes=[MultiPartParser, FormParser])
     def commits(self, request: Request, **kwargs) -> Response:
+        _assert_no_private_projects(self.organization.id)
         serializer = CommitBundleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         bundle_bytes = serializer.validated_data["bundle"].read()
@@ -191,6 +211,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False)
     def export(self, request: Request, **kwargs) -> Response:
+        _assert_no_private_projects(self.organization.id)
         try:
             bundle = facade.get_bundle_export(self.organization.id)
         except facade.ContextLayerStoreError as error:

@@ -4,7 +4,11 @@ The presentation layer (and, in later layers, other products) reaches the
 store, pages, and enablement internals only through here.
 """
 
-from products.context_layer.backend.enablement import RestrictedProjectsError, enable_context_layer
+from products.context_layer.backend.enablement import (
+    RestrictedProjectsError,
+    enable_context_layer,
+    organization_has_private_projects,
+)
 from products.context_layer.backend.pages import (
     PAGE_MAX_BYTES,
     InvalidPagePathError,
@@ -47,6 +51,7 @@ __all__ = [
     "get_config",
     "get_page",
     "get_tree",
+    "organization_has_private_projects",
     "land_commit_bundle",
     "write_page",
 ]

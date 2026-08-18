@@ -17,6 +17,10 @@ ALLOWED_DIRECTORIES = {"org", "areas", "decisions", "channels", "scripts"}
 MARKDOWN_DIRECTORIES = {"org", "areas", "decisions", "channels"}
 # Pages are prose; anything near this size is a dump of raw data, not a wiki page.
 MAX_FILE_BYTES = 1_000_000
+# Aggregate bounds keep a whole wiki readable in one pass: reads warm every page
+# from a single checkout, so the repository must stay far below worker memory.
+MAX_TOTAL_BYTES = 50_000_000
+MAX_FILE_COUNT = 2_000
 DECISION_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$")
 FRONTMATTER_DELIMITER = "---"
 
@@ -54,9 +58,13 @@ def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
 
     errors.extend(_lint_scripts_directory(root, pin_scripts=pin_scripts))
 
+    total_bytes = 0
+    file_count = 0
     for path in sorted(root.rglob("*")):
         if ".git" in path.parts or not path.is_file() or path.is_symlink():
             continue
+        total_bytes += path.stat().st_size
+        file_count += 1
         if path.stat().st_size > MAX_FILE_BYTES:
             errors.append(f"{path.relative_to(root)}: exceeds the {MAX_FILE_BYTES // 1_000_000} MB page size limit")
         elif path.suffix == ".md":
@@ -64,6 +72,11 @@ def lint_repo(root: Path | str, *, pin_scripts: bool = True) -> list[str]:
                 path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 errors.append(f"{path.relative_to(root)}: pages must be UTF-8 encoded")
+
+    if total_bytes > MAX_TOTAL_BYTES:
+        errors.append(f"the wiki exceeds the {MAX_TOTAL_BYTES // 1_000_000} MB total size limit")
+    if file_count > MAX_FILE_COUNT:
+        errors.append(f"the wiki exceeds the {MAX_FILE_COUNT} file limit")
 
     return errors
 

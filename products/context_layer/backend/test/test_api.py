@@ -248,6 +248,7 @@ class TestContextLayerAPI(APIBaseTest):
             subprocess.run([*env_git, "add", "--all"], cwd=checkout.path, check=True)
             subprocess.run([*env_git, "commit", "--quiet", "-m", "Side edit"], cwd=checkout.path, check=True)
             subprocess.run([*env_git, "checkout", "--quiet", "main"], cwd=checkout.path, check=True)
+            (checkout.path / "areas").mkdir(exist_ok=True)
             (checkout.path / "areas" / "main.md").write_text("# Main\n")
             subprocess.run([*env_git, "add", "--all"], cwd=checkout.path, check=True)
             subprocess.run([*env_git, "commit", "--quiet", "-m", "Main edit"], cwd=checkout.path, check=True)
@@ -269,6 +270,17 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert response.status_code == 409
         assert "merge commits" in response.json()["detail"]
+
+    def test_wiki_goes_dark_when_a_project_becomes_private(self, _flag) -> None:
+        self._enable()
+        assert self.client.get(f"{self.base_url}/tree/").status_code == 200
+
+        self.team.access_control = True
+        self.team.save()
+
+        assert self.client.get(f"{self.base_url}/tree/").status_code == 403
+        assert self.client.get(f"{self.base_url}/pages/", {"path": "AGENTS.md"}).status_code == 403
+        assert self.client.get(f"{self.base_url}/export/").status_code == 403
 
     def test_export_returns_a_download_url(self, _flag) -> None:
         head = self._enable()

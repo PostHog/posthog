@@ -82,7 +82,8 @@ def get_tree(organization_id: uuid.UUID | str) -> WikiTree:
     if paths is None:
         # The head can move between the read above and the checkout; trust the
         # checkout's head so the returned sha always matches the returned paths.
-        head_sha, paths, _ = _warm_cache(organization_id)
+        warmed = _warm_cache(organization_id)
+        head_sha, paths = warmed.head_sha, warmed.paths
     return WikiTree(head_sha=head_sha, paths=paths)
 
 
@@ -96,8 +97,9 @@ def get_page(organization_id: uuid.UUID | str, path: str) -> WikiPage:
         known_paths = get_safe_cache(_tree_cache_key(organization_id, head_sha))
         if known_paths is not None and path not in known_paths:
             raise PageNotFoundError(f"no page at {path}")
-        head_sha, _, pages = _warm_cache(organization_id)
-        content = pages.get(path)
+        warmed = _warm_cache(organization_id)
+        head_sha = warmed.head_sha
+        content = warmed.pages.get(path)
     if content is None:
         raise PageNotFoundError(f"no page at {path}")
     return WikiPage(path=path, content=content, head_sha=head_sha)
@@ -130,7 +132,16 @@ def write_page(
     )
 
 
-def _warm_cache(organization_id: uuid.UUID | str) -> tuple[str, list[str], dict[str, str]]:
+@frozen
+class WarmedWiki:
+    """One checkout's worth of readable state, keyed to the head it came from."""
+
+    head_sha: str
+    paths: list[str]
+    pages: dict[str, str]
+
+
+def _warm_cache(organization_id: uuid.UUID | str) -> WarmedWiki:
     """One checkout warms the tree and every page for the checkout's head."""
     with store.checkout_repo(organization_id) as checkout:
         pages: dict[str, str] = {}
@@ -145,4 +156,4 @@ def _warm_cache(organization_id: uuid.UUID | str) -> tuple[str, list[str], dict[
         safe_cache_set(_tree_cache_key(organization_id, checkout.head_sha), paths, CACHE_TTL_SECONDS)
         for relative, content in pages.items():
             safe_cache_set(_page_cache_key(organization_id, checkout.head_sha, relative), content, CACHE_TTL_SECONDS)
-        return checkout.head_sha, paths, pages
+        return WarmedWiki(head_sha=checkout.head_sha, paths=paths, pages=pages)

@@ -89,6 +89,8 @@ class LintErrorSerializer(serializers.Serializer):
     """400 body when a write violates the wiki's structure rules."""
 
     detail = serializers.CharField(help_text="What was rejected.")
-    errors = serializers.ListField(
+    # The response key is part of the API; DRF's Serializer.errors property only
+    # matters for validation, which this response-shape serializer never does.
+    errors = serializers.ListField(  # type: ignore[assignment]
         child=serializers.CharField(), help_text="One entry per structure violation found by the linter."
     )
