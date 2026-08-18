@@ -19,6 +19,7 @@ __all__ = [
     "ExternalDataSourceType",
     "IncrementalField",
     "IncrementalFieldType",
+    "ManagedWarehouseSQLMode",
     "PartitionSettings",
 ]
 
@@ -1372,6 +1373,12 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
     ExternalDataSourceType.MOTHERDUCK: "motherduck",
 }
+
+
+class ManagedWarehouseSQLMode(StrEnum):
+    EXTERNAL = "external"
+    BUILT_IN = "built_in"
+    UNAVAILABLE = "unavailable"
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):

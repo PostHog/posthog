@@ -7,5 +7,6 @@ from products.warehouse_sources.backend.facade.types import (
     ExternalDataSourceType as ExternalDataSourceType,
     IncrementalField as IncrementalField,
     IncrementalFieldType as IncrementalFieldType,
+    ManagedWarehouseSQLMode as ManagedWarehouseSQLMode,
     PartitionSettings as PartitionSettings,
 )

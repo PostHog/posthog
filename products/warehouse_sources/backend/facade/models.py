@@ -34,7 +34,6 @@ from products.warehouse_sources.backend.models.external_data_source import (
     MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     ExternalDataSource,
-    ManagedWarehouseSQLMode,
     get_direct_external_data_source_for_connection,
     is_managed_warehouse_connection_ready,
 )
@@ -72,7 +71,6 @@ __all__ = [
     "MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS",
     "MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND",
     "MANAGED_WAREHOUSE_SOURCE_PREFIX",
-    "ManagedWarehouseSQLMode",
     "PendingSourceCredential",
     "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
     "WarehouseColumnAnnotation",

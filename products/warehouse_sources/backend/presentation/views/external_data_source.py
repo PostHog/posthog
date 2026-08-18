@@ -109,7 +109,6 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
-    ManagedWarehouseSQLMode,
     PendingSourceCredential,
     auto_enable_new_schemas,
     sync_old_schemas_with_new_schemas,
@@ -157,7 +156,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import (
+    DataWarehouseManagedViewSetKind,
+    ExternalDataSourceType,
+    ManagedWarehouseSQLMode,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaSerializer,
     RowFiltersField,

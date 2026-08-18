@@ -240,12 +240,6 @@ class PullRequestSerializer(DataclassSerializer):
         read_only=True,
         help_text="Full name of the repository this pull request belongs to.",
     )
-    digest_run = serializers.UUIDField(
-        source="digest_run_id",
-        read_only=True,
-        allow_null=True,
-        help_text="ID of the digest run that reported this merged PR, if any.",
-    )
     merged = serializers.SerializerMethodField(
         help_text="Whether this pull request has merged (merged_at is set).",
     )
@@ -288,7 +282,6 @@ class PullRequestSerializer(DataclassSerializer):
             "additions",
             "deletions",
             "changed_files",
-            "audience_key",
             "created_at",
             "updated_at",
         ]
