@@ -413,6 +413,22 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert call(self, check, suite).status_code == status.HTTP_403_FORBIDDEN
 
+    def test_deleting_a_denied_subject_does_not_hand_its_history_over(self) -> None:
+        # An orphan resolves to an empty name, which matches no denial, so deleting the view would
+        # otherwise lift the member's denial along with it.
+        self._create_check()
+        self._deny_the_view()
+        self.view.delete()
+
+        assert self.client.get(f"{self.url}/").status_code == status.HTTP_403_FORBIDDEN
+
+    def test_an_unrestricted_member_still_reads_an_orphaned_subjects_checks(self) -> None:
+        # Orphaned history stays reachable: checks on a deleted subject are skipped, not hidden.
+        self._create_check()
+        self.view.delete()
+
+        assert self.client.get(f"{self.url}/").status_code == status.HTTP_200_OK
+
     @parameterized.expand(
         [
             ("custom_sql", CheckType.CUSTOM_SQL, "", {"query": "SELECT 1 FROM orders"}),

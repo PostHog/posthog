@@ -91,28 +91,45 @@ class _SubjectScopedViewSet(TeamAndOrgViewSetMixin):
         A member denied a view must not be able to enumerate its check configs or counts through
         this surface. Orphan-tolerant rather than 404ing: a parent that no longer resolves still
         serves its checks (they are skipped, not hidden), because resolution carries no RBAC to
-        enforce and orphaned history must stay reachable.
+        enforce and orphaned history must stay reachable -- but only for a caller who cannot be
+        object-denied, since an orphan has no name left to check a denial against.
         """
         ref = api.resolve_subject(self.team.id, self.subject_type, self.subject_uuid)
-        if ref.exists and api.is_subject_denied(ref.name, self._denied_subject_names()):
+        if not ref.exists:
+            # Deleting the subject takes its denial with it: the orphan resolves to an empty name,
+            # and the denial set is rebuilt from the subjects that still exist, so neither can show
+            # the caller was allowed this one. Without that proof, only a caller who cannot be
+            # object-denied keeps orphan access.
+            if self._can_be_object_denied():
+                raise PermissionDenied("You don't have access to this table or view.")
+            return
+        if api.is_subject_denied(ref.name, self._denied_subject_names()):
             raise PermissionDenied("You don't have access to this table or view.")
+
+    def _can_be_object_denied(self) -> bool:
+        """Whether object-level warehouse denials can apply to this caller at all.
+
+        False for an org admin, or an organization without access controls: neither can be denied a
+        single table or view, so an empty denial set is proof of access rather than missing data.
+        """
+        uac = self.user_access_control
+        return uac is not None and not uac.is_organization_admin and uac.access_controls_supported
 
     def _denied_subject_names(self) -> set[str]:
         # Same denial the information_schema loaders read. Computed once per request.
         cached = getattr(self, "_denied_subjects_cache", None)
         if cached is None:
-            uac = self.user_access_control
             # A warehouse subject can only be denied to a non-admin in an org with access controls, so
             # skip the (heavy) database build otherwise -- the denied set would be empty either way,
             # which keeps this in lock-step with the loaders rather than diverging from them.
-            if uac is None or uac.is_organization_admin or not uac.access_controls_supported:
+            if not self._can_be_object_denied():
                 cached = set()
             else:
                 try:
                     cached = api.denied_subject_names(
                         self.team,
                         cast(User, self.request.user),
-                        user_access_control=uac,
+                        user_access_control=self.user_access_control,
                     )
                 except Exception as err:
                     # Building the denial set walks every saved query; one malformed definition must
