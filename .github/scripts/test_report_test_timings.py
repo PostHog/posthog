@@ -70,6 +70,16 @@ def test_to_pytest_selector(file: str, classname: str, name: str, expected: str)
     assert report_test_timings.to_pytest_selector(file, classname, name) == expected
 
 
+def test_find_repo_root_walks_to_repository_markers(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    script = repo_root / ".github/scripts/report_test_timings.py"
+    script.parent.mkdir(parents=True)
+    script.touch()
+    (repo_root / "owners.yaml").touch()
+
+    assert report_test_timings.find_repo_root(script) == repo_root
+
+
 def test_test_identity_infers_existing_pytest_file_when_junit_omits_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
