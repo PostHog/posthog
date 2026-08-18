@@ -25,6 +25,7 @@ from products.tasks.backend.exceptions import (
     GitHubAuthenticationError,
     OAuthTokenError,
     RepositoryCloneError,
+    RepositoryUnreachableError,
     SandboxNetworkPolicyError,
     TaskNotFoundError,
 )
@@ -895,18 +896,25 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 )
 
             if clone_result.exit_code != 0:
-                error_output = clone_result.stderr or clone_result.stdout or clone_result.error or "No output captured"
+                clone_context = {
+                    "repository": input.repository,
+                    "sandbox_id": input.sandbox_id,
+                    "exit_code": clone_result.exit_code,
+                    "stderr": clone_result.stderr[:500],
+                    "stdout": clone_result.stdout[:500],
+                    "error": clone_result.error,
+                }
+                if _is_unreachable_repository_clone_error(clone_result):
+                    raise RepositoryUnreachableError(
+                        "Git clone failed: the repository is unreachable or access was refused",
+                        clone_context,
+                    )
+                # A stable cause message keeps every retryable failure on one error-tracking
+                # issue. The raw git output stays in `context` instead of the fingerprint.
                 raise RepositoryCloneError(
                     f"Git clone failed with exit code {clone_result.exit_code}",
-                    {
-                        "repository": input.repository,
-                        "sandbox_id": input.sandbox_id,
-                        "exit_code": clone_result.exit_code,
-                        "stderr": clone_result.stderr[:500],
-                        "stdout": clone_result.stdout[:500],
-                        "error": clone_result.error,
-                    },
-                    cause=RuntimeError(error_output[:200]),
+                    clone_context,
+                    cause=RuntimeError(f"Git clone failed with exit code {clone_result.exit_code}"),
                 )
 
         # A fresh single-repository run checks its requested branch out in the next
@@ -928,6 +936,27 @@ def _is_missing_remote_branch_clone_error(result: ExecutionResult) -> bool:
         "could not find remote branch" in output
         or ("remote branch" in output and "not found in upstream origin" in output)
         or "couldn't find remote ref" in output
+    )
+
+
+def _is_unreachable_repository_clone_error(result: ExecutionResult) -> bool:
+    """Whether a clone failed because the repository is missing or auth was refused.
+
+    Covers a repository the GitHub App cannot reach (never granted, renamed, or deleted)
+    and refused credentials. None of these can change during the run, so the caller fails
+    fast instead of retrying.
+    """
+    if result.exit_code == 0:
+        return False
+
+    output = f"{result.stdout}\n{result.stderr}\n{result.error or ''}".casefold()
+    return (
+        "repository not found" in output
+        or "could not read username" in output
+        or "authentication failed" in output
+        or "http basic: access denied" in output
+        or "returned error: 403" in output
+        or "returned error: 404" in output
     )
 
 

@@ -207,6 +207,22 @@ class RepositoryCloneError(ProcessTaskTransientError):
     pass
 
 
+class RepositoryUnreachableError(ProcessTaskFatalError):
+    """The repository cannot be cloned because GitHub reports it missing or refuses auth.
+
+    The GitHub App was never granted access to the repository, or the repository was
+    renamed or deleted. That state cannot change during the run, so a retry only burns
+    sandbox time and delays the real error the user sees. Fatal, so the run fails fast.
+
+    Not captured to error tracking: it is an expected access condition, not a fault to
+    investigate. The raw git output names the repository, so capturing it would mint a
+    separate issue per repository. The output stays in ``context`` for debugging instead.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]):
+        ProcessTaskError.__init__(self, message, context, None, capture=False, non_retryable=True)
+
+
 class RetryableRepositorySetupError(ProcessTaskTransientError):
     """Failed to setup repository (install dependencies, etc)."""
 
