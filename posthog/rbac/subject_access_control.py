@@ -296,6 +296,13 @@ def get_project_scoped_visible_membership_ids(
             team_id__in=team_ids, resource="project", resource_id__in=[str(team_id) for team_id in team_ids]
         )
     )
+    # Grouped by team, so resolving a (team, member) pair scans that team's rules rather than the
+    # organization's — the scan runs once per pair, and an organization with many teams has many
+    # more project rules than any one team does
+    rows_by_team: dict[int, list[_AccessControl]] = defaultdict(list)
+    for ac in project_rows:
+        rows_by_team[ac.team_id].append(ac)
+
     default_by_team: dict[int, AccessControlLevel] = {}
     member_overrides: dict[tuple[int, str], AccessControlLevel] = {}
     role_overrides: dict[tuple[int, str], AccessControlLevel] = {}
@@ -341,7 +348,9 @@ def get_project_scoped_visible_membership_ids(
         # The member's roles were loaded above for candidate narrowing (only roles a project rule
         # names can matter, and none count without the entitlement) — hand them over rather than
         # let each subject query them again
-        subject.preload_access_controls(project_rows, subject_role_ids=candidate_role_ids.get(membership_id, []))
+        subject.preload_access_controls(
+            rows_by_team[team_id], subject_role_ids=candidate_role_ids.get(membership_id, [])
+        )
         return subject.has_project_scoped_access(team)
 
     accessible_team_ids = [team_id for team_id in team_ids if has_scoped_access(team_id, requester_id)]
