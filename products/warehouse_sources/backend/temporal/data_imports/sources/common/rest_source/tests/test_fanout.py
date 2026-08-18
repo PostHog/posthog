@@ -517,7 +517,7 @@ def test_warehouse_parent_builds_data_iterator_and_404_ignore(
         # be attributed to a child.
         schema_name="children",
         # Without this the scan is unbounded and the child fans out over parents the API
-        # path stopped listing, which is how the 2-4x row inflation shipped.
+        # path stopped listing.
         row_filter=row_filter,
     )
     assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]

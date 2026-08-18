@@ -2060,8 +2060,8 @@ class TestWarehouseParentReuse:
 
 def test_every_warehouse_fanout_child_bounds_its_parent_scan():
     # The issues API windows its listing server-side, so an unbounded snapshot scan fans out
-    # over issues the API path never would (shipped as 2-4x row inflation). Any endpoint
-    # opting into the warehouse parent must carry the floor.
+    # over issues the API path never would. Any endpoint opting into the warehouse parent
+    # must carry the floor.
     warehouse_children = {
         name: config.fanout
         for name, config in SENTRY_ENDPOINTS.items()

@@ -35,8 +35,7 @@ SENTRY_RETENTION_DAYS = 90
 
 # The issues API windows its listing while the synced `issues` table accumulates every issue
 # ever seen, so a warehouse fan-out must floor the scan or it fans out over issues the API
-# path never would. Same floor as the tag-values iterator's cutoff, the child whose volume
-# stayed at API-path levels in production while its unbounded siblings fanned out 2-4x.
+# path never would. Same floor as the tag-values iterator's per-row cutoff.
 ISSUES_PARENT_ROW_FILTER = ParentRowFilter(field="lastSeen", not_older_than=timedelta(days=SENTRY_RETENTION_DAYS))
 
 # `dataset` values accepted by /trace-items/attributes/.

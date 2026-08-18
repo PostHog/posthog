@@ -46,11 +46,10 @@ class DependentEndpointConfig:
     # usable, and falls back to "api" for the run when it isn't — see
     # `_warehouse_parent_reuse_available` in `import_data_activity_sync`.
     parent_source: Literal["api", "warehouse"] = "api"
-    # Required scrutiny for parent_source="warehouse": the snapshot accumulates every parent
-    # row ever synced, while the vendor's list endpoint usually windows what it returns, so an
-    # unbounded scan fans out over parents the API path never would (measured 2-4x rows on
-    # aged Sentry snapshots). Set this to reproduce the API path's effective row set; leave it
-    # None only when the parent endpoint genuinely returns the full collection.
+    # Floors a parent_source="warehouse" scan to the API path's effective row set. The snapshot
+    # accumulates every parent row ever synced while the vendor's list endpoint usually windows
+    # what it returns, so an unbounded scan fans out over parents the API path never would.
+    # Leave None only when the parent endpoint genuinely returns the full collection.
     parent_row_filter: ParentRowFilter | None = None
 
 
