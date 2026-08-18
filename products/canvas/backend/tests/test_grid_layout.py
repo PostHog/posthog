@@ -452,7 +452,9 @@ class TestHomeProvisioning(GridLayoutAPIBaseTest):
             assert Canvas.objects.for_team(self.team.id).filter(kind=Canvas.KIND_GRID, deleted=False).count() == 1
 
     def test_home_provisions_even_when_seeding_fails(self):
-        with patch.object(welcome, "seed_home_canvas", side_effect=RuntimeError("storage down")):
+        with patch(
+            "products.canvas.backend.presentation.views.seed_home_canvas", side_effect=RuntimeError("storage down")
+        ):
             response = self._home()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         read = self._get_layout(response.json()["id"])
