@@ -230,6 +230,7 @@ the row lists both.
 | dropbox_sign                     | HTTP                        | requests                                                        | ✅                          |
 | drip                             | HTTP                        | requests                                                        | ✅                          |
 | dub                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| dynamics365                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | dynamodb                         | HTTP                        | requests                                                        | ✅                          |
 | dynatrace                        | HTTP                        | requests                                                        | ✅                          |
 | e2b                              | HTTP                        | requests                                                        | ✅                          |
@@ -514,6 +515,7 @@ the row lists both.
 | postgres                         | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | postscript                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| power_bi_admin                   | HTTP                        | requests                                                        | ✅                          |
 | prefect_cloud                    | HTTP                        | requests                                                        | ✅                          |
 | pretix                           | HTTP                        | requests                                                        | ✅                          |
 | printify                         | HTTP                        | requests                                                        | ✅                          |
@@ -948,7 +950,6 @@ doesn't conflict with concurrent PRs.
 - dubsado
 - ducklake
 - dwolla
-- dynamics365
 - dynamics_365_business_central
 - e2b
 - easybill
@@ -1084,6 +1085,7 @@ doesn't conflict with concurrent PRs.
 - insightful
 - interzoid
 - inth
+- ironsource_ads
 - iyzico
 - jobber
 - jobtread
@@ -1148,6 +1150,7 @@ doesn't conflict with concurrent PRs.
 - microsoft_defender_endpoint
 - microsoft_defender_for_cloud
 - microsoft_entra_id
+- microsoft_excel
 - microsoft_intune
 - microsoft_lists
 - microsoft_purview
@@ -1241,7 +1244,6 @@ doesn't conflict with concurrent PRs.
 - podium
 - polygon
 - poplar
-- power_bi_admin
 - practicepanther
 - preset
 - prestashop
