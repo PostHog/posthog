@@ -64,8 +64,6 @@ export const userGithubIntegrationKeys = {
     ] as const,
 };
 
-// Matches the literal key `githubInvalidationKeys` in connectMachine.ts pushes after a
-// successful connect, so a fresh connect invalidates the pending/approved request list too.
 export const githubInstallRequestKeys = {
   all: ["github-install-requests"] as const,
   list: () => [...githubInstallRequestKeys.all, "list"] as const,

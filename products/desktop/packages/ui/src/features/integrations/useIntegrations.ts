@@ -114,9 +114,7 @@ export function useUserGithubIntegrations() {
   );
 }
 
-/** The durable "awaiting org owner approval" state (see `GitHubInstallRequest` on the
- * backend) — polled only while a request is still pending, since an approved or empty
- * list never changes again on its own. */
+// Polls only while pending; an approved or empty list never changes on its own.
 export function useGithubInstallRequests() {
   return useAuthenticatedQuery(
     githubInstallRequestKeys.list(),

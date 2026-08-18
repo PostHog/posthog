@@ -356,8 +356,8 @@ export interface UserGitHubIntegration {
   created_at?: string;
 }
 
-/** A personal GitHub App install awaiting (or granted) org-owner approval — the
- * durable server-side counterpart to the in-flight connect spinner. See
+/** A personal GitHub App install awaiting (or granted) org-owner approval; the
+ * durable server-side counterpart to the in-flight connect spinner. Mirrors
  * `GitHubInstallRequest` on the backend. */
 export interface GitHubInstallRequest {
   id: string;

@@ -158,8 +158,6 @@ export function GitHubConnectPanel() {
     const fingerprint = buildConnectFailureFingerprint(failureInputs);
     if (!connectService.shouldReportFailure(fingerprint)) return;
     if (isPendingApproval) {
-      // The pending marker itself is written in useConnectStateMachine; only
-      // the onboarding-scoped event lives here.
       track(ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN, {
         flow_type: flowType,
       });
