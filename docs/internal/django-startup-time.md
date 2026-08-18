@@ -116,7 +116,9 @@ Measure (next section).
 A 30-second `importtime` run settles it; guessing does not.
 
 **How it stays right over time.**
-The guard runs in CI on every PR, so a regression is caught at review, not in production.
+The guard runs in two places in CI.
+It runs in the Django suite, but test selection skips that suite for diffs that only touch isolated product internals, and those diffs can still break a whole-graph invariant (a product-only PR once put `temporalio` on the startup path and turned master red with every check green).
+So the `repo-checks` job also runs every file listed in `.github/always-run-tests.txt` on each backend-affecting PR, outside test selection; a new whole-graph guard that passes without Postgres, ClickHouse, and Redis belongs in that list.
 The standing rule when it goes red is always _defer, don't widen_ — the list is a ratchet, and every entry that moves the wrong way gives back a permanent slice of the win.
 Re-profile occasionally even when the guard is green: the guard only catches the specific heavy modules it names, and the floor drifts up as the codebase grows.
 When the floor has crept, the lever is the same as it ever was — find the heaviest cumulative import that is not actually needed at setup, and defer it.

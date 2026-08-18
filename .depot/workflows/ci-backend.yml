@@ -988,7 +988,7 @@ jobs:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
         if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true') && github.event_name != 'push'
-        timeout-minutes: 10
+        timeout-minutes: 15
         permissions:
             contents: read
             pull-requests: read # list PR files for the deleted-migration check
@@ -1029,6 +1029,21 @@ jobs:
                     run: tach check --dependencies --interfaces
                   - name: Check product facade enforcement (import-linter)
                     run: lint-imports
+                  # Whole-graph invariant tests: their input is every installed
+                  # app's import graph, so a diff can break them while touching
+                  # nothing they cover, which is exactly the diff shape that
+                  # makes product isolation and draft narrowing skip the Django
+                  # suite. Running them here pins them outside test selection,
+                  # same as the IDOR coverage check above. Listed tests must
+                  # pass without service containers.
+                  - name: Run always-run invariant guards
+                    run: |
+                        mapfile -t guard_tests < <(grep -vE '^\s*(#|$)' .github/always-run-tests.txt)
+                        if [ "${#guard_tests[@]}" -eq 0 ]; then
+                            echo "::error file=.github/always-run-tests.txt::empty always-run list; a bare pytest would collect the entire suite"
+                            exit 1
+                        fi
+                        pytest "${guard_tests[@]}"
             # Block deleting historical migration files (see safe-django-migrations.md).
             # GITHUB_ACTIONS=false suppresses the command's PR annotations on the shadow.
             - name: Check deleted migrations
