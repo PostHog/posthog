@@ -584,3 +584,9 @@ tools:
                 - '*.unreleasedSource'
                 - '*.fields'
             selectable: true
+    warehouse-column-statistics-list:
+        operation: warehouse_column_statistics_list
+        enabled: false
+    warehouse-column-statistics-retrieve:
+        operation: warehouse_column_statistics_retrieve
+        enabled: false
