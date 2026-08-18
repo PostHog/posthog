@@ -84,6 +84,23 @@ describe('entityFilterLogic', () => {
 
             expect(logic.values.modalVisible).toBe(false)
         })
+
+        it('does not rename another series when the selected series is removed', () => {
+            const selectedFilter = logic.values.localFilters[0]
+            const replacementFilter = {
+                ...logic.values.localFilters[1],
+                order: selectedFilter.order,
+                uuid: 'replacement-uuid',
+            }
+            logic.actions.selectFilter(selectedFilter)
+            logic.actions.showModal()
+            logic.actions.setFilters([replacementFilter])
+
+            logic.actions.renameFilter('Custom event name')
+
+            expect(logic.values.localFilters[0].custom_name).not.toEqual('Custom event name')
+            expect(logic.values.modalVisible).toBe(false)
+        })
     })
 
     describe('modal behavior', () => {

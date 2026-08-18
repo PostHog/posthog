@@ -478,17 +478,19 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         renameFilter: ({ custom_name }) => {
             const selectedFilter = values.selectedFilter as LocalFilter | null
             if (selectedFilter) {
-                const indexByUuid = selectedFilter.uuid
+                const index = selectedFilter.uuid
                     ? values.localFilters.findIndex((filter) => filter.uuid === selectedFilter.uuid)
-                    : -1
+                    : selectedFilter.order
 
-                actions.updateFilter({
-                    ...selectedFilter,
-                    index: indexByUuid === -1 ? selectedFilter.order : indexByUuid,
-                    custom_name,
-                } as EntityFilter & {
-                    index: number
-                })
+                if (index !== -1) {
+                    actions.updateFilter({
+                        ...selectedFilter,
+                        index,
+                        custom_name,
+                    } as EntityFilter & {
+                        index: number
+                    })
+                }
             }
             actions.hideModal()
         },
