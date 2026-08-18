@@ -8,7 +8,13 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { BillingType } from '~/types'
 
-import { buyHedgehogCoffeeLogic, canShowAgain, isOrgOldEnough, isUnderFreeAllowance } from './buyHedgehogCoffeeLogic'
+import {
+    buyHedgehogCoffeeLogic,
+    canShowAgain,
+    donationVariantForDate,
+    isOrgOldEnough,
+    isUnderFreeAllowance,
+} from './buyHedgehogCoffeeLogic'
 
 function billing(partial: Partial<BillingType>): BillingType {
     return partial as BillingType
@@ -71,6 +77,15 @@ describe('buyHedgehogCoffeeLogic', () => {
             ['shown seven months ago', dayjs().subtract(7, 'month').toISOString(), true],
         ])('%s', (_name, lastShownAt, expected) => {
             expect(canShowAgain(lastShownAt)).toBe(expected)
+        })
+    })
+
+    describe('donationVariantForDate', () => {
+        it.each([
+            ['first half of the year', '2026-03-15', 'coffee'],
+            ['second half of the year', '2026-09-15', 'money'],
+        ])('%s', (_name, date, expected) => {
+            expect(donationVariantForDate(dayjs(date))).toBe(expected)
         })
     })
 
