@@ -27,8 +27,42 @@ rules:
           # so fall back to a regex. Bounds the type args by `(` rather than `>` so
           # nested generics like api.get<PaginatedResponse<Foo>>(...) still match.
           - pattern-regex: '\bapi\.(get|post|put|patch|delete|create|update)<[^(]*>\s*\('
+          - pattern-regex: >-
+                \bapi\.(signalReports|signalTeamConfig|signalScout|signalUserAutonomy|signalSourceConfigs|hogFlows|hogFlowTemplates|messaging|errorTracking|externalDataSources|externalDataSchemas|dataWarehouseTables|dataWarehouseViewLinks|dataWarehouseSavedQueries|dataWarehouseSavedQueryFolders|dataWarehouseSavedQueryDrafts|dataModelingDags|dataModelingNodes|dataModelingEdges|dataModelingJobs|queryTabState|customerJourneys|customerProfileConfigs|columnConfigurations|tasks|coreMemory|maxHandsFree|conversations|tracing|alerts|conversationsTickets|mcpServers|mcpServerInstallations|endpoint|logs|subscriptions|actions|earlyAccessFeatures|links|dataWarehouseManagedViewsets|revenueAnalyticsJoins|evaluationRuns)\.[A-Za-z_$][A-Za-z0-9_$]*\s*\(
       paths:
           include:
               - '/products/*/frontend/'
+              - '/frontend/src/'
           exclude:
               - '**/generated/**'
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.stories.tsx'
+              - '**/__mocks__/**'
+              # Migration baseline. Product layers remove these entries as they
+              # replace each legacy namespace and delete it from lib/api.ts.
+              - '/frontend/src/**'
+              - '/products/actions/frontend/**'
+              - '/products/alerts/frontend/**'
+              - '/products/conversations/frontend/**'
+              - '/products/customer_analytics/frontend/**'
+              - '/products/dashboards/frontend/**'
+              - '/products/data_catalog/frontend/**'
+              - '/products/data_modeling/frontend/**'
+              - '/products/data_warehouse/frontend/**'
+              - '/products/early_access_features/frontend/**'
+              - '/products/endpoints/frontend/**'
+              - '/products/error_tracking/frontend/**'
+              - '/products/links/frontend/**'
+              - '/products/logs/frontend/**'
+              - '/products/mcp_analytics/frontend/**'
+              - '/products/mcp_store/frontend/**'
+              - '/products/messaging/frontend/**'
+              - '/products/posthog_ai/frontend/**'
+              - '/products/revenue_analytics/frontend/**'
+              - '/products/review_hog/frontend/**'
+              - '/products/signals/frontend/**'
+              - '/products/subscriptions/frontend/**'
+              - '/products/tracing/frontend/**'
+              - '/products/warehouse_sources/frontend/**'
+              - '/products/workflows/frontend/**'
