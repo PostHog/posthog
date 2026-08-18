@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.api.oauth.mcp_resource_scopes import mcp_advertised_scopes
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -36,7 +37,25 @@ class TestResources(StripeProvisioningTestBase):
         assert pat.label == f"Stripe - {self.team.name}"[:40]
         assert pat.scoped_teams == [self.team.id]
 
+        resource_scopes = [scope for scope in mcp_advertised_scopes() if ":" in scope]
+        assert set(pat.scopes) == set(resource_scopes)
+        assert "batch_export:write" in pat.scopes
+
         assert TeamProvisioningConfig.objects.get(team=self.team).service_id == "analytics"
+
+    def test_provisioned_pat_scopes_are_independent_of_requested_oauth_scope(self):
+        # The PAT is sized from the MCP tool surface, not from whatever narrow
+        # scope Stripe's own OAuth token happened to request.
+        token = self._get_bearer_token(scopes=["person:read"])
+        res = self._post_signed_with_bearer(RESOURCES_URL, data={"service_id": "analytics"}, token=token)
+        assert res.status_code == 200
+
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert access_token.scope == "person:read"
+
+        pat = PersonalAPIKey.objects.get(user=self.user)
+        resource_scopes = [scope for scope in mcp_advertised_scopes() if ":" in scope]
+        assert set(pat.scopes) == set(resource_scopes)
 
     def test_create_with_project_id_is_idempotent(self):
         token = self._get_bearer_token()

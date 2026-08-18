@@ -20,6 +20,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 import structlog
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.api.oauth.mcp_resource_scopes import mcp_advertised_scopes
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -40,7 +41,6 @@ from ee.partners.stripe.api.provisioning.constants import (
     DEEP_LINK_MAX_PATH_LENGTH,
     PROVISIONED_PAT_LABEL_MAX_LENGTH,
     PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH,
-    STRIPE_CONTRACTED_SCOPES,
 )
 from ee.partners.stripe.api.provisioning.exceptions import SpecError
 
@@ -608,15 +608,23 @@ def validate_label_prefix(raw: Any) -> str | None:
     return stripped
 
 
-def maybe_create_provisioned_pat(
-    user: User, team: Team, granted_scope: str | None, label_prefix: str | None = None
-) -> str | None:
+def maybe_create_provisioned_pat(user: User, team: Team, label_prefix: str | None = None) -> str | None:
     """Create a Personal API Key for the provisioned user and return the raw value.
 
-    The key carries the granted OAuth token's scopes (``granted_scope``) as-is;
-    this namespace does not enforce a scope ceiling, so what the token was
-    granted is exactly what the PAT gets. Falls back to the default Stripe scope
-    set when the token carried none.
+    The PAT is a separate credential from the Stripe OAuth token that provisioned
+    it: the OAuth token belongs to Stripe and only calls this namespace's
+    endpoints, while the PAT belongs to the developer and drives their coding
+    agent against the PostHog MCP. Sizing it from what Stripe requested would
+    tie the developer's credential to an unrelated grant, so it is sized
+    directly from the MCP tool surface's resource scopes instead - the full set
+    a client gets when authorizing against the MCP with no explicit scope.
+
+    Deliberately unlike ``ee.api.agentic_provisioning.credentials.maybe_create_provisioned_pat``,
+    which narrows the PAT to the partner's granted scope intersected with its
+    ceiling. That's right where a user consents to a scope list on a screen the
+    PAT then has to honor; this namespace has no such screen; see
+    ``ee.api.agentic_provisioning.accounts.require_user_consent``. Don't fold
+    these two together without deciding what a consenting user should see.
 
     scoped_teams is set to [team.id] so the PAT only grants access to the team
     being provisioned, matching the scoping of the OAuth token issued in the
@@ -626,7 +634,7 @@ def maybe_create_provisioned_pat(
     ``label_prefix`` should be pre-validated by ``validate_label_prefix``; pass
     ``None`` (or any falsy value) to label the key with just the team name.
     """
-    pat_scopes = [s for s in (granted_scope or "").split() if s] or list(STRIPE_CONTRACTED_SCOPES)
+    pat_scopes = [scope for scope in mcp_advertised_scopes() if ":" in scope]
     # TODO: latent bug - every call mints a new PAT without revoking earlier
     # ones, so rotate_credentials accumulates live keys instead of rotating
     # them. A correct fix needs a provenance marker on PersonalAPIKey (or the

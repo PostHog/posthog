@@ -672,7 +672,7 @@ class ResourcesCreateView(StripeResourceAPIView):
             "api_key": team.api_token,
             "host": host,
         }
-        if personal_api_key := maybe_create_provisioned_pat(user, team, access_token.scope, label_prefix=label_prefix):
+        if personal_api_key := maybe_create_provisioned_pat(user, team, label_prefix=label_prefix):
             access_configuration["personal_api_key"] = personal_api_key
 
         return Response(
@@ -757,7 +757,7 @@ class RotateCredentialsView(StripeResourceAPIView):
             "api_key": team.api_token,
             "host": host,
         }
-        if personal_api_key := maybe_create_provisioned_pat(user, team, access_token.scope, label_prefix=label_prefix):
+        if personal_api_key := maybe_create_provisioned_pat(user, team, label_prefix=label_prefix):
             access_configuration["personal_api_key"] = personal_api_key
 
         return Response(

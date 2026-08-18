@@ -64,13 +64,19 @@ def maybe_create_provisioned_pat(
     Returns ``None`` when the gate is off, and the caller omits ``personal_api_key``
     from the response entirely.
 
-    When enabled (the grandfathered legacy Stripe app), the key carries the granted
-    OAuth token's scopes (``granted_scope``) narrowed to the app's current ceiling,
-    so a provisioned PAT can exceed neither what the user granted nor what the app
-    may hold. Minting from the ceiling alone would hand out optional scopes the
-    grant never included. A flag-on app with an unseeded ceiling mints nothing: an
-    empty-scope PAT fails every scope check, and widening to a wildcard would
-    bypass the ceiling.
+    When enabled, the key carries the granted OAuth token's scopes (``granted_scope``)
+    narrowed to the app's current ceiling, so a provisioned PAT can exceed neither
+    what the user granted nor what the app may hold. Minting from the ceiling alone
+    would hand out optional scopes the grant never included. A flag-on app with an
+    unseeded ceiling mints nothing: an empty-scope PAT fails every scope check, and
+    widening to a wildcard would bypass the ceiling.
+
+    Deliberately unlike ``ee.partners.stripe.api.provisioning.core.maybe_create_provisioned_pat``,
+    which sizes the PAT from the MCP tool surface instead of the partner's grant.
+    That's right for Stripe, whose namespace has no consent screen for the ceiling
+    to protect (see ``require_user_consent`` in this module); a CIMD partner's user
+    does see one, so this function still honors what they consented to. Don't fold
+    these two together without deciding what a consenting user should see.
 
     scoped_teams is set to [team.id] so the PAT only grants access to the team
     being provisioned, matching the scoping of the OAuth token issued in the
