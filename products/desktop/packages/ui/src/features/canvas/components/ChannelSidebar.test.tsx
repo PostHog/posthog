@@ -1,4 +1,5 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import type { CanvasTemplateSummary } from "@posthog/core/canvas/templateSchemas";
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -9,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   isLoading: false,
   channelMissing: false,
   open: vi.fn(),
+  templates: [] as CanvasTemplateSummary[],
+  createCanvas: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelItems", () => ({
@@ -40,10 +43,10 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 // The canvases tab's create row reaches for the template list and the create
 // mutation, both of which come over tRPC.
 vi.mock("@posthog/ui/features/canvas/hooks/useCanvasTemplates", () => ({
-  useCanvasTemplates: () => [],
+  useCanvasTemplates: () => mocks.templates,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
-  useCreateAndOpenDashboard: () => vi.fn(),
+  useCreateAndOpenDashboard: () => mocks.createCanvas,
 }));
 
 // The row menu's spaces list reaches for a QueryClient the unit test has no
@@ -116,6 +119,8 @@ describe("ChannelSidebar", () => {
     mocks.items = [];
     mocks.isLoading = false;
     mocks.channelMissing = false;
+    mocks.templates = [];
+    mocks.createCanvas.mockClear();
   });
 
   it.each([
@@ -274,6 +279,28 @@ describe("ChannelSidebar", () => {
     await user.click(screen.getByRole("tab", { name: "Canvases" }));
 
     expect(listed()).toEqual(["New canvas", "Signup funnel canvas"]);
+  });
+
+  // The ellipsis on the label promises a step in between, so the row must not
+  // create an untemplated canvas behind it.
+  it("asks which template a new canvas starts from", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.templates = [
+      {
+        id: "freeform",
+        name: "Freeform",
+        description: "Start from a blank canvas",
+        builtIn: true,
+        suggestions: [],
+      },
+    ];
+    renderSidebar();
+
+    await user.click(screen.getByRole("tab", { name: "Canvases" }));
+    await user.click(screen.getByText("New canvas…"));
+
+    expect(await screen.findByText("Choose a template")).toBeInTheDocument();
+    expect(mocks.createCanvas).not.toHaveBeenCalled();
   });
 
   it("shows one kind at a time, and drops the run filters with the sessions", async () => {
