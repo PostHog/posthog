@@ -13,6 +13,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.logs.backend.models import (
     DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
     MAX_EVALUATION_PERIODS,
     LogsAlertConfiguration,
     LogsAlertEvent,
@@ -236,6 +237,11 @@ class TestTeamLogsConfig(BaseTest):
         # their person without any team configuration.
         assert config.logs_distinct_id_attribute_key == "posthogDistinctId"
         assert config.logs_distinct_id_attribute_keys == ["posthogDistinctId"]
+        # The SDKs namespace the distinct ID but leave the session ID bare, so this one is
+        # `sessionId`, not `posthogSessionId`. Asserted literally: an assertion against the
+        # constant alone moves with it and would not catch the key drifting from the SDKs.
+        assert config.logs_session_id_attribute_keys == DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
+        assert config.logs_session_id_attribute_keys == ["sessionId"]
 
     def test_custom_attribute_keys_persist(self):
         config = get_or_create_team_extension(self.team, TeamLogsConfig)
@@ -260,6 +266,44 @@ class TestTeamLogsConfig(BaseTest):
 
         customized.refresh_from_db()
         assert customized.logs_distinct_id_attribute_keys == ["user.id"]
+
+    def test_migration_backfill_appends_the_key_the_sdks_emit(self):
+        # Order matters — see the migration for why the old key stays first.
+        untouched = get_or_create_team_extension(self.team, TeamLogsConfig)
+        untouched.logs_session_id_attribute_keys = ["posthogSessionId"]
+        untouched.save()
+
+        self._run_session_id_backfill()
+
+        untouched.refresh_from_db()
+        assert untouched.logs_session_id_attribute_keys == ["posthogSessionId", "sessionId"]
+
+    def test_migration_backfill_leaves_a_customized_value_alone(self):
+        customized = get_or_create_team_extension(self.team, TeamLogsConfig)
+        customized.logs_session_id_attribute_keys = ["my.session.key"]
+        customized.save()
+
+        self._run_session_id_backfill()
+
+        customized.refresh_from_db()
+        assert customized.logs_session_id_attribute_keys == ["my.session.key"]
+
+    def test_migration_backfill_is_idempotent(self):
+        already_backfilled = get_or_create_team_extension(self.team, TeamLogsConfig)
+        already_backfilled.logs_session_id_attribute_keys = ["posthogSessionId", "sessionId"]
+        already_backfilled.save()
+
+        self._run_session_id_backfill()
+
+        already_backfilled.refresh_from_db()
+        assert already_backfilled.logs_session_id_attribute_keys == ["posthogSessionId", "sessionId"]
+
+    @staticmethod
+    def _run_session_id_backfill():
+        backfill_module = importlib.import_module(
+            "products.logs.backend.migrations.0022_backfill_logs_session_id_attribute_keys"
+        )
+        backfill_module.backfill_session_id_attribute_keys(apps, None)
 
     def test_cascade_delete_with_team(self):
         get_or_create_team_extension(self.team, TeamLogsConfig)
