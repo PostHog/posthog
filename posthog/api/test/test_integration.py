@@ -772,8 +772,14 @@ class TestAWSRoleBasedIntegration:
         )
 
         self.integration_kind = aws_integration_kind
+        # Redshift integrations also carry the database user to obtain temporary credentials for.
+        if aws_integration_kind == Integration.IntegrationKind.AWS_REDSHIFT:
+            self.extra_config = {"user": "awsuser"}
+        else:
+            self.extra_config = {}
 
-    def test_create_with_valid_config(self, client: HttpClient):
+    @patch("posthog.models.integration.aws.validate_aws_role_arn")
+    def test_create_with_valid_config(self, mock_validate, client: HttpClient):
         client.force_login(self.user)
 
         role = "arn:aws:iam::123456789012:role/my-role"
@@ -784,6 +790,7 @@ class TestAWSRoleBasedIntegration:
                 "config": {
                     "name": "prod-aws",
                     "aws_role_arn": role,
+                    **self.extra_config,
                 },
             },
             content_type="application/json",
@@ -796,10 +803,35 @@ class TestAWSRoleBasedIntegration:
         assert integration.kind == self.integration_kind
         assert integration.team == self.team
         assert integration.integration_id == "prod-aws"
-        assert integration.config == {"name": "prod-aws", "aws_role_arn": role}
+        assert integration.config == {"name": "prod-aws", "aws_role_arn": role, **self.extra_config}
         assert integration.sensitive_config == {}
 
-    def test_create_rejects_duplicate_role_in_different_org(self, client: HttpClient):
+    @patch("posthog.models.integration.aws.validate_aws_role_arn")
+    def test_create_rejects_invalid_role_arn(self, mock_validate, client: HttpClient):
+        from posthog.models.integration import IntegrationError
+
+        mock_validate.side_effect = IntegrationError("AWS role ARN is not valid")
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": self.integration_kind,
+                "config": {
+                    "name": "prod-aws",
+                    "aws_role_arn": "arn:aws:iam::123456789012:role/not-assumable",
+                    **self.extra_config,
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "AWS role ARN is not valid" in response.json()["detail"]
+        assert not Integration.objects.filter(team=self.team, kind=self.integration_kind).exists()
+
+    @patch("posthog.models.integration.aws.validate_aws_role_arn")
+    def test_create_rejects_duplicate_role_in_different_org(self, mock_validate, client: HttpClient):
         another_org = Organization.objects.create(name="Test Org 2")
         another_team = Team.objects.create(organization=another_org, name="Test Team")
         another_user = User.objects.create_and_join(
@@ -808,7 +840,11 @@ class TestAWSRoleBasedIntegration:
         client.force_login(another_user)
         payload = {
             "kind": self.integration_kind,
-            "config": {"name": "prod-aws", "aws_role_arn": "something"},
+            "config": {
+                "name": "prod-aws",
+                "aws_role_arn": "arn:aws:iam::123456789012:role/my-role",
+                **self.extra_config,
+            },
         }
 
         first = client.post(
@@ -821,11 +857,16 @@ class TestAWSRoleBasedIntegration:
         assert second.status_code == status.HTTP_400_BAD_REQUEST
         assert "Cannot create AWS integration: Invalid role" in second.json()["detail"]
 
-    def test_create_rejects_duplicate_name(self, client: HttpClient):
+    @patch("posthog.models.integration.aws.validate_aws_role_arn")
+    def test_create_rejects_duplicate_name(self, mock_validate, client: HttpClient):
         client.force_login(self.user)
         payload = {
             "kind": self.integration_kind,
-            "config": {"name": "prod-aws", "aws_role_arn": "something"},
+            "config": {
+                "name": "prod-aws",
+                "aws_role_arn": "arn:aws:iam::123456789012:role/my-role",
+                **self.extra_config,
+            },
         }
 
         first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
