@@ -1,4 +1,3 @@
-from enum import StrEnum
 from uuid import UUID
 
 from django.db import models
@@ -11,7 +10,11 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceType
+from products.warehouse_sources.backend.types import (
+    DIRECT_ENGINE_BY_SOURCE_TYPE,
+    ExternalDataSourceType,
+    ManagedWarehouseSQLMode,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -19,12 +22,6 @@ MANAGED_WAREHOUSE_SOURCE_PREFIX = "managed_warehouse"
 MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND = "project_reader"
 MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS = frozenset({"org_root", "stored_server_login"})
 SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
-
-
-class ManagedWarehouseSQLMode(StrEnum):
-    EXTERNAL = "external"
-    BUILT_IN = "built_in"
-    UNAVAILABLE = "unavailable"
 
 
 class ExternalDataSourceManager(models.Manager):
