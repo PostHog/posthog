@@ -187,7 +187,6 @@ class ManagedWarehouseBackfillState:
 
 
 class ManagedWarehouseSourceJobWorkflow(StrEnum):
-    COPY = "copy"
     REGISTER = "register"
 
 

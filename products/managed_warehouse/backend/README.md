@@ -51,14 +51,12 @@ repeat the query. An empty result cannot prove that the model is unused: a final
 static search for the model, its table, and reverse relation is mandatory before
 removal because telemetry cannot discover dormant or uninstrumented code paths.
 
-The DuckLake workflows write data into a DuckLake-managed S3 bucket. New executions use two workflows:
+The DuckLake workflows write data into a DuckLake-managed S3 bucket. There are two workflows:
 
 1. **Data modeling** (`ducklake-copy.data-modeling`) - copies materialized saved query outputs
 2. **Data import registration** (`ducklake-register.data-imports`) - copies and registers prepared Parquet files from completed imports
 
-The retired `ducklake-copy.data-imports` workflow remains registered for existing Temporal histories. New imports do not schedule it.
-
-The workflows share the same infrastructure and configuration. Workers running these workflows must be configured explicitly; otherwise copies will fail before they even reach the first activity.
+The workflows share the same infrastructure and configuration. Workers running these workflows must be configured explicitly; otherwise they fail before reaching the first activity.
 
 ## Environment variables
 
@@ -74,7 +72,7 @@ The workflow obtains its DuckLake configuration from the following environment v
 - `DUCKLAKE_S3_ACCESS_KEY` - S3 access key (optional, for local dev; production uses IRSA)
 - `DUCKLAKE_S3_SECRET_KEY` - S3 secret key (optional, for local dev; production uses IRSA)
 
-`bin/start` exports sensible defaults for local development, so you usually get a working DuckLake setup just by running the dev script. Temporal workers in staging/production must set these variables directly in their process environment (or via Helm/k8s secrets). If you need to run the workflow against a bespoke DuckLake deployment, override the environment variables before starting the worker—no code changes are required.
+`bin/start` exports sensible defaults for local development, so you usually get a working DuckLake setup by running the dev script. Temporal workers in staging and production must set these variables directly in their process environment or through Helm or Kubernetes secrets. To run the workflow against another DuckLake deployment, override the environment variables before starting the worker.
 
 For local dev the defaults are:
 
@@ -103,26 +101,22 @@ This path currently supports Parquet only. Support for Azure Blob Storage, CSV, 
 
 ## Feature flag gating
 
-Each workflow used for new executions has its own feature flag. Create or update the appropriate flag locally for the team you are testing with.
+Each workflow has its own feature flag. Create or update the appropriate flag locally for the team you are testing with.
 
 | Workflow                 | Feature flag                                  |
 | ------------------------ | --------------------------------------------- |
 | Data modeling            | `ducklake-data-modeling-copy-workflow`        |
 | Data import registration | `ducklake-data-imports-registration-workflow` |
 
-Do not enable `ducklake-data-imports-copy-workflow`. It applies only to the retired compatibility workflow.
-
 ## Data Ops workflow status
 
 The data import registration workflow writes its lifecycle to `ManagedWarehouseSourceJob`. Each row identifies the project, source schema, external data job, workflow type, and workflow attempt. The supported states are running, completed, failed, skipped, and stale.
-
-Historical rows from the retired copy workflow keep the `copy` workflow type. Current registration runs use `register`.
 
 The Data Ops overview reads the latest workflow attempt for each source schema from this shared model. It also reads the most recent completed attempt separately, so a later failed or stale attempt does not erase when data was last applied successfully. The Duckgres consumer sink state is not used for source readiness.
 
 ## Target bucket layout
 
-Every copy is written to a deterministic schema inside DuckLake. Each workflow namespaces its data under a workflow-specific schema:
+Each workflow writes to a deterministic schema inside DuckLake:
 
 ### Data Modeling
 

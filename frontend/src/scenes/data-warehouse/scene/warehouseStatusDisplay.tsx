@@ -42,13 +42,7 @@ export function StatusTag({ readinessState }: { readinessState: ManagedWarehouse
     return <LemonTag type={STATUS_TAG_TYPES[readinessState]}>{STATUS_LABELS[readinessState]}</LemonTag>
 }
 
-type SourceWorkflowType = NonNullable<ManagedWarehouseSourceTableStatusApi['workflow_type']>
 type SourceWorkflowStatus = NonNullable<ManagedWarehouseSourceTableStatusApi['workflow_status']>
-
-const WORKFLOW_LABELS: Record<SourceWorkflowType, string> = {
-    copy: 'Copy',
-    register: 'Register',
-}
 
 const WORKFLOW_STATUS_LABELS: Record<SourceWorkflowStatus, string> = {
     running: 'Running',
@@ -86,9 +80,7 @@ export const sourceSchemaColumns: LemonTableColumns<ManagedWarehouseSourceTableS
             }
             return (
                 <div className="space-y-1">
-                    <div>
-                        {WORKFLOW_LABELS[table.workflow_type]}: {WORKFLOW_STATUS_LABELS[table.workflow_status]}
-                    </div>
+                    <div>Registration: {WORKFLOW_STATUS_LABELS[table.workflow_status]}</div>
                     {table.workflow_started_at && (
                         <div className="text-xs text-muted">
                             Started {humanFriendlyDetailedTime(table.workflow_started_at)}

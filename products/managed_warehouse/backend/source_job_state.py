@@ -64,6 +64,7 @@ def list_latest_source_jobs(*, team_id: int, schema_ids: list[UUID]) -> list[Man
     jobs = ManagedWarehouseSourceJob.objects.for_team(team_id).filter(
         environment_id=team_id,
         schema_id__in=schema_ids,
+        workflow_type=ManagedWarehouseSourceJob.WorkflowType.REGISTER,
     )
     latest_jobs = jobs.order_by("schema_id", "-started_at", "-created_at").distinct("schema_id")
     last_completed_by_schema = dict(

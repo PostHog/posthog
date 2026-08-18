@@ -61,7 +61,6 @@ from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
 from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_ACTIVITIES,
-    DuckLakeCopyDataImportsWorkflow,
     DuckLakeRegisterDataImportsWorkflow,
 )
 from products.warehouse_sources.backend.facade.models import (
@@ -657,7 +656,6 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 workflows=[
                     ExternalDataJobWorkflow,
                     CDPProducerJobWorkflow,
-                    DuckLakeCopyDataImportsWorkflow,
                     DuckLakeRegisterDataImportsWorkflow,
                     PostImportWorkflow,
                 ],

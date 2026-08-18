@@ -4,7 +4,7 @@ Pipeline/metrics wiring for warehouse_sources.
 Re-exports the data-import pipeline internals (v3 S3 helpers and health server),
 the app-metric emitters, the CDC extraction input, and the pipeline-
 version + schema-sync helpers that sibling products (data_warehouse, error_tracking) and
-core (the ducklake copy workflow) reach into while orchestrating or observing imports.
+core data import code reach into while orchestrating or observing imports.
 
 These live deep under ``temporal.data_imports`` and pull heavy dependencies (temporalio,
 dlt, boto3, ...), so — like ``facade.source_management`` — the module resolves names lazily

@@ -63,29 +63,9 @@ def get_data_modeling_verification_queries(model_label: str) -> list[DuckLakeCop
     return config.queries_for_model(model_label)
 
 
-def get_data_imports_verification_queries(schema_name: str) -> list[DuckLakeCopyVerificationQuery]:
-    """Return the configured verification queries for the given data imports schema."""
-    config = _get_data_imports_verification_config()
-    return config.queries_for_model(schema_name)
-
-
 @functools.lru_cache
 def _get_data_modeling_verification_config() -> DuckLakeVerificationConfig:
     raw = _load_verification_yaml("data_modeling.yaml")
-    defaults = tuple(_parse_queries(raw.get("defaults", {}).get("queries")))
-    model_overrides = {
-        label: _ModelVerificationConfig(
-            queries=tuple(_parse_queries(cfg.get("queries"))),
-            inherit_defaults=cfg.get("inherit_defaults", True),
-        )
-        for label, cfg in (raw.get("models") or {}).items()
-    }
-    return DuckLakeVerificationConfig(default_queries=defaults, model_overrides=model_overrides)
-
-
-@functools.lru_cache
-def _get_data_imports_verification_config() -> DuckLakeVerificationConfig:
-    raw = _load_verification_yaml("data_imports.yaml")
     defaults = tuple(_parse_queries(raw.get("defaults", {}).get("queries")))
     model_overrides = {
         label: _ModelVerificationConfig(
@@ -138,5 +118,4 @@ __all__ = [
     "DuckLakeCopyVerificationQuery",
     "DuckLakeVerificationConfig",
     "get_data_modeling_verification_queries",
-    "get_data_imports_verification_queries",
 ]

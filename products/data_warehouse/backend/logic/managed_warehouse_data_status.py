@@ -186,18 +186,17 @@ def dataset_status(
 
 def source_table_readiness(state: ManagedWarehouseSourceJobRecord | None) -> tuple[ReadinessState, str]:
     if state is None:
-        return "waiting", "Waiting for a copy or register workflow to run."
+        return "waiting", "Waiting for the registration workflow to run."
 
-    workflow_name = state.workflow_type.value
     if state.status == ManagedWarehouseSourceJobStatus.FAILED:
-        return "needs_attention", f"The latest {workflow_name} workflow failed. Retry the source sync."
+        return "needs_attention", "The latest registration workflow failed. Retry the source sync."
     if state.status == ManagedWarehouseSourceJobStatus.RUNNING:
-        return "backfilling", f"The {workflow_name} workflow is applying the latest source import."
+        return "backfilling", "The registration workflow is applying the latest source import."
     if state.status == ManagedWarehouseSourceJobStatus.COMPLETED:
         return "up_to_date", "The latest source import was applied."
     if state.status == ManagedWarehouseSourceJobStatus.STALE:
-        return "waiting", "A newer source import replaced this register workflow."
-    return "waiting", f"The {workflow_name} workflow did not apply this source import."
+        return "waiting", "A newer source import replaced this registration workflow."
+    return "waiting", "The registration workflow did not apply this source import."
 
 
 def _schema_table_statuses(
@@ -271,7 +270,7 @@ def get_source_schema_statuses(
 
 _SOURCE_SUMMARY_DETAILS: dict[ReadinessState, str] = {
     "needs_attention": "One or more schemas need attention.",
-    "backfilling": "A copy or register workflow is running for one or more schemas.",
+    "backfilling": "A registration workflow is running for one or more schemas.",
     "waiting": "One or more schemas are waiting to start.",
     "sync_paused": "Sync is paused for one or more schemas.",
     "up_to_date": "The latest source imports were applied to the warehouse.",
@@ -346,7 +345,7 @@ def _sources_status(team_id: int, *, user_access_control: UserAccessControl) -> 
     readiness_state = _roll_up_state([source["readiness_state"] for source in sources])
     details: dict[ReadinessState, str] = {
         "needs_attention": "One or more imported sources need attention.",
-        "backfilling": "A copy or register workflow is running for one or more imported sources.",
+        "backfilling": "A registration workflow is running for one or more imported sources.",
         "waiting": "One or more imported sources are waiting to start.",
         "sync_paused": "Sync is paused for one or more imported sources.",
         "up_to_date": "All imported sources are up to date.",

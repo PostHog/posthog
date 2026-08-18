@@ -43,13 +43,13 @@ class TestManagedWarehouseSourceJobState(TestCase):
 
     def test_repeated_updates_change_one_workflow_attempt(self) -> None:
         running = self._update(
-            workflow_type=ManagedWarehouseSourceJobWorkflow.COPY,
+            workflow_type=ManagedWarehouseSourceJobWorkflow.REGISTER,
             status=ManagedWarehouseSourceJobStatus.RUNNING,
             attempt_id="external-job-1",
         )
         completed_at = self.started_at + timedelta(minutes=2)
         completed = self._update(
-            workflow_type=ManagedWarehouseSourceJobWorkflow.COPY,
+            workflow_type=ManagedWarehouseSourceJobWorkflow.REGISTER,
             status=ManagedWarehouseSourceJobStatus.COMPLETED,
             attempt_id="external-job-1",
             finished_at=completed_at,
@@ -67,9 +67,9 @@ class TestManagedWarehouseSourceJobState(TestCase):
         completed_at = self.started_at + timedelta(minutes=2)
         record_source_job_state(
             self._update(
-                workflow_type=ManagedWarehouseSourceJobWorkflow.COPY,
+                workflow_type=ManagedWarehouseSourceJobWorkflow.REGISTER,
                 status=ManagedWarehouseSourceJobStatus.COMPLETED,
-                attempt_id="copy-1",
+                attempt_id="register-1",
                 finished_at=completed_at,
             )
         )
@@ -88,6 +88,34 @@ class TestManagedWarehouseSourceJobState(TestCase):
 
         assert state.workflow_type == ManagedWarehouseSourceJobWorkflow.REGISTER
         assert state.status == ManagedWarehouseSourceJobStatus.FAILED
+        assert state.last_completed_at == completed_at
+
+    def test_unsupported_workflow_rows_are_ignored(self) -> None:
+        completed_at = self.started_at + timedelta(minutes=2)
+        record_source_job_state(
+            self._update(
+                workflow_type=ManagedWarehouseSourceJobWorkflow.REGISTER,
+                status=ManagedWarehouseSourceJobStatus.COMPLETED,
+                attempt_id="register-1",
+                finished_at=completed_at,
+            )
+        )
+        ManagedWarehouseSourceJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            environment_id=self.team.id,
+            schema_id=self.schema_id,
+            source_job_id="external-job-2",
+            attempt_id="unsupported-1",
+            workflow_type="unsupported",
+            status=ManagedWarehouseSourceJob.Status.FAILED,
+            started_at=self.started_at + timedelta(minutes=5),
+            finished_at=self.started_at + timedelta(minutes=6),
+        )
+
+        [state] = list_latest_source_jobs(team_id=self.team.id, schema_ids=[self.schema_id])
+
+        assert state.workflow_type == ManagedWarehouseSourceJobWorkflow.REGISTER
+        assert state.status == ManagedWarehouseSourceJobStatus.COMPLETED
         assert state.last_completed_at == completed_at
 
     def test_child_environments_share_the_tenant_boundary_without_sharing_status(self) -> None:
@@ -111,7 +139,7 @@ class TestManagedWarehouseSourceJobState(TestCase):
                     schema_ids=[self.schema_id],
                     source_job_id="external-job-1",
                     attempt_id="attempt-1",
-                    workflow_type=ManagedWarehouseSourceJobWorkflow.COPY,
+                    workflow_type=ManagedWarehouseSourceJobWorkflow.REGISTER,
                     status=status,
                     started_at=self.started_at,
                     finished_at=self.started_at + timedelta(minutes=1),
