@@ -130,6 +130,11 @@ def _client_config(api_key: str) -> ClientConfig:
         "auth": {"type": "bearer", "token": api_key},
         "headers": {"Accept": "application/json"},
         "request_timeout": REQUEST_TIMEOUT_SECONDS,
+        # `capture=False`: Sleekplan is a feedback board, so responses carry arbitrary
+        # user-authored content -- post/comment bodies, voter emails, survey free-text -- that
+        # the generic name-based scrubber can't anonymize. Same reasoning as Frill and
+        # Featurebase, the other feedback-board sources. Requests are still metered and logged.
+        "session": make_tracked_session(redact_values=(api_key,), capture=False),
     }
 
 
@@ -184,7 +189,7 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     source-create time the key itself is still valid.
     """
     is_valid, status_code = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,)),
+        lambda: make_tracked_session(redact_values=(api_key,), capture=False),
         f"{SLEEKPLAN_BASE_URL}/users?per_page=1",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
         timeout=REQUEST_TIMEOUT_SECONDS,

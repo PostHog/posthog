@@ -215,6 +215,18 @@ class TestValidateCredentials:
         _, kwargs = mock_probe.call_args
         assert kwargs["headers"]["Authorization"] == "Bearer secret-key"
 
+    def test_probe_session_redacts_the_key_and_disables_sample_capture(self) -> None:
+        # Users/posts/comments carry emails and free-text feedback the generic scrubber can't
+        # anonymize, so the probe -- like every other Sleekplan request -- must not be captured.
+        with (
+            patch(f"{TRANSPORT}.validate_via_probe", return_value=(True, 200)) as mock_probe,
+            patch(f"{TRANSPORT}.make_tracked_session") as mock_make_session,
+        ):
+            validate_credentials("secret-key")
+            mock_probe.call_args.args[0]()
+
+        mock_make_session.assert_called_once_with(redact_values=("secret-key",), capture=False)
+
 
 class TestTopLevelSource:
     @parameterized.expand(
@@ -250,6 +262,21 @@ class TestTopLevelSource:
         (rest_config, *_), _ = mock_resource.call_args
         assert rest_config["client"]["auth"] == {"type": "bearer", "token": "secret-key"}
         assert rest_config["client"]["base_url"] == "https://api.sleekplan.com/v1"
+
+    def test_session_redacts_the_key_and_disables_sample_capture(self) -> None:
+        # Posts/comments/votes/survey responses carry emails and free-text feedback the generic
+        # scrubber can't anonymize, so sample capture must stay off (still metered and logged).
+        with (
+            patch(f"{TRANSPORT}.rest_api_resource", return_value=Mock()) as mock_resource,
+            patch(f"{TRANSPORT}.make_tracked_session") as mock_make_session,
+        ):
+            sleekplan_source(
+                api_key="secret-key", endpoint="Posts", team_id=1, job_id="job-1", resumable_source_manager=_manager()
+            )
+
+        (rest_config, *_), _ = mock_resource.call_args
+        mock_make_session.assert_called_once_with(redact_values=("secret-key",), capture=False)
+        assert rest_config["client"]["session"] is mock_make_session.return_value
 
     def test_seeds_the_paginator_from_saved_state(self) -> None:
         manager = _manager(can_resume=True, state=SleekplanResumeConfig(page=4))
