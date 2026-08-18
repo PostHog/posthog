@@ -49,18 +49,21 @@ def _resolve(
     saved: AIPreferences,
     override_model=None,
     override_effort=None,
-    default_model=SLACK_DEFAULT_MODEL,
-    deferred_default=None,
+    central_default=None,
 ):
-    """Resolve with `resolve_ai_preferences` stubbed, so these stay unit tests over the
-    precedence rules rather than over the settings rows."""
-    with patch.object(run_preferences, "resolve_ai_preferences", return_value=saved):
+    """Resolve with the saved rows and the central default both stubbed, so these stay
+    unit tests over the precedence rules rather than over the rows behind them."""
+    with (
+        patch.object(run_preferences, "resolve_ai_preferences", return_value=saved),
+        patch.object(run_preferences, "_central_run_default", return_value=central_default),
+    ):
         return resolve_run_preferences(
             integration=None,  # type: ignore[arg-type]
             slack_user_id="U1",
             override=_Override(model=override_model, reasoning_effort=override_effort),
-            default_model=default_model,
-            deferred_default=deferred_default,
+            # Any id will do — the lookup it feeds is stubbed; passing one is what opts the
+            # central-default rung into the chain at all.
+            team_id=1,
         )
 
 
@@ -118,10 +121,11 @@ class TestResolveRunPreferences:
             (AIPreferences(), "claude-fable-5", AIPreferences("claude", "claude-fable-5", None)),
         ],
     )
-    def test_without_a_default_model_only_a_slack_selection_pins_the_run(
+    def test_with_a_central_default_only_a_slack_selection_pins_the_run(
         self, catalogue, saved, override_model, expected
     ):
-        assert _resolve(saved, override_model=override_model, default_model=None) == expected
+        central = AIPreferences(runtime_adapter="claude", model="claude-fable-5", reasoning_effort=None)
+        assert _resolve(saved, override_model=override_model, central_default=central) == expected
 
     # An effort named on its own has no model to be validated against while the run is
     # deferring, so without the deferred default it is silently dropped and the mention
@@ -135,13 +139,11 @@ class TestResolveRunPreferences:
             ("claude-sonnet-4-6", "xhigh", AIPreferences(None, None, None)),
         ],
     )
-    def test_an_effort_only_mention_resolves_against_the_deferred_default(
+    def test_an_effort_only_mention_resolves_against_the_central_default(
         self, catalogue, deferred_model, override_effort, expected
     ):
-        deferred = AIPreferences(runtime_adapter="claude", model=deferred_model, reasoning_effort=None)
-        resolved = _resolve(
-            AIPreferences(), override_effort=override_effort, default_model=None, deferred_default=deferred
-        )
+        central = AIPreferences(runtime_adapter="claude", model=deferred_model, reasoning_effort=None)
+        resolved = _resolve(AIPreferences(), override_effort=override_effort, central_default=central)
         assert resolved == expected
 
 
