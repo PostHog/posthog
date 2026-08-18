@@ -209,6 +209,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
                 if (result.error) {
                     await job.fail()
+                } else if (result.canceled) {
+                    await job.cancel()
                 } else if (result.finished) {
                     await job.ack()
                 } else {
@@ -233,18 +235,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 if (job) {
                     this.pendingJobs.delete(inv.id)
                     await job.fail()
-                }
-            })
-        )
-    }
-
-    public async cancelInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
-        await Promise.all(
-            invocations.map(async (inv) => {
-                const job = this.pendingJobs.get(inv.id)
-                if (job) {
-                    this.pendingJobs.delete(inv.id)
-                    await job.cancel()
                 }
             })
         )
@@ -366,6 +356,10 @@ export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvo
 
     if (job.parentRunId) {
         invocation.parentRunId = job.parentRunId
+    }
+
+    if (job.cancelRequestedAt) {
+        invocation.cancelRequestedAt = job.cancelRequestedAt
     }
 
     return invocation
