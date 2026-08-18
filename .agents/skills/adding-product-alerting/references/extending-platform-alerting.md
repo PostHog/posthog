@@ -126,6 +126,10 @@ Verify both the shared layer and reference adopters:
 - OpenAPI generation and frontend typecheck for API contract changes.
 - The alert-state semgrep rule when lifecycle mutation paths change.
 
+For shared event, destination, or authorization changes, add tests for every affected management surface. Cover the new
+product-owned API and each older product that still uses a generic API. Do not rely only on event-name or regex unit
+tests: exercise creation and visibility through the real API path.
+
 Invoke the matching mandatory skills before editing their areas:
 
 | Change                                                    | Skill                           |

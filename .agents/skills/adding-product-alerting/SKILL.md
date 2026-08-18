@@ -45,6 +45,21 @@ Both paths must preserve these rules:
 8. **Frontend data is normalized at the product boundary.** Shared editor components render normalized definitions, destinations, advanced options, schedules, and history. Product API calls, payloads, and evaluation-specific fields stay in the product adapter.
 9. **Defaults remain backward compatible.** New platform options must preserve existing adopters until they explicitly opt in.
 
+## Cross-product compatibility
+
+Before adding a shared alert guard, event pattern, destination query, or authorization rule, map every product that
+uses the affected records. Search exact event IDs, template IDs, model types, generic APIs, UIs, and regex or prefix
+matches. A new product can own its destination lifecycle, but an existing product may still intentionally use a generic
+HogFunction path.
+
+Do not restrict generic create, list, retrieve, update, or delete access until every matching product has an equivalent
+product-owned API for the lifecycle operations its UI needs. Preserve a narrow compatibility exception for each legacy
+path until it migrates. Add public-interface tests for both the new ownership boundary and every existing generic path
+that remains supported.
+
+For organization-scoped alerts, verify authorization at destination creation, generic reads and mutations, and event
+dispatch. Project-level HogFunction access must not expose or redirect organization-owned destinations.
+
 ## Current limits
 
 There is no generic alert base model, product registry, push-mode `submit_check(...)`, generic scheduler runner, or generic Temporal harness. Do not invent a parallel framework around those missing pieces. For non-insight products, keep evaluation, persistence, due queries, history, and orchestration in the product until a shared contract lands.
