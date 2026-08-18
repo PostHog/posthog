@@ -22,7 +22,6 @@ export async function resolveStartupLocation(
   const saved = await stateStorage.getItem(storageKey(identity));
   if (saved) return { href: saved, firstRun: null };
   const channels = await client.getTaskChannels();
-  // Personal fallback covers a server that does not provision #general yet.
   const general = channels.find((channel) => isGeneralChannel(channel));
   if (general) {
     return {
@@ -30,6 +29,7 @@ export async function resolveStartupLocation(
       firstRun: { generalChannelId: general.id },
     };
   }
+  // Personal fallback covers a server that does not provision #general yet.
   const personal = channels.find((channel) => isPersonalChannel(channel));
   if (!personal) throw new Error("Personal channel was not provisioned");
   return { href: `/website/${personal.id}/new`, firstRun: null };

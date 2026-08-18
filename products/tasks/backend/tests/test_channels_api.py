@@ -93,7 +93,6 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(general[0]["channel_type"], "public")
         self.assertFalse(general[0]["starred"])
 
-        # Listing again reuses the same #general channel rather than creating another.
         again = self.client.get(self._channels_url()).json()
         self.assertEqual(
             [c["id"] for c in again if c["system_role"] == "general"],
