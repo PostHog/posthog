@@ -35,10 +35,10 @@ export interface replayVisionSetupLogicActions {
         errorObject?: any
     }
     loadSetupStatsSuccess: (
-        setupStats: ScannerStatsResponseApi | null,
+        setupStats: ScannerStatsResponseApi,
         payload?: void
     ) => {
-        setupStats: ScannerStatsResponseApi | null
+        setupStats: ScannerStatsResponseApi
         payload?: void
     }
 }
@@ -59,10 +59,11 @@ export const replayVisionSetupLogic = kea<replayVisionSetupLogicType>([
     loaders({
         setupStats: {
             __default: null as ScannerStatsResponseApi | null,
-            loadSetupStats: async (_: void, breakpoint): Promise<ScannerStatsResponseApi | null> => {
+            loadSetupStats: async (_: void, breakpoint): Promise<ScannerStatsResponseApi> => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
-                    return null
+                    // Routed to loadSetupStatsFailure, which fails open like any other unanswerable probe.
+                    throw new Error('no current team')
                 }
                 const response = await visionScannersStatsRetrieve(String(teamId))
                 breakpoint()
@@ -72,15 +73,12 @@ export const replayVisionSetupLogic = kea<replayVisionSetupLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         loadSetupStatsSuccess: ({ setupStats }) => {
-            if (!setupStats) {
-                // No current team resolved - treat like a failure below: fail open, never strand the spinner.
-                if (values.setupStatus === 'loading') {
-                    actions.setDetectedStatus('unknown')
-                }
-                return
+            const detected = setupStats && setupStats.total > 0 ? 'has-data' : 'needs-setup'
+            // Poll ticks mostly re-detect the same status; don't re-render the gate subtree for those.
+            if (detected !== values.setupStatus) {
+                actions.setDetectedStatus(detected)
             }
-            actions.setDetectedStatus(setupStats.total > 0 ? 'has-data' : 'needs-setup')
-            if (setupStats.total > 0) {
+            if (detected === 'has-data') {
                 cache.disposables.dispose('poll')
             }
         },

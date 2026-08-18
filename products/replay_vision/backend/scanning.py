@@ -31,8 +31,8 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
-from products.replay_vision.backend.queries.scanner_candidate_query import ScannerCandidateQuery
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
+from products.replay_vision.backend.queries.scanner_candidate_query import WindowedCandidateQuery
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
@@ -232,10 +232,15 @@ def run_starter_scan(*, scanner: ReplayScanner) -> int:
 
     Tagged `schedule` with no triggering user, like the sweep: the user asked for a scanner, not for
     these particular scans."""
-    candidates = ScannerCandidateQuery(
+    now = dt.datetime.now(dt.UTC)
+    # The windowed query walks newest-first, so the examples are the freshest settled recordings, and
+    # it bounds the events subquery to the window, keeping event-filtered scanners inside the budget.
+    candidates = WindowedCandidateQuery(
         team=scanner.team,
         query=scanner.recordings_query(),
-        last_swept_at=dt.datetime.now(dt.UTC) - STARTER_SCAN_LOOKBACK,
+        window_start=now - STARTER_SCAN_LOOKBACK,
+        window_end=now - SETTLE_INTERVAL,
+        query_type="ReplayVisionStarterScanCandidateQuery",
         # Sampling budgets the standing sweep; the starter scan wants examples now, so it scans at 1.0.
         sampling_rate=1.0,
         sampling_salt=str(scanner.id),
@@ -245,10 +250,13 @@ def run_starter_scan(*, scanner: ReplayScanner) -> int:
     ).run()
     if not candidates:
         return 0
-    started, _ = scan_existing_scanner(
+    started, _ = start_observations(
         scanner=scanner,
         session_ids=[c.session_id for c in candidates],
         user=None,
+        headroom=scan_headroom(team=scanner.team, model=scanner.model, scanner=scanner),
+        # A scanner created in this request can't have finished observations yet.
+        finished=frozenset(),
         trigger=ObservationTrigger.SCHEDULE,
     )
     return started

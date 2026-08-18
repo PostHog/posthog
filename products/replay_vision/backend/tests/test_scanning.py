@@ -65,9 +65,9 @@ class TestStarterScan(BaseTest):
             sampling_rate=0.25,
         )
 
-    @patch("products.replay_vision.backend.scanning.scan_existing_scanner", return_value=(2, []))
-    @patch("products.replay_vision.backend.scanning.ScannerCandidateQuery")
-    def test_scans_the_candidates_it_finds(self, mock_query: MagicMock, mock_scan: MagicMock) -> None:
+    @patch("products.replay_vision.backend.scanning.start_observations", return_value=(2, []))
+    @patch("products.replay_vision.backend.scanning.WindowedCandidateQuery")
+    def test_scans_the_candidates_it_finds(self, mock_query: MagicMock, mock_start: MagicMock) -> None:
         mock_query.return_value.run.return_value = [
             CandidateSession(session_id="s1", session_end=dt.datetime.now(dt.UTC)),
             CandidateSession(session_id="s2", session_end=dt.datetime.now(dt.UTC)),
@@ -75,18 +75,19 @@ class TestStarterScan(BaseTest):
         scanner = self._scanner()
         started = run_starter_scan(scanner=scanner)
         self.assertEqual(started, 2)
+        start_kwargs = mock_start.call_args.kwargs
+        self.assertEqual(start_kwargs["session_ids"], ["s1", "s2"])
         # Tagged like the sweep: the user asked for a scanner, not for these particular scans.
-        mock_scan.assert_called_once_with(
-            scanner=scanner, session_ids=["s1", "s2"], user=None, trigger=ObservationTrigger.SCHEDULE
-        )
+        self.assertEqual(start_kwargs["trigger"], ObservationTrigger.SCHEDULE)
+        self.assertIsNone(start_kwargs["user"])
         query_kwargs = mock_query.call_args.kwargs
         # The starter scan ignores the scanner's sampling: it exists to produce examples now.
         self.assertEqual(query_kwargs["sampling_rate"], 1.0)
         self.assertEqual(query_kwargs["candidate_limit"], STARTER_SCAN_SESSIONS)
 
-    @patch("products.replay_vision.backend.scanning.scan_existing_scanner")
-    @patch("products.replay_vision.backend.scanning.ScannerCandidateQuery")
-    def test_starts_nothing_without_candidates(self, mock_query: MagicMock, mock_scan: MagicMock) -> None:
+    @patch("products.replay_vision.backend.scanning.start_observations")
+    @patch("products.replay_vision.backend.scanning.WindowedCandidateQuery")
+    def test_starts_nothing_without_candidates(self, mock_query: MagicMock, mock_start: MagicMock) -> None:
         mock_query.return_value.run.return_value = []
         self.assertEqual(run_starter_scan(scanner=self._scanner()), 0)
-        mock_scan.assert_not_called()
+        mock_start.assert_not_called()

@@ -45,6 +45,23 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const Preview = config.Preview
     const hedgehogBeside = config.hedgehogPlacement === 'beside'
 
+    // One definition for both slots: the hero CTA normally, demoted to a secondary button when the
+    // wizard terminal is the hero.
+    const primaryActionButton = config.primaryAction ? (
+        <LemonButton
+            type={showWizard ? 'secondary' : 'primary'}
+            to={config.primaryAction.to}
+            onClick={() => {
+                captureClick('primary action clicked')
+                config.primaryAction?.onClick?.()
+            }}
+            className={showWizard ? undefined : 'self-start'}
+            data-attr="product-empty-state-primary-action"
+        >
+            {config.primaryAction.label}
+        </LemonButton>
+    ) : null
+
     return (
         <div
             // Fill the scene: viewport minus the app chrome and the product header above us.
@@ -84,19 +101,8 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                             copyLabel={`${config.productName} wizard command`}
                             onCopy={() => captureClick('wizard command copied')}
                         />
-                    ) : config.primaryAction ? (
-                        <LemonButton
-                            type="primary"
-                            to={config.primaryAction.to}
-                            onClick={() => {
-                                captureClick('primary action clicked')
-                                config.primaryAction?.onClick?.()
-                            }}
-                            className="self-start"
-                            data-attr="product-empty-state-primary-action"
-                        >
-                            {config.primaryAction.label}
-                        </LemonButton>
+                    ) : primaryActionButton ? (
+                        primaryActionButton
                     ) : manualUrl ? (
                         <LemonButton
                             type="primary"
@@ -113,18 +119,8 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                     {config.statusIndicator ? <div className="text-xs">{config.statusIndicator}</div> : null}
 
                     <div className="flex items-center gap-4">
-                        {showWizard && config.primaryAction ? (
-                            <LemonButton
-                                type="secondary"
-                                to={config.primaryAction.to}
-                                onClick={() => {
-                                    captureClick('primary action clicked')
-                                    config.primaryAction?.onClick?.()
-                                }}
-                                data-attr="product-empty-state-primary-action"
-                            >
-                                {config.primaryAction.label}
-                            </LemonButton>
+                        {showWizard && primaryActionButton ? (
+                            primaryActionButton
                         ) : showWizard && manualUrl ? (
                             <LemonButton
                                 type="secondary"
