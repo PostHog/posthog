@@ -1180,6 +1180,7 @@ describe('CDP API', () => {
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1238,6 +1239,7 @@ describe('CDP API', () => {
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1298,6 +1300,7 @@ describe('CDP API', () => {
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1360,6 +1363,7 @@ describe('CDP API', () => {
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1481,6 +1485,7 @@ describe('CDP API', () => {
                 disconnect: jest.fn(),
                 countInFlightJobs: mockCountInFlightJobs,
                 rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
             }
 
             countHogFlow = await insertHogFlow({
@@ -1573,6 +1578,7 @@ describe('CDP API', () => {
                 disconnect: jest.fn(),
                 countInFlightJobs: jest.fn(),
                 rescheduleParkedJobs: mockRescheduleParkedJobs,
+                cancelJobs: jest.fn(),
             }
 
             rescheduleHogFlow = await insertHogFlow({
@@ -1720,6 +1726,102 @@ describe('CDP API', () => {
                 .send({ action_ids: ['delay_1'] })
 
             expect(res.status).toEqual(503)
+        })
+    })
+
+    describe('hogflow cancel invocations auth', () => {
+        let mockCancelJobs: jest.Mock
+
+        // Built with the raw audience literal and Python claim names: this is the wire contract
+        // with Django's WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE, so drift on either side breaks here.
+        const mintCancelToken = (
+            teamId: number,
+            hogFlowId: string,
+            { secret = 'local-dev-workflows-reschedule-jwt', audience = 'posthog:workflows:cancel_invocations' } = {}
+        ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, secret, { audience, expiresIn: '2m' })
+
+        // No hog flow row exists for this id: cancel deliberately skips the flow lookup so it
+        // keeps working for flows deleted with runs still parked.
+        const cancelFlowId = new UUIDT().toString()
+        const cancelAuth = (teamId: number, hogFlowId: string) => ({
+            Authorization: `Bearer ${mintCancelToken(teamId, hogFlowId)}`,
+        })
+
+        beforeEach(() => {
+            mockCancelJobs = jest.fn().mockResolvedValue({ marked: 3, remaining: 0, done: true })
+            api['batchResolverProducer'] = {
+                createJob: jest.fn(),
+                disconnect: jest.fn(),
+                countInFlightJobs: jest.fn(),
+                rescheduleParkedJobs: jest.fn(),
+                cancelJobs: mockCancelJobs,
+            }
+        })
+
+        afterEach(() => {
+            api['batchResolverProducer'] = null
+        })
+
+        it('accepts a Django-minted token and marks the flagged jobs', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${cancelFlowId}/invocations/cancel`)
+                .set(cancelAuth(team.id, cancelFlowId))
+                .send({ all: true })
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ marked: 3, remaining: 0, done: true })
+            expect(mockCancelJobs).toHaveBeenCalledWith(
+                expect.objectContaining({ teamId: team.id, functionId: cancelFlowId, all: true })
+            )
+        })
+
+        it.each([
+            ['no token', () => ({})],
+            [
+                'a token signed with the wrong key',
+                () => ({
+                    Authorization: `Bearer ${mintCancelToken(team.id, cancelFlowId, { secret: 'wrong-key' })}`,
+                }),
+            ],
+            [
+                "another workflow's token",
+                () => ({ Authorization: `Bearer ${mintCancelToken(team.id, new UUIDT().toString())}` }),
+            ],
+            ["another team's token", () => ({ Authorization: `Bearer ${mintCancelToken(team.id + 1, cancelFlowId)}` })],
+            [
+                // The cancel purpose shares its signing key with reschedule_parked, so the audience
+                // is the only thing keeping a reschedule token out of cancel.
+                'a reschedule-audience token',
+                () => ({
+                    Authorization: `Bearer ${mintCancelToken(team.id, cancelFlowId, {
+                        audience: 'posthog:workflows:reschedule_parked',
+                    })}`,
+                }),
+            ],
+        ])('rejects a request with %s', async (_desc, headers) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${cancelFlowId}/invocations/cancel`)
+                .set(headers())
+                .send({ all: true })
+
+            expect(res.status).toEqual(401)
+            expect(mockCancelJobs).not.toHaveBeenCalled()
+        })
+
+        it('fails closed when the cancel JWT key is not provisioned', async () => {
+            const savedJwt = api['cancelInvocationsJwt']
+            api['cancelInvocationsJwt'] = new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_CANCEL_INVOCATIONS, '')
+            try {
+                const res = await supertest(app)
+                    .post(`/api/projects/${team.id}/hog_flows/${cancelFlowId}/invocations/cancel`)
+                    .set(cancelAuth(team.id, cancelFlowId))
+                    .send({ all: true })
+
+                expect(res.status).toEqual(503)
+                expect(mockCancelJobs).not.toHaveBeenCalled()
+            } finally {
+                api['cancelInvocationsJwt'] = savedJwt
+            }
         })
     })
 
