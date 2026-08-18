@@ -556,6 +556,32 @@ describe('Recording API encryption integration', () => {
                 expect(retrievedKey.encryptedKey.equals(generatedKey.encryptedKey)).toBe(true)
             })
 
+            it('should return the existing key instead of overwriting on a second generate', async () => {
+                const sessionId = `regenerate-${Date.now()}`
+                const teamId = 50
+
+                const firstKey = await keyStore.generateKey(sessionId, teamId, 30)
+                const secondKey = await keyStore.generateKey(sessionId, teamId, 30)
+
+                expect(secondKey.sessionState).toBe('ciphertext')
+                expect(secondKey.plaintextKey.equals(firstKey.plaintextKey)).toBe(true)
+                expect(secondKey.encryptedKey.equals(firstKey.encryptedKey)).toBe(true)
+            })
+
+            it('should not resurrect a shredded session on regenerate', async () => {
+                const sessionId = `shredded-regenerate-${Date.now()}`
+                const teamId = 60
+
+                await keyStore.generateKey(sessionId, teamId, 30)
+                await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
+
+                const regenerated = await keyStore.generateKey(sessionId, teamId, 30)
+                expect(regenerated.sessionState).toBe('deleted')
+
+                const tombstone = await keyStore.getKey(sessionId, teamId)
+                expect(tombstone.sessionState).toBe('deleted')
+            })
+
             it('should return already_deleted when deleting already deleted key', async () => {
                 const sessionId = `double-delete-${Date.now()}`
                 const teamId = 4
