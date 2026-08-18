@@ -654,11 +654,11 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             "time_value": 30,
             "time_interval": "day",
         }
-        filters: dict = {"events": [{"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}]}
+        event = {"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}
         if placement == "properties":
-            filters["properties"] = [behavioral_property]
+            filters = {"events": [event], "properties": [behavioral_property]}
         else:
-            filters["events"][0]["properties"] = [behavioral_property]
+            filters = {"events": [{**event, "properties": [behavioral_property]}]}
 
         serializer = HogFunctionFiltersSerializer(
             data=filters, context={**self.filters_context, "function_type": function_type}
