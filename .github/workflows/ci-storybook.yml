@@ -1,9 +1,10 @@
 name: Storybook
 on:
     pull_request:
-        # PRs run a narrowed visual-regression matrix when the Storybook module graph
-        # can safely identify affected stories. To force the full matrix, add the
-        # `run-ci-frontend` label. The `no-ci` label does the opposite: it silences
+        # PRs outside the merge queue run a narrowed visual-regression matrix when the
+        # Storybook module graph can safely identify affected stories. Merge-queue runs
+        # use the full matrix. To force the full matrix earlier, add the `run-ci-frontend`
+        # label. The `no-ci` label does the opposite: it silences
         # this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
         # so every unrelated label re-ran the full chromium matrix against a commit CI
@@ -855,7 +856,7 @@ jobs:
         needs: [select-stories]
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # select-stories only runs on PRs without a forced full run. Fire only when it
+        # select-stories skips merge-queue and forced-full runs. Fire only when it
         # produced a decision. DevEx project only; continue-on-error so telemetry never reds CI.
         if: |
             !cancelled() && github.run_attempt == '1'
@@ -887,9 +888,9 @@ jobs:
                       }
 
     # Pick a narrowed visual-regression matrix for PRs based on which stories the Vite
-    # module graph says are affected by the diff. PRs with the run-ci-frontend label
-    # skip this job and use the full chromium matrix. Selector uncertainty also falls
-    # back to the full matrix.
+    # module graph says are affected by the diff. Merge-queue runs and PRs with the
+    # run-ci-frontend label skip this job and use the full chromium matrix. Selector
+    # uncertainty also falls back to the full matrix.
     select-stories:
         name: Story selection
         runs-on: ubuntu-latest
@@ -898,6 +899,7 @@ jobs:
         if: |
             !cancelled() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
+            && needs.changes.outputs.merge_queue != 'true'
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
