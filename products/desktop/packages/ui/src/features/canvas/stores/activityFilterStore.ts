@@ -5,6 +5,8 @@ interface ActivityFilterStore {
   /** Show only activity that hasn't been read yet. */
   unreadsOnly: boolean;
   setUnreadsOnly: (unreadsOnly: boolean) => void;
+  showMyActivity: boolean;
+  setShowMyActivity: (showMyActivity: boolean) => void;
 }
 
 // Per-device preference shared by the Activity popover and the Activity page, so
@@ -14,6 +16,8 @@ export const useActivityFilterStore = create<ActivityFilterStore>()(
     (set) => ({
       unreadsOnly: false,
       setUnreadsOnly: (unreadsOnly) => set({ unreadsOnly }),
+      showMyActivity: false,
+      setShowMyActivity: (showMyActivity) => set({ showMyActivity }),
     }),
     { name: "activity-filter-storage" },
   ),

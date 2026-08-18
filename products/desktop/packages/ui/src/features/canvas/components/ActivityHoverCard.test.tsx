@@ -1,4 +1,5 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
+import type { UserBasic } from "@posthog/shared/domain-types";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +10,12 @@ const mocks = vi.hoisted(() => ({
   isFetchingNextPage: false,
   items: [] as TaskActivityItem[],
   markRead: vi.fn(),
+  currentUser: {
+    id: 1,
+    uuid: "current-user",
+    email: "me@example.com",
+    first_name: "Me",
+  } as UserBasic | null,
 }));
 
 vi.mock("@posthog/quill", () => ({
@@ -30,27 +37,28 @@ vi.mock("@posthog/quill", () => ({
   ),
   Spinner: () => <div>Loading</div>,
   Switch: ({
+    id,
     checked,
     onCheckedChange,
   }: {
+    id: string;
     checked: boolean;
     onCheckedChange: (checked: boolean) => void;
   }) => (
     <button
+      id={id}
       type="button"
       role="switch"
       aria-checked={checked}
       onClick={() => onCheckedChange(!checked)}
-    >
-      Unreads
-    </button>
+    />
   ),
 }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => ({}),
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
-  useCurrentUser: () => ({ data: null }),
+  useCurrentUser: () => ({ data: mocks.currentUser }),
 }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityView", () => ({
   ActivityRow: ({
@@ -98,7 +106,16 @@ describe("ActivityHoverCard", () => {
     mocks.hasNextPage = true;
     mocks.isFetchingNextPage = false;
     mocks.items = [];
-    useActivityFilterStore.setState({ unreadsOnly: false });
+    mocks.currentUser = {
+      id: 1,
+      uuid: "current-user",
+      email: "me@example.com",
+      first_name: "Me",
+    };
+    useActivityFilterStore.setState({
+      unreadsOnly: false,
+      showMyActivity: false,
+    });
   });
 
   it("loads the next page when the bottom sentinel is visible", async () => {
@@ -138,6 +155,34 @@ describe("ActivityHoverCard", () => {
     ]);
   });
 
+  it("hides the current user's activity until they choose to show it", () => {
+    mocks.items = [
+      {
+        id: "own-activity",
+        taskId: "task-1",
+        activityAt: "2026-08-07T00:00:00Z",
+        activityKind: "message",
+        author: mocks.currentUser,
+        isUnread: false,
+      } as TaskActivityItem,
+      {
+        id: "agent-activity",
+        taskId: "task-2",
+        activityAt: "2026-08-07T00:01:00Z",
+        activityKind: "message",
+        author: null,
+        isUnread: true,
+      } as TaskActivityItem,
+    ];
+
+    render(<ActivityHoverCard onClose={vi.fn()} />);
+    expect(screen.getAllByText("Activity row")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("switch", { name: "Show my activity" }));
+
+    expect(screen.getAllByText("Activity row")).toHaveLength(2);
+  });
+
   it("drops read activity while the unreads filter is on", () => {
     mocks.items = [
       {
@@ -159,7 +204,7 @@ describe("ActivityHoverCard", () => {
     render(<ActivityHoverCard onClose={vi.fn()} />);
     expect(screen.getAllByText("Activity row")).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.click(screen.getByRole("switch", { name: "Unreads" }));
 
     expect(screen.getAllByText("Activity row")).toHaveLength(1);
   });

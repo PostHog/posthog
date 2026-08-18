@@ -12,7 +12,7 @@ import {
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/ActivityUnreadsToggle";
+import { ActivityFilters } from "@posthog/ui/features/canvas/components/ActivityFilters";
 import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityView";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
@@ -24,6 +24,7 @@ import { useEffect, useState } from "react";
 import {
   activityReadPayload,
   getUnreadActivityItems,
+  getVisibleActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
 
@@ -54,7 +55,14 @@ export function ActivityHoverCard({
     rootMargin: "100px 0px",
   });
   const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
-  const visibleItems = items;
+  const showMyActivity = useActivityFilterStore(
+    (state) => state.showMyActivity,
+  );
+  const visibleItems = getVisibleActivityItems(
+    items,
+    showMyActivity,
+    currentUser?.id,
+  );
   const unreadItems = getUnreadActivityItems(visibleItems);
   const shownItems = unreadsOnly ? unreadItems : visibleItems;
   const { mutate: markTasksRead, isPending: isMarkingRead } =
@@ -88,7 +96,7 @@ export function ActivityHoverCard({
     >
       <div className="flex min-h-12 items-center gap-2 border-border border-b px-3">
         <span className="font-semibold text-sm">Activity</span>
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2 py-2">
           {unreadItems.length > 0 && (
             <Button
               variant="default"
@@ -101,7 +109,7 @@ export function ActivityHoverCard({
               {markLoadedReadLabel(unreadItems.length, unreadCount)}
             </Button>
           )}
-          <ActivityUnreadsToggle />
+          <ActivityFilters />
         </div>
       </div>
       <div ref={setScrollRoot} className="max-h-[480px] overflow-y-auto p-1.5">
@@ -116,12 +124,18 @@ export function ActivityHoverCard({
                 <BellIcon />
               </EmptyMedia>
               <EmptyTitle>
-                {unreadsOnly ? "No unread activity" : "No recent activity"}
+                {unreadsOnly
+                  ? "No unread activity"
+                  : showMyActivity
+                    ? "No recent activity"
+                    : "No activity from others"}
               </EmptyTitle>
               <EmptyDescription>
                 {unreadsOnly
                   ? "You're all caught up."
-                  : "New task updates will appear here."}
+                  : showMyActivity
+                    ? "New task updates will appear here."
+                    : "Agent and teammate updates will appear here."}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

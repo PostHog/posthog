@@ -25,7 +25,7 @@ import type { UserBasic } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/ActivityUnreadsToggle";
+import { ActivityFilters } from "@posthog/ui/features/canvas/components/ActivityFilters";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
@@ -59,6 +59,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import {
   activityReadPayload,
   getUnreadActivityItems,
+  getVisibleActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
 
@@ -347,12 +348,18 @@ export function ActivityView() {
   const blockedTaskIds = useBlockedTaskIds();
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
-  const visibleItems = items;
+  const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
+  const showMyActivity = useActivityFilterStore(
+    (state) => state.showMyActivity,
+  );
+  const visibleItems = useMemo(
+    () => getVisibleActivityItems(items, showMyActivity, currentUser?.id),
+    [items, showMyActivity, currentUser?.id],
+  );
   const unreadItems = useMemo(
     () => getUnreadActivityItems(visibleItems),
     [visibleItems],
   );
-  const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
   const shownItems = unreadsOnly ? unreadItems : visibleItems;
   const visibleUnreadCount = unreadCount;
   // Opening a row is what marks it read. The server does the same when the task is
@@ -421,12 +428,18 @@ export function ActivityView() {
               <BellIcon size={20} />
             </EmptyMedia>
             <EmptyTitle>
-              {unreadsOnly ? "No unread activity" : "No activity yet"}
+              {unreadsOnly
+                ? "No unread activity"
+                : showMyActivity
+                  ? "No activity yet"
+                  : "No activity from others"}
             </EmptyTitle>
             <EmptyDescription>
               {unreadsOnly
                 ? "You're all caught up."
-                : `Task updates and comment notifications across ${spacesLayout ? "spaces" : "channels"} appear here.`}
+                : showMyActivity
+                  ? `Task updates and comment notifications across ${spacesLayout ? "spaces" : "channels"} appear here.`
+                  : "Agent and teammate updates will appear here."}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -465,7 +478,7 @@ export function ActivityView() {
               )}
               <PageHeaderActions>
                 {unreadCount > 0 && markAllReadButton}
-                <ActivityUnreadsToggle />
+                <ActivityFilters />
               </PageHeaderActions>
             </PageHeaderTitleRow>
             <PageHeaderDescription>
@@ -495,7 +508,7 @@ export function ActivityView() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {unreadCount > 0 && markAllReadButton}
-            <ActivityUnreadsToggle />
+            <ActivityFilters />
           </div>
         </div>
         <div className="mt-4">{feed}</div>

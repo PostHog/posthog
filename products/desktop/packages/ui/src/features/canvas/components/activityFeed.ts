@@ -6,6 +6,21 @@ export function getUnreadActivityItems(
   return items.filter((item) => item.isUnread);
 }
 
+export function getVisibleActivityItems(
+  items: TaskActivityItem[],
+  showMyActivity: boolean,
+  currentUserId?: number,
+): TaskActivityItem[] {
+  if (showMyActivity) {
+    return items;
+  }
+  return items.filter(
+    (item) =>
+      item.activityKind !== "created" &&
+      (currentUserId === undefined || item.author?.id !== currentUserId),
+  );
+}
+
 export function activityReadPayload(items: TaskActivityItem[]) {
   return items.map((item) => ({
     task_id: item.taskId,
