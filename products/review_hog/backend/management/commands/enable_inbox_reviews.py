@@ -47,9 +47,9 @@ class Command(BaseCommand):
         # on the same team the inbox trigger's `ReviewUserSettings.load_many` reads them from.
         try:
             team_id = resolve_effective_team_id(options["team_id"])
-        except TeamScopeError as err:
-            raise CommandError(str(err))
-        team = Team.objects.get(id=team_id)
+            team = Team.objects.get(id=team_id)
+        except (TeamScopeError, Team.DoesNotExist) as err:
+            raise CommandError(str(err)) from err
 
         member_ids = list(
             OrganizationMembership.objects.filter(

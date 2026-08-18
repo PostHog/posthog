@@ -29,7 +29,7 @@ class TestEnableInboxReviews(BaseTest):
         other_org = Organization.objects.create(name="other org")
         outsider = User.objects.create_and_join(other_org, "outsider@example.com", None)
 
-        call_command("enable_inbox_reviews", "--team-id", self.team.id)
+        call_command("enable_inbox_reviews", team_id=self.team.id)
 
         for member in (self.user, member_without_row, member_opted_out):
             row = self._row(member)
@@ -51,7 +51,7 @@ class TestEnableInboxReviews(BaseTest):
             stamphog_review_inbox_prs=False,
         )
 
-        call_command("enable_inbox_reviews", "--team-id", self.team.id, "--dry-run")
+        call_command("enable_inbox_reviews", team_id=self.team.id, dry_run=True)
 
         row = self._row(member_opted_out)
         assert row is not None
