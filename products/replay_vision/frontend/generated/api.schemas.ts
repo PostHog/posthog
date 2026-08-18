@@ -1169,6 +1169,20 @@ export interface ObserveResponseApi {
 }
 
 /**
+ * Response of GET /vision/scanners/:id/self_driving_stats/.
+ */
+export interface ScannerSelfDrivingStatsApi {
+    /** Signals this scanner has pushed into the Signals inbox, all time. */
+    signals_emitted: number
+    /** Signal reports that include at least one of this scanner's signals. Reports usually aggregate signals from several sources, so this counts contributions, not sole causes. */
+    reports_contributed: number
+    /** Implementation PRs opened by self-driving on those reports. */
+    prs_opened: number
+    /** Of the opened PRs, how many have merged. */
+    prs_merged: number
+}
+
+/**
  * * `running` - Running
  * * `paused_quota` - Paused (quota)
  * * `completed` - Completed
