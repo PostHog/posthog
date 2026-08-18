@@ -74,7 +74,6 @@ function LocalHandoffButton({ taskId, task }: { taskId: string; task: Task }) {
     <>
       <div className="no-drag flex items-center">
         <QuillButton
-          variant="outline"
           size="sm"
           disabled={inProgress}
           onClick={() =>

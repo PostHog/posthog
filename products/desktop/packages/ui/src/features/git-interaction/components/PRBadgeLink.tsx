@@ -37,11 +37,8 @@ const COMPACT_COLOR_CLASSES: Record<PrVisualConfig["color"], string> = {
  * are one neutral palette by design, and this badge's whole job is to say
  * merged from closed from open at a glance — so the tint comes from the Radix
  * token layer, which is what the app's colour scales live in anyway.
- *
- * Exported because the dropdown trigger that sits beside the badge in a
- * `ButtonGroup` has to wear the same tint, or the group reads as two controls.
  */
-export const PR_BADGE_TONE_CLASSES: Record<PrVisualConfig["color"], string> = {
+const PR_BADGE_TONE_CLASSES: Record<PrVisualConfig["color"], string> = {
   gray: "bg-(--gray-3) text-(--gray-11) not-disabled:hover:bg-(--gray-4) not-disabled:hover:text-(--gray-12)",
   green:
     "bg-(--green-3) text-(--green-11) not-disabled:hover:bg-(--green-4) not-disabled:hover:text-(--green-12)",
@@ -49,6 +46,24 @@ export const PR_BADGE_TONE_CLASSES: Record<PrVisualConfig["color"], string> = {
   purple:
     "bg-(--purple-3) text-(--purple-11) not-disabled:hover:bg-(--purple-4) not-disabled:hover:text-(--purple-12)",
 };
+
+/**
+ * How a badge wears its lifecycle colour, as props for a quill button.
+ *
+ * Draft is the exception, and takes quill's own primary: a draft is the one
+ * state that is waiting on you rather than reporting what happened, and grey
+ * said the opposite.
+ *
+ * Exported because the dropdown trigger that sits beside the badge in a
+ * `ButtonGroup` has to wear the same thing, or the group reads as two controls.
+ */
+export function prBadgeToneProps(color: PrVisualConfig["color"]): {
+  variant?: "primary";
+  className?: string;
+} {
+  if (color === "gray") return { variant: "primary" };
+  return { className: PR_BADGE_TONE_CLASSES[color] };
+}
 
 // Divider ahead of the PR-count segment, tinted to the badge's own color.
 const COUNT_DIVIDER_CLASSES: Record<PrVisualConfig["color"], string> = {
@@ -76,6 +91,7 @@ export function PRBadgeLink({
   const config = getPrVisualConfig(prState, merged, draft);
   const PrIcon = getPrVisualIcon(config.icon);
   const prNumber = parsePrNumber(prUrl);
+  const tone = prBadgeToneProps(config.color);
 
   const totalCount = otherCount + 1;
   const stackTitle =
@@ -125,7 +141,8 @@ export function PRBadgeLink({
           onClick={(e) => e.stopPropagation()}
         />
       }
-      className={cn("no-underline", PR_BADGE_TONE_CLASSES[config.color])}
+      variant={tone.variant}
+      className={cn("no-underline", tone.className)}
     >
       {isPrPending ? <Spinner className="size-3" /> : <PrIcon weight="bold" />}
       <span>

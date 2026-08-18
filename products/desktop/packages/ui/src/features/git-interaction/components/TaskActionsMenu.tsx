@@ -23,10 +23,12 @@ import {
   DropdownMenu as QDropdownMenu,
   DropdownMenuItem as QDropdownMenuItem,
   Spinner,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import type { PrActionType } from "@posthog/shared";
 import { ChevronDown } from "lucide-react";
-import { Tooltip } from "../../../primitives/Tooltip";
 import { toast } from "../../../primitives/toast";
 import { useLocalRepoPath } from "../../workspace/useLocalRepoPath";
 import { getPrActionIcon, getPrVisualIcon } from "../prIcon";
@@ -51,7 +53,7 @@ import {
   GitCommitDialog,
   GitPushDialog,
 } from "./GitInteractionDialogs";
-import { PR_BADGE_TONE_CLASSES, PRBadgeLink } from "./PRBadgeLink";
+import { PRBadgeLink, prBadgeToneProps } from "./PRBadgeLink";
 
 interface TaskActionsMenuProps {
   taskId: string;
@@ -293,6 +295,7 @@ function PrBadgeControl({
   onOtherPrSelect,
 }: PrBadgeControlProps) {
   const config = getPrVisualConfig(prState, merged, draft);
+  const tone = prBadgeToneProps(config.color);
   const lifecycleItems = config.actions;
   const hasMenuItems = gitItems.length + lifecycleItems.length > 0;
   const hasDropdown = hasMenuItems || !!branchName || otherPrs.length > 0;
@@ -325,16 +328,20 @@ function PrBadgeControl({
                 size="sm"
                 aria-label="Pull request actions"
                 disabled={isPrPending}
-                // The trigger wears the badge's own lifecycle tint: the group
+                // The trigger wears the badge's own lifecycle colour: the group
                 // is one control, and a neutral half beside a green one reads
                 // as two.
-                className={cn("px-1.5", PR_BADGE_TONE_CLASSES[config.color])}
+                variant={tone.variant}
+                className={cn("px-1.5", tone.className)}
               />
             }
           >
             <ChevronDown size={12} />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          {/* `w-auto`: quill pins a menu to its anchor's width, and the anchor
+              here is a chevron the width of a glyph, so every label was cut off
+              at the menu's 8rem floor. */}
+          <DropdownMenuContent align="end" className="w-auto">
             {gitItems.map((item) => (
               <GitDropdownItem
                 key={item.id}
@@ -438,15 +445,15 @@ function GitActionControl({
 }: GitActionControlProps) {
   const allDisabled = actions.every((a) => !a.enabled);
   const showDropdown = actions.length > 1;
-  // Nothing to do on any of them: the control is still there to say so, but it
-  // shouldn't be the loudest thing in the header while it says it.
-  const variant = allDisabled ? "default" : "primary";
   const isPrimaryDisabled = !primaryAction.enabled || isBusy;
 
+  // Outlined rather than solid: the git action is one of several things the
+  // header offers, not the header's call to action, and "Continue in cloud"
+  // sits right beside it.
   const primaryButton = (
     <QButton
       size="sm"
-      variant={variant}
+      variant="outline"
       disabled={isPrimaryDisabled}
       onClick={() => onSelect(primaryAction.id)}
     >
@@ -461,8 +468,15 @@ function GitActionControl({
 
   const wrappedPrimaryButton =
     !primaryAction.enabled && primaryAction.disabledReason ? (
-      <Tooltip content={primaryAction.disabledReason} side="bottom">
-        <span style={{ display: "inline-flex" }}>{primaryButton}</span>
+      <Tooltip>
+        {/* A disabled button takes no pointer events, so the span is what the
+            tooltip listens on. */}
+        <TooltipTrigger render={<span className="inline-flex" />}>
+          {primaryButton}
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {primaryAction.disabledReason}
+        </TooltipContent>
       </Tooltip>
     ) : (
       primaryButton
@@ -480,16 +494,16 @@ function GitActionControl({
           render={
             <QButton
               size="sm"
+              variant="outline"
               className="px-1.5"
               aria-label={`More ${primaryAction.label.toLowerCase()} actions`}
-              variant={variant}
               disabled={isBusy}
             />
           }
         >
           <ChevronDown size={12} />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="end" className="w-auto">
           {actions.map((action) => (
             <GitDropdownItem
               key={action.id}
@@ -519,8 +533,11 @@ function GitDropdownItem({
   );
   if (!action.enabled && action.disabledReason) {
     return (
-      <Tooltip content={action.disabledReason} side="left">
-        <QDropdownMenuItem disabled>{itemContent}</QDropdownMenuItem>
+      <Tooltip>
+        <TooltipTrigger render={<span className="flex" />}>
+          <QDropdownMenuItem disabled>{itemContent}</QDropdownMenuItem>
+        </TooltipTrigger>
+        <TooltipContent side="left">{action.disabledReason}</TooltipContent>
       </Tooltip>
     );
   }
