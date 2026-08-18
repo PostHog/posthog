@@ -104,7 +104,38 @@ def test_test_identity_infers_existing_pytest_file_when_junit_omits_it(
     assert file_source == "inferred"
 
 
-def test_infer_pytest_file_rejects_non_module_classnames(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "classname,file_exists,expected",
+    [
+        (
+            "products.logs.skills.authoring-log-alerts.tests.test_baseline_stats.TestBaselineStats",
+            True,
+            "products/logs/skills/authoring-log-alerts/tests/test_baseline_stats.py",
+        ),
+        (
+            "products.approvals.backend.tests.test_new_api.TestNewAPI",
+            False,
+            "products/approvals/backend/tests/test_new_api.py",
+        ),
+    ],
+)
+def test_infer_pytest_file_supports_safe_test_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    classname: str,
+    file_exists: bool,
+    expected: str,
+) -> None:
+    monkeypatch.setattr(report_test_timings, "REPO_ROOT", tmp_path)
+    if file_exists:
+        test_file = tmp_path / expected
+        test_file.parent.mkdir(parents=True)
+        test_file.touch()
+
+    assert report_test_timings.infer_pytest_file(classname) == expected
+
+
+def test_infer_pytest_file_rejects_path_traversal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     (tmp_path / "secret.py").touch()
