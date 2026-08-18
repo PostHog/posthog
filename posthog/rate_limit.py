@@ -416,13 +416,6 @@ class PostHogAIAccessRequestIPThrottle(IPThrottle):
     rate = "1/day"
 
 
-# Each request proxies synchronously to the billing service (which calls Y Combinator),
-# so cap it per user to keep the form's inline validation from tying up workers.
-class StartupsYCVerifyUserThrottle(UserRateThrottle):
-    scope = "startups_yc_verify"
-    rate = "30/minute"
-
-
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project

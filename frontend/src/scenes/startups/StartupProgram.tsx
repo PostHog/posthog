@@ -69,8 +69,6 @@ export function StartupProgram(): JSX.Element {
         shouldShowEmailDomainBlockedGate,
         user,
         ycBatchOptions,
-        ycVerification,
-        ycVerificationLoading,
         currentStartupProgramLabel,
     } = useValues(startupProgramLogic)
     const { billing, billingLoading, accountOwner } = useValues(billingLogic)
@@ -504,21 +502,29 @@ export function StartupProgram(): JSX.Element {
                                                     label="Your YC verification link"
                                                     info={
                                                         <span>
-                                                            Create a verification link at{' '}
-                                                            <Link
-                                                                target="_blank"
-                                                                to="https://www.ycombinator.com/verify/manage"
-                                                            >
-                                                                ycombinator.com/verify/manage
-                                                            </Link>
-                                                            . See{' '}
+                                                            See{' '}
                                                             <Link
                                                                 target="_blank"
                                                                 to="https://www.ycombinator.com/verify"
                                                             >
                                                                 YC's verification docs
                                                             </Link>{' '}
-                                                            for how they work.
+                                                            for how verification links work. We check your link when you
+                                                            submit the application.
+                                                        </span>
+                                                    }
+                                                    help={
+                                                        <span>
+                                                            Create a verification link at{' '}
+                                                            <Link
+                                                                target="_blank"
+                                                                to="https://www.ycombinator.com/verify/manage"
+                                                            >
+                                                                ycombinator.com/verify/manage
+                                                            </Link>{' '}
+                                                            with your company details and batch visible, so we can
+                                                            verify you automatically. Phone number, personal email, and
+                                                            social profiles can be left off.
                                                         </span>
                                                     }
                                                 >
@@ -527,28 +533,6 @@ export function StartupProgram(): JSX.Element {
                                                         className="bg-bg-light"
                                                     />
                                                 </LemonField>
-
-                                                {ycVerificationLoading ? (
-                                                    <div className="flex items-center gap-2 text-muted text-sm">
-                                                        <Spinner />
-                                                        <span>Checking your link with Y Combinator...</span>
-                                                    </div>
-                                                ) : ycVerification?.status === 'verified' ? (
-                                                    <div className="flex items-center gap-2 text-success text-sm">
-                                                        <IconCheck className="shrink-0" />
-                                                        <span>
-                                                            Verified: {ycVerification.founder_name}
-                                                            {ycVerification.batches?.length
-                                                                ? ` (${ycVerification.batches.join(', ')})`
-                                                                : ''}
-                                                        </span>
-                                                    </div>
-                                                ) : ycVerification?.status === 'unreachable' ? (
-                                                    <LemonBanner type="warning">
-                                                        We couldn't reach Y Combinator to check your link right now. You
-                                                        can still submit your application and we'll verify it manually.
-                                                    </LemonBanner>
-                                                ) : null}
 
                                                 <LemonField name="yc_batch" label="Which YC batch are you?">
                                                     <LemonSelect options={ycBatchOptions} className="bg-bg-light" />

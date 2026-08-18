@@ -1,10 +1,4 @@
-import {
-    convertShortCodeToFullBatchName,
-    getBatchValueFromVerification,
-    getEmailDomain,
-    getYCBatchOptions,
-    isPublicEmailDomain,
-} from './utils'
+import { getEmailDomain, getYCBatchOptions, isPublicEmailDomain } from './utils'
 
 let mockedToday = '2024-06-01'
 
@@ -107,45 +101,5 @@ describe('getEmailDomain()', () => {
         [undefined, ''],
     ])('%s -> %s', (email, expected) => {
         expect(getEmailDomain(email)).toEqual(expected)
-    })
-})
-
-describe('convertShortCodeToFullBatchName()', () => {
-    it.each([
-        ['S26', 'Summer 2026'],
-        ['W24', 'Winter 2024'],
-        ['X25', 'Spring 2025'],
-        ['F24', 'Fall 2024'],
-        ['s26', 'Summer 2026'],
-        [' S26 ', 'Summer 2026'],
-        ['S2026', null],
-        ['Z26', null],
-        ['Summer 2026', null],
-        ['', null],
-    ])('%s -> %s', (shortCode, expected) => {
-        expect(convertShortCodeToFullBatchName(shortCode)).toEqual(expected)
-    })
-})
-
-describe('getBatchValueFromVerification()', () => {
-    const options = [
-        { label: 'Select your batch', value: '' },
-        { label: 'Summer 2026', value: 'Summer 2026' },
-        { label: 'Winter 2024', value: 'Winter 2024' },
-        { label: 'Earlier batches', value: 'Earlier' },
-    ]
-
-    it('picks the first batch that exists in the dropdown options', () => {
-        expect(getBatchValueFromVerification(['S26'], options)).toEqual('Summer 2026')
-        expect(getBatchValueFromVerification(['W10', 'W24'], options)).toEqual('Winter 2024')
-    })
-
-    it('falls back to Earlier for recognizable batches older than the listed ones', () => {
-        expect(getBatchValueFromVerification(['W10'], options)).toEqual('Earlier')
-    })
-
-    it('returns null when no code is recognizable', () => {
-        expect(getBatchValueFromVerification([], options)).toBeNull()
-        expect(getBatchValueFromVerification(['nonsense'], options)).toBeNull()
     })
 })
