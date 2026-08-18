@@ -3,7 +3,12 @@ import type { MutableRefObject } from 'react'
 import { cloneLayoutItem, verticalCompactor } from 'react-grid-layout'
 import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 
-import { resizeNeighborToFitRow, restoreUnmovedItemPositions } from 'scenes/dashboard/dashboardResizeCompactor'
+import {
+    getResizeNeighbors,
+    resizeNeighborToFitRow,
+    restoreUnmovedItemPositions,
+} from 'scenes/dashboard/dashboardResizeCompactor'
+import type { ResizeNeighbors } from 'scenes/dashboard/dashboardResizeCompactor'
 
 import type { DashboardLayoutSize } from '~/types'
 
@@ -29,6 +34,8 @@ export function useDashboardLayoutInteraction({
     const interactionInProgress = useRef(false)
     const pendingLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
     const baselineLayout = useRef<Layout | null>(null)
+    const baselineById = useRef<Map<string, LayoutItem>>(new Map())
+    const resizeNeighbors = useRef<ResizeNeighbors>({})
     const activeItemId = useRef<string | null>(null)
     const interactionKind = useRef<InteractionKind | null>(null)
 
@@ -42,10 +49,10 @@ export function useDashboardLayoutInteraction({
                     return verticalCompactor.compact(layout, cols)
                 }
 
-                const restoredLayout = restoreUnmovedItemPositions(layout, baseline, activeTileId)
+                const restoredLayout = restoreUnmovedItemPositions(layout, baseline, activeTileId, baselineById.current)
                 const layoutForCompaction =
                     interactionKind.current === 'resize'
-                        ? resizeNeighborToFitRow(restoredLayout, baseline, activeTileId)
+                        ? resizeNeighborToFitRow(restoredLayout, baseline, activeTileId, resizeNeighbors.current)
                         : restoredLayout
                 return verticalCompactor.compact(layoutForCompaction, cols)
             },
@@ -70,8 +77,10 @@ export function useDashboardLayoutInteraction({
     const startInteraction = useCallback((layout: Layout, item: LayoutItem, kind: InteractionKind): void => {
         interactionInProgress.current = true
         baselineLayout.current = layout.map((layoutItem) => cloneLayoutItem(layoutItem))
+        baselineById.current = new Map(baselineLayout.current.map((layoutItem) => [layoutItem.i, layoutItem]))
         activeItemId.current = item.i
         interactionKind.current = kind
+        resizeNeighbors.current = kind === 'resize' ? getResizeNeighbors(baselineLayout.current, item, item.i) : {}
     }, [])
 
     const finishInteraction = useCallback((): void => {
@@ -81,6 +90,8 @@ export function useDashboardLayoutInteraction({
             pendingLayouts.current = null
         }
         baselineLayout.current = null
+        baselineById.current = new Map()
+        resizeNeighbors.current = {}
         activeItemId.current = null
         interactionKind.current = null
     }, [updateLayouts])

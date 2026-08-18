@@ -1,7 +1,16 @@
 import type { Layout, LayoutItem } from 'react-grid-layout'
 
-export function restoreUnmovedItemPositions(layout: Layout, baseline: Layout, activeItemId: string): Layout {
-    const baselineById = new Map(baseline.map((item) => [item.i, item]))
+export interface ResizeNeighbors {
+    left?: LayoutItem
+    right?: LayoutItem
+}
+
+export function restoreUnmovedItemPositions(
+    layout: Layout,
+    baseline: Layout,
+    activeItemId: string,
+    baselineById: Map<string, LayoutItem> = new Map(baseline.map((item) => [item.i, item]))
+): Layout {
     const activeItem = layout.find((item) => item.i === activeItemId)
 
     return layout.map((item) => {
@@ -18,7 +27,12 @@ export function restoreUnmovedItemPositions(layout: Layout, baseline: Layout, ac
     })
 }
 
-export function resizeNeighborToFitRow(layout: Layout, baseline: Layout, activeItemId: string): Layout {
+export function resizeNeighborToFitRow(
+    layout: Layout,
+    baseline: Layout,
+    activeItemId: string,
+    resizeNeighbors?: ResizeNeighbors
+): Layout {
     const activeItem = layout.find((item) => item.i === activeItemId)
     const baselineActiveItem = baseline.find((item) => item.i === activeItemId)
 
@@ -26,30 +40,16 @@ export function resizeNeighborToFitRow(layout: Layout, baseline: Layout, activeI
         return layout
     }
 
-    const sharesRow = (item: LayoutItem): boolean =>
-        item.y < baselineActiveItem.y + baselineActiveItem.h && item.y + item.h > baselineActiveItem.y
-
     const baselineRight = baselineActiveItem.x + baselineActiveItem.w
     const activeRight = activeItem.x + activeItem.w
     const expandingRight = activeRight > baselineRight
     const expandingLeft = activeItem.x < baselineActiveItem.x
+    const neighbors = resizeNeighbors ?? getResizeNeighbors(baseline, baselineActiveItem, activeItemId)
 
     if (expandingRight) {
-        let rightNeighbor: LayoutItem | undefined
-        for (const item of baseline) {
-            if (
-                item.i !== activeItemId &&
-                !item.static &&
-                sharesRow(item) &&
-                item.x >= baselineRight &&
-                item.x < activeRight &&
-                (!rightNeighbor || item.x < rightNeighbor.x)
-            ) {
-                rightNeighbor = item
-            }
-        }
+        const rightNeighbor = neighbors.right
 
-        if (rightNeighbor) {
+        if (rightNeighbor && rightNeighbor.x < activeRight) {
             const nextWidth = rightNeighbor.x + rightNeighbor.w - activeRight
             if (nextWidth >= (rightNeighbor.minW ?? 1)) {
                 return layout.map((item) => {
@@ -64,21 +64,9 @@ export function resizeNeighborToFitRow(layout: Layout, baseline: Layout, activeI
     }
 
     if (expandingLeft) {
-        let leftNeighbor: LayoutItem | undefined
-        for (const item of baseline) {
-            if (
-                item.i !== activeItemId &&
-                !item.static &&
-                sharesRow(item) &&
-                item.x < baselineActiveItem.x &&
-                item.x + item.w > activeItem.x &&
-                (!leftNeighbor || item.x > leftNeighbor.x)
-            ) {
-                leftNeighbor = item
-            }
-        }
+        const leftNeighbor = neighbors.left
 
-        if (leftNeighbor) {
+        if (leftNeighbor && leftNeighbor.x + leftNeighbor.w > activeItem.x) {
             const nextWidth = activeItem.x - leftNeighbor.x
             if (nextWidth >= (leftNeighbor.minW ?? 1)) {
                 return layout.map((item) => {
@@ -93,6 +81,28 @@ export function resizeNeighborToFitRow(layout: Layout, baseline: Layout, activeI
     }
 
     return layout
+}
+
+export function getResizeNeighbors(baseline: Layout, activeItem: LayoutItem, activeItemId: string): ResizeNeighbors {
+    const sharesRow = (item: LayoutItem): boolean =>
+        item.y < activeItem.y + activeItem.h && item.y + item.h > activeItem.y
+    const activeRight = activeItem.x + activeItem.w
+    let left: LayoutItem | undefined
+    let right: LayoutItem | undefined
+
+    for (const item of baseline) {
+        if (item.i === activeItemId || item.static || !sharesRow(item)) {
+            continue
+        }
+        if (item.x >= activeRight && (!right || item.x < right.x)) {
+            right = item
+        }
+        if (item.x < activeItem.x && (!left || item.x > left.x)) {
+            left = item
+        }
+    }
+
+    return { left, right }
 }
 
 function itemsOverlap(first: LayoutItem, second: LayoutItem): boolean {
