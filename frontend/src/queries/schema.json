@@ -25690,7 +25690,9 @@
                 "DeelFlows",
                 "Hootsuite",
                 "WisprFlow",
-                "SamCart"
+                "SamCart",
+                "IronSourceAds",
+                "MicrosoftExcel"
             ],
             "type": "string"
         },
