@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { TextInput } from "react-native";
 import { act, create } from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
+import type { ToolStatus } from "@/features/chat";
 import { PlanApprovalCard } from "./PlanApprovalCard";
 
 vi.mock("phosphor-react-native", () => ({
@@ -81,6 +82,109 @@ describe("PlanApprovalCard", () => {
     }
 
     expect(renderer.root.findByType("MarkdownText").props.content).toBe(plan);
+  });
+
+  it("renders the plan from the tool call when the permission is gone", () => {
+    const plan = "# Plan\n\n1. Inspect renderer\n2. Fix markdown output";
+    let renderer: ReturnType<typeof create> | null = null;
+
+    act(() => {
+      renderer = create(
+        createElement(PlanApprovalCard, {
+          toolData: {
+            toolCallId: "tool-plan",
+            status: "completed",
+            args: { plan },
+          },
+        }),
+      );
+    });
+
+    if (!renderer) {
+      throw new Error("Renderer not created");
+    }
+
+    expect(renderer.root.findByType("MarkdownText").props.content).toBe(plan);
+  });
+
+  it.each<[ToolStatus, string, string]>([
+    ["error", "Sent back with guidance", "Plan approved"],
+    ["completed", "Plan approved", "Sent back with guidance"],
+  ])(
+    "shows the outcome for a %s plan when the permission is gone",
+    (status, expectedLabel, unexpectedLabel) => {
+      const plan = "# Plan\n\n1. Inspect renderer";
+      let renderer: ReturnType<typeof create> | null = null;
+
+      act(() => {
+        renderer = create(
+          createElement(PlanApprovalCard, {
+            toolData: {
+              toolCallId: "tool-plan",
+              status,
+              args: { plan },
+            },
+          }),
+        );
+      });
+
+      if (!renderer) {
+        throw new Error("Renderer not created");
+      }
+
+      const hasLabel = (label: string) =>
+        (renderer as NonNullable<ReturnType<typeof create>>).root.findAll(
+          (node) => node.props.children === label,
+        ).length > 0;
+
+      expect(hasLabel(expectedLabel)).toBe(true);
+      expect(hasLabel(unexpectedLabel)).toBe(false);
+    },
+  );
+
+  it("shows a rejection when a live permission has no local response and errored", () => {
+    const plan = "# Plan\n\n1. Inspect renderer";
+    let renderer: ReturnType<typeof create> | null = null;
+
+    act(() => {
+      renderer = create(
+        createElement(PlanApprovalCard, {
+          toolData: {
+            toolCallId: "tool-plan",
+            status: "error",
+            args: { plan },
+          },
+          permission: {
+            requestId: "request-plan",
+            toolCall: {
+              toolCallId: "tool-plan",
+              title: "Ready to code?",
+              kind: "switch_mode",
+              rawInput: { plan },
+            },
+            options: [
+              {
+                kind: "allow_once",
+                optionId: "default",
+                name: "Yes, and manually approve edits",
+              },
+            ],
+          },
+        }),
+      );
+    });
+
+    if (!renderer) {
+      throw new Error("Renderer not created");
+    }
+
+    const hasLabel = (label: string) =>
+      (renderer as NonNullable<ReturnType<typeof create>>).root.findAll(
+        (node) => node.props.children === label,
+      ).length > 0;
+
+    expect(hasLabel("Sent back with guidance")).toBe(true);
+    expect(hasLabel("Plan approved")).toBe(false);
   });
 
   it("sends the selected approval option immediately", () => {
