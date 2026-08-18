@@ -162,7 +162,19 @@ export default function WelcomeChecklist() {
 def welcome_checklist_project() -> dict[str, Any]:
     """The checklist component's source project (kept publishable by a contract test)."""
     project = synthetic_source_project(_CHECKLIST_CODE)
-    project["capabilities"] = {"posthog": {"state": ["user"]}, "network": {"origins": []}}
+    # The complete capability shape, not just the fields the checklist uses:
+    # the builder freezes this verbatim into the artifact manifest, and older
+    # clients parse the manifest with every field required.
+    project["capabilities"] = {
+        "posthog": {
+            "insights": [],
+            "inlineQueries": False,
+            "captureEvents": [],
+            "state": ["user"],
+            "actions": [],
+        },
+        "network": {"origins": []},
+    }
     project["component"] = {"size": {"defaultW": 2, "defaultH": 5, "minW": 2, "minH": 3}}
     return project
 
