@@ -60,7 +60,16 @@ GitHubLoginFieldLookup = Literal[
 ]
 
 # Why a resolution ended with no reviewers. `no_repository` / `no_commit_hashes` are set by
-# callers that bail before calling into GitHub; the rest are decided here.
+# callers that bail before calling into GitHub; the rest are decided here. Two caveats worth
+# knowing when reading the event:
+#   - `no_github_integration` means "no integration whose access probe said yes", which also
+#     covers a probe that failed transiently: `installation_can_access_repository` returns False
+#     for a GitHub 5xx or a token/transport failure just as it does for a repo the installation
+#     genuinely can't see. Distinguishing them needs probe-failure information that
+#     `first_for_team_repository` doesn't return today.
+#   - `no_repository` is unreachable from the research pipeline (the summary workflow bails to
+#     `repo_selection_required` before running research); it exists for the other callers of
+#     `resolve_suggested_reviewers`, which discard diagnostics.
 ReviewerResolutionOutcome = Literal[
     "resolved",
     "no_repository",
@@ -265,8 +274,13 @@ def resolve_suggested_reviewers_with_diagnostics(
     outcome: ReviewerResolutionOutcome
     if reviewers:
         outcome = "resolved"
+    elif lookups_rate_limited:
+        # Any throttled lookup could have been the one holding the missing human author, so a
+        # mixed batch is attributed to the rate limit rather than to whatever the lookups that
+        # did land happened to return.
+        outcome = "github_rate_limited"
     elif lookups_resolved == 0:
-        outcome = "github_rate_limited" if lookups_rate_limited == total else "no_commit_authors"
+        outcome = "no_commit_authors"
     elif not login_weights:
         outcome = "only_bot_authors"
     else:

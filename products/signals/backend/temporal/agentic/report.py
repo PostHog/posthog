@@ -267,6 +267,33 @@ def _build_reviewers_content(
     return _PipelineReviewerResolution(reviewers=reviewers_content, diagnostics=resolution.diagnostics)
 
 
+def _report_has_live_suggested_reviewers(report_id: str) -> bool:
+    """Whether the report's live (latest) ``suggested_reviewers`` artefact still names anyone.
+
+    Unlike the artefacts this pipeline writes, this one can also come from a user edit or the API,
+    so unparseable content is treated as "someone is still assigned": the caller only uses this to
+    decide whether it may call the report reviewerless, and it must not claim that on a guess.
+    """
+    artefact = (
+        SignalReportArtefact.objects.filter(
+            report_id=report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if artefact is None:
+        return False
+    try:
+        return bool(SuggestedReviewers.model_validate_json(artefact.content).root)
+    except ValidationError:
+        logger.warning(
+            "Could not parse the report's suggested_reviewers artefact",
+            report_id=report_id,
+            artefact_id=str(artefact.id),
+        )
+        return True
+
+
 def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> None:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
@@ -389,14 +416,27 @@ async def _persist_agentic_report_artefacts(
         )
     elif not reviewers_content:
         # An empty list persists nothing, so without this the report's lack of a reviewer is
-        # indistinguishable from never having been researched.
-        await database_sync_to_async(capture_suggested_reviewers_unresolved, thread_sensitive=False)(
-            team_id=team_id,
-            report_id=report_id,
-            diagnostics=reviewer_resolution.diagnostics,
-            finding_count=len(findings),
-            has_new_finding=has_new_finding,
-        )
+        # indistinguishable from never having been researched. A re-promotion that resolves
+        # nobody leaves the previously-persisted list as the report's live reviewer set, though —
+        # that report isn't reviewerless, so firing here would make the latest-event-per-report
+        # read contradict the artefact.
+        keeps_previous_reviewers = await database_sync_to_async(
+            _report_has_live_suggested_reviewers, thread_sensitive=False
+        )(report_id)
+        if keeps_previous_reviewers:
+            logger.info(
+                "Reviewer resolution came back empty but the report keeps its previous reviewers",
+                report_id=report_id,
+                outcome=reviewer_resolution.diagnostics.outcome,
+            )
+        else:
+            await database_sync_to_async(capture_suggested_reviewers_unresolved, thread_sensitive=False)(
+                team_id=team_id,
+                report_id=report_id,
+                diagnostics=reviewer_resolution.diagnostics,
+                finding_count=len(findings),
+                has_new_finding=has_new_finding,
+            )
 
     # Backfill the research task's title now that research has produced the report title. At
     # task-creation time the report has no title yet (research is what produces it), so the task

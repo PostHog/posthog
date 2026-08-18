@@ -435,6 +435,56 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_run_agentic_report_activity_keeps_quiet_when_reviewers_are_retained(monkeypatch, ateam):
+    # A re-promotion that resolves nobody persists no empty list, so the earlier reviewers stay the
+    # report's live set. Firing `unresolved` here would make the latest-event-per-report read call a
+    # report reviewerless while its artefact still names someone.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    await database_sync_to_async(SignalReportArtefact.objects.create)(
+        team=ateam,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        content=json.dumps([{"github_login": "someone", "github_name": "Someone", "relevant_commits": []}]),
+    )
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
+        lambda team_id: 1,
+    )
+
+    async def fake_run_multi_turn_research(*args, **kwargs):
+        return _build_research_output()
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.run_multi_turn_research",
+        fake_run_multi_turn_research,
+    )
+
+    with (
+        patch("products.signals.backend.temporal.agentic.report.Heartbeater"),
+        patch("products.signals.backend.report_generation.reviewer_telemetry.posthoganalytics.capture") as mock_capture,
+    ):
+        await run_agentic_report_activity(
+            RunAgenticReportInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                repo_selection=RepoSelectionResult(
+                    repository="posthog/posthog", reason="Single repository connected: posthog/posthog"
+                ),
+            )
+        )
+
+    assert mock_capture.call_args_list == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "name,charts_enabled,output_factory,expected",
     [
