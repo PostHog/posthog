@@ -5,7 +5,7 @@ import { urlToAction } from 'kea-router'
 import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { hogFlowsBatchJobsList } from 'products/workflows/frontend/generatedApiAdapter'
+import { hogFlowsBatchJobsList } from 'products/workflows/frontend/workflowsApi'
 
 import { HogFlowBatchJob } from './hogflows/types'
 

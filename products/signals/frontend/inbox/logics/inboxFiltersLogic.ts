@@ -5,7 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { isUUIDLike } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
-import { generatedSignalReportsApi } from '../../generatedReportApi'
+import { generatedSignalReportsApi } from '../../signalReportApi'
 import { INBOX_PRIORITY_OPTIONS, INBOX_SORT_OPTIONS, INBOX_SOURCE_OPTIONS } from '../filterOptions'
 import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
 import { INBOX_SCOPE_FOR_YOU, INBOX_TAB_KEYS, InboxScope, SignalReportPriority } from '../types'

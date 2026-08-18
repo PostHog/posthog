@@ -9,7 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { IntegrationType } from '~/types'
 
-import { generatedTasksApi } from 'products/posthog_ai/frontend/generatedTasksApi'
+import { taskApi } from 'products/posthog_ai/frontend/taskApi'
 import { OriginProduct, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { type MCPErrorContext, formatErrorContext } from './errorContext'
@@ -102,13 +102,13 @@ function openCreateFixTaskForm(context: MCPErrorContext, githubIntegrations: Int
 
             let task
             try {
-                task = await generatedTasksApi.create(taskData)
+                task = await taskApi.create(taskData)
             } catch (error) {
                 lemonToast.error('Failed to create the task')
                 throw error
             }
             try {
-                await generatedTasksApi.run(task.id)
+                await taskApi.run(task.id)
                 lemonToast.success('Fix task created and agent run started')
             } catch {
                 lemonToast.warning('Task created, but the agent run could not be started')

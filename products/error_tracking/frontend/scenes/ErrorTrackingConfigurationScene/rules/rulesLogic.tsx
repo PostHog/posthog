@@ -9,7 +9,7 @@ import {
     errorTrackingRulesList,
     errorTrackingRulesReorder,
     errorTrackingRulesUpdate,
-} from 'products/error_tracking/frontend/generatedRuleApi'
+} from 'products/error_tracking/frontend/errorTrackingRuleApi'
 
 import { ErrorTrackingRule, ErrorTrackingRuleNew, ErrorTrackingRuleType, ErrorTrackingRulesLogicProps } from './types'
 

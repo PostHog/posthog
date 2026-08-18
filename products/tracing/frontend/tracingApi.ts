@@ -19,7 +19,7 @@ const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 const requestOptions = (signal?: AbortSignal): RequestInit | undefined => (signal ? { signal } : undefined)
 
-export const generatedTracingApi = {
+export const tracingApi = {
     async hasSpans(): Promise<boolean> {
         return Boolean((await tracingSpansHasSpansRetrieve(projectId())).hasSpans)
     },

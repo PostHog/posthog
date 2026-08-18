@@ -5,7 +5,7 @@ import { ApiConfig } from 'lib/api'
 
 import { FilterLogicalOperator, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
-import { logsSparklineCreate } from 'products/logs/frontend/generatedApiAdapter'
+import { logsSparklineCreate } from 'products/logs/frontend/logsApi'
 
 import { LogsFilterPreviewMetric, LogsFilterPreviewPoint } from './logsFilterVolumePreview'
 

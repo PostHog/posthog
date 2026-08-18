@@ -7,9 +7,9 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, DataModelingEdge, DataModelingJob, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
-import { generatedDataModelingNodes } from 'products/data_modeling/frontend/generatedApiAdapter'
+import { generatedDataModelingNodes } from 'products/data_modeling/frontend/dataModelingApi'
 import { warehouseSavedQueriesRetrieve } from 'products/data_warehouse/frontend/generated/api'
-import { generatedSavedQueryApi } from 'products/data_warehouse/frontend/generatedSavedQueryApi'
+import { savedQueryApi } from 'products/data_warehouse/frontend/savedQueryApi'
 
 import type { DataWarehouseSavedQueryApi } from '../../../../products/data_warehouse/frontend/generated/api.schemas'
 import type { DataModelingNodeType } from '../../types'
@@ -256,11 +256,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!savedQuery) {
                     return null
                 }
-                return await generatedSavedQueryApi.dataWarehouseDataModelingJobs.list(
-                    savedQuery.id,
-                    10,
-                    values.jobsOffset
-                )
+                return await savedQueryApi.dataWarehouseDataModelingJobs.list(savedQuery.id, 10, values.jobsOffset)
             },
         },
         lineageGraph: {

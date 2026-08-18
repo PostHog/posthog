@@ -8,11 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 import { initKeaTests } from '~/test/init'
 import { HogFunctionTemplateType } from '~/types'
 
-import {
-    hogFlowTemplatesCreate,
-    hogFlowTemplatesPartialUpdate,
-    hogFlowTemplatesRetrieve,
-} from '../../generatedApiAdapter'
+import { hogFlowTemplatesCreate, hogFlowTemplatesPartialUpdate, hogFlowTemplatesRetrieve } from '../../workflowsApi'
 import { HogFlow, HogFlowAction } from '../hogflows/types'
 import { workflowLogic } from '../workflowLogic'
 import { workflowTemplateLogic } from './workflowTemplateLogic'

@@ -9,7 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { logsQueryCreate } from 'products/logs/frontend/generatedApiAdapter'
+import { logsQueryCreate } from 'products/logs/frontend/logsApi'
 
 import type { FeatureFlagsSet } from '../../../../lib/logic/featureFlagLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'

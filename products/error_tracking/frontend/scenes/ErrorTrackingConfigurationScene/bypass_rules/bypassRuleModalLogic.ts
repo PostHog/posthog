@@ -7,7 +7,7 @@ import {
     errorTrackingRulesCreate,
     errorTrackingRulesDestroy,
     errorTrackingRulesUpdate,
-} from 'products/error_tracking/frontend/generatedRuleApi'
+} from 'products/error_tracking/frontend/errorTrackingRuleApi'
 
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingBypassRule, ErrorTrackingRuleType } from '../rules/types'

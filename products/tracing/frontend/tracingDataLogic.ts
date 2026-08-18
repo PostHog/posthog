@@ -38,9 +38,9 @@ import {
     type VisibleDurationRange,
     visibleDurationRange,
 } from './durationBuckets'
-import { generatedTracingApi } from './generatedTracingApi'
 import { type HeatmapBrushSelection, heatmapBrushToFilters } from './heatmapBrush'
 import { traceLookupDateRange } from './traceLinks'
+import { tracingApi } from './tracingApi'
 import {
     type TracingFilters,
     type TracingOrderBy,
@@ -861,7 +861,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSpans(controller)
 
-                    const response = await generatedTracingApi.listSpans(
+                    const response = await tracingApi.listSpans(
                         {
                             dateRange: values.utcDateRange,
                             orderBy: values.filters.orderBy,
@@ -896,7 +896,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             ? { offset: values.listRows.length }
                             : { after: values.nextCursor ?? undefined }
 
-                    const response = await generatedTracingApi.listSpans(
+                    const response = await tracingApi.listSpans(
                         {
                             dateRange: values.utcDateRange,
                             orderBy: values.filters.orderBy,
@@ -923,7 +923,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             [] as Span[],
             {
                 loadTraceSpans: async ({ traceId, ts }: { traceId: string; ts?: string | null }): Promise<Span[]> => {
-                    const response = await generatedTracingApi.getTrace(traceId, {
+                    const response = await tracingApi.getTrace(traceId, {
                         dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
@@ -938,7 +938,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         return values.traceSpans
                     }
                     const { traceId, ts } = values.traceLoadContext
-                    const response = await generatedTracingApi.getTrace(traceId, {
+                    const response = await tracingApi.getTrace(traceId, {
                         dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
@@ -987,7 +987,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const currentEndMs = snapshot?.currentEndMs ?? values.currentWindowMs.endMs
                     const previousStartMs = snapshot?.previousStartMs ?? values.previousWindowMs.startMs
 
-                    const response = await generatedTracingApi.tree(
+                    const response = await tracingApi.tree(
                         {
                             spanName: params.spanName,
                             serviceName: params.serviceName,
@@ -1047,7 +1047,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         actions.setLastAggregationWindow(window)
                     }
 
-                    const response = await generatedTracingApi.aggregate(
+                    const response = await tracingApi.aggregate(
                         {
                             dateRange: {
                                 date_from: new Date(window.currentStartMs).toISOString(),
@@ -1097,7 +1097,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSparkline(controller)
 
-                    const response = await generatedTracingApi.sparkline(
+                    const response = await tracingApi.sparkline(
                         {
                             dateRange: values.utcDateRange,
                             serviceNames:
@@ -1135,7 +1135,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressMatchingCounts(controller)
 
-                    const response = await generatedTracingApi.count(
+                    const response = await tracingApi.count(
                         {
                             dateRange: values.utcDateRange,
                             serviceNames:
@@ -1172,7 +1172,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressLatencyHeatmap(controller)
 
-                    const response = await generatedTracingApi.latencyHeatmap(
+                    const response = await tracingApi.latencyHeatmap(
                         {
                             dateRange: values.utcDateRange,
                             serviceNames:
@@ -1199,7 +1199,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressDurationHistogram(controller)
 
-                    const response = await generatedTracingApi.durationHistogram(
+                    const response = await tracingApi.durationHistogram(
                         {
                             dateRange: values.utcDateRange,
                             serviceNames:

@@ -15,7 +15,7 @@ import {
     messagingTemplatesCreate,
     messagingTemplatesPartialUpdate,
     messagingTemplatesRetrieve,
-} from 'products/messaging/frontend/generatedApiAdapter'
+} from 'products/messaging/frontend/messagingApi'
 
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
 import type { HogFunctionType, UserBasicType } from '../../../../frontend/src/types'

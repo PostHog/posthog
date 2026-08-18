@@ -38,7 +38,7 @@ import {
     hogFlowsSchedulesDestroy,
     hogFlowsSchedulesList,
     hogFlowsSchedulesPartialUpdate,
-} from 'products/workflows/frontend/generatedApiAdapter'
+} from 'products/workflows/frontend/workflowsApi'
 
 import type { ResourceEditedEvent, UserType } from '../../../../frontend/src/types'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'

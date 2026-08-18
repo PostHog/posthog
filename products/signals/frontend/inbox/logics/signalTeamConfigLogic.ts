@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { generatedSignalTeamConfigApi } from '../../generatedInboxApi'
+import { generatedSignalTeamConfigApi } from '../../signalsApi'
 import { captureInboxSettingsChanged } from '../inboxAnalytics'
 import type { SignalReportPriority, SignalTeamConfig } from '../types'
 

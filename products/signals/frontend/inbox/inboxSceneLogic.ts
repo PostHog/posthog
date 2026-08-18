@@ -15,11 +15,11 @@ import { userLogic } from 'scenes/userLogic'
 import { Breadcrumb } from '~/types'
 import type { UserType } from '~/types'
 
-import { generatedTasksApi } from 'products/posthog_ai/frontend/generatedTasksApi'
+import { taskApi } from 'products/posthog_ai/frontend/taskApi'
 import { OriginProduct, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import { signalsReportsViewedCreate } from 'products/signals/frontend/generated/api'
-import { generatedSignalScoutRunsApi } from 'products/signals/frontend/generatedInboxApi'
-import { generatedSignalReportsApi } from 'products/signals/frontend/generatedReportApi'
+import { generatedSignalReportsApi } from 'products/signals/frontend/signalReportApi'
+import { generatedSignalScoutRunsApi } from 'products/signals/frontend/signalsApi'
 
 import {
     captureInboxReportClosed,
@@ -405,7 +405,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                         generatedSignalScoutRunsApi.list({ limit: SCOUT_RUNS_LIMIT }),
                         // `internal: 'all'` so the pipeline's runs (research and implementation, both
                         // created internal) are included. They're hidden from the default task list.
-                        generatedTasksApi.list({
+                        taskApi.list({
                             origin_product: OriginProduct.SIGNAL_REPORT,
                             internal: 'all',
                             limit: SIGNAL_TASKS_LIMIT,

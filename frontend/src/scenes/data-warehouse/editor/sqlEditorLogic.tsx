@@ -89,10 +89,7 @@ import {
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
 import { DagSelector, openCreateDagDialog } from 'products/data_modeling/frontend/DagSelector'
-import {
-    generatedDataModelingDags,
-    generatedDataModelingNodes,
-} from 'products/data_modeling/frontend/generatedApiAdapter'
+import { generatedDataModelingDags, generatedDataModelingNodes } from 'products/data_modeling/frontend/dataModelingApi'
 import { warehouseSavedQueryFoldersCreate } from 'products/data_warehouse/frontend/generated/api'
 import {
     warehouseSavedQueriesCheckIncrementalCreate,

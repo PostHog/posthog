@@ -6,7 +6,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { DataWarehouseViewLink, PropertyDefinition, PropertyType } from '~/types'
 
-import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/generatedRelationsApi'
+import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import type { DatabaseSchemaTable } from '../../../../../frontend/src/queries/schema/schema-general'
 

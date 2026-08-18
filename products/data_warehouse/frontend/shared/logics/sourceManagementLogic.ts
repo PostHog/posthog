@@ -28,7 +28,7 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
-import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/generatedRelationsApi'
+import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 import {
     generatedExternalDataSchemas,
     generatedExternalDataSources,
@@ -40,8 +40,8 @@ import type {
     SourceConfig,
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { ExternalDataSourceRevenueAnalyticsConfig } from '../../../../../frontend/src/types'
-import { generatedWarehouseTablesApi } from '../../generatedTablesApi'
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
+import { generatedWarehouseTablesApi } from '../../warehouseTablesApi'
 import { joinsLogic } from './joinsLogic'
 import { sourcesDataLogic } from './sourcesDataLogic'
 

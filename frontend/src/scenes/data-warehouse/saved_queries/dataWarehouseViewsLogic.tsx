@@ -30,7 +30,7 @@ import {
     warehouseSavedQueriesRunCreate,
 } from 'products/data_warehouse/frontend/generated/api'
 import { warehouseSavedQueriesMaterializeCreate } from 'products/data_warehouse/frontend/generated/api'
-import { generatedSavedQueryApi } from 'products/data_warehouse/frontend/generatedSavedQueryApi'
+import { savedQueryApi } from 'products/data_warehouse/frontend/savedQueryApi'
 
 import type { DataWarehouseSavedQueryFolderApi } from '../../../../../products/data_warehouse/frontend/generated/api.schemas'
 import type { DatabaseSchemaViewTable } from '../../../queries/schema/schema-general'
@@ -572,7 +572,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         cancelDataWarehouseSavedQuery: async ({ viewId }) => {
             try {
-                await generatedSavedQueryApi.cancel(viewId)
+                await savedQueryApi.cancel(viewId)
                 lemonToast.success('Materialization cancelled')
                 actions.loadDataWarehouseSavedQueries()
             } catch {
@@ -614,7 +614,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         revertMaterialization: async ({ viewId }) => {
             try {
-                await generatedSavedQueryApi.revertMaterialization(viewId)
+                await savedQueryApi.revertMaterialization(viewId)
                 lemonToast.success('Materialization reverted')
                 // No longer materializing — drop it so the spinner stops and we don't wait for a
                 // flag that will never flip.

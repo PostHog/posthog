@@ -9,7 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
-import { generatedWarehouseTablesApi } from '../../generatedTablesApi'
+import { generatedWarehouseTablesApi } from '../../warehouseTablesApi'
 import { FileUploadFormat, fileUploadSourceType } from './fileUploadSource'
 
 // Mirrors MAX_FILE_UPLOAD_SIZE_BYTES on the backend. Checked here too so an oversized file fails

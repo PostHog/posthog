@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingNode } from '~/types'
 
-import { generatedDataModelingNodes } from 'products/data_modeling/frontend/generatedApiAdapter'
+import { generatedDataModelingNodes } from 'products/data_modeling/frontend/dataModelingApi'
 
 import type { DataWarehouseSavedQuery } from '../../types'
 

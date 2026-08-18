@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } fro
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { generatedSignalReportsApi } from '../../generatedReportApi'
+import { generatedSignalReportsApi } from '../../signalReportApi'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import type { DismissalReasonValue } from '../utils/dismissalReasons'
 

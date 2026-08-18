@@ -7,7 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { generatedSignalReportsApi } from 'products/signals/frontend/generatedReportApi'
+import { generatedSignalReportsApi } from 'products/signals/frontend/signalReportApi'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'

@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { DataWarehouseViewLink } from '~/types'
 
-import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/generatedRelationsApi'
+import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import {
     dataCatalogRelationshipProposalsAcceptCreate,

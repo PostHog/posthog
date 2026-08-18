@@ -12,7 +12,7 @@ import {
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
-export const generatedSavedQueryApi = {
+export const savedQueryApi = {
     async cancel(viewId: string): Promise<void> {
         await warehouseSavedQueriesCancelCreate(
             projectId(),

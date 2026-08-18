@@ -5,7 +5,7 @@ import { ReadableStream as NodeReadableStream } from 'stream/web'
 import { Mocks } from '~/mocks/utils'
 import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
-import { generatedConversationsApi } from 'products/conversations/frontend/generatedConversationsApi'
+import { conversationsApi } from 'products/conversations/frontend/conversationsApi'
 
 export const maxMocks: Mocks = {
     get: {
@@ -53,7 +53,7 @@ function buildReadableStream(chunks: string[]): ReadableStream<Uint8Array> {
 }
 
 export function mockStream(chunks: string[] = [': ping\n\n']): jest.SpyInstance {
-    return jest.spyOn(generatedConversationsApi, 'stream').mockResolvedValue({
+    return jest.spyOn(conversationsApi, 'stream').mockResolvedValue({
         body: buildReadableStream(chunks),
     } as Response)
 }

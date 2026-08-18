@@ -14,7 +14,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { ActionType, ActivityScope, Breadcrumb } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
-import { generatedActionsList, generatedActionUpdate } from '../generatedApi'
+import { generatedActionsList, generatedActionUpdate } from '../actionsApi'
 
 export const ACTIONS_PER_PAGE = 50
 

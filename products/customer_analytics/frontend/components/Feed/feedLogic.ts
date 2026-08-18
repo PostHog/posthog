@@ -8,7 +8,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { signalsScoutConfigList } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
-import { generatedSignalReportsApi } from 'products/signals/frontend/generatedReportApi'
 import {
     buildSignalReportListOrdering,
     InboxSortDirection,
@@ -16,6 +15,7 @@ import {
 } from 'products/signals/frontend/inbox/logics/inboxFiltersLogic'
 import { SignalReport, SignalReportPriority, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { DismissalReasonValue } from 'products/signals/frontend/inbox/utils/dismissalReasons'
+import { generatedSignalReportsApi } from 'products/signals/frontend/signalReportApi'
 
 import type { UserType } from '../../../../../frontend/src/types'
 

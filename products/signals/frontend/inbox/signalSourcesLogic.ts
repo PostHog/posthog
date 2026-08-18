@@ -30,7 +30,7 @@ import {
 } from 'products/warehouse_sources/frontend/generatedApi'
 
 import type { SignalSourceTypeApi } from '../generated/api.schemas'
-import { generatedSignalSourceConfigsApi } from '../generatedInboxApi'
+import { generatedSignalSourceConfigsApi } from '../signalsApi'
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
 import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
 import { SignalSourceConfig, ToggleSignalSourceParams } from './types'

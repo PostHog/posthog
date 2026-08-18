@@ -18,7 +18,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
-import { generatedTracingApi } from './generatedTracingApi'
+import { tracingApi } from './tracingApi'
 
 export interface TracingServiceFilterLogicProps {
     dateRange?: DateRange
@@ -92,7 +92,7 @@ export const tracingServiceFilterLogic = kea<tracingServiceFilterLogicType>([
             [] as string[],
             {
                 loadServiceNames: async () => {
-                    const response = await generatedTracingApi.serviceNames({
+                    const response = await tracingApi.serviceNames({
                         search: values.search,
                         ...(logicProps.dateRange ? { dateRange: JSON.stringify(logicProps.dateRange) } : {}),
                     })

@@ -10,13 +10,13 @@ import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
-import { hogFlowsBulkDeleteCreate } from 'products/workflows/frontend/generatedApiAdapter'
+import { hogFlowsBulkDeleteCreate } from 'products/workflows/frontend/workflowsApi'
 import {
     hogFlowsCreate,
     hogFlowsDestroy,
     hogFlowsList,
     hogFlowsPartialUpdate,
-} from 'products/workflows/frontend/generatedApiAdapter'
+} from 'products/workflows/frontend/workflowsApi'
 
 import type { HogFlow } from './hogflows/types'
 

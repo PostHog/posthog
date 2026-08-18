@@ -7,9 +7,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { generatedTasksApi } from '../generatedTasksApi'
 import { isApiNotFound, loadErrorMessage } from '../lib/load-error'
 import { phDebugQueryParams } from '../lib/ph-debug'
+import { taskApi } from '../taskApi'
 import { Task, type TaskUpsertProps } from '../types/taskTypes'
 import { tasksLogic } from './tasksLogic'
 
@@ -113,7 +113,7 @@ export const taskLogic = kea<taskLogicType>([
             {
                 loadTask: async () => {
                     try {
-                        return await generatedTasksApi.get(props.taskId, phDebugQueryParams())
+                        return await taskApi.get(props.taskId, phDebugQueryParams())
                     } catch (errorObject) {
                         actions.loadTaskFailure(loadErrorMessage('', errorObject), errorObject)
                         return isApiNotFound(errorObject) ? null : values.task
@@ -123,7 +123,7 @@ export const taskLogic = kea<taskLogicType>([
                     // Interactive, not the default background: this run starts from the detail page the user
                     // is watching, and the agent-server only relays AskUserQuestion (and other approval
                     // prompts) to the client on non-background runs.
-                    return await generatedTasksApi.run(props.taskId, {
+                    return await taskApi.run(props.taskId, {
                         mode: TaskExecutionModeEnumApi.Interactive,
                         // The agent-server self-delivers `pending_user_message` from run state on boot, and
                         // interactive runs skip the workflow's forwarding path — nothing falls back to the
@@ -132,13 +132,13 @@ export const taskLogic = kea<taskLogicType>([
                     })
                 },
                 deleteTask: async () => {
-                    await generatedTasksApi.delete(props.taskId)
+                    await taskApi.delete(props.taskId)
                     tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
                     router.actions.push('/tasks')
                     return null
                 },
                 updateTask: async ({ data }: { data: TaskUpsertProps }) => {
-                    const updatedTask = await generatedTasksApi.update(props.taskId, data)
+                    const updatedTask = await taskApi.update(props.taskId, data)
                     tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
                     return updatedTask
                 },

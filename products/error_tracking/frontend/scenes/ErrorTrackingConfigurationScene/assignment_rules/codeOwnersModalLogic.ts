@@ -10,7 +10,7 @@ import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/roles
 import { ErrorTrackingIssueAssignee, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, OrganizationMemberType, RoleType } from '~/types'
 
-import { errorTrackingRulesCreate } from 'products/error_tracking/frontend/generatedRuleApi'
+import { errorTrackingRulesCreate } from 'products/error_tracking/frontend/errorTrackingRuleApi'
 
 import type { OrganizationType } from '../../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../../components/Assignee/assigneeSelectLogic'

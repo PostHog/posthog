@@ -22,7 +22,7 @@ import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalInt
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { generatedTasksApi } from 'products/posthog_ai/frontend/generatedTasksApi'
+import { taskApi } from 'products/posthog_ai/frontend/taskApi'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     signalsReportArtefactsDiff,
@@ -44,7 +44,7 @@ import type {
     ReportChartApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
-import { generatedSignalReportsApi } from 'products/signals/frontend/generatedReportApi'
+import { generatedSignalReportsApi } from 'products/signals/frontend/signalReportApi'
 
 import {
     deriveTaskPurpose,
@@ -638,7 +638,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     const entries = await Promise.all(
                         [...associations.entries()].map(async ([taskId, meta]): Promise<ReportTaskEntry | null> => {
                             try {
-                                const task = await generatedTasksApi.get(taskId)
+                                const task = await taskApi.get(taskId)
                                 return { task, ...meta }
                             } catch {
                                 // A deleted/inaccessible task drops out of the list rather than failing the load.

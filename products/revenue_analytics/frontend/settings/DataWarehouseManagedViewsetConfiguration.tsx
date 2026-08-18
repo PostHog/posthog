@@ -12,7 +12,7 @@ import { AccessControlResourceType } from '~/types'
 import {
     generatedManagedViewsets,
     generatedRevenueAnalyticsJoins,
-} from 'products/data_warehouse/frontend/generatedRelationsApi'
+} from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 export function DataWarehouseManagedViewsetConfiguration(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

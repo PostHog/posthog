@@ -34,7 +34,7 @@ import {
     Region,
 } from '~/types'
 
-import { generatedEarlyAccessFeatures } from 'products/early_access_features/frontend/generatedApiAdapter'
+import { generatedEarlyAccessFeatures } from 'products/early_access_features/frontend/earlyAccessFeaturesApi'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { GAPromotionDialogContent } from './GAPromotionDialogContent'

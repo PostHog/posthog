@@ -10,7 +10,7 @@ import {
     messagingTemplatesCreate,
     messagingTemplatesList,
     messagingTemplatesPartialUpdate,
-} from 'products/messaging/frontend/generatedApiAdapter'
+} from 'products/messaging/frontend/messagingApi'
 
 import { MessageTemplate } from './types'
 

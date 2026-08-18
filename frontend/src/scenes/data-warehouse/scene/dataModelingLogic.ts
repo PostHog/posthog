@@ -30,7 +30,7 @@ import {
     generatedDataModelingEdges,
     generatedDataModelingJobs,
     generatedDataModelingNodes,
-} from 'products/data_modeling/frontend/generatedApiAdapter'
+} from 'products/data_modeling/frontend/dataModelingApi'
 
 import { getFormattedNodes } from './modeling/autolayout'
 import { PAGE_SIZE } from './modeling/constants'

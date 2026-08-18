@@ -18,8 +18,8 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
+import { conversationsApi } from 'products/conversations/frontend/conversationsApi'
 import { conversationsDestroy } from 'products/conversations/frontend/generated/api'
-import { generatedConversationsApi } from 'products/conversations/frontend/generatedConversationsApi'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { OrganizationType, PreflightStatus } from '../../types'
@@ -323,7 +323,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                         doNotUpdateCurrentThread?: boolean
                     }
                 ) => {
-                    const response = await generatedConversationsApi.list()
+                    const response = await conversationsApi.list()
                     return response.results.map((conversation) =>
                         mergeConversations(
                             conversation,
@@ -333,7 +333,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
 
                 loadConversation: async (conversationId: string) => {
-                    const response = await generatedConversationsApi.get(conversationId)
+                    const response = await conversationsApi.get(conversationId)
                     if (!response) {
                         // The endpoint can return an empty body; a null in the history crashes consumers
                         return values.conversationHistory

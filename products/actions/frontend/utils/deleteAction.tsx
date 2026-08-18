@@ -4,7 +4,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { ActionType } from '~/types'
 
 import type { ActionReferenceApi } from '../generated/api.schemas'
-import { actionDeleteEndpoint, generatedActionReferences } from '../generatedApi'
+import { actionDeleteEndpoint, generatedActionReferences } from '../actionsApi'
 
 /**
  * Delete an action, warning first if it has references.

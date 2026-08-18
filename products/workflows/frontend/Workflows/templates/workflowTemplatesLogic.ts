@@ -5,7 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { ApiConfig } from 'lib/api'
 import { createFuse, Fuse } from 'lib/utils/fuseSearch'
 
-import { hogFlowTemplatesDestroy, hogFlowTemplatesList } from 'products/workflows/frontend/generatedApiAdapter'
+import { hogFlowTemplatesDestroy, hogFlowTemplatesList } from 'products/workflows/frontend/workflowsApi'
 
 import type { HogFlowTemplate } from '../hogflows/types'
 

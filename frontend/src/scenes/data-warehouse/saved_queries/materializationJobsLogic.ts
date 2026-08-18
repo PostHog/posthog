@@ -32,7 +32,7 @@ import {
     warehouseSavedQueriesRetrieve,
 } from 'products/data_warehouse/frontend/generated/api'
 import { warehouseSavedQueriesResumeCreate } from 'products/data_warehouse/frontend/generated/api'
-import { generatedSavedQueryApi } from 'products/data_warehouse/frontend/generatedSavedQueryApi'
+import { savedQueryApi } from 'products/data_warehouse/frontend/savedQueryApi'
 
 import type { CountedPaginatedResponse } from '../../../lib/api'
 import { EMPTY_INCREMENTAL_DRAFT, IncrementalConfigDraft } from '../editor/IncrementalConfigFields'
@@ -243,7 +243,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             null as PaginatedResponse<DataModelingJob> | null,
             {
                 loadDataModelingJobs: async () => {
-                    return await generatedSavedQueryApi.dataWarehouseDataModelingJobs.list(
+                    return await savedQueryApi.dataWarehouseDataModelingJobs.list(
                         props.viewId,
                         values.dataModelingJobs?.results.length
                             ? Math.max(values.dataModelingJobs.results.length, DEFAULT_JOBS_PAGE_SIZE)

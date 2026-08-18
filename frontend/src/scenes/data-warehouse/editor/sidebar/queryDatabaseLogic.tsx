@@ -48,7 +48,7 @@ import {
     QueryTabState,
 } from '~/types'
 
-import { generatedQueryTabState } from 'products/data_warehouse/frontend/generatedQueryTabStateApi'
+import { generatedQueryTabState } from 'products/data_warehouse/frontend/queryTabStateApi'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'

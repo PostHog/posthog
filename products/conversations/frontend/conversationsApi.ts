@@ -18,7 +18,7 @@ import {
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
-export const generatedConversationsApi = {
+export const conversationsApi = {
     async stream(data: Record<string, any>, options?: ApiMethodOptions): Promise<Response> {
         return api.createResponse(getConversationsCreateUrl(projectId()), data, options)
     },

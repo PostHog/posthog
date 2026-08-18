@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { ApiConfig } from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { logsExplainLogWithAICreate } from 'products/logs/frontend/generatedApiAdapter'
+import { logsExplainLogWithAICreate } from 'products/logs/frontend/logsApi'
 
 import { LogExplanation } from './types'
 

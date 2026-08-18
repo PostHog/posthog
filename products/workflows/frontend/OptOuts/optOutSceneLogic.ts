@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiConfig } from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
-import { messagingPreferencesGenerateLinkCreate } from 'products/messaging/frontend/generatedApiAdapter'
+import { messagingPreferencesGenerateLinkCreate } from 'products/messaging/frontend/messagingApi'
 
 import type { UserType } from '../../../../frontend/src/types'
 

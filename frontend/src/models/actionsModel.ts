@@ -6,7 +6,7 @@ import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { ActionType } from '~/types'
 
-import { generatedActionsList, generatedActionUpdate } from 'products/actions/frontend/generatedApi'
+import { generatedActionsList, generatedActionUpdate } from 'products/actions/frontend/actionsApi'
 
 import type { TeamPublicType, TeamType } from '../types'
 

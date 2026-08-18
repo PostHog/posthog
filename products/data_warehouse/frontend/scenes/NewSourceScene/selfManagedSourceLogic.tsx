@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
 
-import { generatedWarehouseTablesApi } from '../../generatedTablesApi'
+import { generatedWarehouseTablesApi } from '../../warehouseTablesApi'
 import { sourceSceneLogic } from '../SourceScene/SourceScene'
 
 export interface TableLogicProps {

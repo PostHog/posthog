@@ -5,10 +5,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import {
-    messagingCategoriesCreate,
-    messagingCategoriesPartialUpdate,
-} from 'products/messaging/frontend/generatedApiAdapter'
+import { messagingCategoriesCreate, messagingCategoriesPartialUpdate } from 'products/messaging/frontend/messagingApi'
 
 import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
 

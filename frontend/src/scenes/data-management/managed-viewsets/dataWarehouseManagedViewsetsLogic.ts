@@ -9,7 +9,7 @@ import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general
 import {
     generatedManagedViewsets,
     generatedRevenueAnalyticsJoins,
-} from 'products/data_warehouse/frontend/generatedRelationsApi'
+} from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import type { TeamPublicType, TeamType } from '../../../types'
 import {

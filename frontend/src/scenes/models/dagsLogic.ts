@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { DataModelingDAG, DataModelingSyncInterval } from '~/types'
 
-import { generatedDataModelingDags } from 'products/data_modeling/frontend/generatedApiAdapter'
+import { generatedDataModelingDags } from 'products/data_modeling/frontend/dataModelingApi'
 
 export const SYNC_FREQUENCY_OPTIONS: { value: DataModelingSyncInterval; label: string }[] = [
     { value: '15min', label: '15 minutes' },

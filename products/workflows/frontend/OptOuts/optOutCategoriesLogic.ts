@@ -3,10 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
 
-import {
-    messagingCategoriesList,
-    messagingCategoriesPartialUpdate,
-} from 'products/messaging/frontend/generatedApiAdapter'
+import { messagingCategoriesList, messagingCategoriesPartialUpdate } from 'products/messaging/frontend/messagingApi'
 
 export type MessageCategory = {
     id: string

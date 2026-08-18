@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useState } from 'react'
 
-import { generatedSignalReportsApi } from 'products/signals/frontend/generatedReportApi'
+import { generatedSignalReportsApi } from 'products/signals/frontend/signalReportApi'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { SignalReport } from '../../types'

@@ -18,7 +18,7 @@ import { Task, TaskListParams, TaskRun, TaskUpsertProps } from './types/taskType
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
-export const generatedTasksApi = {
+export const taskApi = {
     async list(params: TaskListParams = {}): Promise<PaginatedResponse<Task>> {
         return (await tasksList(
             projectId(),

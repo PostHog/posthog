@@ -20,10 +20,10 @@ import {
     type TracingDurationHistogramData,
     type TracingLatencyHeatmapData,
 } from './durationBuckets'
-import { generatedTracingApi } from './generatedTracingApi'
 import type { HeatmapBrushSelection } from './heatmapBrush'
 import { type DurationRange, operationFilterGroup } from './operationFilters'
 import { traceLookupDateRange } from './traceLinks'
+import { tracingApi } from './tracingApi'
 import { isUserInitiatedError, NEW_QUERY_STARTED_ERROR_MESSAGE } from './tracingDataLogic'
 import { DEFAULT_DATE_RANGE } from './tracingFiltersLogic'
 import type { Span } from './types'
@@ -287,7 +287,7 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             {
                 fetchHistogram: async (_: void, breakpoint) => {
                     await breakpoint(10) // coalesce same-tick dispatches (URL restore + afterMount)
-                    const response = await generatedTracingApi.durationHistogram(
+                    const response = await tracingApi.durationHistogram(
                         {
                             dateRange: values.dateRange,
                             serviceNames: [props.serviceName],
@@ -308,7 +308,7 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             {
                 fetchLatencyHeatmap: async (_: void, breakpoint) => {
                     await breakpoint(100)
-                    const response = await generatedTracingApi.latencyHeatmap({
+                    const response = await tracingApi.latencyHeatmap({
                         dateRange: values.dateRange,
                         serviceNames: [props.serviceName],
                         filterGroup: operationFilterGroup(props.spanName, null),
@@ -325,7 +325,7 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             {
                 fetchSamples: async (_: void, breakpoint) => {
                     await breakpoint(10) // coalesce same-tick dispatches (URL restore + afterMount)
-                    const response = await generatedTracingApi.listSpans(
+                    const response = await tracingApi.listSpans(
                         {
                             dateRange: values.dateRange,
                             orderBy: 'timestamp',
@@ -351,7 +351,7 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             {
                 fetchStats: async (_: void, breakpoint) => {
                     await breakpoint(10) // coalesce same-tick dispatches (URL restore + afterMount)
-                    const response = await generatedTracingApi.aggregate(
+                    const response = await tracingApi.aggregate(
                         {
                             dateRange: values.dateRange,
                             serviceNames: [props.serviceName],
@@ -369,7 +369,7 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
             {
                 fetchSampleTrace: async ({ sample }: { sample: Span }, breakpoint) => {
                     await breakpoint(100) // debounce rapid pager clicks
-                    const response = await generatedTracingApi.getTrace(
+                    const response = await tracingApi.getTrace(
                         sample.trace_id,
                         {
                             dateRange: traceLookupDateRange(sample.timestamp),

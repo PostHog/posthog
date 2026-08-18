@@ -14,7 +14,7 @@ import { AccessControlResourceType } from '~/types'
 import {
     generatedManagedViewsets,
     generatedRevenueAnalyticsJoins,
-} from 'products/data_warehouse/frontend/generatedRelationsApi'
+} from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import { DataWarehouseManagedViewsetCard } from './DataWarehouseManagedViewsetCard'
 import { DataWarehouseManagedViewsetImpactModal } from './DataWarehouseManagedViewsetImpactModal'

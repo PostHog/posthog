@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
 
-import { hogFlowsRetrieve } from 'products/workflows/frontend/generatedApiAdapter'
+import { hogFlowsRetrieve } from 'products/workflows/frontend/workflowsApi'
 
 import type { HogFlow } from './hogflows/types'
 

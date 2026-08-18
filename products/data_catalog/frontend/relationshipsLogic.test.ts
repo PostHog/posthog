@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 import { DataWarehouseViewLink } from '~/types'
 
-import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/generatedRelationsApi'
+import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import {
     dataCatalogRelationshipProposalsAcceptCreate,

@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, EarlyAccessFeatureAssignee, EarlyAccessFeatureType } from '~/types'
 
-import { generatedEarlyAccessFeatures } from 'products/early_access_features/frontend/generatedApiAdapter'
+import { generatedEarlyAccessFeatures } from 'products/early_access_features/frontend/earlyAccessFeaturesApi'
 
 const search = createFeaturePreviewSearch<EarlyAccessFeatureType>()
 

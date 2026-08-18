@@ -11,7 +11,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { ActionStepType, ActionType, ActivityScope, Breadcrumb, HogFunctionType, ProjectTreeRef } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
-import { generatedActionRetrieve } from '../generatedApi'
+import { generatedActionRetrieve } from '../actionsApi'
 import { actionEditLogic } from './actionEditLogic'
 
 export interface ActionLogicProps {

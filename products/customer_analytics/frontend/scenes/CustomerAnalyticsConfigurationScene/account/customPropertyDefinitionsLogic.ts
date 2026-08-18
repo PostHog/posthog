@@ -35,7 +35,7 @@ import type {
     CustomPropertySyncRunApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 import { warehouseSavedQueriesList } from 'products/data_warehouse/frontend/generated/api'
-import { generatedWarehouseTablesApi } from 'products/data_warehouse/frontend/generatedTablesApi'
+import { generatedWarehouseTablesApi } from 'products/data_warehouse/frontend/warehouseTablesApi'
 
 import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './customPropertyTypes'
 

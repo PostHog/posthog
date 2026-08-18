@@ -40,7 +40,7 @@ import { JsonType, PropertyGroupFilter, UniversalFiltersGroup, UniversalFiltersG
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
-import { logsQueryCreate, logsSparklineCreate } from 'products/logs/frontend/generatedApiAdapter'
+import { logsQueryCreate, logsSparklineCreate } from 'products/logs/frontend/logsApi'
 import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
 
 import type { ProductIntentProperties } from '../../../../../../frontend/src/lib/utils/product-intents'

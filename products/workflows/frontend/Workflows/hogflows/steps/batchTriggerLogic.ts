@@ -6,7 +6,7 @@ import { ApiError } from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
-import { hogFlowsUserBlastRadiusCreate } from 'products/workflows/frontend/generatedApiAdapter'
+import { hogFlowsUserBlastRadiusCreate } from 'products/workflows/frontend/workflowsApi'
 
 import { HogFlowAction } from '../types'
 

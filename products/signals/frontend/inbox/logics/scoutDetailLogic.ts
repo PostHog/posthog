@@ -4,8 +4,8 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { dayjs } from 'lib/dayjs'
 
-import { generatedSignalScoutRunsApi } from '../../generatedInboxApi'
-import { generatedSignalReportsApi } from '../../generatedReportApi'
+import { generatedSignalReportsApi } from '../../signalReportApi'
+import { generatedSignalScoutRunsApi } from '../../signalsApi'
 import {
     LinkedSignalReport,
     SignalReport,

@@ -7,7 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { generatedTasksApi } from 'products/posthog_ai/frontend/generatedTasksApi'
+import { taskApi } from 'products/posthog_ai/frontend/taskApi'
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     reviewHogBlindSpotsList,
@@ -1096,12 +1096,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             try {
                 let repository: string | undefined
                 try {
-                    const { repositories } = await generatedTasksApi.repositories()
+                    const { repositories } = await taskApi.repositories()
                     repository = repositories[0]
                 } catch {
                     repository = undefined
                 }
-                const task = await generatedTasksApi.create({
+                const task = await taskApi.create({
                     title,
                     description: prompt,
                     origin_product: OriginProduct.USER_CREATED,

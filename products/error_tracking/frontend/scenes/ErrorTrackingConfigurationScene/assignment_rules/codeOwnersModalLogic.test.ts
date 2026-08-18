@@ -8,7 +8,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { RoleType } from '~/types'
 
-import * as generatedRuleApi from 'products/error_tracking/frontend/generatedRuleApi'
+import * as errorTrackingRuleApi from 'products/error_tracking/frontend/errorTrackingRuleApi'
 
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingRuleType } from '../rules/types'
@@ -29,9 +29,9 @@ describe('codeOwnersModalLogic', () => {
         jest.spyOn(api.roles, 'list').mockResolvedValue({ results: [role('error-tracking', 'Error tracking')] } as any)
         jest.spyOn(api.organizationMembers, 'listAll').mockResolvedValue([] as any)
         jest.spyOn(api, 'query').mockResolvedValue({ results: [[3, 2]] } as any)
-        loadRulesSpy = jest.spyOn(generatedRuleApi, 'errorTrackingRulesList').mockResolvedValue({ results: [] })
+        loadRulesSpy = jest.spyOn(errorTrackingRuleApi, 'errorTrackingRulesList').mockResolvedValue({ results: [] })
         createRuleSpy = jest
-            .spyOn(generatedRuleApi, 'errorTrackingRulesCreate')
+            .spyOn(errorTrackingRuleApi, 'errorTrackingRulesCreate')
             .mockResolvedValue({ id: 'new-rule' } as any)
         jest.spyOn(lemonToast, 'warning').mockImplementation(jest.fn())
         jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())

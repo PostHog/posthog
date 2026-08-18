@@ -21,8 +21,8 @@ import {
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { Breadcrumb, ChartDisplayType, EndpointType, EndpointVersionType } from '~/types'
 
+import { generatedEndpointsApi } from 'products/endpoints/frontend/endpointsApi'
 import { endpointsMaterializationPreviewCreate } from 'products/endpoints/frontend/generated/api'
-import { generatedEndpointsApi } from 'products/endpoints/frontend/generatedApiAdapter'
 
 import { endpointLogic } from './endpointLogic'
 import { endpointsMaterializationSuggestionCreate } from './generated/api'

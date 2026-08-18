@@ -26,7 +26,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { generatedConversationsApi } from 'products/conversations/frontend/generatedConversationsApi'
+import { conversationsApi } from 'products/conversations/frontend/conversationsApi'
 
 import type { ActionType } from '../../types'
 import type { ToolRegistration } from './max-constants'
@@ -759,7 +759,7 @@ export const maxLogic = kea<maxLogicType>([
             let conversation: ConversationDetail | null = null
 
             try {
-                conversation = await generatedConversationsApi.get(conversationId)
+                conversation = await conversationsApi.get(conversationId)
             } catch (err: any) {
                 if (err.status === 404) {
                     // If conversation is not found, do nothing. In the normal case a NotFound will be shown.

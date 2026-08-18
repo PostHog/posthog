@@ -10,7 +10,7 @@ import {
     hogFlowTemplatesCreate,
     hogFlowTemplatesPartialUpdate,
     hogFlowTemplatesRetrieve,
-} from 'products/workflows/frontend/generatedApiAdapter'
+} from 'products/workflows/frontend/workflowsApi'
 
 import type { UserType } from '../../../../../frontend/src/types'
 import type { HogFlowTemplate } from '../hogflows/types'

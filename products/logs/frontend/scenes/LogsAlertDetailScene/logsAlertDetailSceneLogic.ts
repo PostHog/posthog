@@ -37,7 +37,7 @@ import {
     LogsAlertConfigurationApi,
     PatchedLogsAlertConfigurationApi,
 } from 'products/logs/frontend/generated/api.schemas'
-import { logsSparklineCreate } from 'products/logs/frontend/generatedApiAdapter'
+import { logsSparklineCreate } from 'products/logs/frontend/logsApi'
 
 import type { LogsAlertFormType } from '../../components/LogsAlerting/logsAlertFormLogic'
 

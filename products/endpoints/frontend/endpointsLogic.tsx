@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EndpointType } from '~/types'
 
-import { generatedEndpointsApi } from 'products/endpoints/frontend/generatedApiAdapter'
+import { generatedEndpointsApi } from 'products/endpoints/frontend/endpointsApi'
 
 import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 

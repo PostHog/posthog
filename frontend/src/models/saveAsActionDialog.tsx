@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { actionsModel } from '~/models/actionsModel'
 import { ActionStepType, EventType, RecordingEventType } from '~/types'
 
-import { generatedActionCreate } from 'products/actions/frontend/generatedApi'
+import { generatedActionCreate } from 'products/actions/frontend/actionsApi'
 
 type AutocaptureEvent = (EventType | RecordingEventType) & { event: '$autocapture' }
 

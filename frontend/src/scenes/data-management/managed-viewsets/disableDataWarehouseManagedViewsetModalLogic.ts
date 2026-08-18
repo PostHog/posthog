@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 import { DataWarehouseManagedViewsetSavedQuery } from '~/types'
 
-import { generatedManagedViewsets } from 'products/data_warehouse/frontend/generatedRelationsApi'
+import { generatedManagedViewsets } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 export const VIEWSET_TITLES: Record<DataWarehouseManagedViewsetKind, string> = {
     revenue_analytics: 'Revenue analytics',

@@ -15,7 +15,7 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { EndpointRequest, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EndpointType, EndpointVersionType } from '~/types'
 
-import { generatedEndpointsApi } from 'products/endpoints/frontend/generatedApiAdapter'
+import { generatedEndpointsApi } from 'products/endpoints/frontend/endpointsApi'
 
 import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 import type { EndpointVersionMaterializationType } from '../../../frontend/src/types'

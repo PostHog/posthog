@@ -18,7 +18,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 
-import { generatedWarehouseTablesApi } from 'products/data_warehouse/frontend/generatedTablesApi'
+import { generatedWarehouseTablesApi } from 'products/data_warehouse/frontend/warehouseTablesApi'
 
 import type {
     DatabaseSchemaDataWarehouseTable,

@@ -10,8 +10,8 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { DataWarehouseViewLink, DataWarehouseViewLinkValidation } from '~/types'
 
-import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/generatedRelationsApi'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import type { DatabaseSchemaTable } from '../../queries/schema/schema-general'
 import { ViewLinkKeyLabel } from './ViewLinkModal'

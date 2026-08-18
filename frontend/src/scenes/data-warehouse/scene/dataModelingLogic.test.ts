@@ -6,10 +6,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import {
-    generatedDataModelingEdges,
-    generatedDataModelingNodes,
-} from 'products/data_modeling/frontend/generatedApiAdapter'
+import { generatedDataModelingEdges, generatedDataModelingNodes } from 'products/data_modeling/frontend/dataModelingApi'
 
 import { dataModelingLogic } from './dataModelingLogic'
 import type { Edge, Node } from './modeling/types'

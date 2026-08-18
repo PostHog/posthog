@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
-import { generatedSignalReportsApi } from '../../generatedReportApi'
+import { generatedSignalReportsApi } from '../../signalReportApi'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import {
     ACTIONABLE_ACTIONABILITY_VALUES,
