@@ -6,6 +6,7 @@ import {
     canCreateSupportTicket,
     composeTicketBody,
     formatTicketConfirmationMessage,
+    getTicketPromptData,
     getTicketSummaryData,
     isTicketCommand,
     isTicketConfirmationMessage,
@@ -51,6 +52,19 @@ describe('ticketUtils', () => {
             ]
 
             expect(getTicketSummaryData(thread, false)).toEqual({ summary: SUMMARY, messageIndex: 3 })
+        })
+    })
+
+    describe('getTicketPromptData', () => {
+        const prompt = "I'll help you create a support ticket"
+
+        it.each([
+            ['plain command with text', '/ticket sync failed', 'sync failed'],
+            ['leading whitespace still prefills the text', '  /ticket sync failed', 'sync failed'],
+            ['bare command has no prefill', '/ticket', undefined],
+        ])('%s', (_name, content, expectedInitialText) => {
+            const thread = [human(content), ai(prompt)]
+            expect(getTicketPromptData(thread, false)).toEqual({ needed: true, initialText: expectedInitialText })
         })
     })
 

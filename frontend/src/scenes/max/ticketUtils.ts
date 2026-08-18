@@ -60,8 +60,9 @@ export function formatTicketConfirmationMessage(ticketId: string, responseTime: 
  * Extracts the text after "/ticket " from a message, if any.
  */
 function extractTicketText(content: string): string | undefined {
-    if (content.startsWith('/ticket ')) {
-        const text = content.slice('/ticket '.length).trim()
+    const trimmed = content.trim()
+    if (trimmed.startsWith('/ticket ')) {
+        const text = trimmed.slice('/ticket '.length).trim()
         return text || undefined
     }
     return undefined
