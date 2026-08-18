@@ -142,6 +142,51 @@ describe("PlanApprovalCard", () => {
     },
   );
 
+  it("shows a rejection when a live permission has no local response and errored", () => {
+    const plan = "# Plan\n\n1. Inspect renderer";
+    let renderer: ReturnType<typeof create> | null = null;
+
+    act(() => {
+      renderer = create(
+        createElement(PlanApprovalCard, {
+          toolData: {
+            toolCallId: "tool-plan",
+            status: "error",
+            args: { plan },
+          },
+          permission: {
+            requestId: "request-plan",
+            toolCall: {
+              toolCallId: "tool-plan",
+              title: "Ready to code?",
+              kind: "switch_mode",
+              rawInput: { plan },
+            },
+            options: [
+              {
+                kind: "allow_once",
+                optionId: "default",
+                name: "Yes, and manually approve edits",
+              },
+            ],
+          },
+        }),
+      );
+    });
+
+    if (!renderer) {
+      throw new Error("Renderer not created");
+    }
+
+    const hasLabel = (label: string) =>
+      (renderer as NonNullable<ReturnType<typeof create>>).root.findAll(
+        (node) => node.props.children === label,
+      ).length > 0;
+
+    expect(hasLabel("Sent back with guidance")).toBe(true);
+    expect(hasLabel("Plan approved")).toBe(false);
+  });
+
   it("sends the selected approval option immediately", () => {
     const onSendPermissionResponse = vi.fn();
     let renderer: ReturnType<typeof create> | null = null;

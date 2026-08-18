@@ -94,10 +94,8 @@ export function PlanApprovalCard({
     selectedOption?.name ||
     response?.displayText ||
     null;
-  const resolvedAsReject = permission
-    ? selectedOption
-      ? isPermissionRejection(selectedOption)
-      : false
+  const resolvedAsReject = selectedOption
+    ? isPermissionRejection(selectedOption)
     : toolData.status === "error";
 
   return (
