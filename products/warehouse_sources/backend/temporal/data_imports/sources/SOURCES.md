@@ -28,6 +28,7 @@ vendor's API, see [COVERAGE_GAPS.md](COVERAGE_GAPS.md), refreshed by the
 | **HTTP (vendor SDK)**     | The vendor ships its own SDK that wraps HTTP. Where the SDK exposes a session/transport hook, we inject `make_tracked_session()` so the calls are still tracked. |
 | **gRPC**                  | The vendor SDK uses gRPC over HTTP/2 (binary, not REST). Routed through the [tracked gRPC transport](common/grpc/) via client interceptors (see `common/grpc/`). |
 | **DB protocol**           | Native database wire protocol via a driver (e.g. PostgreSQL, MySQL, Snowflake). Not HTTP.                                                                        |
+| **SSH (SFTP)**            | SFTP over an SSH transport via `paramiko`. Not HTTP, so neither the HTTP nor the gRPC tracked transport applies.                                                 |
 | **Webhook (S3-buffered)** | Vendor pushes events to a webhook endpoint; payloads are buffered to S3 by the `WebhookSourceManager` and consumed by the pipeline.                              |
 
 When a source uses more than one transport (e.g. BigQuery REST + Storage gRPC, or Stripe pull-API + webhooks),
@@ -94,6 +95,7 @@ the row lists both.
 | awin                             | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
 | aws_ses                          | HTTP                        | requests                                                        | ✅                          |
+| azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
 | babelforce                       | HTTP                        | requests                                                        | ✅                          |
 | bamboohr                         | HTTP                        | requests                                                        | ✅                          |
@@ -297,6 +299,7 @@ the row lists both.
 | google_ads                       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_analytics                 | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
 | google_pagespeed_insights        | HTTP                        | requests                                                        | ✅                          |
+| google_play_console              | HTTP                        | requests                                                        | ✅                          |
 | google_sheets                    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | google_webfonts                  | HTTP                        | requests                                                        | ✅                          |
 | grafana                          | HTTP                        | requests                                                        | ✅                          |
@@ -566,6 +569,7 @@ the row lists both.
 | sentinelone                      | HTTP                        | requests                                                        | ✅                          |
 | sentry                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
+| sftp                             | SSH (SFTP)                  | paramiko                                                        | ➖                          |
 | shippo                           | HTTP                        | requests                                                        | ✅                          |
 | shipstation                      | HTTP                        | requests                                                        | ✅                          |
 | shopify                          | HTTP                        | requests                                                        | ✅                          |
@@ -828,7 +832,6 @@ doesn't conflict with concurrent PRs.
 - azure_api_management
 - azure_application_insights
 - azure_blob
-- azure_cost_management
 - azure_data_explorer
 - azure_data_factory
 - azure_log_analytics
@@ -1042,7 +1045,6 @@ doesn't conflict with concurrent PRs.
 - google_drive
 - google_forms
 - google_merchant_center
-- google_play_console
 - google_tasks
 - google_workspace_admin_reports
 - greythr
@@ -1287,6 +1289,7 @@ doesn't conflict with concurrent PRs.
 - sailthru
 - salesforce_marketing_cloud
 - salestrics
+- samcart
 - sanity
 - sap_concur
 - sap_erp
@@ -1315,7 +1318,6 @@ doesn't conflict with concurrent PRs.
 - sevalla
 - sevdesk
 - sevenshifts
-- sftp
 - sharepoint
 - sharetribe
 - shippo
