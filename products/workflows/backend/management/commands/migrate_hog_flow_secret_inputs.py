@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
+from django.db import transaction
 
 import structlog
 
@@ -32,18 +33,18 @@ class Command(BaseCommand):
         migrated = 0
         scanned = 0
         errors = 0
+        # Templates are a shared global registry, so one cache serves the whole run.
+        template_cache: dict = {}
         paginator = Paginator(queryset.order_by("id"), options["page_size"])
         for page_num in paginator.page_range:
             for flow in paginator.page(page_num).object_list:
                 scanned += 1
                 try:
-                    template_cache: dict = {}
                     live_plaintext = plaintext_secret_map(flow.actions, template_cache)
                     draft_plaintext = plaintext_secret_map((flow.draft or {}).get("actions"), template_cache)
                     if not live_plaintext and not draft_plaintext:
                         continue
 
-                    migrated += 1
                     keys_desc = {
                         action_id: sorted(values) for action_id, values in (live_plaintext | draft_plaintext).items()
                     }
@@ -52,24 +53,11 @@ class Command(BaseCommand):
                         f"status={flow.status} secret_keys={keys_desc}"
                     )
                     if not live:
+                        migrated += 1
                         continue
 
-                    update_fields = ["updated_at"]
-                    if live_plaintext:
-                        content = {"actions": flow.actions, "trigger": flow.trigger}
-                        stripped = strip_secrets_from_content(content, template_cache)
-                        flow.actions = content["actions"]
-                        flow.trigger = content["trigger"]
-                        # Values already moved to encrypted storage win over stale plaintext copies.
-                        flow.encrypted_inputs = merge_secret_maps(stripped, flow.encrypted_inputs)
-                        update_fields += ["actions", "trigger", "encrypted_inputs"]
-                    if draft_plaintext:
-                        draft = dict(flow.draft)
-                        stripped = strip_secrets_from_content(draft, template_cache)
-                        flow.draft = draft
-                        flow.draft_encrypted_inputs = merge_secret_maps(stripped, flow.draft_encrypted_inputs)
-                        update_fields += ["draft", "draft_encrypted_inputs"]
-                    flow.save(update_fields=update_fields)
+                    if self._migrate_locked(flow.id, template_cache):
+                        migrated += 1
                 except Exception as e:
                     errors += 1
                     logger.error(
@@ -83,3 +71,32 @@ class Command(BaseCommand):
 
         summary = f"Scanned {scanned} flows; {'migrated' if live else 'would migrate'} {migrated}; errors {errors}"
         self.stdout.write(self.style.SUCCESS(summary))
+
+    def _migrate_locked(self, flow_id, template_cache: dict) -> bool:
+        # API saves to these columns all lock the row (select_for_update) - do the same, and rebuild
+        # the secret maps from the locked row, so a concurrent edit or rotation in the window between
+        # the scan and this write is never overwritten with stale content.
+        with transaction.atomic():
+            flow = HogFlow.objects.select_for_update().get(id=flow_id)
+            live_plaintext = plaintext_secret_map(flow.actions, template_cache)
+            draft_plaintext = plaintext_secret_map((flow.draft or {}).get("actions"), template_cache)
+            if not live_plaintext and not draft_plaintext:
+                return False
+
+            update_fields = ["updated_at"]
+            if live_plaintext:
+                content = {"actions": flow.actions, "trigger": flow.trigger}
+                stripped = strip_secrets_from_content(content, template_cache)
+                flow.actions = content["actions"]
+                flow.trigger = content["trigger"]
+                # Values already moved to encrypted storage win over stale plaintext copies.
+                flow.encrypted_inputs = merge_secret_maps(stripped, flow.encrypted_inputs)
+                update_fields += ["actions", "trigger", "encrypted_inputs"]
+            if draft_plaintext:
+                draft = dict(flow.draft)
+                stripped = strip_secrets_from_content(draft, template_cache)
+                flow.draft = draft
+                flow.draft_encrypted_inputs = merge_secret_maps(stripped, flow.draft_encrypted_inputs)
+                update_fields += ["draft", "draft_encrypted_inputs"]
+            flow.save(update_fields=update_fields)
+        return True

@@ -4783,3 +4783,33 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
         already_encrypted = HogFlow.objects.get(id=untouched)
         assert already_encrypted.encrypted_inputs["action_1"]["api_key"]["value"] == "ALREADY-ENCRYPTED"
+
+    def test_migrate_command_moves_draft_plaintext_and_keeps_encrypted_precedence(self):
+        # A legacy row can hold plaintext in its staged draft too, and can hold a stale plaintext
+        # copy of a secret that already moved to encrypted storage. The draft plaintext must land in
+        # draft_encrypted_inputs, and the already-encrypted value must win over the stale plaintext.
+        flow = self._create_legacy_flow()
+        flow.encrypted_inputs = {"action_1": {"api_key": {"value": "ENCRYPTED-WINS"}}}
+        flow.draft = {
+            "actions": [
+                {
+                    "id": "action_1",
+                    "name": "action_1",
+                    "type": "function",
+                    "config": {
+                        "template_id": _SECRET_TEMPLATE_ID,
+                        "inputs": {"url": {"value": "https://example.com"}, "api_key": {"value": "DRAFT-SECRET"}},
+                    },
+                }
+            ]
+        }
+        flow.save(update_fields=["encrypted_inputs", "draft"])
+
+        call_command("migrate_hog_flow_secret_inputs", "--team-id", str(self.team.id), "--live")
+
+        flow = HogFlow.objects.get(id=flow.id)
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "ENCRYPTED-WINS"
+        assert flow.draft_encrypted_inputs["action_1"]["api_key"]["value"] == "DRAFT-SECRET"
+        stored = json.dumps({"actions": flow.actions, "trigger": flow.trigger, "draft": flow.draft})
+        assert "LEGACY-SECRET" not in stored
+        assert "DRAFT-SECRET" not in stored
