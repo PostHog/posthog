@@ -156,9 +156,12 @@ describe("notifyPromptComplete", () => {
     );
   });
 
-  it("emits activity born read when the task is already on screen", () => {
+  it.each([
+    ["focused on the task → born read", true, false],
+    ["task on screen but app unfocused → unread", false, true],
+  ])("emits activity: %s", (_label, hasFocus, isUnread) => {
     const { bus } = makeBus({
-      hasFocus: true,
+      hasFocus,
       activeTarget: taskTarget(TASK_ID),
     });
     const listener = vi.fn();
@@ -167,7 +170,7 @@ describe("notifyPromptComplete", () => {
     bus.notifyPromptComplete("My task", "end_turn", TASK_ID);
 
     expect(listener).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: TASK_ID, isUnread: false }),
+      expect.objectContaining({ taskId: TASK_ID, isUnread }),
     );
   });
 

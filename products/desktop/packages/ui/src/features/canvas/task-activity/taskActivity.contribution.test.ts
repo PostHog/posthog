@@ -7,6 +7,12 @@ import type {
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { type InfiniteData, QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const markTaskActivityRead = vi.hoisted(() => vi.fn());
+vi.mock("@posthog/ui/features/auth/authClientImperative", () => ({
+  getAuthenticatedClient: () => Promise.resolve({ markTaskActivityRead }),
+}));
+
 import { TaskActivityContribution } from "./taskActivity.contribution";
 
 let activityListener: ((signal: TaskActivitySignal) => void) | undefined;
@@ -208,6 +214,27 @@ describe("TaskActivityContribution", () => {
       "task-activity",
     ]);
     expect(cached?.pages[0]?.results[0]?.channel_id).toBeNull();
+  });
+
+  it.each([
+    ["born-read activity advances the server read cursor", false, 1],
+    ["unread activity leaves the server cursor alone", true, 0],
+  ])("%s", async (_label, isUnread, persistCalls) => {
+    activityListener?.({
+      taskId: "task-1",
+      taskTitle: "Channel task",
+      activityKind: "completed",
+      activityAt: "2026-07-27T10:00:00Z",
+      isUnread,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(markTaskActivityRead).toHaveBeenCalledTimes(persistCalls);
+    if (persistCalls > 0) {
+      expect(markTaskActivityRead).toHaveBeenCalledWith([
+        { task_id: "task-1", seen_before: "2026-07-27T10:00:00Z" },
+      ]);
+    }
   });
 
   it("does not recreate activity data after the authenticated query is removed", () => {

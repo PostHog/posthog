@@ -287,4 +287,72 @@ describe("task activity hooks", () => {
       { task_id: "task-2", seen_before: expect.any(String) },
     ]);
   });
+
+  it("clears unread activity that lands while the task is open, stamping the row's own timestamp", async () => {
+    mockClient.markTaskActivityRead.mockResolvedValue({
+      marked_read: 1,
+      unread_count: 0,
+    });
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+
+    renderHook(() => useMarkTaskActivityReadOnOpen("task-1"), { wrapper });
+    await waitFor(() =>
+      expect(mockClient.markTaskActivityRead).toHaveBeenCalledOnce(),
+    );
+
+    act(() => {
+      queryClient.setQueryData(TASK_ACTIVITY_QUERY_KEY, {
+        pages: [
+          {
+            results: [activity({ activity_at: "2099-01-01T00:00:00.000Z" })],
+            unread_count: 1,
+          },
+        ],
+        pageParams: [undefined],
+      });
+    });
+
+    await waitFor(() =>
+      expect(mockClient.markTaskActivityRead).toHaveBeenCalledTimes(2),
+    );
+    expect(mockClient.markTaskActivityRead).toHaveBeenLastCalledWith([
+      { task_id: "task-1", seen_before: "2099-01-01T00:00:00.000Z" },
+    ]);
+    hasFocus.mockRestore();
+  });
+
+  it("defers clearing unread activity to window focus while the app is unfocused", async () => {
+    mockClient.markTaskActivityRead.mockResolvedValue({
+      marked_read: 1,
+      unread_count: 0,
+    });
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+
+    renderHook(() => useMarkTaskActivityReadOnOpen("task-1"), { wrapper });
+    await waitFor(() =>
+      expect(mockClient.markTaskActivityRead).toHaveBeenCalledOnce(),
+    );
+
+    act(() => {
+      queryClient.setQueryData(TASK_ACTIVITY_QUERY_KEY, {
+        pages: [
+          {
+            results: [activity({ activity_at: "2099-01-01T00:00:00.000Z" })],
+            unread_count: 1,
+          },
+        ],
+        pageParams: [undefined],
+      });
+    });
+    expect(mockClient.markTaskActivityRead).toHaveBeenCalledOnce();
+
+    hasFocus.mockReturnValue(true);
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await waitFor(() =>
+      expect(mockClient.markTaskActivityRead).toHaveBeenCalledTimes(2),
+    );
+    hasFocus.mockRestore();
+  });
 });

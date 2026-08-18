@@ -57,9 +57,9 @@ export interface TaskActivitySignal {
   taskTitle: string;
   activityKind: Extract<TaskActivityKind, "awaiting_input" | "completed">;
   activityAt: string;
-  // False when the user already has the task on screen: the feed row should
-  // still update, but activity they are watching happen must not light the
-  // unread badge.
+  // False when the user is watching the task happen (app focused and the task
+  // on screen, the same pair routeNotification uses to suppress delivery): the
+  // feed row should still update, but it must not light the unread badge.
   isUnread: boolean;
 }
 
@@ -229,10 +229,10 @@ export class NotificationBus {
       taskTitle,
       activityKind,
       activityAt: new Date().toISOString(),
-      isUnread: !targetsEqual(this.view.getActiveTarget(), {
-        kind: "task",
-        taskId,
-      }),
+      isUnread: !(
+        this.view.hasFocus() &&
+        targetsEqual(this.view.getActiveTarget(), { kind: "task", taskId })
+      ),
     };
     for (const listener of this.taskActivityListeners) {
       try {

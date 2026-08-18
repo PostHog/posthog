@@ -1,10 +1,12 @@
 import type { Contribution } from "@posthog/di/contribution";
 import type { Task, TaskActivityPage } from "@posthog/shared/domain-types";
+import { getAuthenticatedClient } from "@posthog/ui/features/auth/authClientImperative";
 import {
   NotificationBus,
   type TaskActivitySignal,
 } from "@posthog/ui/features/notifications/notifications";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
+import { logger } from "@posthog/ui/shell/logger";
 import {
   IMPERATIVE_QUERY_CLIENT,
   type ImperativeQueryClient,
@@ -12,6 +14,8 @@ import {
 import type { InfiniteData } from "@tanstack/react-query";
 import { inject, injectable } from "inversify";
 import { TASK_ACTIVITY_QUERY_KEY } from "./taskActivityQuery";
+
+const log = logger.scope("task-activity");
 
 @injectable()
 export class TaskActivityContribution implements Contribution {
@@ -25,7 +29,23 @@ export class TaskActivityContribution implements Contribution {
   start(): void {
     this.notificationBus.subscribeToTaskActivity((signal) => {
       this.apply(signal);
+      if (!signal.isUnread) this.persistRead(signal);
     });
+  }
+
+  // A born-read row only exists in this session's cache; without advancing
+  // the server's read cursor too, the activity comes back unread on the next
+  // cold load even though the user watched it happen.
+  private persistRead(signal: TaskActivitySignal): void {
+    getAuthenticatedClient()
+      .then((client) =>
+        client?.markTaskActivityRead([
+          { task_id: signal.taskId, seen_before: signal.activityAt },
+        ]),
+      )
+      .catch((error) => {
+        log.warn("Failed to persist watched task activity as read", { error });
+      });
   }
 
   private apply(signal: TaskActivitySignal): void {
