@@ -46,7 +46,7 @@ function describeChange(change: SupportActivityChange): string | null {
     return null;
   }
 
-  if (field === "tags") {
+  if (field === "tag" || field === "tags") {
     return describeTagChange(change);
   }
 
@@ -87,6 +87,11 @@ function formatValue(field: string, value: unknown): string | null {
   return String(value);
 }
 
+// Ticket tag changes arrive one tag at a time (`field: "tag"`, a bare string),
+// while the shared tagged-item path sends the whole list. Normalize both.
 function asStrings(value: unknown): string[] {
+  if (typeof value === "string") {
+    return [value];
+  }
   return Array.isArray(value) ? value.filter((v) => typeof v === "string") : [];
 }

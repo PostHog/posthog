@@ -31,14 +31,17 @@ export function isTicketTaskTag(tag: string): boolean {
   return MACHINE_TAG_PREFIXES.some((prefix) => lower.startsWith(prefix));
 }
 
+export function withoutTicketTaskId(
+  tags: readonly string[] | undefined,
+): string[] {
+  return (tags ?? []).filter((tag) => !isTicketTaskTag(tag));
+}
+
 export function withTicketTaskId(
   tags: readonly string[] | undefined,
   taskId: string,
 ): string[] {
-  return [
-    ...(tags ?? []).filter((tag) => !isTicketTaskTag(tag)),
-    `${TASK_TAG_PREFIX}${taskId}`,
-  ];
+  return [...withoutTicketTaskId(tags), `${TASK_TAG_PREFIX}${taskId}`];
 }
 
 const MAX_PROMPT_MESSAGES = 20;

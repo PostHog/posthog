@@ -90,6 +90,24 @@ describe("activity summaries", () => {
       "removed urgent",
     ],
     [
+      "a tag the backend reports on its own",
+      {
+        detail: {
+          changes: [{ field: "tag", before: null, after: "exports" }],
+        },
+      },
+      "added exports",
+    ],
+    [
+      "a single tag being removed",
+      {
+        detail: {
+          changes: [{ field: "tag", before: "exports", after: null }],
+        },
+      },
+      "removed exports",
+    ],
+    [
       "several changes at once",
       {
         detail: {

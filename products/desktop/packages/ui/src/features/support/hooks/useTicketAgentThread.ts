@@ -1,6 +1,7 @@
 import type { SupportTicket } from "@posthog/api-client/posthog-client";
 import {
   readTicketTaskId,
+  withoutTicketTaskId,
   withTicketTaskId,
 } from "@posthog/core/support/ticketTaskLink";
 import { useUpdateSupportTicket } from "@posthog/ui/features/support/hooks/useUpdateSupportTicket";
@@ -23,5 +24,15 @@ export function useTicketAgentThread(ticket: SupportTicket | undefined) {
     [ticket, updateTicket],
   );
 
-  return { taskId, linkTask };
+  const unlinkTask = useCallback(() => {
+    if (!ticket) {
+      return;
+    }
+    updateTicket.mutate({
+      ticketId: ticket.id,
+      updates: { tags: withoutTicketTaskId(ticket.tags) },
+    });
+  }, [ticket, updateTicket]);
+
+  return { taskId, linkTask, unlinkTask };
 }

@@ -3,18 +3,28 @@ import type {
   SupportTicket,
   SupportTicketMessage,
 } from "@posthog/api-client/posthog-client";
+import { ticketAgentThreadNeverStarted } from "@posthog/core/support/ticketAgentSession";
 import { buildTicketAgentPrompt } from "@posthog/core/support/ticketTaskLink";
 import {
+  Button,
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Text,
 } from "@posthog/quill";
 import { ChannelHomeComposer } from "@posthog/ui/features/canvas/components/ChannelHomeComposer";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
+import { useSessionForTask } from "@posthog/ui/features/sessions/sessionStore";
 import { useTicketAgentThread } from "@posthog/ui/features/support/hooks/useTicketAgentThread";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import {
+  useWorkspace,
+  useWorkspaceLoaded,
+} from "@posthog/ui/features/workspace/useWorkspace";
+import { navigateToTaskDetail } from "@posthog/ui/router/navigationBridge";
 import { useQuery } from "@tanstack/react-query";
 
 export function TicketAgentPanel({
@@ -24,10 +34,10 @@ export function TicketAgentPanel({
   ticket: SupportTicket;
   messages: SupportTicketMessage[];
 }) {
-  const { taskId, linkTask } = useTicketAgentThread(ticket);
+  const { taskId, linkTask, unlinkTask } = useTicketAgentThread(ticket);
 
   if (taskId) {
-    return <TicketAgentSession taskId={taskId} />;
+    return <TicketAgentSession taskId={taskId} onUnlink={unlinkTask} />;
   }
 
   return (
@@ -45,22 +55,25 @@ export function TicketAgentPanel({
   );
 }
 
-function TicketAgentSession({ taskId }: { taskId: string }) {
+function TicketAgentSession({
+  taskId,
+  onUnlink,
+}: {
+  taskId: string;
+  onUnlink: () => void;
+}) {
   const { data: task, isError } = useQuery(taskDetailQuery(taskId));
+  const session = useSessionForTask(taskId);
+  const workspace = useWorkspace(taskId);
+  const workspaceLoaded = useWorkspaceLoaded();
 
   if (isError) {
     return (
-      <Empty className="p-6">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <RobotIcon size={18} />
-          </EmptyMedia>
-          <EmptyTitle>This thread is unavailable</EmptyTitle>
-          <EmptyDescription>
-            The linked task could not be loaded.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <AgentPanelEmpty
+        title="This chat is no longer available"
+        description="The linked task was deleted or belongs to another project."
+        onUnlink={onUnlink}
+      />
     );
   }
 
@@ -72,5 +85,71 @@ function TicketAgentSession({ taskId }: { taskId: string }) {
     );
   }
 
-  return <EmbeddedSessionView task={task} />;
+  const neverStarted = ticketAgentThreadNeverStarted({
+    workspaceLoaded,
+    hasRun: !!task.latest_run?.id,
+    hasWorkspace: !!workspace,
+    hasSession: !!session,
+  });
+
+  if (neverStarted) {
+    return (
+      <AgentPanelEmpty
+        title="This chat never started"
+        description="The task was created but no agent run began."
+        onUnlink={onUnlink}
+        onOpenTask={() => navigateToTaskDetail(taskId)}
+      />
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-border border-b px-3 py-1.5">
+        <Text className="min-w-0 truncate text-[12px] text-muted-foreground">
+          {task.title}
+        </Text>
+        <Button variant="outline" size="sm" onClick={onUnlink}>
+          Unlink
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1">
+        <EmbeddedSessionView task={task} />
+      </div>
+    </div>
+  );
+}
+
+function AgentPanelEmpty({
+  title,
+  description,
+  onUnlink,
+  onOpenTask,
+}: {
+  title: string;
+  description: string;
+  onUnlink: () => void;
+  onOpenTask?: () => void;
+}) {
+  return (
+    <Empty className="p-6">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <RobotIcon size={18} />
+        </EmptyMedia>
+        <EmptyTitle>{title}</EmptyTitle>
+        <EmptyDescription>{description}</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        {onOpenTask && (
+          <Button variant="outline" size="sm" onClick={onOpenTask}>
+            Open task
+          </Button>
+        )}
+        <Button variant="outline" size="sm" onClick={onUnlink}>
+          Unlink and start again
+        </Button>
+      </EmptyContent>
+    </Empty>
+  );
 }

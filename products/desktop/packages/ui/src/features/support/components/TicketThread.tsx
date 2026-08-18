@@ -90,13 +90,13 @@ function TicketMessageRow({ message }: { message: SupportTicketMessage }) {
         <div
           className={cn(
             "rounded-(--radius-3) border px-3 py-2",
-            isNote && "border-warning/40 bg-warning/10",
+            isNote && "border-(--amber-6) bg-(--amber-3)",
             fromUs && !isNote && "border-transparent bg-fill-selected",
             fromCustomer && "border-border bg-card",
           )}
         >
           {isNote && (
-            <Text className="mb-1 block font-semibold text-[10px] text-warning-foreground uppercase tracking-wide">
+            <Text className="mb-1 block font-semibold text-(--amber-11) text-[10px] uppercase tracking-wide">
               Internal note
             </Text>
           )}
