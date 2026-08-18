@@ -27,6 +27,7 @@ use crate::ingestion_warnings::otel::{
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::token::validate_token;
+use crate::v0_request::exceeds_max_ai_event_bytes;
 
 use self::attribution::otel_request_context;
 
@@ -279,6 +280,18 @@ pub async fn otel_handler(
                 report_internal_error_metrics(e.to_metric_tag(), "otel_processing");
                 e.into_response()
             })?;
+
+    // Drop spans past the deployment's per-event ceiling rather than refusing
+    // the export. An OTEL collector retries a rejected export, so one oversized
+    // span would otherwise stall everything behind it; the span cap on this
+    // endpoint already sheds spans the same way.
+    let before = processed_events.len();
+    processed_events
+        .retain(|e| !exceeds_max_ai_event_bytes(e.event.data.len(), state.ai_max_event_bytes));
+    let dropped = before - processed_events.len();
+    if dropped > 0 {
+        report_dropped_events("ai_event_too_big", dropped as u64);
+    }
 
     // Apply the in-process OverflowLimiter governor to every AnalyticsMain
     // span in the batch before handing off to the sink. OTEL bypasses

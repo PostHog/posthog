@@ -149,6 +149,10 @@ pub struct ProcessingContext {
     /// analytics path: skip the global rate limiter and drop any batch not
     /// flagged `historical_migration: true`.
     pub capture_mode: CaptureMode,
+    /// Largest AI-lane event this deployment accepts, from
+    /// `AI_MAX_EVENT_BYTES`. `0` disables the ceiling. See
+    /// [`exceeds_max_ai_event_bytes`].
+    pub ai_max_event_bytes: u64,
     /// SDK identity snapshotted from the batch's first event, for ingestion
     /// warning attribution. Captured at batch construction because the events
     /// are typed there; downstream stages hold serialized payloads and would
@@ -208,6 +212,19 @@ pub const AI_EVENT_NAMES: &[&str] = &[
 /// [`AI_EVENT_NAMES`].
 pub fn is_ai_event(name: &str) -> bool {
     AI_EVENT_NAMES.contains(&name)
+}
+
+/// Whether an AI-lane event's body exceeds the deployment's per-event ceiling.
+///
+/// The ceiling exists because each deployment's AI topic sits on a broker with
+/// its own message limit, and the producer's own cap rejects an oversized event
+/// only after capture has read and processed the whole request. `0` disables
+/// the check.
+///
+/// `body_bytes` is the serialized event, the same measure the AI byte budget
+/// charges, so a project's ceiling and its budget agree on what a byte is.
+pub fn exceeds_max_ai_event_bytes(body_bytes: usize, max: u64) -> bool {
+    max != 0 && body_bytes as u64 > max
 }
 
 impl DataType {

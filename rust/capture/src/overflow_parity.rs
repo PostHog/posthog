@@ -113,6 +113,7 @@ fn v0_context(now: DateTime<Utc>) -> ProcessingContext {
         historical_migration: false,
         chatty_debug_enabled: false,
         capture_mode: crate::config::CaptureMode::Events,
+        ai_max_event_bytes: 0,
         sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
     }
 }

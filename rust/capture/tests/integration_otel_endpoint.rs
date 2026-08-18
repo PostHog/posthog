@@ -185,6 +185,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         false,            // is_mirror_deploy
         0.0_f32,          // verbose_sample_percent
         26_214_400,       // ai_max_sum_of_parts_bytes
+        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes

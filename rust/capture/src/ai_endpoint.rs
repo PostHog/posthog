@@ -32,7 +32,9 @@ use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
-use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
+use crate::v0_request::{
+    exceeds_max_ai_event_bytes, DataType, ProcessedEvent, ProcessedEventMetadata,
+};
 use crate::v1::gateway_provenance as gp;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,7 +305,8 @@ async fn ai_handler_inner(
     };
 
     // Step 5: Retrieve and validate remaining multipart parts (continues parsing from multipart)
-    let parts = retrieve_multipart_parts(&mut multipart, event_metadata).await?;
+    let parts =
+        retrieve_multipart_parts(&mut multipart, event_metadata, state.ai_max_event_bytes).await?;
 
     // Step 6: Parse the parts
     let mut parsed = parse_multipart_data(parts)?;
@@ -644,10 +647,8 @@ fn process_properties_part(
 async fn retrieve_multipart_parts(
     multipart: &mut Multipart<'_>,
     event_metadata: EventMetadata,
+    max_event_bytes: u64,
 ) -> Result<RetrievedMultipartParts, AiRejection> {
-    // Size limits
-    const MAX_COMBINED_SIZE: usize = 1024 * 1024 - 64 * 1024; // 1MB - 64KB = 960KB
-
     let mut part_count = 0;
     let mut accepted_parts = Vec::new();
     let mut properties_json: Option<Value> = None;
@@ -702,12 +703,15 @@ async fn retrieve_multipart_parts(
         }
     }
 
-    // Check combined size limit
+    // The event and its properties are merged into one event downstream, so the
+    // deployment's per-event ceiling applies to their sum. Rejecting here keeps
+    // an oversized event off the producer, whose own cap would refuse it only
+    // after the whole body had been read.
     let combined_size = event_size + properties_size;
-    if combined_size > MAX_COMBINED_SIZE {
+    if exceeds_max_ai_event_bytes(combined_size, max_event_bytes) {
         return Err(AiRejection::EventAndPropertiesTooBig {
             size: combined_size,
-            max: MAX_COMBINED_SIZE,
+            max: max_event_bytes as usize,
         });
     }
 

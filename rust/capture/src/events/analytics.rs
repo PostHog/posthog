@@ -33,7 +33,8 @@ use crate::{
     router, sinks,
     utils::uuid_v7_from_datetime,
     v0_request::{
-        DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
+        exceeds_max_ai_event_bytes, DataType, OverflowReason, ProcessedEvent,
+        ProcessedEventMetadata, ProcessingContext,
     },
 };
 
@@ -382,6 +383,23 @@ async fn process_events_inner(
         }
     }
 
+    // Reject an AI-lane event past the deployment's ceiling before it can reach
+    // the sink, where the producer's own cap would refuse it anyway — after
+    // capture had read and processed the whole request. The whole request is
+    // refused, matching how every other oversize check on this path behaves.
+    if let Some(offender) = events.iter().find(|e| {
+        e.metadata.data_type == DataType::AiEvents
+            && exceeds_max_ai_event_bytes(e.event.data.len(), context.ai_max_event_bytes)
+    }) {
+        report_dropped_events("ai_event_too_big", 1);
+        return Err(CaptureError::EventTooBig(format!(
+            "AI event {} is {} bytes, over the {}-byte limit",
+            offender.metadata.event_name,
+            offender.event.data.len(),
+            context.ai_max_event_bytes
+        )));
+    }
+
     events.retain(|e| {
         if dropper.should_drop(&e.event.token, &e.event.distinct_id) {
             report_dropped_events("token_dropper", 1);
@@ -654,6 +672,7 @@ mod tests {
             historical_migration: false,
             chatty_debug_enabled: false,
             capture_mode: crate::config::CaptureMode::Events,
+            ai_max_event_bytes: 0,
             sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
@@ -1451,6 +1470,87 @@ mod tests {
             records[0].topic, ai_topic,
             "the surviving record must be on the AI lane"
         );
+    }
+
+    /// An AI event past the deployment's ceiling refuses the whole request, so
+    /// no part of it reaches the sink. The legacy path already answers 413 for
+    /// every other oversize condition, and the producer would refuse this event
+    /// anyway once the request had been read in full.
+    #[tokio::test]
+    async fn oversize_ai_events_refuse_the_request_end_to_end() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.ai_max_event_bytes = 700;
+
+        let sink = Arc::new(MockSink::new());
+        let mut oversized = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized
+            .properties
+            .insert("$ai_input".to_string(), json!("x".repeat(800)));
+
+        let err = run_pipeline(
+            sink.clone(),
+            vec![
+                create_test_event_with_name(
+                    "$ai_generation",
+                    Some("2023-01-01T11:00:00Z".to_string()),
+                    None,
+                    None,
+                ),
+                oversized,
+            ],
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .expect_err("an oversize AI event must refuse the batch");
+
+        assert!(matches!(err, CaptureError::EventTooBig(_)), "got {err:?}");
+        assert!(
+            sink.get_events().is_empty(),
+            "no event may reach the sink once the request is refused"
+        );
+    }
+
+    /// The ceiling governs the AI lane only: an analytics event of the same
+    /// size passes, so a deployment sized for its AI topic's broker does not
+    /// start refusing ordinary analytics traffic.
+    #[tokio::test]
+    async fn the_ai_size_ceiling_leaves_analytics_events_alone() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        context.ai_max_event_bytes = 700;
+
+        let sink = Arc::new(MockSink::new());
+        let mut oversized = create_test_event_with_name(
+            "$pageview",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized
+            .properties
+            .insert("big".to_string(), json!("x".repeat(800)));
+
+        run_pipeline(
+            sink.clone(),
+            vec![oversized],
+            &context,
+            PipelineOptions::default(),
+        )
+        .await
+        .expect("an oversize analytics event must not be refused");
+
+        assert_eq!(sink.get_events().len(), 1);
     }
 
     /// A `DropEvent` restriction discards its event before the byte budget is

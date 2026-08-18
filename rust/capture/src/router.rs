@@ -53,6 +53,9 @@ pub struct State {
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
+    /// Largest AI-lane event this deployment accepts (`AI_MAX_EVENT_BYTES`).
+    /// `0` disables the ceiling.
+    pub ai_max_event_bytes: u64,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
     pub capture_v1_max_compressed_body_bytes: usize,
@@ -168,6 +171,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
+    ai_max_event_bytes: u64,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
     capture_v1_max_compressed_body_bytes: usize,
@@ -198,6 +202,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         is_mirror_deploy,
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
+        ai_max_event_bytes,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
         capture_v1_max_compressed_body_bytes,

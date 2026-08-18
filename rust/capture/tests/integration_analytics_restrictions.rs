@@ -123,6 +123,7 @@ async fn setup_analytics_router_with_restriction(
         false,
         0.0_f32,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -549,6 +550,7 @@ async fn setup_analytics_router_with_redirect_to_topic(
         false,
         0.0_f32,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes

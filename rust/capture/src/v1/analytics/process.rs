@@ -11,16 +11,16 @@ use super::constants::{
     CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_EVENTS_RESTRICTED,
     CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
     CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
-    CAPTURE_V1_RATE_LIMITER, DETAIL_AI_BYTE_RATE_LIMITED, DETAIL_EVENT_RESTRICTION_DROP,
-    DETAIL_INVALID_OPTIONS, DETAIL_NON_HISTORICAL_DROP, DETAIL_PERSON_PROCESSING_DISABLED,
-    FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
+    CAPTURE_V1_RATE_LIMITER, DETAIL_AI_BYTE_RATE_LIMITED, DETAIL_AI_EVENT_TOO_BIG,
+    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_INVALID_OPTIONS, DETAIL_NON_HISTORICAL_DROP,
+    DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
 };
 use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, Options, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
-use crate::v0_request::is_ai_event;
+use crate::v0_request::{exceeds_max_ai_event_bytes, is_ai_event};
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
@@ -129,6 +129,8 @@ pub async fn process_batch(
         )
         .await;
     }
+
+    apply_ai_event_size_limit(state.ai_max_event_bytes, &mut events);
 
     if let Some(ref limiter) = state.ai_byte_rate_limiter {
         apply_ai_byte_limits(limiter, &context.api_token, &mut events).await;
@@ -821,6 +823,41 @@ async fn apply_restrictions(
             metrics::counter!(CAPTURE_V1_EVENTS_RESTRICTED, "action" => "skip_person_processing")
                 .increment(1);
         }
+    }
+}
+
+/// Drop AI-lane events past the deployment's per-event size ceiling.
+///
+/// Runs before the byte budget so an event that will never be published spends
+/// none of the project's budget. Only the offending event is dropped: v1
+/// reports per-event outcomes, so the rest of the batch still publishes and the
+/// client learns which event was refused. The legacy path refuses the whole
+/// request instead, matching the oversize checks already on it.
+///
+/// Charged bytes are the event's properties, which dominate an AI event's wire
+/// size; the serialized envelope is not built until the sink.
+fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) {
+    if max_event_bytes == 0 {
+        return;
+    }
+
+    let mut dropped: u64 = 0;
+
+    for event in events.iter_mut() {
+        if event.result != EventResult::Ok || event.destination != Destination::AiEvents {
+            continue;
+        }
+        if exceeds_max_ai_event_bytes(event.event.properties.get().len(), max_event_bytes) {
+            event.result = EventResult::Drop;
+            event.details = Some(DETAIL_AI_EVENT_TOO_BIG);
+            event.destination = Destination::Drop;
+            dropped += 1;
+        }
+    }
+
+    if dropped > 0 {
+        metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "ai_event_too_big")
+            .increment(dropped);
     }
 }
 
@@ -1928,6 +1965,53 @@ mod tests {
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Ok);
         assert_eq!(ev.destination, expected_destination);
+    }
+
+    /// An AI event past the ceiling is dropped on its own: v1 reports per-event
+    /// outcomes, so the rest of the batch still publishes and the client is told
+    /// which event was refused. The legacy path refuses the whole request
+    /// instead, matching each pipeline's own convention.
+    #[tokio::test]
+    async fn oversize_ai_events_drop_individually() {
+        let mut oversized = wrapped_event("$ai_generation", "user-big");
+        oversized.destination = Destination::AiEvents;
+        oversized.event.properties =
+            test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
+
+        let mut small = wrapped_event("$ai_generation", "user-1");
+        small.destination = Destination::AiEvents;
+
+        let mut events = vec![oversized, small];
+
+        apply_ai_event_size_limit(700, &mut events);
+
+        let big = find_by_did(&events, "user-big");
+        assert_eq!(big.result, EventResult::Drop);
+        assert_eq!(big.destination, Destination::Drop);
+        assert_eq!(big.details, Some(DETAIL_AI_EVENT_TOO_BIG));
+
+        let kept = find_by_did(&events, "user-1");
+        assert_eq!(
+            kept.result,
+            EventResult::Ok,
+            "one oversize event must not take the rest of the batch with it"
+        );
+    }
+
+    /// A ceiling of `0` disables the check, so a deployment that never sets
+    /// `AI_MAX_EVENT_BYTES` keeps publishing whatever its producer accepts.
+    #[tokio::test]
+    async fn a_zero_ai_size_ceiling_disables_the_check() {
+        let mut oversized = wrapped_event("$ai_generation", "user-big");
+        oversized.destination = Destination::AiEvents;
+        oversized.event.properties =
+            test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
+
+        let mut events = vec![oversized];
+        apply_ai_event_size_limit(0, &mut events);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[0].destination, Destination::AiEvents);
     }
 
     /// The byte budget governs the AI lane and nothing else: a second AI-lane
