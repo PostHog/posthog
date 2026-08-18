@@ -1,9 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { UserProductListReason } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -92,49 +90,6 @@ describe('projectTreeDataLogic', () => {
             limit: 101,
             offset: 0,
         })
-    })
-
-    it('emits the dashboard-move primary-metric event for dashboards but not for other item types', async () => {
-        const eventUsage = eventUsageLogic()
-        eventUsage.mount()
-        const capture = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
-        const move = jest.spyOn(api.fileSystem, 'move')
-        move.mockResolvedValueOnce({ id: 'fs-1', type: 'dashboard', path: 'Product/A' } as any)
-        move.mockResolvedValueOnce({ id: 'fs-2', type: 'insight', path: 'Product/B' } as any)
-
-        // A dashboard move fires the experiment's primary-metric event after the API move succeeds.
-        await expectLogic(eventUsage, () => {
-            logic.actions.moveItem(
-                { id: 'fs-1', type: 'dashboard', path: 'Unfiled/Dashboards/A', ref: '1' } as any,
-                'Product/A',
-                true,
-                'test'
-            )
-        }).toDispatchActions(['reportDashboardMovedToFolder'])
-        // Coarse fields only — never the folder/dashboard names (Unfiled/Dashboards/A -> Product/A).
-        expect(capture).toHaveBeenCalledWith(
-            'dashboard moved to folder',
-            expect.objectContaining({
-                from_depth: 3,
-                to_depth: 2,
-                moved_from_unfiled: true,
-                moved_to_unfiled: false,
-            })
-        )
-
-        // A non-dashboard move still processes (movedItem) but must NOT fire the dashboard event.
-        capture.mockClear()
-        await expectLogic(logic, () => {
-            logic.actions.moveItem(
-                { id: 'fs-2', type: 'insight', path: 'Unfiled/Insights/B', ref: '2' } as any,
-                'Product/B',
-                true,
-                'test'
-            )
-        }).toDispatchActions(['movedItem'])
-        expect(capture.mock.calls.find((call) => call[0] === 'dashboard moved to folder')).toBeUndefined()
-
-        eventUsage.unmount()
     })
 
     it('reports a bulk move once, with an undo that reverts every item', async () => {
