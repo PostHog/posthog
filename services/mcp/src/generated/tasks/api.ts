@@ -1017,6 +1017,12 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+        pr_loop_enabled: zod
+            .boolean()
+            .nullish()
+            .describe(
+                "Whether to keep watching this task's pull request after it opens, fixing CI and replying to review comments. Null inherits the project default (`tasks_pr_loop_enabled` on the environment)."
+            ),
         branch: zod
             .string()
             .max(tasksCreateBodyBranchMax)

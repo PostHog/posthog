@@ -1618,6 +1618,8 @@ export interface TaskDetailDTOApi {
     /** @nullable */
     ci_prompt: string | null
     /** @nullable */
+    pr_loop_enabled?: boolean | null
+    /** @nullable */
     channel?: string | null
     readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
 }
@@ -1758,6 +1760,11 @@ export interface TaskCreateApi {
      * @nullable
      */
     ci_prompt?: string | null
+    /**
+     * Whether to keep watching this task's pull request after it opens, fixing CI and replying to review comments. Null inherits the project default (`tasks_pr_loop_enabled` on the environment).
+     * @nullable
+     */
+    pr_loop_enabled?: boolean | null
     /**
      * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
      * @maxLength 255
@@ -1903,6 +1910,11 @@ export interface TaskWriteApi {
      */
     ci_prompt?: string | null
     /**
+     * Whether to keep watching this task's pull request after it opens, fixing CI and replying to review comments. Null inherits the project default (`tasks_pr_loop_enabled` on the environment).
+     * @nullable
+     */
+    pr_loop_enabled?: boolean | null
+    /**
      * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
      * @maxLength 255
      * @nullable
@@ -2031,6 +2043,11 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     ci_prompt?: string | null
+    /**
+     * Whether to keep watching this task's pull request after it opens, fixing CI and replying to review comments. Null inherits the project default (`tasks_pr_loop_enabled` on the environment).
+     * @nullable
+     */
+    pr_loop_enabled?: boolean | null
     /**
      * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
      * @maxLength 255
