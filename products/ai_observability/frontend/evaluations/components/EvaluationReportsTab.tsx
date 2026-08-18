@@ -55,8 +55,8 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
             <div className="flex items-start justify-between gap-6 mb-4">
                 <p className="min-w-0 text-muted text-sm m-0">
                     History of AI-generated reports for this evaluation. Click a row to expand the full report. Schedule
-                    and delivery targets are configured in the{' '}
-                    <Link onClick={onConfigureClick}>Configuration tab.</Link>
+                    and delivery targets are configured in the <Link onClick={onConfigureClick}>Configuration tab</Link>
+                    .
                 </p>
                 {activeReport && (
                     <div className="flex shrink-0 items-center gap-2">

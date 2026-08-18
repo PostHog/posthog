@@ -1050,20 +1050,6 @@ return result`,
                 })
             })
         })
-
-        describe('runsLookup', () => {
-            it('creates lookup by generation_id', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
-
-                await expectLogic(logic).toMatchValues({
-                    runsLookup: {
-                        'gen-1': expect.objectContaining({ id: 'run-1' }),
-                        'gen-2': expect.objectContaining({ id: 'run-2' }),
-                        'gen-3': expect.objectContaining({ id: 'run-3' }),
-                    },
-                })
-            })
-        })
     })
 
     describe('hog evaluation type', () => {

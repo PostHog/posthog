@@ -30,11 +30,11 @@ export function EvaluationRunsFilters(): JSX.Element | null {
         <LemonSegmentedButton
             value={evaluationRunsFilter}
             onChange={(value) => {
-                setEvaluationRunsFilter(value as EvaluationRunsFilter, evaluationRunsFilter)
+                setEvaluationRunsFilter(value, evaluationRunsFilter)
             }}
             options={[...BASE_FILTER_OPTIONS, ...(evaluation?.output_config?.allows_na ? [NA_FILTER_OPTION] : [])]}
             size="small"
-            // pinned: autocapture data-attr - dashboards and Playwright selectors depend on it
+            // pinned: autocapture data-attr - existing dashboards depend on it
             data-attr="llma-evaluation-summary-filter"
         />
     )

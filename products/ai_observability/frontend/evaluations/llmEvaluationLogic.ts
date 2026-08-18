@@ -241,7 +241,6 @@ export interface llmEvaluationLogicValues {
     maxContext: MaxContextInput[]
     modelSelectionRequired: boolean
     originalEvaluation: EvaluationConfig | null
-    runsLookup: Record<string, EvaluationRun>
     runsStats: EvaluationRunsStats | null
     runsStatsLoading: boolean
     runsSummary: {
@@ -415,7 +414,6 @@ export interface llmEvaluationLogicMeta {
             evaluation: EvaluationConfig | null,
             providerKeys: LLMProviderKey[]
         ) => LLMProviderKey | null
-        runsLookup: (evaluationRuns: EvaluationRun[]) => Record<string, EvaluationRun>
         runsSummary: (runsStats: EvaluationRunsStats | null) => {
             applicabilityRate: number
             errors: number
@@ -989,9 +987,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
 
                 // Piggyback the scheduled-report draft onto the main save so the single
-                // "Save changes" button at the top of the page commits both forms. The
-                // evaluationReportLogic is only mounted when EvaluationReportConfig is
-                // rendered (gated on the reports feature flag), so skip when it isn't —
+                // "Save changes" button at the top of the page commits both forms. Only
+                // the components that render the report config or history mount
+                // evaluationReportLogic, so skip when none of them is on screen —
                 // reading .values on an unmounted keyed logic would throw.
                 if (response?.id && evaluationSupportsReports(response) && reportLogic.isMounted()) {
                     const reportConfigStillLoading =
@@ -1131,19 +1129,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (s) => [s.evaluation, s.providerKeys],
             (evaluation: EvaluationConfig | null, providerKeys: LLMProviderKey[]): LLMProviderKey | null => {
                 return getUnhealthyProviderKey(providerKeys, evaluation?.model_configuration?.provider_key_id)
-            },
-        ],
-
-        runsLookup: [
-            (s) => [s.evaluationRuns],
-            (runs: EvaluationRun[]): Record<string, EvaluationRun> => {
-                const lookup: Record<string, EvaluationRun> = {}
-                for (const run of runs) {
-                    if (run.generation_id) {
-                        lookup[run.generation_id] = run
-                    }
-                }
-                return lookup
             },
         ],
 
