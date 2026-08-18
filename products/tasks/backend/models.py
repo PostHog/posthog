@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import uuid
 import string
 import secrets
@@ -52,6 +53,8 @@ logger = structlog.get_logger(__name__)
 LogLevel = Literal["debug", "info", "warn", "error"]
 MCPBuiltInAgentKey = Literal["support", "scout"]
 MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
+MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
+MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
@@ -200,6 +203,10 @@ class Task(DeletedMetaFields, models.Model):
         LOOP = "loop", "Loop"
         # "Create fix task" on the MCP analytics tool-quality failure drill-down.
         MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
+        # Inbox scout-chat kickoffs ("Suggest a scout", fleet overview, recent signals),
+        # minted server-side by products/signals so the origin proves the run is entitled
+        # through the generally-available Inbox rather than PostHog Desktop.
+        SIGNALS_CHAT = "signals_chat", "Signals Chat"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -365,6 +372,37 @@ class Task(DeletedMetaFields, models.Model):
         expected_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(self.origin_product)
         marker = (self.state or {}).get(MCP_BUILT_IN_AGENT_STATE_KEY)
         return expected_key if marker == expected_key else None
+
+    @property
+    def mcp_credential_owner_id(self) -> int | None:
+        """The person whose MCP Store grants this run may mount.
+
+        Only meaningful on a stamped built-in agent task, so it reads through
+        `mcp_builtin_agent_key` — an unstamped or untrusted origin can never
+        borrow someone's grants. None means the run belongs to nobody, which
+        limits it to the team-scoped grants members have lent to agents.
+        """
+        if self.mcp_builtin_agent_key is None:
+            return None
+        owner_id = (self.state or {}).get(MCP_CREDENTIAL_OWNER_STATE_KEY)
+        return owner_id if isinstance(owner_id, int) else None
+
+    @property
+    def mcp_gateway_server_allowlist(self) -> list[str] | None:
+        """Gateway server ids the run may mount, gating every grant regardless of scope.
+
+        None (no snapshot) leaves mount resolution unfiltered — every non-scout task, and
+        pre-snapshot rows. Once a snapshot exists, a malformed value fails closed to an empty
+        allowlist: a scout whose selection is unreadable must not fall back to mounting every
+        reachable grant. Reads through `mcp_builtin_agent_key` like the owner id: only a
+        stamped agent task carries one.
+        """
+        if self.mcp_builtin_agent_key is None:
+            return None
+        ids = (self.state or {}).get(MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY)
+        if ids is None:
+            return None
+        return [str(i) for i in ids] if isinstance(ids, list) else []
 
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
@@ -595,6 +633,8 @@ class Task(DeletedMetaFields, models.Model):
         custom_image_id: str | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         client_provenance: TaskClientProvenance | None = None,
+        mcp_credential_owner_id: int | None = None,
+        mcp_gateway_server_ids: list[str] | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -615,12 +655,14 @@ class Task(DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_integration = (
-            Integration.objects.filter(team=team, kind="github")
-            .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-            .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-            .first()
-        )
+        github_integration = None
+        if repository or origin_product not in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+            github_integration = (
+                Integration.objects.filter(team=team, kind="github")
+                .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+                .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
+                .first()
+            )
         github_user_integration = None
         task_stub = Task(
             team=team,
@@ -673,6 +715,16 @@ class Task(DeletedMetaFields, models.Model):
         if mcp_builtin_agent_key is not None and mcp_builtin_agent_key != expected_agent_key:
             raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
 
+        initial_state: dict[str, Any] = {}
+        if mcp_builtin_agent_key:
+            initial_state[MCP_BUILT_IN_AGENT_STATE_KEY] = mcp_builtin_agent_key
+            # Only ever recorded alongside the agent marker: without one there is no agent
+            # run to delegate to, and a stray owner id must not be able to ride on a task.
+            if mcp_credential_owner_id is not None:
+                initial_state[MCP_CREDENTIAL_OWNER_STATE_KEY] = mcp_credential_owner_id
+            if mcp_gateway_server_ids is not None:
+                initial_state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY] = [str(i) for i in mcp_gateway_server_ids]
+
         task = Task.objects.create(
             team=team,
             title=title,
@@ -686,7 +738,7 @@ class Task(DeletedMetaFields, models.Model):
             channel=channel,
             internal=internal,
             json_schema=resolve_schema(output_schema) if output_schema else None,
-            state={MCP_BUILT_IN_AGENT_STATE_KEY: mcp_builtin_agent_key} if mcp_builtin_agent_key else {},
+            state=initial_state,
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
@@ -821,6 +873,8 @@ class Task(DeletedMetaFields, models.Model):
         initial_permission_mode: str | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         client_provenance: TaskClientProvenance | None = None,
+        mcp_credential_owner_id: int | None = None,
+        mcp_gateway_server_ids: list[str] | None = None,
     ) -> "Task":
         """Create the Task row without an initial run or workflow.
 
@@ -848,6 +902,8 @@ class Task(DeletedMetaFields, models.Model):
             initial_permission_mode=initial_permission_mode,
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             client_provenance=client_provenance,
+            mcp_credential_owner_id=mcp_credential_owner_id,
+            mcp_gateway_server_ids=mcp_gateway_server_ids,
         )
         return task
 
@@ -890,6 +946,8 @@ class Task(DeletedMetaFields, models.Model):
         custom_image_id: str | None = None,
         github_read_access: bool = False,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+        mcp_credential_owner_id: int | None = None,
+        mcp_gateway_server_ids: list[str] | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -924,6 +982,8 @@ class Task(DeletedMetaFields, models.Model):
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,
             mcp_builtin_agent_key=mcp_builtin_agent_key,
+            mcp_credential_owner_id=mcp_credential_owner_id,
+            mcp_gateway_server_ids=mcp_gateway_server_ids,
         )
 
         run_extra_state = dict(extra_state or {})
@@ -2428,6 +2488,78 @@ class TaskRun(models.Model):
         }
         self.append_log([event])
         self.publish_stream_event(event)
+
+    def emit_conversation_cleared(self) -> None:
+        """Record a `/clear` that had no sandbox to run it.
+
+        A live run clears through the agent, which swaps in a fresh agent session and
+        emits this marker itself. A finished run has no sandbox, and booting one just to
+        clear it would cost a whole run, so the marker is written straight to the log.
+        Resume reads a chain's logs concatenated and rebuilds only the turns after the
+        marker, so the next run continues the task with an empty conversation while its
+        checkpoints, artifacts, and visible history stay intact.
+
+        The `/clear` message is recorded ahead of the marker, matching the agent, so the
+        transcript shows what the user typed and rehydration drops it with everything
+        else on the pre-clear side. It carries the `importedUserPrompt` tag because the
+        desktop client renders user turns from `session/prompt` requests and drops raw
+        `user_message_chunk`s; the tag tells its log replay to promote the chunk into one.
+
+        The marker carries no `sessionId`: there is no agent session behind it, and
+        resume reads that field to decide which session to continue.
+
+        A repeat call while the log already ends at the boundary appends nothing, so a
+        double-submitted or retried clear doesn't stack duplicate markers.
+        """
+        if self._log_tail_is_conversation_cleared():
+            return
+        timestamp = django_timezone.now().isoformat()
+        events = [
+            {
+                "type": "notification",
+                "timestamp": timestamp,
+                "notification": {
+                    "jsonrpc": "2.0",
+                    "method": "session/update",
+                    "params": {
+                        "sessionId": str(self.id),
+                        "update": {
+                            "sessionUpdate": "user_message_chunk",
+                            "content": {"type": "text", "text": "/clear"},
+                            "_meta": {"importedUserPrompt": True},
+                        },
+                    },
+                },
+            },
+            {
+                "type": "notification",
+                "timestamp": timestamp,
+                "notification": {
+                    "jsonrpc": "2.0",
+                    "method": "_posthog/conversation_cleared",
+                    "params": {},
+                },
+            },
+        ]
+        self.append_log(events)
+        for event in events:
+            self.publish_stream_event(event)
+
+    def _log_tail_is_conversation_cleared(self) -> bool:
+        # Reads the whole object because S3 offers no cheap tail read; clears are rare
+        # and the subsequent append re-reads it anyway.
+        content = object_storage.read(self.log_url, missing_ok=True) or ""
+        last_line = content.strip().rsplit("\n", 1)[-1]
+        if not last_line:
+            return False
+        try:
+            entry = json.loads(last_line)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(entry, dict):
+            return False
+        notification = entry.get("notification")
+        return isinstance(notification, dict) and notification.get("method") == "_posthog/conversation_cleared"
 
     def emit_progress_event(
         self,

@@ -156,6 +156,9 @@ class GitHubRecorder:
         self.add_label_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
+        # Per-repository overrides for the same paths, for cases where two connected repos must
+        # answer differently (one carries a root owners.yaml, another does not).
+        self.repo_files: dict[tuple[str, str], str] = {}
         self.github_writes: list[dict[str, Any]] = []
         self._next_id = 90000
 
@@ -196,7 +199,7 @@ class GitHubRecorder:
         if method == "DELETE" and (m := _PR_REACTION_DELETE_RE.match(path)):
             return self._remove_reaction(m.group("repo"), int(m.group("number")), int(m.group("rid")))
         if method == "GET" and (m := _CONTENTS_RE.match(path)):
-            return self._get_contents(m.group("path"))
+            return self._get_contents(m.group("repo"), m.group("path"))
         if method == "POST" and path == "/graphql":
             return self._graphql(json_body or {})
         if method == "GET" and (m := _REVIEWS_RE.match(path)):
@@ -245,8 +248,8 @@ class GitHubRecorder:
         numbers = self.author_merged.get((repo, author), []) if page == 1 else []
         return FakeResponse(200, json_data={"items": [{"number": n} for n in numbers]})
 
-    def _get_contents(self, path: str) -> FakeResponse:
-        content = self.policy_files.get(path)
+    def _get_contents(self, repo: str, path: str) -> FakeResponse:
+        content = self.repo_files.get((repo, path), self.policy_files.get(path))
         if content is None:
             return FakeResponse(404, text="not found")
         return FakeResponse(200, text=content, headers={"Content-Type": "text/plain; charset=utf-8"})
@@ -445,9 +448,17 @@ def approved_engine_output() -> str:
     """
     payload = {
         "final_verdict": "APPROVED",
-        "reviewer": {"reasoning": "Small, well-tested change. No policy concerns.", "issues": []},
+        "reviewer": {
+            "reasoning": "Small, well-tested change. No policy concerns.",
+            "issues": [],
+            "change_summary": "Docs gain a setup section and the helper stops throwing on an empty list.",
+        },
         "gates": [{"name": "size", "passed": True}, {"name": "deny_list", "passed": True}],
-        "classification": {"tier": "low_risk", "reason": "docs + small logic change"},
+        "classification": {
+            "tier": "low_risk",
+            "reason": "docs + small logic change",
+            "ownership": {"teams": ["@PostHog/team-devex"]},
+        },
         "policy": {"version": "1"},
         "review_body": "Approved by stamphog. All deterministic gates passed; change is low risk.",
         "stamphog_version": "test-1.0.0",

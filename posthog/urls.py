@@ -84,6 +84,7 @@ from products.user_interviews.backend.presentation.webhooks import (
 )
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.workflows.backend.api import hog_flow, hog_flow_template
+from products.workflows.backend.api.ses_events_webhook import ses_tenant_events_webhook
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -697,6 +698,8 @@ urlpatterns = [
     opt_slash_path("webhooks/github", github_webhook),
     # Stamphog runs as its own GitHub App with a dedicated inbound endpoint (not the fan-out above)
     opt_slash_path("webhooks/stamphog/github", stamphog_github_webhook),
+    # AWS SES tenant reputation events (EventBridge -> SNS HTTPS subscription)
+    opt_slash_path("webhooks/workflows/ses-events", ses_tenant_events_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
@@ -781,8 +784,9 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
-    # Public bridge for desktop-app canvas share links — deep-links into PostHog Desktop.
+    # Public bridges for desktop-app share links — deep-link into PostHog Desktop.
     r"code/canvas/[^/]+/[^/]+",
+    r"code/task/[^/]+",
     "verify_email",
     r"agentic/account-mismatch",
     # OAuth redirect target when logging the local frontend into a remote cloud region;

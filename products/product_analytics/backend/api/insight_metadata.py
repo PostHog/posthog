@@ -546,7 +546,7 @@ def _request_metadata_from_llm(query_summary: str, type_guidance: str, team: Tea
     last_parse_error: InsightMetadataParseError | None = None
     for attempt in range(_MAX_PARSE_ATTEMPTS):
         try:
-            content, _, _ = hit_openai(
+            completion = hit_openai(
                 messages,
                 f"team/{team.id}/generate-insight-metadata",
                 posthog_properties=billable_ai_properties(team.id, "insight-ai-metadata-generation"),
@@ -562,7 +562,7 @@ def _request_metadata_from_llm(query_summary: str, type_guidance: str, team: Tea
             raise InsightMetadataGenerationError("The AI service failed to respond") from e
 
         try:
-            return _parse_metadata(content)
+            return _parse_metadata(completion.content)
         except InsightMetadataParseError as e:
             last_parse_error = e
             logger.warning("ai_metadata_generation_parse_failed", team_id=team.id, attempt=attempt)

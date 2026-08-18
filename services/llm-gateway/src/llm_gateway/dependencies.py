@@ -14,12 +14,14 @@ from llm_gateway.auth.service import (
     InvalidProjectScopeError,
     UnauthorizedProjectScopeError,
     get_auth_service,
+    upstream_auth_header,
 )
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.config import get_settings
 from llm_gateway.flags import evaluate_flag
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
+    INTERNAL_RUN_SCOPE,
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
@@ -34,7 +36,8 @@ from llm_gateway.request_context import (
     get_request_id,
     set_throttle_context,
 )
-from llm_gateway.services.plan_resolver import PlanInfo, resolve_plan_info
+from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
+from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, PlanInfo, resolve_plan_info
 from llm_gateway.services.quota_resolver import QuotaResourceStatus, resolve_quota_status
 
 logger = structlog.get_logger(__name__)
@@ -156,7 +159,37 @@ async def enforce_product_access(
 
     if not allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=error)
+
+    await enforce_desktop_access(request, user, product)
     return user
+
+
+async def enforce_desktop_access(request: Request, user: AuthenticatedUser, product: str) -> None:
+    settings = get_settings()
+    if not settings.desktop_access_gate_enabled or settings.debug:
+        return
+    if product != POSTHOG_CODE_PRODUCT:
+        return
+    if user.auth_method != "oauth_access_token":
+        return
+    if INTERNAL_RUN_SCOPE in (user.scopes or []):
+        return
+
+    resolver: DesktopAccessResolver = request.app.state.desktop_access_resolver
+    if await resolver.has_access(user.user_id, upstream_auth_header(request)):
+        return
+
+    logger.warning("desktop_access_denied", user_id=user.user_id, team_id=user.team_id)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "error": {
+                "message": "PostHog Desktop access is required to use this product.",
+                "type": "permission_error",
+                "code": "code_access_required",
+            }
+        },
+    )
 
 
 async def _extract_end_user_id_from_body(request: Request) -> str | None:
@@ -209,6 +242,16 @@ async def resolve_plan_and_quota(
         return plan_info, quota_status
     plan_info = await resolve_plan_info(request, user_id, product)
     return plan_info, QuotaResourceStatus(limited=False)
+
+
+def _format_retry_delay(seconds: int) -> str:
+    if seconds < 60:
+        return f"{seconds} second{'s' if seconds != 1 else ''}"
+    if seconds < 3600:
+        minutes = (seconds + 59) // 60
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    hours = (seconds + 3599) // 3600
+    return f"{hours} hour{'s' if hours != 1 else ''}"
 
 
 async def enforce_throttles(
@@ -314,11 +357,18 @@ async def enforce_throttles(
         message = (
             f"Rate limit exceeded: {reason}" if reason and reason != "Rate limit exceeded" else "Rate limit exceeded"
         )
+        # Surfaces like the Slack agent relay only error.message, so the retry
+        # time must live in the text, not just the Retry-After header. Skipped
+        # when retry_after is only a back-off hint (exhausted credits) — those
+        # details already carry their own next step.
+        if result.retry_after is not None and result.retry_after > 0 and result.retry_after_resets_limit:
+            message += f". Try again in about {_format_retry_delay(result.retry_after)}."
         detail = {
             "error": {
                 "message": message,
                 "type": "rate_limit_error",
                 "reason": reason,
+                **({"retry_after": result.retry_after} if result.retry_after is not None else {}),
                 **({"code": result.scope} if result.scope else {}),
             }
         }

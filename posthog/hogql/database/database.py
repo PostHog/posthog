@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.data_catalog_metrics import record_catalog_read, record_catalog_read_failure
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.lazy_join_tags import (
     DATA_WAREHOUSE,
@@ -92,6 +93,7 @@ from posthog.hogql.database.schema.hog_invocation_results import HogInvocationRe
 from posthog.hogql.database.schema.information_schema import (
     direct_connection_information_schema_node,
     disable_data_catalog,
+    disable_data_quality,
 )
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
@@ -206,7 +208,7 @@ class SerializedField:
     description: str | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HogQLDatabaseSources:
     """All I/O Database._build_from_sources needs, fetched up front by Database._fetch_sources so the
     build phase runs without any queries."""
@@ -218,6 +220,7 @@ class HogQLDatabaseSources:
     is_managed_viewset_enabled: bool
     is_hogql_warehouse_access_control_enabled: bool
     is_data_catalog_enabled: bool
+    is_data_quality_enabled: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -561,8 +564,8 @@ def _compute_system_table_access_decision(
     denied: set[str] = set(unentitled)
     for name, table in scoped_tables.items():
         access_scope = cast(APIScopeObject, table.access_scope)
-        access_level = user_access_control.access_level_for_resource(access_scope)
-        if access_level and access_level != NO_ACCESS_LEVEL:
+        access = user_access_control.access_level_for_resource(access_scope)
+        if access and access.access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
         # Keep the table only when the guard can actually narrow its rows to the grant, so a table
         # whose ids don't key those grants (resource_level_access_only) still fails closed.
@@ -1320,6 +1323,7 @@ class Database(BaseModel):
             DataWarehouseTable,
             ExternalDataSource,
         )
+        from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode  # noqa: PLC0415
 
         with timings.measure("team", emit_span=True):
             if team_id is None and team is None:
@@ -1360,16 +1364,19 @@ class Database(BaseModel):
                 send_feature_flag_events=False,
             )
 
-            # Function-local + facade-only: keeps the data_catalog product off the django.setup() path.
+            # Function-local + facade-only: keeps the products off the django.setup() path.
             from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
+            from products.data_quality.backend.facade.flags import is_data_quality_checks_enabled  # noqa: PLC0415
 
             data_catalog_enabled = is_data_catalog_enabled(team)
+            data_quality_enabled = is_data_quality_checks_enabled(team)
 
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
             from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
 
             direct_connection_metadata: dict[str, Any] | None = None
+            is_managed_warehouse_connection = False
             # Dual-mode: a synced source queried live builds virtual tables from schema metadata.
             virtual_source: ExternalDataSource | None = None
             if connection_id is not None:
@@ -1388,6 +1395,13 @@ class Database(BaseModel):
                     direct_source.access_method == ExternalDataSource.AccessMethod.DIRECT
                     or is_direct_capable(direct_source)
                 ):
+                    if direct_source.has_managed_warehouse_prefix:
+                        managed_warehouse_sql_mode = direct_source.managed_warehouse_sql_mode
+                        if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
+                            raise QueryError(
+                                "This managed warehouse connection isn't available. Select another connection and try again."
+                            )
+                        is_managed_warehouse_connection = managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN
                     direct_connection_metadata = direct_source.connection_metadata
                     # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
                     if direct_source.access_method != ExternalDataSource.AccessMethod.DIRECT:
@@ -1600,11 +1614,14 @@ class Database(BaseModel):
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
             is_data_catalog_enabled=data_catalog_enabled,
+            is_data_quality_enabled=data_quality_enabled,
+            # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
             # - shared-link users (publishing is the explicit access grant).
             # System tables stay gated for both.
             bypass_warehouse_access_control=bypass_warehouse_access_control
+            or is_managed_warehouse_connection
             or isinstance(user, SyntheticUser | SharedLinkUser),
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
@@ -1660,7 +1677,7 @@ class Database(BaseModel):
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
-            if not sources.is_data_catalog_enabled:
+            if not sources.is_data_catalog_enabled or not sources.is_data_quality_enabled:
                 system_node = database.tables.children.get("system")
                 info_schema = (
                     system_node.children.get("information_schema")
@@ -1668,7 +1685,10 @@ class Database(BaseModel):
                     else None
                 )
                 if info_schema is not None and hasattr(info_schema, "children"):
-                    disable_data_catalog(info_schema)
+                    if not sources.is_data_catalog_enabled:
+                        disable_data_catalog(info_schema)
+                    if not sources.is_data_quality_enabled:
+                        disable_data_quality(info_schema)
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
@@ -2684,6 +2704,7 @@ def _settled_catalog_certifications(
         if team is None or team_id is None or not is_data_catalog_enabled(team) or not _can_read_catalog(context):
             return {}, {}
 
+        record_catalog_read("schema_serialization")
         by_table_id: dict[str, DatabaseSchemaTableCertification] = {}
         by_saved_query_id: dict[str, DatabaseSchemaTableCertification] = {}
         certifications = (
@@ -2707,6 +2728,7 @@ def _settled_catalog_certifications(
                 by_saved_query_id[str(certification.saved_query_id)] = serialized
         return by_table_id, by_saved_query_id
     except Exception:
+        record_catalog_read_failure("schema_serialization")
         logger.exception("serialize_database: failed to load catalog certifications", team_id=team_id)
         return {}, {}
 
