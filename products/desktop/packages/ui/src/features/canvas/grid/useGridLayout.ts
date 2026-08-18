@@ -6,7 +6,7 @@ import type {
 import { useHostTRPC } from "@posthog/host-router/react";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 
 // Poll fast while any placement is being agent-filled (the agent patches the
 // layout server-side), otherwise slowly — other viewers/agents can still edit.
@@ -46,11 +46,15 @@ export function useGridLayout(canvasId: string | undefined): {
  * cache adopts the server's document; on any failure (including a 409 from a
  * concurrent edit) the layout is refetched so the surface rebases on the real
  * head instead of retrying blind.
+ *
+ * Patches run one at a time, each reading the head from the layout cache when
+ * it is actually sent. Two gestures can finish before the first patch answers,
+ * and sending both against the same head would have the server reject the
+ * second as a conflict — losing that drag or resize on the rebase refetch.
  */
 export function usePatchLayout(canvasId: string): {
   patch: (
     operations: LayoutOperation[],
-    expectedCurrentVersionId: string | null,
     prompt?: string,
   ) => Promise<CanvasLayoutResult | null>;
   isPatching: boolean;
@@ -63,31 +67,37 @@ export function usePatchLayout(canvasId: string): {
       onSuccess: (result) => {
         queryClient.setQueryData(layoutKey, result);
       },
-      onError: (error) => {
-        toastError("Couldn't update the canvas layout", error);
-        void queryClient.invalidateQueries({ queryKey: layoutKey });
-      },
     }),
   );
+  // The tail of the patch queue. It never rejects, so one failed patch cannot
+  // wedge the gestures behind it.
+  const queue = useRef<Promise<CanvasLayoutResult | null>>(
+    Promise.resolve(null),
+  );
   const patch = useCallback(
-    async (
-      operations: LayoutOperation[],
-      expectedCurrentVersionId: string | null,
-      prompt?: string,
-    ) => {
-      try {
-        return await mutateAsync({
-          id: canvasId,
-          operations,
-          prompt,
-          expectedCurrentVersionId,
-        });
-      } catch {
-        // Already surfaced by onError; callers treat null as "rebase and retry".
-        return null;
-      }
+    (operations: LayoutOperation[], prompt?: string) => {
+      const key = trpc.dashboards.layout.queryKey({ id: canvasId });
+      const queued = queue.current.then(async () => {
+        const head = queryClient.getQueryData<CanvasLayoutResult>(key);
+        try {
+          return await mutateAsync({
+            id: canvasId,
+            operations,
+            prompt,
+            expectedCurrentVersionId: head?.currentVersionId ?? null,
+          });
+        } catch (error) {
+          toastError("Couldn't update the canvas layout", error);
+          // Rebase before the next queued gesture is sent, and let callers
+          // treat null as "this edit didn't land".
+          await queryClient.invalidateQueries({ queryKey: key });
+          return null;
+        }
+      });
+      queue.current = queued;
+      return queued;
     },
-    [mutateAsync, canvasId],
+    [mutateAsync, canvasId, queryClient, trpc],
   );
   return { patch, isPatching: isPending };
 }

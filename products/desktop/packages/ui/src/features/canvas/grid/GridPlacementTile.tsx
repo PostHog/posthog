@@ -30,10 +30,14 @@ export interface PlacementTileActions {
 export function GridPlacementTile({
   placement,
   interactive,
+  patching,
   actions,
 }: {
   placement: GridPlacement;
   interactive: boolean;
+  /** A layout write is in flight; the tile's edit buttons stay disabled until
+   * it lands, so a second click can't fire a patch against the same head. */
+  patching: boolean;
   actions: PlacementTileActions;
 }) {
   if (placement.status === "live" && placement.component) {
@@ -44,6 +48,7 @@ export function GridPlacementTile({
       <GeneratingTile
         placement={placement}
         interactive={interactive}
+        patching={patching}
         actions={actions}
       />
     );
@@ -53,6 +58,7 @@ export function GridPlacementTile({
       placement={placement}
       failed={placement.status === "failed"}
       interactive={interactive}
+      patching={patching}
       actions={actions}
     />
   );
@@ -61,10 +67,12 @@ export function GridPlacementTile({
 function GeneratingTile({
   placement,
   interactive,
+  patching,
   actions,
 }: {
   placement: GridPlacement;
   interactive: boolean;
+  patching: boolean;
   actions: PlacementTileActions;
 }) {
   const taskId = placement.generationTaskId ?? null;
@@ -109,6 +117,7 @@ function GeneratingTile({
             <Button
               variant="primary"
               size="sm"
+              disabled={patching}
               onClick={() => actions.reset(placement)}
             >
               Try again
@@ -140,6 +149,7 @@ function GeneratingTile({
             <Button
               variant="default"
               size="sm"
+              disabled={patching}
               onClick={() => actions.remove(placement)}
             >
               Remove
@@ -162,6 +172,7 @@ function GeneratingTile({
           <Button
             variant="default"
             size="sm"
+            disabled={patching}
             onClick={() => actions.remove(placement)}
           >
             Remove
@@ -176,11 +187,13 @@ function DescribeTile({
   placement,
   failed,
   interactive,
+  patching,
   actions,
 }: {
   placement: GridPlacement;
   failed: boolean;
   interactive: boolean;
+  patching: boolean;
   actions: PlacementTileActions;
 }) {
   const [prompt, setPrompt] = useState(placement.prompt ?? "");
@@ -235,6 +248,7 @@ function DescribeTile({
       <Button
         variant="default"
         size="sm"
+        disabled={patching}
         onClick={() => actions.remove(placement)}
       >
         Remove

@@ -11,6 +11,7 @@ import {
   Heading,
   Spinner,
 } from "@posthog/quill";
+import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -34,7 +35,17 @@ export function WebsiteHome() {
   } = useQuery(
     // Provisioning is an idempotent get-or-create, so query semantics are
     // safe and give caching + dedupe across remounts for free.
-    trpc.dashboards.home.queryOptions(undefined, { staleTime: Infinity }),
+    //
+    // The auth-scoped meta is load-bearing rather than tidy here: this query
+    // takes no input, so every account on the machine shares one cache key,
+    // and `staleTime: Infinity` (which keeps a mounted Home from re-running
+    // provisioning) means nothing else would ever refresh it. Without the meta
+    // a logout, org switch, or project switch leaves the previous user's
+    // personal home canvas id in the cache for the next one.
+    trpc.dashboards.home.queryOptions(undefined, {
+      meta: AUTH_SCOPED_QUERY_META,
+      staleTime: Infinity,
+    }),
   );
 
   // Provisioning is a live round trip (it get-or-creates the canvas) and can

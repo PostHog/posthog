@@ -41,6 +41,18 @@ export const gridPlacementSchema = z.object({
 });
 export type GridPlacement = z.infer<typeof gridPlacementSchema>;
 
+const LATEST_COMPONENT_VERSION = "latest";
+
+/** The component source version a placement pins, or null when it follows the
+ * component's latest published build. */
+export function pinnedComponentVersion(
+  placement: Pick<GridPlacement, "version">,
+): string | null {
+  return placement.version && placement.version !== LATEST_COMPONENT_VERSION
+    ? placement.version
+    : null;
+}
+
 export const canvasLayoutSchema = z.object({
   schemaVersion: z.number(),
   grid: gridDefinitionSchema,

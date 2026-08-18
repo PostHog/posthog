@@ -7,6 +7,7 @@ import {
   hasActiveCanvasBuild,
   historicalCanvasBuild,
   latestFinishedCanvasBuild,
+  placementComponentBuild,
   publishedCanvasBuild,
 } from "./canvasBuildSchemas";
 import { DashboardsService } from "./dashboardsService";
@@ -126,6 +127,36 @@ describe("canvas build lifecycle", () => {
     expect(
       historicalCanvasBuild(lifecycle([candidate]), "version-1"),
     ).toBeNull();
+  });
+
+  // A pinned placement's config and size were written against the version it
+  // names, so rendering the live build instead would feed the widget a
+  // contract nobody validated it for.
+  it("renders a pinned placement from the pinned version's own build", () => {
+    const pinned = build("pinned", "ready");
+    pinned.sourceVersionId = "version-1";
+    const value = lifecycle([build("live", "ready"), pinned]);
+    value.publishedBuildId = "live";
+
+    expect(placementComponentBuild(value, "version-1")).toBe(pinned);
+  });
+
+  // Build retention can sweep a pinned version's artifact (only an explicit
+  // pin action protects a build), and falling back to the live build would
+  // silently render a different widget than the placement asked for.
+  it("resolves no build when the pinned version's artifact is gone", () => {
+    const value = lifecycle([build("live", "ready")]);
+    value.publishedBuildId = "live";
+
+    expect(placementComponentBuild(value, "version-1")).toBeNull();
+  });
+
+  it("follows the published pointer when the placement pins nothing", () => {
+    const live = build("live", "ready");
+    const value = lifecycle([live, build("older", "ready")]);
+    value.publishedBuildId = "live";
+
+    expect(placementComponentBuild(value, null)).toBe(live);
   });
 
   it("surfaces a failed build of the current head even when an older published build is also ready", () => {

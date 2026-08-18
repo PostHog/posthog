@@ -199,9 +199,24 @@ export class CanvasApplicationService {
             : input.name
               ? `Generate canvas "${input.name}"`
               : `Generate a canvas in ${channelDisplayReference(input.channelName)}`,
-        // Unattended generation: bypass permission prompts entirely — auto
-        // mode still stalls on MCP-call approvals nothing on the canvas can
-        // answer, and the run only touches this canvas via the canvas API.
+        // Unattended generation: auto mode relays every MCP approval to the
+        // desktop and blocks the run until someone answers. What still applies
+        // in bypass mode: do_not_use tools stay denied, tools on MCP servers
+        // relayed to the user's machine still need their approval, and PostHog
+        // exec sub-tools matching the run's permission regex are still relayed
+        // for one. It does NOT contain the run to the canvas API.
+        //
+        // TODO(canvas mcp scopes): bypassing is only defensible once this run's
+        // token is narrowed. A client-created run sends runSource "manual",
+        // which resolves to "full" PostHog MCP scopes in
+        // products/tasks/backend/facade/api.py (insight, dashboard and flag
+        // writes, plus SQL), while the prompt carries channel context and canvas
+        // comments other people wrote. ReviewHog's sandbox passes an explicit
+        // scope list for exactly this reason (see REVIEW_MCP_SCOPES), but the
+        // REST run-create surface exposes no scope field, so a client cannot ask
+        // for one. Both canvas surfaces CAN answer an approval today
+        // (CanvasPermissionDialog on freeform, Review request on a grid tile),
+        // so this mode also switches off a gate that works.
         executionMode: "bypassPermissions" as const,
         workspaceMode,
         adapter,

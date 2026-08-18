@@ -3,7 +3,10 @@ import {
   SidebarSimpleIcon,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
-import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
+import type {
+  GridPlacement,
+  LayoutOperation,
+} from "@posthog/core/canvas/gridLayoutSchemas";
 import {
   Button,
   Empty,
@@ -15,11 +18,11 @@ import {
   Text,
 } from "@posthog/quill";
 import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
+import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import {
   useCanvasVersions,
   useDashboard,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
@@ -86,7 +89,7 @@ export function GridCanvasView({
 }) {
   const { dashboard } = useDashboard(canvasId);
   const { layout, currentVersionId, isLoading } = useGridLayout(canvasId);
-  const { patch } = usePatchLayout(canvasId);
+  const { patch, isPatching } = usePatchLayout(canvasId);
   // Resolve the channel's display name from the shared channels query, like the
   // freeform view does, so a started run names its channel in the agent prompt
   // (an empty name drops the whole channel-context instruction).
@@ -149,19 +152,16 @@ export function GridCanvasView({
       if (!placements) return;
       if (outcome.kind === "draw") {
         if (collides(outcome.rect, placements)) return;
-        void patch(
-          [
-            {
-              op: "add_placement",
-              placement: {
-                id: `p-${crypto.randomUUID().slice(0, 8)}`,
-                status: "pending",
-                ...outcome.rect,
-              },
+        void patch([
+          {
+            op: "add_placement",
+            placement: {
+              id: `p-${crypto.randomUUID().slice(0, 8)}`,
+              status: "pending",
+              ...outcome.rect,
             },
-          ],
-          currentVersionId,
-        );
+          },
+        ]);
         return;
       }
       const { rect, origin, placementId } = outcome;
@@ -172,12 +172,9 @@ export function GridCanvasView({
         rect.w !== origin.w ||
         rect.h !== origin.h;
       if (!moved || collides(rect, placements, placementId)) return;
-      void patch(
-        [{ op: "update_placement", id: placementId, changes: rect }],
-        currentVersionId,
-      );
+      void patch([{ op: "update_placement", id: placementId, changes: rect }]);
     },
-    [placements, patch, currentVersionId],
+    [placements, patch],
   );
 
   const {
@@ -208,7 +205,6 @@ export function GridCanvasView({
             changes: { status: "generating", prompt },
           },
         ],
-        currentVersionId,
         prompt,
       );
       if (!staged) return;
@@ -222,50 +218,45 @@ export function GridCanvasView({
           h: placement.h,
         },
       });
-      await patch(
-        [
-          {
-            op: "update_placement",
-            id: placement.id,
-            // Dispatch failed (already toasted): back to pending so the box
-            // offers the prompt again instead of spinning forever.
-            changes: taskId
-              ? { generationTaskId: taskId }
-              : { status: "pending" },
-          },
-        ],
-        staged.currentVersionId ?? null,
-      );
+      const record: LayoutOperation[] = [
+        {
+          op: "update_placement",
+          id: placement.id,
+          // Dispatch failed (already toasted): back to pending so the box
+          // offers the prompt again instead of spinning forever.
+          changes: taskId
+            ? { generationTaskId: taskId }
+            : { status: "pending" },
+        },
+      ];
+      // The task is already running and its id is known only here, so losing
+      // this write leaves a tile generating forever with nothing to open. The
+      // queue rebases after a failure, so one retry clears a lost race.
+      if (!(await patch(record))) await patch(record);
     },
-    [dashboard, generate, patch, canvasId, currentVersionId],
+    [dashboard, generate, patch, canvasId],
   );
 
   const reset = useCallback(
     (placement: GridPlacement) => {
       // Back to the describe box with the prompt intact; the stale task id is
       // ignored outside the generating state and overwritten on re-dispatch.
-      void patch(
-        [
-          {
-            op: "update_placement",
-            id: placement.id,
-            changes: { status: "pending" },
-          },
-        ],
-        currentVersionId,
-      );
+      void patch([
+        {
+          op: "update_placement",
+          id: placement.id,
+          changes: { status: "pending" },
+        },
+      ]);
     },
-    [patch, currentVersionId],
+    [patch],
   );
 
   const remove = useCallback(
     (placement: GridPlacement) => {
-      void patch(
-        [{ op: "remove_placement", id: placement.id }],
-        currentVersionId,
-      );
+      void patch([{ op: "remove_placement", id: placement.id }]);
     },
-    [patch, currentVersionId],
+    [patch],
   );
 
   const discuss = useCallback(
@@ -411,6 +402,7 @@ export function GridCanvasView({
                   <GridPlacementTile
                     placement={placement}
                     interactive={interactive}
+                    patching={isPatching}
                     actions={actions}
                   />
                   {interactive && placement.generationTaskId ? (
