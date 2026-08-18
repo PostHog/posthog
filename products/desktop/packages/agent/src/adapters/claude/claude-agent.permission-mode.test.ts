@@ -84,6 +84,21 @@ function installFakeSession(
   return query;
 }
 
+function sessionOf(agent: Agent): { lastPlanFilePath?: string } {
+  return (agent as unknown as { session: { lastPlanFilePath?: string } })
+    .session;
+}
+
+async function enterPlanModeViaHook(agent: Agent): Promise<void> {
+  const onModeChange = (
+    agent as unknown as {
+      createOnModeChange: () => (mode: CodeExecutionMode) => Promise<void>;
+    }
+  ).createOnModeChange();
+
+  await onModeChange("plan");
+}
+
 describe("ClaudeAcpAgent.setSessionMode — SDK permission-mode translation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -149,18 +164,36 @@ describe("ClaudeAcpAgent.setSessionMode — SDK permission-mode translation", ()
     expect(session.modeBeforePlan).toBe("auto");
   });
 
-  it("clears the prior cycle's plan file when a new planning cycle starts", async () => {
+  it.each<[string, (agent: Agent) => Promise<void>]>([
+    [
+      "setSessionMode",
+      async (agent) => {
+        await agent.setSessionMode({ sessionId: "s-mode", modeId: "plan" });
+      },
+    ],
+    ["the EnterPlanMode hook", enterPlanModeViaHook],
+  ])(
+    "clears the prior cycle's plan file when %s starts a new planning cycle",
+    async (_entryPoint, enterPlanMode) => {
+      const { agent } = makeAgent();
+      installFakeSession(agent, "s-mode", "auto");
+      sessionOf(agent).lastPlanFilePath = "/tmp/repo/.claude/plans/old-plan.md";
+
+      await enterPlanMode(agent);
+
+      expect(sessionOf(agent).lastPlanFilePath).toBeUndefined();
+    },
+  );
+
+  it("keeps the plan file when plan mode is re-entered mid-cycle", async () => {
     const { agent } = makeAgent();
-    installFakeSession(agent, "s-mode", "auto");
-    const session = (
-      agent as unknown as {
-        session: { lastPlanFilePath?: string };
-      }
-    ).session;
-    session.lastPlanFilePath = "/tmp/repo/.claude/plans/old-plan.md";
+    installFakeSession(agent, "s-mode", "plan");
+    sessionOf(agent).lastPlanFilePath = "/tmp/repo/.claude/plans/drafting.md";
 
     await agent.setSessionMode({ sessionId: "s-mode", modeId: "plan" });
 
-    expect(session.lastPlanFilePath).toBeUndefined();
+    expect(sessionOf(agent).lastPlanFilePath).toBe(
+      "/tmp/repo/.claude/plans/drafting.md",
+    );
   });
 });
