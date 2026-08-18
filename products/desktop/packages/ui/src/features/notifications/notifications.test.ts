@@ -130,6 +130,7 @@ describe("notifyPromptComplete", () => {
         taskId: TASK_ID,
         taskTitle: "My task",
         activityKind: "completed",
+        isUnread: true,
       }),
     );
 
@@ -150,7 +151,23 @@ describe("notifyPromptComplete", () => {
         taskId: TASK_ID,
         taskTitle: "My task",
         activityKind: "awaiting_input",
+        isUnread: true,
       }),
+    );
+  });
+
+  it("emits activity born read when the task is already on screen", () => {
+    const { bus } = makeBus({
+      hasFocus: true,
+      activeTarget: taskTarget(TASK_ID),
+    });
+    const listener = vi.fn();
+    bus.subscribeToTaskActivity(listener);
+
+    bus.notifyPromptComplete("My task", "end_turn", TASK_ID);
+
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: TASK_ID, isUnread: false }),
     );
   });
 

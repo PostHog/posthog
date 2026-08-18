@@ -61,6 +61,7 @@ describe("TaskActivityContribution", () => {
       taskTitle: "Channel task",
       activityKind: "awaiting_input",
       activityAt: "2026-07-27T10:00:00Z",
+      isUnread: true,
     });
 
     const cached = queryClient.getQueryData<InfiniteData<TaskActivityPage>>([
@@ -75,6 +76,56 @@ describe("TaskActivityContribution", () => {
           channel_id: null,
           activity_kind: "awaiting_input",
           is_unread: true,
+        },
+      ],
+    });
+  });
+
+  it("replaces an unread row with read activity without increasing the count", () => {
+    queryClient.setQueryDefaults(["task-activity"], {
+      meta: AUTH_SCOPED_QUERY_META,
+    });
+    queryClient.setQueryData<InfiniteData<TaskActivityPage>>(
+      ["task-activity"],
+      {
+        pages: [
+          {
+            results: [
+              {
+                id: "activity-1",
+                task_id: "task-1",
+                task_title: "Channel task",
+                activity_at: "2026-07-27T09:00:00Z",
+                activity_kind: "awaiting_input",
+                snippet: "",
+                is_unread: true,
+              },
+            ],
+            unread_count: 1,
+          },
+        ],
+        pageParams: [undefined],
+      },
+    );
+
+    activityListener?.({
+      taskId: "task-1",
+      taskTitle: "Channel task",
+      activityKind: "completed",
+      activityAt: "2026-07-27T10:00:00Z",
+      isUnread: false,
+    });
+
+    const cached = queryClient.getQueryData<InfiniteData<TaskActivityPage>>([
+      "task-activity",
+    ]);
+    expect(cached?.pages[0]).toMatchObject({
+      unread_count: 0,
+      results: [
+        {
+          task_id: "task-1",
+          activity_kind: "completed",
+          is_unread: false,
         },
       ],
     });
@@ -101,6 +152,7 @@ describe("TaskActivityContribution", () => {
       taskTitle: "Channel task",
       activityKind: "completed",
       activityAt: "2026-07-27T10:00:00Z",
+      isUnread: true,
     });
 
     const cached = queryClient.getQueryData<InfiniteData<TaskActivityPage>>([
@@ -149,6 +201,7 @@ describe("TaskActivityContribution", () => {
       taskTitle: "Channel task",
       activityKind: "completed",
       activityAt: "2026-07-27T10:00:00Z",
+      isUnread: true,
     });
 
     const cached = queryClient.getQueryData<InfiniteData<TaskActivityPage>>([
@@ -163,6 +216,7 @@ describe("TaskActivityContribution", () => {
       taskTitle: "Previous user's task",
       activityKind: "completed",
       activityAt: "2026-07-27T10:00:00Z",
+      isUnread: true,
     });
 
     expect(queryClient.getQueryData(["task-activity"])).toBeUndefined();

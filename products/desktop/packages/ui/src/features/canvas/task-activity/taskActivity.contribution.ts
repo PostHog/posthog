@@ -60,22 +60,25 @@ export class TaskActivityContribution implements Contribution {
           snippet: "",
           latest_author: null,
           latest_message_id: null,
-          is_unread: true,
+          is_unread: signal.isUnread,
         };
         if (!data) {
           return {
-            pages: [{ results: [activity], unread_count: 1 }],
+            pages: [
+              { results: [activity], unread_count: signal.isUnread ? 1 : 0 },
+            ],
             pageParams: [undefined],
           };
         }
-        const unreadIncrement = previous?.is_unread ? 0 : 1;
+        const unreadDelta =
+          Number(signal.isUnread) - Number(previous?.is_unread ?? false);
         return {
           ...data,
           pages: data.pages.map((page, index) => ({
             ...page,
             unread_count:
               index === 0
-                ? page.unread_count + unreadIncrement
+                ? Math.max(0, page.unread_count + unreadDelta)
                 : page.unread_count,
             results:
               index === 0
