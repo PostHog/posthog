@@ -348,10 +348,10 @@ export function VirtualThreadScrollBody({
 
   // Re-armed by the props flipping back, so one gesture loads one page.
   const loadOlderArmedRef = useRef(false);
-  loadOlderArmedRef.current =
-    hasOlderHistory && !isLoadingOlderHistory && onLoadOlderHistory != null;
   const onLoadOlderHistoryRef = useRef(onLoadOlderHistory);
-  onLoadOlderHistoryRef.current = onLoadOlderHistory;
+  useEffect(() => {
+    onLoadOlderHistoryRef.current = onLoadOlderHistory;
+  }, [onLoadOlderHistory]);
 
   const maybeLoadOlderHistory = useCallback(() => {
     const el = viewportRef.current;
@@ -364,10 +364,17 @@ export function VirtualThreadScrollBody({
   // A viewport parked at the very top produces no scroll events, so arming
   // must also attempt a load once the end-anchored layout has settled.
   useEffect(() => {
-    if (!hasOlderHistory || isLoadingOlderHistory) return;
+    loadOlderArmedRef.current =
+      hasOlderHistory && !isLoadingOlderHistory && onLoadOlderHistory != null;
+    if (!loadOlderArmedRef.current) return;
     const id = window.setTimeout(maybeLoadOlderHistory, 250);
     return () => window.clearTimeout(id);
-  }, [hasOlderHistory, isLoadingOlderHistory, maybeLoadOlderHistory]);
+  }, [
+    hasOlderHistory,
+    isLoadingOlderHistory,
+    onLoadOlderHistory,
+    maybeLoadOlderHistory,
+  ]);
 
   const { followRef, leaveEnd, settleAtEnd, settleToIndex } = useSettleControls(
     virtualizer,
