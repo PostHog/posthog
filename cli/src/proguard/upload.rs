@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
+use tracing::warn;
 
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
@@ -30,11 +31,12 @@ pub struct Args {
     #[clap(flatten)]
     pub conflict: UploadConflictArgs,
 
-    /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
-    /// release id onto the uploaded mapping: the previous behavior. EXPERIMENTAL `event` leaves
-    /// the mapping release-independent, and each event resolves its own release from the app
-    /// version and namespace the SDK already sends. The release is created either way. Also
-    /// settable via `POSTHOG_RELEASE_MODE`.
+    /// How the release is associated with exceptions. `symbol-set`, the default, stamps the
+    /// release id onto the uploaded mapping, and an exception takes the release of the mappings
+    /// its frames resolved against. EXPERIMENTAL `event` leaves the mapping
+    /// release-independent, and each event resolves its own release from the app version and
+    /// namespace the SDK already sends, so the release coordinates have to match the app's. The
+    /// release is created either way. Also settable via `POSTHOG_RELEASE_MODE`.
     #[arg(
         long,
         env = "POSTHOG_RELEASE_MODE",
@@ -60,6 +62,18 @@ pub fn upload(args: &Args) -> Result<()> {
         build,
         skip_release_on_fail,
     } = release;
+
+    // Event mode leaves nothing on the symbol set for the server to fall back to, so an
+    // exception resolves its release only from the app metadata on the event itself. Coordinates
+    // derived from git rather than passed explicitly will not match that metadata, and the
+    // exception then reports no release at all, silently.
+    if *release_mode == ReleaseMode::Event && (name.is_none() || version.is_none()) {
+        warn!(
+            "--release-mode=event resolves each exception's release from the app's namespace and \
+             version. Pass --release-name, --release-version and --build matching the app's \
+             applicationId, versionName and versionCode, or exceptions will report no release."
+        );
+    }
 
     let path = path
         .canonicalize()
