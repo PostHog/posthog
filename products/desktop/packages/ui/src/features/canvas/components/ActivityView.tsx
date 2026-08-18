@@ -188,6 +188,15 @@ export function ActivityRow({
     item.activityKind === "awaiting_input" ||
     item.activityKind === "completed" ||
     (item.activityKind === "message" && !item.author);
+  const actorType = isAgentActivity
+    ? "agent"
+    : item.activityKind === "created"
+      ? "self"
+      : !item.author || !currentUser
+        ? "unknown"
+        : item.author.id === currentUser.id
+          ? "self"
+          : "other_user";
   // The one row here that is blocked on you, and the sidebar's session rows
   // already say that in blue. Yellow is everything else the feed carries:
   // something happened that you haven't read.
@@ -204,6 +213,9 @@ export function ActivityRow({
       surface,
       channel_id: channelId ?? undefined,
       task_id: item.taskId,
+      activity_kind: item.activityKind,
+      activity_actor_type: actorType,
+      was_unread: item.isUnread,
     });
     onOpen(item);
     if (item.commentId && item.commentTarget) {

@@ -1,4 +1,5 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,6 +17,7 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { track } from "@posthog/ui/shell/analytics";
 import { ActivityRow, activityHeadline } from "./ActivityView";
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
@@ -36,12 +38,19 @@ function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
 }
 
 const NO_BLOCKED_TASKS: ReadonlySet<string> = new Set();
+const CURRENT_USER = {
+  id: 1,
+  uuid: "me",
+  email: "me@posthog.com",
+  first_name: "Me",
+};
 
 describe("activityHeadline", () => {
   beforeEach(() => {
     navigation.toChannelTask.mockReset();
     navigation.toChannelDashboard.mockReset();
     navigation.toTaskDetail.mockReset();
+    vi.mocked(track).mockReset();
     useCommentNavigationStore.setState({
       focusByTask: {},
       resolutionsByTarget: {},
@@ -136,6 +145,7 @@ describe("activityHeadline", () => {
         channelId="channel-1"
         onOpen={vi.fn()}
         onMarkRead={vi.fn()}
+        currentUser={CURRENT_USER}
         blockedTaskIds={NO_BLOCKED_TASKS}
       />,
     );
@@ -143,6 +153,15 @@ describe("activityHeadline", () => {
     if (!activityButton) throw new Error("Expected activity row button");
     fireEvent.click(activityButton);
 
+    expect(track).toHaveBeenCalledWith(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "open_task",
+      surface: "activity",
+      channel_id: "channel-1",
+      task_id: "task-1",
+      activity_kind: "mention",
+      activity_actor_type: "other_user",
+      was_unread: true,
+    });
     expect(navigation.toChannelDashboard).toHaveBeenCalledWith(
       "channel-1",
       "canvas-1",

@@ -1,7 +1,7 @@
 // Analytics event types and properties
 
 import type { Adapter } from "./adapter";
-import type { EffortLevel } from "./domain-types";
+import type { EffortLevel, TaskActivityKind } from "./domain-types";
 import type { SourceProduct } from "./inbox-types";
 
 export interface PromptHistoryOpenedProperties {
@@ -951,6 +951,8 @@ export type ChannelsSurface =
   | "activity_panel"
   | "activity";
 
+export type ActivityActorType = "self" | "agent" | "other_user" | "unknown";
+
 export type ChannelActionType =
   | "enter_space"
   | "leave_space"
@@ -1003,6 +1005,9 @@ export interface ChannelActionProperties {
   tab?: string;
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
+  activity_kind?: TaskActivityKind;
+  activity_actor_type?: ActivityActorType;
+  was_unread?: boolean;
 }
 
 export type DashboardActionType =
