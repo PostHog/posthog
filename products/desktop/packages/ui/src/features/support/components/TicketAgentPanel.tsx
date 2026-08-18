@@ -15,10 +15,15 @@ import {
   EmptyTitle,
   Text,
 } from "@posthog/quill";
-import { ChannelHomeComposer } from "@posthog/ui/features/canvas/components/ChannelHomeComposer";
+import {
+  ChannelHomeComposer,
+  type ChannelHomeComposerHandle,
+} from "@posthog/ui/features/canvas/components/ChannelHomeComposer";
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { useSessionForTask } from "@posthog/ui/features/sessions/sessionStore";
 import { useTicketAgentThread } from "@posthog/ui/features/support/hooks/useTicketAgentThread";
+import { TICKET_AGENT_SUGGESTIONS } from "@posthog/ui/features/support/ticketAgentSuggestions";
+import { SuggestedPromptCard } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import {
   useWorkspace,
@@ -26,6 +31,7 @@ import {
 } from "@posthog/ui/features/workspace/useWorkspace";
 import { navigateToTaskDetail } from "@posthog/ui/router/navigationBridge";
 import { useQuery } from "@tanstack/react-query";
+import { useRef } from "react";
 
 export function TicketAgentPanel({
   ticket,
@@ -35,14 +41,35 @@ export function TicketAgentPanel({
   messages: SupportTicketMessage[];
 }) {
   const { taskId, linkTask, unlinkTask } = useTicketAgentThread(ticket);
+  const composerRef = useRef<ChannelHomeComposerHandle>(null);
 
   if (taskId) {
     return <TicketAgentSession taskId={taskId} onUnlink={unlinkTask} />;
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col justify-end p-3">
+    <div className="flex h-full min-h-0 flex-col justify-end gap-8 p-3">
+      <div className="min-h-0 overflow-y-auto">
+        <Text className="mb-1.5 block px-0.5 font-medium text-[11px] text-muted-foreground">
+          Suggestions
+        </Text>
+        <div className="flex flex-col gap-1.5">
+          {TICKET_AGENT_SUGGESTIONS.map((suggestion) => (
+            <SuggestedPromptCard
+              key={suggestion.label}
+              suggestion={suggestion}
+              onSelect={() =>
+                composerRef.current?.applySuggestion(
+                  suggestion.prompt,
+                  suggestion.mode,
+                )
+              }
+            />
+          ))}
+        </div>
+      </div>
       <ChannelHomeComposer
+        ref={composerRef}
         contextKey={`ticket:${ticket.id}`}
         preferredWorkspaceMode="cloud"
         placeholder="Ask the agent about this ticket…"
