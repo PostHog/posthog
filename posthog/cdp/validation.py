@@ -14,7 +14,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.cdp.email_sender import from_email_integration_ids, override_off_domain_reason
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
+from posthog.models.integration import Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -412,6 +414,39 @@ class InputsItemSerializer(serializers.Serializer):
         # We want to override the way this gets rendered as the underlying serializer is a DictField which does weird things
         return {k: v for k, v in value.items() if v is not None}
 
+    def _validate_from_email_domain(self, from_value: dict) -> None:
+        override_email = from_value.get("email")
+        if not isinstance(override_email, str) or not override_email.strip():
+            return
+        # A templated address is only knowable at send time, so leave it to the runtime.
+        if "{" in override_email:
+            return
+
+        get_team = self.context.get("get_team")
+        if get_team is None:
+            return
+
+        integration_ids = from_email_integration_ids(from_value)
+        if not integration_ids:
+            return
+
+        configs = [i.config for i in Integration.objects.filter(team=get_team(), kind="email", id__in=integration_ids)]
+        if not configs:
+            return
+
+        reasons = [override_off_domain_reason(config, override_email) for config in configs]
+        # The runtime honors the override whenever it lands on a selected sender's domain, so only
+        # an address that matches none of them is guaranteed to be dropped.
+        if all(reason is not None for reason in reasons):
+            raise serializers.ValidationError(
+                {
+                    "input": (
+                        f'The sender address "{override_email.strip()}" will be ignored at send time because '
+                        f"{reasons[0]}. Use an address on that domain, or remove the custom sender."
+                    )
+                }
+            )
+
     def validate(self, attrs):
         schema = self.context["schema"]
         function_type = self.context["function_type"]
@@ -503,6 +538,10 @@ class InputsItemSerializer(serializers.Serializer):
                         raise serializers.ValidationError(
                             {"input": "Expected 'from.integrationIds' to be a list of Integration IDs."}
                         )
+
+                # A literal sender address off the selected sender's verified domain is silently
+                # dropped at send time, so this save is the only place left to tell the author.
+                self._validate_from_email_domain(from_value)
 
             if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
                 # Programmatically authored emails often supply html without a design, which the

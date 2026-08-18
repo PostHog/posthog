@@ -16,6 +16,7 @@ from posthog.cdp.validation import (
     compile_hog,
     generate_template_bytecode,
 )
+from posthog.models.integration import Integration
 
 from products.messaging.backend.api.design_validation import validate_design
 
@@ -550,6 +551,39 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         with pytest.raises(ValidationError) as ctx:
             validate_inputs(inputs_schema, {"email": {"value": value}})
         assert "At most 10 email senders are allowed." in str(ctx.value.detail)
+
+    def _email_integration(self, domain: str) -> Integration:
+        return Integration.objects.create(
+            team=self.team, kind="email", integration_id=f"hi@{domain}", config={"domain": domain}
+        )
+
+    def _validate_email_from(self, from_value: dict) -> dict:
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {"from": from_value, "to": "a@b.com", "subject": "hi", "text": "hi"}
+        serializer = MappingsSerializer(
+            data={"inputs_schema": inputs_schema, "inputs": {"email": {"value": value}}},
+            context={"function_type": "destination", "get_team": lambda: self.team},
+        )
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data["inputs"]
+
+    def test_off_domain_sender_address_is_rejected_at_save(self):
+        # The runtime silently ignores this placeholder, so the save is the only place left to warn.
+        integration = self._email_integration("posthog.com")
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from({"integrationId": integration.id, "email": "default@example.com"})
+        assert "will be ignored at send time" in str(ctx.value.detail)
+
+    def test_on_domain_sender_address_saves(self):
+        integration = self._email_integration("posthog.com")
+        validated = self._validate_email_from({"integrationId": integration.id, "email": "sales@posthog.com"})
+        assert validated["email"]["value"]["from"]["email"] == "sales@posthog.com"
+
+    def test_address_on_one_of_several_senders_saves(self):
+        posthog = self._email_integration("posthog.com")
+        acme = self._email_integration("acme.com")
+        validated = self._validate_email_from({"integrationIds": [posthog.id, acme.id], "email": "sales@posthog.com"})
+        assert validated["email"]["value"]["from"]["email"] == "sales@posthog.com"
 
     @parameterized.expand(
         [

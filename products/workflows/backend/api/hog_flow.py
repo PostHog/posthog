@@ -1244,6 +1244,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     context={
                         "function_type": template.type,
                         "is_dwh_source": self.context.get("is_dwh_source", False),
+                        # Lets input validation resolve the selected email sender to check its domain.
+                        "get_team": self.context.get("get_team"),
                         # The existing (decrypted) secret inputs for this action, so a resent
                         # {"secret": true} marker recovers the stored value instead of wiping it.
                         "encrypted_inputs": (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id"))
