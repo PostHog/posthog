@@ -11,70 +11,53 @@ then
 fi
 
 # Refuse to push a branch whose PR sits in the Trunk merge queue, because the push knocks
-# it out of the queue. While a PR is queued, trunk-io keeps an open draft test PR whose
-# branch is trunk-merge/pr-<number>/<uuid>; batched and dependent PRs appear only in the
-# test PR's body (as .../pull/<number> links), so both are checked. Trunk sometimes leaves
-# test PRs open after their source PR merged, which is harmless here since only numbers of
-# open PRs on the pushed branch are matched.
-# TRUNK_QUEUE_PUSH_CHECK_DISABLED=1 skips; no gh, offline, or non-GitHub remote → skip.
-if [ -z "$TRUNK_QUEUE_PUSH_CHECK_DISABLED" ] && command -v gh >/dev/null 2>&1
+# it out of the queue. gh maps the pushed branch to its open PR numbers; queue membership
+# is then asked of Trunk via `trunk merge status <pr>`, which needs a one-time
+# `trunk login`. Anything short of a recognized in-queue answer (missing gh or trunk, not
+# logged in, offline, unrecognized output) allows the push. A PR in "Pending Failure"
+# also allows: after a failed batch, pushing a fix is the intended action and Trunk drops
+# the queue entry itself. TRUNK_QUEUE_PUSH_CHECK_DISABLED=1 skips.
+if [ -z "$TRUNK_QUEUE_PUSH_CHECK_DISABLED" ] \
+    && command -v gh >/dev/null 2>&1 \
+    && command -v trunk >/dev/null 2>&1 \
+    && [ -f "$(git rev-parse --show-toplevel)/.trunk/trunk.yaml" ]
 then
     repo=$(printf '%s' "$2" | sed -E 's#^.*github\.com[:/]##; s#\.git$##')
     if [ -n "$repo" ] && [ "$repo" != "$2" ]
     then
         owner=${repo%%/*}
         name=${repo##*/}
-        queue_refs=''
-        queue_refs_fetched=''
         while read -r local_ref local_sha remote_ref remote_sha
         do
             case "$remote_ref" in
                 refs/heads/*) branch="${remote_ref#refs/heads/}" ;;
                 *) continue ;;
             esac
-            branch_prs=''
-            for attempt in 1 2 3
-            do
-                if branch_prs=$(gh api graphql \
-                    -f query='query($owner: String!, $name: String!, $branch: String!) {
-                        repository(owner: $owner, name: $name) {
-                            pullRequests(headRefName: $branch, states: OPEN, first: 5) { nodes { number } }
-                        }
-                    }' \
-                    -f owner="$owner" -f name="$name" -f branch="$branch" \
-                    --jq '.data.repository.pullRequests.nodes[].number' </dev/null 2>/dev/null)
-                then
-                    break
-                fi
-                branch_prs=''
-                sleep 1
-            done
-            [ -z "$branch_prs" ] && continue
-            if [ -z "$queue_refs_fetched" ]
-            then
-                for attempt in 1 2 3
-                do
-                    if queue_refs=$(gh pr list --repo "$repo" --author "app/trunk-io" \
-                        --state open --limit 100 --json headRefName,body \
-                        --jq '.[] | .headRefName, .body' </dev/null 2>/dev/null)
-                    then
-                        queue_refs_fetched=1
-                        break
-                    fi
-                    sleep 1
-                done
-            fi
-            [ -z "$queue_refs" ] && continue # gh never got a clean answer, or the queue is empty → fail open
+            branch_prs=$(gh api graphql \
+                -f query='query($owner: String!, $name: String!, $branch: String!) {
+                    repository(owner: $owner, name: $name) {
+                        pullRequests(headRefName: $branch, states: OPEN, first: 5) { nodes { number } }
+                    }
+                }' \
+                -f owner="$owner" -f name="$name" -f branch="$branch" \
+                --jq '.data.repository.pullRequests.nodes[].number' </dev/null 2>/dev/null)
             for pr in $branch_prs
             do
                 case "$pr" in
                     *[!0-9]*|'') continue ;;
                 esac
-                if printf '%s\n' "$queue_refs" | grep -E -q "trunk-merge/pr-$pr/|pull/$pr([^0-9]|\$)"
+                trunk_out=$(trunk merge status "$pr" --ci --no-progress </dev/null 2>&1) || continue
+                # Clear states first: "Pending Failure" would otherwise hit the queued
+                # pattern's "pending", and "not in the queue" its "queue".
+                if printf '%s' "$trunk_out" | grep -qiE '(not|no longer)[^.]*queue|pending failure|merged|failed|cancelled'
+                then
+                    continue
+                fi
+                if printf '%s' "$trunk_out" | grep -qiE 'queued|pending|testing|tests passed|waiting'
                 then
                     echo "pre-push: PR #$pr ('$branch') is in the Trunk merge queue — this push would remove it from the queue."
                     echo "Do NOT push to this branch. Let the queued PR merge, then make further changes on a NEW branch and open a NEW pull request."
-                    echo "If you really need to update this PR instead, comment '/trunk cancel' on PR #$pr, wait for it to leave the queue, then push again."
+                    echo "If you really need to update this PR instead, run 'trunk merge cancel $pr' (or comment '/trunk cancel'), wait for it to leave the queue, then push again."
                     exit 1
                 fi
             done
