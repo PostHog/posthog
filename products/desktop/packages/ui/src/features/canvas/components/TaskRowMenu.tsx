@@ -104,6 +104,7 @@ function TaskRowMenuItems({
     id: channel.id,
     label: channel.name,
     current: channel.id === menu.channelId,
+    starred: channel.starred,
   }));
 
   return (

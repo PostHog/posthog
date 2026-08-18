@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webma
     parse_site_urls,
     parse_wcf_date,
     select_site_urls,
+    suggest_verified_site,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.settings import (
@@ -167,6 +168,27 @@ class TestSiteSelection:
     def test_filter_matching_no_verified_site_raises(self):
         with pytest.raises(ValueError, match="not verified sites on the connected account"):
             select_site_urls(_SITES, ["http://unverified.example.org"])
+
+    @pytest.mark.parametrize(
+        "filter_url,expected",
+        [
+            # A bare hostname can never match Bing's scheme-prefixed site key, so it resolves to the
+            # verified site sharing that host, with or without a trailing slash and regardless of case.
+            ("example.com", "https://example.com/"),
+            ("example.com/", "https://example.com/"),
+            ("EXAMPLE.COM", "https://example.com/"),
+            # An entry that already carries a scheme is matched exactly, so no suggestion is offered.
+            ("https://example.com/", None),
+            # A host that isn't verified has nothing to suggest.
+            ("unknown.example.net", None),
+        ],
+    )
+    def test_suggest_verified_site(self, filter_url, expected):
+        assert suggest_verified_site(filter_url, ["https://example.com/"]) == expected
+
+    def test_bare_hostname_error_names_the_verified_form(self):
+        with pytest.raises(ValueError, match=r"'example.com' is verified as 'https://example.com/'"):
+            select_site_urls(_SITES, ["example.com"])
 
 
 class TestRequest:

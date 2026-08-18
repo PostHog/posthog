@@ -9,6 +9,7 @@ import { HarnessSettings } from "@posthog/ui/features/settings/sections/HarnessS
 import { NotificationsSettings } from "@posthog/ui/features/settings/sections/NotificationsSettings";
 import { PersonalizationSettings } from "@posthog/ui/features/settings/sections/PersonalizationSettings";
 import { PlanUsageSettings } from "@posthog/ui/features/settings/sections/PlanUsageSettings";
+import { QuickAskSettings } from "@posthog/ui/features/settings/sections/QuickAskSettings";
 import { ShortcutsSettings } from "@posthog/ui/features/settings/sections/ShortcutsSettings";
 import { SignalSourcesSettings } from "@posthog/ui/features/settings/sections/SignalSourcesSettings";
 import { SlackSettings } from "@posthog/ui/features/settings/sections/SlackSettings";
@@ -72,6 +73,7 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
   terminal: defineSettingsPage("Terminal", TerminalSettings),
   harness: defineSettingsPage("Harness", HarnessSettings),
   shortcuts: defineSettingsPage("Shortcuts", ShortcutsSettings),
+  "quick-ask": defineSettingsPage("Quick ask", QuickAskSettings),
   github: defineSettingsPage("GitHub", GitHubSettings),
   slack: defineSettingsPage("Slack integration", SlackSettings),
   discord: defineSettingsPage("Discord", DiscordSettings),

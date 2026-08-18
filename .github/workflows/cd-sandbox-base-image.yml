@@ -11,6 +11,9 @@ on:
             - 'products/tasks/backend/sandbox/images/**'
             - 'products/*/skills/**'
             - 'products/posthog_ai/scripts/**'
+            # The notebook image bakes this package and stamps its content hash.
+            - 'products/notebooks/backend/sandbox/kernel/**'
+            - 'products/notebooks/backend/kernel_package.py'
     workflow_dispatch:
 
 jobs:
@@ -44,6 +47,8 @@ jobs:
                         - 'products/tasks/backend/sandbox/images/**'
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/**'
+                        - 'products/notebooks/backend/sandbox/kernel/**'
+                        - 'products/notebooks/backend/kernel_package.py'
 
     build_skills:
         needs: changes

@@ -83,6 +83,7 @@ depends_on = [
     "products.analytics_platform",
     "products.approvals",
     "products.batch_exports",
+    "products.billing_alerts",
     "products.business_knowledge",
     "products.canvas",
     "products.cdp",
@@ -431,6 +432,7 @@ depends_on = [
     "products.dashboards",
     "products.early_access_features",
     "products.experiments",
+    "products.exports",
     "products.product_analytics",
     "products.product_tours",
     "products.surveys",
@@ -490,6 +492,16 @@ depends_on = [
     "products.cdp",
     "products.exports",
     "products.signals",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.billing_alerts"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.alerts",
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -657,6 +669,7 @@ depends_on = [
     "products.cohorts",
     "products.experiments",
     "products.exports",
+    "products.notifications",
     "products.signals",
     "products.tasks",
 ]
@@ -816,6 +829,8 @@ depends_on = [
     "posthog",
     # Sandbox provisioning (via the tasks facade) and the Channel FK canvases file into.
     "products.tasks",
+    # The annotations.create action verb (via the annotations facade).
+    "products.annotations",
 ]
 layer = "modules"
 
@@ -938,6 +953,18 @@ expose = [
 ]
 from = [
     "products.experiments",
+]
+
+# Billing alerts registers product-owned workflows and a schedule with the shared billing worker.
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.schedule\\.create_schedule_due_billing_alert_checks_schedule",
+]
+from = [
+    "products.billing_alerts",
 ]
 
 # Experiments is the first isolated product to register a Temporal workflow, so the canonical interface

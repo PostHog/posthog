@@ -34,7 +34,7 @@ class TestReceiptBackfillMigrations(APIBaseTest):
             name="s",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         obs = ReplayObservation.objects.create(
             scanner=scanner,
@@ -87,21 +87,21 @@ class TestClosedBetaLaunchReset(APIBaseTest):
             name="internal",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         beta_scanner = ReplayScanner.objects.create(
             team=beta_team,
             name="beta",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         receipt = ReplayObservationUsage.objects.create(
             observation_id=uuid.uuid4(),
             organization_id=self.organization.id,
             team_id=beta_team.id,
             observation_created_at=timezone.now(),
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             credits=15,
         )
 
@@ -133,14 +133,14 @@ class TestClosedBetaLaunchReset(APIBaseTest):
             name="s",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         receipt = ReplayObservationUsage.objects.create(
             observation_id=uuid.uuid4(),
             organization_id=self.organization.id,
             team_id=team_2.id,
             observation_created_at=timezone.now(),
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             credits=15,
         )
 

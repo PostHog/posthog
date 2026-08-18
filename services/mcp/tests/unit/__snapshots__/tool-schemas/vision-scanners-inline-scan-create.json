@@ -4,8 +4,8 @@
     "properties": {
         "model": {
             "default": "gemini-3-flash-preview",
-            "description": "Model to scan with. Determines what each observation costs in credits.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.6-flash` - Gemini 3.6 Flash",
-            "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.6-flash"],
+            "description": "Model to scan with. Determines what each observation costs in credits.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.7-flash` - Gemini 3.7 Flash",
+            "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.7-flash"],
             "type": "string"
         },
         "prompt": {

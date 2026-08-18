@@ -157,6 +157,7 @@ export function InsightVizDisplay({
         supportsDisplay,
         samplingFactor,
         insightDataLoading,
+        hasRenderableResults,
         erroredQueryId,
         timedOutQueryId,
         vizSpecificOptions,
@@ -180,6 +181,9 @@ export function InsightVizDisplay({
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
+            if (hasRenderableResults) {
+                return null
+            }
             return (
                 <InsightLoadingState
                     queryId={queryId}

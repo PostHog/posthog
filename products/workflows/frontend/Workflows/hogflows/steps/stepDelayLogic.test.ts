@@ -255,4 +255,36 @@ describe('stepDelayLogic', () => {
 
         expect(descriptionOf(delayAction.id)).toBe(customDescription)
     })
+
+
+    it('should auto-update the description when the action has no description', async () => {
+        // Agent-created actions can arrive without a description key; editing one must not throw on .trim().
+        const delayAction = {
+            id: `delay_action_${uuid()}`,
+            type: 'delay',
+            name: 'Delay',
+            description: undefined as unknown as string,
+            config: { delay_duration: '10m' },
+            created_at: Date.now(),
+            updated_at: Date.now(),
+        } as HogFlowAction
+
+        await expectLogic(wfLogic, () => {
+            wfLogic.actions.setWorkflowInfo({
+                actions: [...wfLogic.values.workflow.actions, delayAction],
+            })
+        }).toDispatchActions(['setWorkflowInfo'])
+
+        await expectLogic(sdLogic, () => {
+            sdLogic.actions.setDelayWorkflowActionConfig(delayAction.id, { delay_duration: '5m' })
+        })
+            .toDispatchActions(['setWorkflowActionConfig'])
+            .toFinishListeners()
+
+        await expectLogic(sdLogic).toMatchValues({
+            workflow: partial({
+                actions: expect.arrayContaining([expect.objectContaining({ description: 'Wait for 5 minutes.' })]),
+            }),
+        })
+    })
 })

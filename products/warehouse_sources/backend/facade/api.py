@@ -29,6 +29,9 @@ from products.warehouse_sources.backend.file_uploads import (
     build_file_upload_url_pattern,
     hosted_upload_s3_path,
 )
+from products.warehouse_sources.backend.models.column_statistics import (
+    WarehouseColumnStatistics as _WarehouseColumnStatistics,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
@@ -37,6 +40,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable a
 # Framework-free helper transforms — re-exported as the public helper surface.
 from products.warehouse_sources.backend.models.util import (
     clickhouse_columns_to_dwh_columns,
+    motherduck_columns_to_dwh_columns,
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
     postgres_column_to_dwh_column,
@@ -58,8 +62,10 @@ __all__ = [
     "get_queryable_table",
     "list_tables_for_source",
     "list_jobs_for_source",
+    "list_column_statistics",
     # framework-free helper transforms
     "clickhouse_columns_to_dwh_columns",
+    "motherduck_columns_to_dwh_columns",
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",
@@ -232,3 +238,20 @@ def list_jobs_for_source(source_id: UUID, team_id: int) -> list[contracts.Extern
         .order_by("-created_at")
     )
     return [_to_job(j) for j in qs]
+
+
+def list_column_statistics(team_id: int) -> list[contracts.ColumnStatistics]:
+    """Every column profile for a team, for describing warehouse tables in a query schema."""
+    qs = _WarehouseColumnStatistics.objects.for_team(team_id).values_list(
+        "table_id", "column_name", "null_fraction", "min_value", "max_value"
+    )
+    return [
+        contracts.ColumnStatistics(
+            table_id=table_id,
+            column_name=column_name,
+            null_fraction=null_fraction,
+            min_value=min_value,
+            max_value=max_value,
+        )
+        for table_id, column_name, null_fraction, min_value, max_value in qs
+    ]

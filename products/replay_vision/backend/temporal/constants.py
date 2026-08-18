@@ -82,6 +82,11 @@ SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
 # attempt, swallowed by the sweep) rather than a retry, and the next tick picks it up.
 REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
 
+# What one sweep tick's activity gets end to end. Its ClickHouse queries share this, so the exclusion
+# scan is capped by what the candidate query left rather than by a fixed budget of its own: overrunning
+# kills the attempt after the candidates were found, so the tick retries without ever dispatching.
+FIND_SCANNER_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
+
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
 SCANNER_SCHEDULE_TYPE = "replay-vision-scanner-sweep"
@@ -121,6 +126,8 @@ MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
 # N x 150 rasterizer slots. Fairness only; the rasterizer scales horizontally for total throughput.
 MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
+
+CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
 
 
 def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:

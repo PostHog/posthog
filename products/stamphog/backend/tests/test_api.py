@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core import signing
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -9,14 +10,18 @@ from rest_framework import status
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, uuid7
 
+from products.stamphog.backend.facade import contracts
 from products.stamphog.backend.facade.enums import ReviewRunStatus
 from products.stamphog.backend.models import DigestChannel, PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.presentation.serializers import StamphogRepoConfigWriteSerializer
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
 _VIEWS = "products.stamphog.backend.presentation.views"
+# The repo enumeration moved behind the facade with the sync logic; the rest is still looked up in views.
+_GITHUB_FACADE = "products.stamphog.backend.facade.github"
 _CLIENT = "products.stamphog.backend.logic.github_client.StamphogGitHubClient"
 
 
@@ -168,6 +173,59 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert mine.digest_enabled is False
         assert in_flight.status == ReviewRunStatus.SUPERSEDED
 
+    def test_cannot_enable_digest_without_reviews(self) -> None:
+        # Wiring guard for the serializer matrix below: the viewset must actually reject the
+        # combination. A digest-on/review-off repo captures no merges at all, so it would look
+        # configured and silently never post.
+        response = self.client.post(self.url, {"repository": "PostHog/quiet", "enabled": False, "digest_enabled": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not StamphogRepoConfig.objects.unscoped().filter(repository="PostHog/quiet").exists()
+
+
+def _repo_config_dto(*, enabled: bool, digest_enabled: bool) -> contracts.RepoConfigDTO:
+    return contracts.RepoConfigDTO(
+        id=uuid7(),
+        team_id=1,
+        provider="github",
+        repository="PostHog/posthog",
+        enabled=enabled,
+        installation_id="1",
+        digest_enabled=digest_enabled,
+    )
+
+
+class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("create", None, {"repository": "PostHog/posthog", "enabled": False, "digest_enabled": True}),
+            (
+                "enable_digest_on_review_off_repo",
+                _repo_config_dto(enabled=False, digest_enabled=False),
+                {"digest_enabled": True},
+            ),
+        ]
+    )
+    def test_asking_for_digest_without_reviews_is_rejected(
+        self, _name: str, current: contracts.RepoConfigDTO | None, data: dict
+    ) -> None:
+        serializer = StamphogRepoConfigWriteSerializer(
+            data=data, partial=current is not None, partial_update=current is not None, current=current
+        )
+        assert not serializer.is_valid()
+        assert "digest_enabled" in serializer.errors
+
+    def test_disabling_reviews_clears_the_digest(self) -> None:
+        # The Enabled toggle PATCHes only `enabled`, so rejecting the write would leave an admin
+        # unable to turn reviews off on any digest-enabled repo, with a generic failure toast.
+        serializer = StamphogRepoConfigWriteSerializer(
+            data={"enabled": False},
+            partial=True,
+            partial_update=True,
+            current=_repo_config_dto(enabled=True, digest_enabled=True),
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["digest_enabled"] is False
+
 
 class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
@@ -275,7 +333,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/sync_installation/"
         self.state = _install_state(self.team.id, self.user.id)
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog", "PostHog/other"])
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog", "PostHog/other"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_verified_installation_binds_repos(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -297,7 +355,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # The caller becomes the connecting user — the identity review-sandbox credentials are minted under.
         assert all(config.connected_by_user_id == self.user.id for config in bound)
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_sync_adopts_preexisting_manual_config(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -322,7 +380,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.enabled is False
         assert manual.digest_enabled is False
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_sync_rebinds_repo_after_reinstall(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -342,7 +400,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert stale.installation_id == "42"
         assert stale.enabled is True  # settings survive the rebind
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=False)
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_installation_not_owned_by_caller_is_rejected(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -357,7 +415,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         mock_list.assert_not_called()
         assert not StamphogRepoConfig.objects.unscoped().filter(installation_id="999").exists()
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.user_can_access_installation")
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value=None)
     def test_unexchangeable_code_fails_closed(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -373,7 +431,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert not StamphogRepoConfig.objects.unscoped().filter(installation_id="42").exists()
 
     @parameterized.expand(["team", "user"])
-    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token")
     def test_state_for_another_team_or_user_is_rejected(self, mismatch, mock_exchange, mock_list) -> None:
         # CSRF guard: the callback binds an installation to the team AND the member named in the signed
@@ -406,7 +464,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.post(self.url, {"installation_id": "42", "state": self.state}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.list_user_installations", return_value=[{"id": "42", "account_login": "PostHog"}])
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_discovery_without_installation_id_syncs_discovered_installation(
@@ -426,7 +484,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
         assert bound.count() == 1
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(
         f"{_VIEWS}.list_user_installations",
         return_value=[{"id": "100", "account_login": "AlphaOrg"}, {"id": "200", "account_login": "SharedOrg"}],
@@ -452,7 +510,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         mock_list.assert_not_called()
         assert not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).exists()
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.list_user_installations", return_value=[])
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_discovery_with_no_installations_reports_app_not_installed(
