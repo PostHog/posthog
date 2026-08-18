@@ -55,6 +55,18 @@ class HeadMovedError(ContextLayerStoreError):
     """The head sha moved underneath a landing writer, twice."""
 
 
+class HeadConflictError(ContextLayerStoreError):
+    """A write guarded by `required_head` was based on a stale head."""
+
+    def __init__(self, *, current_head: str) -> None:
+        super().__init__(f"the wiki head moved to {current_head}; re-read and retry")
+        self.current_head = current_head
+
+
+class BundleConflictError(ContextLayerStoreError):
+    """A posted commit bundle could not be read or rebased onto the current head."""
+
+
 class LintFailedError(ContextLayerStoreError):
     def __init__(self, errors: list[str]) -> None:
         super().__init__("wiki structure lint failed: " + "; ".join(errors))
@@ -235,37 +247,35 @@ def initialize_repo(
         return config
 
 
-def apply_changes(
+def _run_landing(
     organization_id: uuid.UUID | str,
     *,
-    message: str,
-    mutate: Callable[[Path], None],
-    author: CommitAuthor | None = None,
+    prepare: Callable[[Path], str | None],
+    required_head: str | None = None,
 ) -> str:
-    """Run the writer protocol for a working-tree mutation and return the new head sha.
+    """The landing half of the writer protocol, shared by every writer.
 
-    `mutate` receives the checkout path and edits files in place; the store
-    commits, lints, uploads, and lands the result. A no-op mutation returns the
-    current head without landing anything.
+    `prepare` receives a working clone of the current head and returns the new
+    head sha it committed, or `None` for a no-op. All writers hold the per-org
+    lock, so the CAS only loses when a previous writer's lock expired mid-land
+    and its CAS raced ours. One retry re-reads the moved head and replays
+    `prepare` on top of it.
     """
-    author = author or SYSTEM_AUTHOR
-    # All writers hold the per-org lock, so the CAS only loses when a previous
-    # writer's lock expired mid-land and its CAS raced ours. One retry re-reads
-    # the moved head and replays the mutation on top of it.
     for attempt in (1, 2):
         with repo_writer_lock(organization_id):
             expected_head = get_config(organization_id).head_sha
+            if required_head is not None and required_head != expected_head:
+                raise HeadConflictError(current_head=expected_head)
             with tempfile.TemporaryDirectory(prefix="context-layer-") as tmp:
                 tmpdir = Path(tmp)
                 bundle_path = _download_bundle(organization_id, expected_head, tmpdir)
                 workdir = tmpdir / "repo"
                 _clone_from_bundle(bundle_path, workdir)
 
-                mutate(workdir)
-                if not _has_changes(workdir):
+                new_head = prepare(workdir)
+                if new_head is None:
                     return expected_head
                 _lint_or_raise(workdir)
-                new_head = _commit_all(workdir, message, author)
                 _upload_bundle(organization_id, new_head, workdir)
 
                 updated = ContextLayerConfig.objects.filter(
@@ -274,12 +284,71 @@ def apply_changes(
                 if updated:
                     return new_head
         logger.warning(
-            "context_layer.apply_changes.head_moved",
+            "context_layer.landing.head_moved",
             organization_id=str(organization_id),
             expected_head=expected_head,
             attempt=attempt,
         )
     raise HeadMovedError(f"head moved twice while landing changes for organization {organization_id}")
+
+
+def apply_changes(
+    organization_id: uuid.UUID | str,
+    *,
+    message: str,
+    mutate: Callable[[Path], None],
+    author: CommitAuthor | None = None,
+    required_head: str | None = None,
+) -> str:
+    """Run the writer protocol for a working-tree mutation and return the new head sha.
+
+    `mutate` receives the checkout path and edits files in place; the store
+    commits, lints, uploads, and lands the result. A no-op mutation returns the
+    current head without landing anything. `required_head` is the optimistic
+    concurrency guard: when the head no longer matches, `HeadConflictError`
+    carries the current head for the caller's 409.
+    """
+
+    def prepare(workdir: Path) -> str | None:
+        mutate(workdir)
+        if not _has_changes(workdir):
+            return None
+        return _commit_all(workdir, message, author or SYSTEM_AUTHOR)
+
+    return _run_landing(organization_id, prepare=prepare, required_head=required_head)
+
+
+def land_commit_bundle(organization_id: uuid.UUID | str, bundle_bytes: bytes) -> str:
+    """Land commits an agent made in its own clone, posted back as a bundle.
+
+    The bundle must carry the wiki's `main` ref, with the commits based on some
+    (possibly stale) head we already store. The incoming commits are rebased
+    onto the current head; a rebase conflict raises `BundleConflictError` so the
+    agent can re-pull and retry.
+    """
+
+    def prepare(workdir: Path) -> str | None:
+        incoming = workdir.parent / "incoming.bundle"
+        incoming.write_bytes(bundle_bytes)
+        try:
+            _run_git(["bundle", "verify", "--quiet", str(incoming)], cwd=workdir)
+            _run_git(["fetch", "--quiet", str(incoming), DEFAULT_BRANCH], cwd=workdir)
+        except ContextLayerStoreError as error:
+            raise BundleConflictError(f"could not read the posted bundle: {error}") from error
+        fetched = _run_git(["rev-parse", "FETCH_HEAD"], cwd=workdir)
+        if fetched == _run_git(["rev-parse", "HEAD"], cwd=workdir):
+            return None
+        _run_git(["checkout", "--quiet", "-B", "incoming", fetched], cwd=workdir)
+        try:
+            _run_git(["rebase", "--quiet", DEFAULT_BRANCH], cwd=workdir)
+        except ContextLayerStoreError as error:
+            raise BundleConflictError(f"the posted commits conflict with the current head: {error}") from error
+        rebased = _run_git(["rev-parse", "HEAD"], cwd=workdir)
+        _run_git(["checkout", "--quiet", DEFAULT_BRANCH], cwd=workdir)
+        _run_git(["merge", "--ff-only", "--quiet", rebased], cwd=workdir)
+        return _run_git(["rev-parse", "HEAD"], cwd=workdir)
+
+    return _run_landing(organization_id, prepare=prepare)
 
 
 def purge_repo_history(organization_id: uuid.UUID | str, *, message: str = "Purge wiki history") -> str:

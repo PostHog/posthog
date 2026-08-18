@@ -1,0 +1,104 @@
+/**
+ * Auto-generated from the Django backend OpenAPI schema.
+ * To modify these types, update the Django serializers or views, then run:
+ *   hogli build:openapi
+ * Questions or issues? #team-devex on Slack
+ *
+ * PostHog API - generated
+ * OpenAPI spec version: 1.0.0
+ */
+/**
+ * Request body for landing agent commits posted back as a git bundle.
+ */
+export interface CommitBundleApi {
+    /** A `git bundle` carrying the wiki's `main` ref, created in the agent's clone (for example `git bundle create out.bundle origin/main..main`). */
+    bundle: string
+}
+
+/**
+ * Response shape for the wiki's current state.
+ */
+export interface ContextLayerStatusApi {
+    /** Commit sha of the wiki's current head. */
+    head_sha: string
+}
+
+/**
+ * 400 body when a write violates the wiki's structure rules.
+ */
+export interface LintErrorApi {
+    /** What was rejected. */
+    detail: string
+    /** One entry per structure violation found by the linter. */
+    errors: string[]
+}
+
+/**
+ * Response shape for a wiki bundle export.
+ */
+export interface WikiExportApi {
+    /** Short-lived download URL for the wiki's current bundle. */
+    url: string
+    /** Commit sha of the bundle behind the URL. */
+    head_sha: string
+}
+
+/**
+ * Response shape for one wiki page.
+ */
+export interface WikiPageApi {
+    /** Repo-relative path of the page, for example `areas/analytics.md`. */
+    path: string
+    /** The page's Markdown content. */
+    content: string
+    /** Commit sha the content was read at; pass back as `base_head` on writes. */
+    head_sha: string
+}
+
+/**
+ * Request body for creating or replacing one wiki page.
+ */
+export interface WikiPageWriteApi {
+    /**
+     * Repo-relative Markdown path inside the wiki's structure, for example `channels/general.md`.
+     * @maxLength 512
+     */
+    path: string
+    /**
+     * The complete Markdown content for the page.
+     * @maxLength 1000000
+     */
+    content: string
+    /**
+     * Optimistic-concurrency guard: the head sha the edit is based on. A moved head is rejected with 409 and the current head; omit to write unguarded.
+     * @nullable
+     */
+    base_head?: string | null
+}
+
+/**
+ * 409 body when a guarded write was based on a stale head.
+ */
+export interface HeadConflictApi {
+    /** What moved and what to do next. */
+    detail: string
+    /** The wiki's current head sha; re-read pages at this head and retry. */
+    current_head: string
+}
+
+/**
+ * Response shape for the wiki's page listing.
+ */
+export interface WikiTreeApi {
+    /** Commit sha of the wiki's current head. */
+    head_sha: string
+    /** Repo-relative path of every Markdown page at the current head. */
+    paths: string[]
+}
+
+export type ContextLayerPagesRetrieveParams = {
+    /**
+     * Repo-relative Markdown path of the page to read.
+     */
+    path: string
+}
