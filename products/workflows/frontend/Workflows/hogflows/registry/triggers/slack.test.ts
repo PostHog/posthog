@@ -76,16 +76,21 @@ describe('slack message trigger', () => {
             )
         })
 
-        it('drops an empty id list rather than storing a filter that matches nothing', () => {
-            const encoded = encodeSlackFilters({
-                channel: null,
-                posterMode: 'specific_people',
-                posterIds: [],
-                topLevelOnly: false,
-                additional: [],
-            })
-            expect(encoded).toEqual([])
-        })
+        it.each<SlackPosterMode>(['specific_people', 'specific_apps'])(
+            'keeps %s selected before any id is typed',
+            (mode) => {
+                // The control re-derives from the stored filters on every render, so a mode that
+                // encodes to nothing snaps straight back to "anyone" the moment you pick it.
+                const encoded = encodeSlackFilters({
+                    channel: null,
+                    posterMode: mode,
+                    posterIds: [],
+                    topLevelOnly: false,
+                    additional: [],
+                })
+                expect(decodeSlackFilters(encoded).posterMode).toBe(mode)
+            }
+        )
     })
 
     describe('registry entry', () => {

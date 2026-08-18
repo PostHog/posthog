@@ -3,12 +3,32 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 /** Who is allowed to start a run. Each mode compiles to exactly one property filter. */
 export type SlackPosterMode = 'anyone' | 'people' | 'specific_people' | 'apps' | 'specific_apps'
 
-export const SLACK_POSTER_MODE_OPTIONS: { value: SlackPosterMode; label: string }[] = [
-    { value: 'people', label: 'People only' },
-    { value: 'specific_people', label: 'Specific people' },
-    { value: 'apps', label: 'Apps and bots only' },
-    { value: 'specific_apps', label: 'Specific apps' },
-    { value: 'anyone', label: 'Anyone' },
+export const SLACK_POSTER_MODE_OPTIONS: { value: SlackPosterMode; label: string; description: string }[] = [
+    {
+        value: 'people',
+        label: 'People only',
+        description: 'Skips anything posted by an app or bot, including PostHog itself.',
+    },
+    {
+        value: 'specific_people',
+        label: 'Specific people',
+        description: 'Only messages from the Slack users you list.',
+    },
+    {
+        value: 'apps',
+        label: 'Apps and bots only',
+        description: 'For alerts posted by a tool rather than typed by a person.',
+    },
+    {
+        value: 'specific_apps',
+        label: 'Specific apps',
+        description: 'Only messages from the Slack apps you list.',
+    },
+    {
+        value: 'anyone',
+        label: 'Anyone',
+        description: 'Every message in the channel. A workflow that posts back to Slack will trigger itself.',
+    },
 ]
 
 /**
@@ -60,10 +80,12 @@ export function decodeSlackFilters(properties: Record<string, any>[] | undefined
 
     let posterMode: SlackPosterMode = 'anyone'
     let posterIds: string[] = []
-    if (values(user).length) {
+    // Keyed on the entry existing, not on it having values: the mode is chosen before any id is
+    // typed, and reading the values would snap the control back to "anyone" while you fill it in.
+    if (user) {
         posterMode = 'specific_people'
         posterIds = values(user)
-    } else if (values(appId).length) {
+    } else if (appId) {
         posterMode = 'specific_apps'
         posterIds = values(appId)
     } else if (botId?.operator === PropertyOperator.IsSet) {
@@ -96,14 +118,10 @@ export function encodeSlackFilters(filters: SlackTriggerFilters): Record<string,
             properties.push(presence('bot_id', PropertyOperator.IsSet))
             break
         case 'specific_people':
-            if (filters.posterIds.length) {
-                properties.push(exact('user', filters.posterIds))
-            }
+            properties.push(exact('user', filters.posterIds))
             break
         case 'specific_apps':
-            if (filters.posterIds.length) {
-                properties.push(exact('app_id', filters.posterIds))
-            }
+            properties.push(exact('app_id', filters.posterIds))
             break
         case 'anyone':
             break

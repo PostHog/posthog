@@ -123,7 +123,16 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
             >
                 <LemonSelect<SlackPosterMode>
                     value={filters.posterMode}
-                    options={SLACK_POSTER_MODE_OPTIONS}
+                    options={SLACK_POSTER_MODE_OPTIONS.map(({ value, label, description }) => ({
+                        value,
+                        label,
+                        labelInMenu: (
+                            <div className="flex flex-col py-1">
+                                <span>{label}</span>
+                                <span className="text-xs text-muted-alt">{description}</span>
+                            </div>
+                        ),
+                    }))}
                     onChange={(posterMode) => update({ posterMode, posterIds: [] })}
                     data-attr="slack-trigger-poster-mode"
                 />
@@ -132,6 +141,7 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
             {wantsIds && (
                 <LemonField.Pure
                     label={filters.posterMode === 'specific_people' ? 'Slack user IDs' : 'Slack app IDs'}
+                    error={validationResult?.errors?.posterIds}
                     info="Find an ID from the member or app profile in Slack, under 'Copy member ID' or the app's About tab."
                 >
                     <LemonInputSelect
@@ -164,6 +174,10 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
                         [TaxonomicFilterGroupType.EventProperties]: ADVANCED_PROPERTIES.map((p) => p.key),
                     }}
                     propertyDefinitionsOverride={ADVANCED_PROPERTY_DEFINITIONS}
+                    taxonomicFilterOptionsFromProp={{
+                        [TaxonomicFilterGroupType.EventProperties]: ADVANCED_PROPERTIES.map((p) => ({ name: p.key })),
+                    }}
+                    inline
                 />
             </LemonField.Pure>
         </div>
@@ -187,7 +201,7 @@ registerTriggerType({
                 channel: null,
                 posterMode: 'people',
                 posterIds: [],
-                topLevelOnly: false,
+                topLevelOnly: true,
                 additional: [],
             }),
         },
@@ -196,8 +210,16 @@ registerTriggerType({
         if (config.type !== 'slack-message') {
             return null
         }
-        if (!decodeSlackFilters(config.filters?.properties).channel) {
+        const filters = decodeSlackFilters(config.filters?.properties)
+        if (!filters.channel) {
             return { valid: false, errors: { channel: 'Please pick a Slack channel' } }
+        }
+        const wantsIds = filters.posterMode === 'specific_people' || filters.posterMode === 'specific_apps'
+        if (wantsIds && !filters.posterIds.length) {
+            return {
+                valid: false,
+                errors: { posterIds: 'Add at least one Slack ID, or the trigger will never fire' },
+            }
         }
         return { valid: true, errors: {} }
     },
