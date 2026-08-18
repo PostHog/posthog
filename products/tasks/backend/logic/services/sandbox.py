@@ -449,9 +449,7 @@ class SandboxBase(ABC):
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
-        # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
-        # files get fetched on demand. Shallow clones are already small enough.
-        blob_filter = "" if shallow else " --filter=blob:limit=128k"
+        blob_filter = "" if shallow else " --filter=blob:none"
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "

@@ -996,7 +996,7 @@ class TestModalSandboxCommandEscaping:
         "shallow,expected_in_command,not_expected_in_command",
         [
             (True, "--depth 1", None),
-            (False, "--single-branch", "--depth"),
+            (False, "--filter=blob:none", "--depth"),
         ],
     )
     def test_clone_repository_shallow_flag(self, shallow, expected_in_command, not_expected_in_command):
