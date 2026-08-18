@@ -1,6 +1,7 @@
 import json
 import uuid
 import secrets
+from datetime import timedelta
 from typing import ClassVar
 
 from unittest.mock import AsyncMock, patch
@@ -9,6 +10,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
@@ -674,6 +676,37 @@ class TestTaskRun(TestCase):
         run = self.task.create_run(mode="interactive")
 
         self.assertNotIn("initial_permission_mode", run.state)
+
+    def test_create_run_bumps_task_activity(self):
+        stale = django_timezone.now() - timedelta(hours=1)
+        # `.update()` bypasses `auto_now`, so the column can be aged without the model touching it.
+        Task.objects.filter(pk=self.task.pk).update(updated_at=stale)
+
+        self.task.create_run()
+
+        self.assertGreater(Task.objects.get(pk=self.task.pk).updated_at, stale)
+
+    @parameterized.expand(
+        [
+            ("completed", lambda run: run.mark_completed()),
+            ("failed", lambda run: run.mark_failed("nope")),
+        ]
+    )
+    def test_terminal_transition_persists_run_updated_at(self, _name, terminalize):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+        )
+        stale = django_timezone.now() - timedelta(hours=1)
+        TaskRun.objects.filter(pk=run.pk).update(updated_at=stale)
+        run.refresh_from_db()
+
+        terminalize(run)
+
+        # `auto_now` sets the attribute in `pre_save` regardless, so the row is what proves it —
+        # an `update_fields` that omits `updated_at` leaves the column behind while the object lies.
+        self.assertGreater(TaskRun.objects.get(pk=run.pk).updated_at, stale)
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_prepare_for_cloud_handoff_clears_stale_sandbox_routing(self, _publish):

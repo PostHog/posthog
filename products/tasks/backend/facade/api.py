@@ -2617,6 +2617,9 @@ def update_task_run(
         handle_loop_run_terminal(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        # The transition, not the PATCH: a run's own state merges land here many times while it
+        # works, and bumping the task on each one would write the task row on every progress tick.
+        Task.bump_activity(task_id=run.task_id, team_id=run.team_id, at=run.completed_at)
         if new_status == TaskRun.Status.FAILED:
             observe_agent_turn_failed(run)
             # This PATCH performed the DB transition, so it owns the task_run_failed
@@ -6868,6 +6871,9 @@ def list_mentions(
 
 def project_thread_message_activity(message: TaskThreadMessage) -> None:
     """Project a new thread message onto the feed of everyone it concerns."""
+    # Above the loop, and above the recipient set: a task's order in a list is task-scoped, so it
+    # has to move even for a message that reaches nobody's feed.
+    Task.bump_activity(task_id=message.task_id, team_id=message.team_id, at=message.created_at)
     recipient_ids = {recipient_id for recipient_id in (message.author_id, message.task.created_by_id) if recipient_id}
     for recipient_id in recipient_ids:
         TaskActivity.record(
@@ -6889,6 +6895,8 @@ def project_awaiting_input_activity(task_run: "TaskRun") -> None:
     the same row. Deliberately outside the push feature flag and its Redis cooldown — the
     in-app feed should update even where the mobile push is off.
     """
+    awaiting_at = django_timezone.now()
+    Task.bump_activity(task_id=task_run.task_id, team_id=task_run.task.team_id, at=awaiting_at)
     creator_id = task_run.task.created_by_id
     if creator_id is None:
         return
@@ -6897,11 +6905,15 @@ def project_awaiting_input_activity(task_run: "TaskRun") -> None:
         user_id=creator_id,
         task_id=task_run.task_id,
         kind=TaskActivity.Kind.AWAITING_INPUT,
-        activity_at=django_timezone.now(),
+        activity_at=awaiting_at,
     )
 
 
 def project_completed_activity(task_run: "TaskRun") -> None:
+    completed_at = task_run.completed_at or django_timezone.now()
+    # Also reached per finished turn (``notify_task_run_turn_completed``), which is what keeps an
+    # interactive session at the top of a recent-activity list between its start and its end.
+    Task.bump_activity(task_id=task_run.task_id, team_id=task_run.task.team_id, at=completed_at)
     creator_id = task_run.task.created_by_id
     if creator_id is None:
         return
@@ -6910,7 +6922,7 @@ def project_completed_activity(task_run: "TaskRun") -> None:
         user_id=creator_id,
         task_id=task_run.task_id,
         kind=TaskActivity.Kind.COMPLETED,
-        activity_at=task_run.completed_at or django_timezone.now(),
+        activity_at=completed_at,
     )
 
 

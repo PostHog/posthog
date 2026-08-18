@@ -22,7 +22,9 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, models, transaction
+from django.db.models import F, Value
 from django.db.models.fields.json import KeyTransform
+from django.db.models.functions import Greatest
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -497,6 +499,7 @@ class Task(DeletedMetaFields, models.Model):
             state=state,
             branch=branch,
         )
+        Task.bump_activity(task_id=self.id, team_id=self.team_id, at=task_run.created_at)
         task_run.publish_stream_state_event()
         observe_task_run_created(task_run)
         self.capture_event(
@@ -518,6 +521,33 @@ class Task(DeletedMetaFields, models.Model):
             },
         )
         return task_run
+
+    @classmethod
+    def bump_activity(cls, *, task_id: str | uuid.UUID, team_id: int, at: datetime | None = None) -> None:
+        """Move ``updated_at`` forward for a real timeline event on this task.
+
+        ``updated_at`` is what every task list orders "recent activity" by, but ``auto_now`` only
+        fires on an explicit ``save()`` — so without this the column sits near ``created_at`` and
+        the ordering collapses to creation order. Call it where an event a reader would notice
+        happens: a run starting or terminalizing, a turn completing, a thread message landing.
+        Not on every run state merge — that would put a row write on each progress tick, and the
+        desktop client already folds ``latest_run.updated_at`` into its own ordering.
+
+        ``.update()`` rather than ``save()``: callers hold no task instance, and it must not
+        clobber a concurrent field write. That also means ``auto_now`` (a ``pre_save`` hook) does
+        not fire, hence the explicit value.
+
+        ``Greatest`` because events arrive out of order — a retried Temporal activity replaying a
+        terminal transition, the janitor finalizing a run whose ``completed_at`` is old, a thread
+        message carrying its own ``created_at``. The same newest-wins rule ``TaskActivity.record``
+        enforces in SQL; a late event reordering a list backwards is worse than not reordering it.
+        """
+        cls.objects.filter(id=task_id, team_id=team_id).update(
+            updated_at=Greatest(
+                F("updated_at"),
+                Value(at or django_timezone.now(), output_field=models.DateTimeField()),
+            )
+        )
 
     @property
     def slack_notified_pr_url(self) -> str | None:
@@ -2406,7 +2436,7 @@ class TaskRun(models.Model):
         """
         self.status = self.Status.COMPLETED
         self.completed_at = django_timezone.now()
-        self.save(update_fields=["status", "completed_at"])
+        self.save(update_fields=["status", "completed_at", "updated_at"])
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_completed",
@@ -2437,7 +2467,7 @@ class TaskRun(models.Model):
         self.status = self.Status.FAILED
         self.error_message = error
         self.completed_at = django_timezone.now()
-        self.save(update_fields=["status", "error_message", "completed_at"])
+        self.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_failed",

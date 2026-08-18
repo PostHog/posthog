@@ -11,7 +11,7 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.metrics import observe_wizard_run_unbound
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
@@ -116,6 +116,10 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and old_status != input.status:
         _capture_terminal_analytics(task_run, input)
+        # A cloud run finishing is the last thing that happens on the task, and this is the path
+        # that writes it — the `mark_completed`/`mark_failed` helpers are only reached by the
+        # janitor sweeps, so nothing else would move the task's `updated_at` here.
+        Task.bump_activity(task_id=task_run.task_id, team_id=task_run.team_id, at=task_run.completed_at)
 
     if input.timed_out_inactivity and old_status != input.status:
         task_run.task.soft_delete_if_unclaimed_prewarm(task_run)

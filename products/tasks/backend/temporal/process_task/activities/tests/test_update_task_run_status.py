@@ -1,11 +1,15 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
-from products.tasks.backend.models import Loop, TaskRun
+from products.tasks.backend.models import Loop, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
@@ -233,6 +237,25 @@ class TestUpdateTaskRunStatusActivity:
 
         completed = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_completed"]
         assert len(completed) == 1
+
+    @pytest.mark.django_db(transaction=True)
+    def test_terminal_transition_bumps_task_activity(self, activity_environment, test_task_run):
+        # This is the only path that terminalizes a cloud run — `mark_completed` is reached by the
+        # janitor sweeps alone — so nothing else would move the task in a recent-activity list.
+        task = test_task_run.task
+        stale = timezone.now() - timedelta(hours=1)
+        Task.objects.filter(pk=task.pk).update(updated_at=stale)
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        bumped = Task.objects.get(pk=task.pk).updated_at
+        assert bumped > stale
+
+        # A retried activity sees the row already terminal and must not re-bump: a run that
+        # finished once should not keep climbing the list on every replay.
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        assert Task.objects.get(pk=task.pk).updated_at == bumped
 
     @pytest.mark.django_db(transaction=True)
     def test_terminal_retry_completes_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
