@@ -33,6 +33,7 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import BaseParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 
 from posthog.schema import QuerySchemaRoot
 
@@ -294,6 +295,31 @@ class TaskUsageUpstreamUnavailable(APIException):
     default_code = "task_usage_upstream_unavailable"
 
 
+class _SignalReportTaskCreateThrottle(UserRateThrottle):
+    """Rate-limits only signal-report task creation on the shared create endpoint.
+
+    Report-started tasks run unbilled inference (the customer pays per PR), so their creation
+    rate needs a per-user bound the generic create path doesn't; the per-report cap alone still
+    allows sweeping every report on a team. Reading `request.data` here is safe — DRF caches it.
+    """
+
+    def allow_request(self, request, view):
+        data = request.data
+        if not isinstance(data, dict) or data.get("origin_product") != "signal_report":
+            return True
+        return super().allow_request(request, view)
+
+
+class SignalReportTaskCreateBurstThrottle(_SignalReportTaskCreateThrottle):
+    scope = "signal_report_task_create_burst"
+    rate = "10/hour"
+
+
+class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskCreateThrottle):
+    scope = "signal_report_task_create_day"
+    rate = "30/day"
+
+
 @extend_schema(tags=["tasks"])
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
@@ -311,6 +337,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskSerializer
+
+    def get_throttles(self):
+        throttles = super().get_throttles()
+        if getattr(self, "action", None) == "create":
+            throttles += [SignalReportTaskCreateBurstThrottle(), SignalReportTaskCreateSustainedThrottle()]
+        return throttles
 
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
@@ -506,7 +538,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             201: TaskSerializer,
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="Organization reached its PostHog Desktop usage limit",
+                description=(
+                    "Organization reached its PostHog Desktop usage limit, the signal report reached its "
+                    "task limit (code `signal_report_task_cap`), or the per-user creation rate limit fired"
+                ),
             ),
         },
     )
@@ -514,6 +549,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         # Read before create_task, which pops the relationship out of the dict it's handed.
         relationship = serializer.validated_data.get("signal_report_task_relationship")
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 — keeps the signals stack off this module's import path
+            ReportTaskCapExceeded,
+        )
+
         try:
             task = tasks_facade.create_task(
                 self.team_id,
@@ -523,6 +562,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except ComputeBillingLimitExceeded as error:
             return compute_quota_limit_response(error.reason)
+        except ReportTaskCapExceeded as error:
+            # `code` distinguishes this from the compute-quota 429 for frontend handling.
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"type": "rate_limit", "code": "signal_report_task_cap", "error": error.detail}
+                ).data,
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
 

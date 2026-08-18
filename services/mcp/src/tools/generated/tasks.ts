@@ -457,7 +457,6 @@ const TasksCreateSchema = TasksCreateBody.omit({
     signal_report: true,
     signal_report_task_relationship: true,
     json_schema: true,
-    internal: true,
     archived: true,
     ci_prompt: true,
     branch: true,
