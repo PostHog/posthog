@@ -66,23 +66,35 @@ const ITEMS = [
   },
 ];
 
+// Persistence needs both the SDK surface and a host that answers it. An old
+// runtime without ph.state must degrade to session-only ticks, never crash
+// the tile.
+const stateApi =
+  typeof ph !== "undefined" && ph.state && typeof ph.state.get === "function"
+    ? ph.state
+    : null;
+
 export default function WelcomeChecklist() {
   const [checked, setChecked] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
-    ph.state
-      .get("checked", { scope: "user" })
-      .then((value) => {
-        if (!cancelled) {
-          setChecked(value && typeof value === "object" ? value : {});
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setChecked({});
-        }
-      });
+    if (!stateApi) {
+      setChecked({ "download-desktop": true });
+    } else {
+      stateApi
+        .get("checked", { scope: "user" })
+        .then((value) => {
+          if (!cancelled) {
+            setChecked(value && typeof value === "object" ? value : {});
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setChecked({});
+          }
+        });
+    }
     return () => {
       cancelled = true;
     };
@@ -94,7 +106,9 @@ export default function WelcomeChecklist() {
     }
     const next = { ...checked, [id]: value };
     setChecked(next);
-    ph.state.set("checked", next, { scope: "user" }).catch(() => {});
+    if (stateApi) {
+      stateApi.set("checked", next, { scope: "user" }).catch(() => {});
+    }
   };
 
   const done = checked ? ITEMS.filter((item) => checked[item.id]).length : 0;
@@ -149,7 +163,7 @@ def welcome_checklist_project() -> dict[str, Any]:
     """The checklist component's source project (kept publishable by a contract test)."""
     project = synthetic_source_project(_CHECKLIST_CODE)
     project["capabilities"] = {"posthog": {"state": ["user"]}, "network": {"origins": []}}
-    project["component"] = {"size": {"defaultW": 2, "defaultH": 3, "minW": 1, "minH": 2}}
+    project["component"] = {"size": {"defaultW": 3, "defaultH": 5, "minW": 2, "minH": 3}}
     return project
 
 
@@ -158,7 +172,7 @@ def seed_home_canvas(canvas: Canvas, *, user: User, channel_id: UUID) -> None:
 
     Creates the checklist component in the user's personal channel, queues its
     build, pre-ticks what the account already answers, and publishes the home
-    layout with the component placed 2x3 in the top-left corner. The placement
+    layout with the component placed 3x5 in the top-left corner. The placement
     goes live before the build finishes — the tile shows a spinner until the
     artifact lands, which beats opening onto an empty grid. Raises on failure;
     the caller treats seeding as best-effort.
@@ -202,8 +216,8 @@ def seed_home_canvas(canvas: Canvas, *, user: User, channel_id: UUID) -> None:
             "status": "live",
             "x": 0,
             "y": 0,
-            "w": 2,
-            "h": 3,
+            "w": 3,
+            "h": 5,
             "component": str(component.id),
             "version": "latest",
             "prompt": WELCOME_COMPONENT_NAME,
