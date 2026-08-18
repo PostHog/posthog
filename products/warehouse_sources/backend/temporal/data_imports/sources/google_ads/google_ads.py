@@ -630,8 +630,13 @@ def google_ads_source(
                     yield pa_table
 
                 # An empty window doesn't count, so a gap in the data is crossed within a single run
-                # instead of ending it, and the cursor never stalls on the gap.
-                if had_data and window_end > charge_from:
+                # instead of ending it, and the cursor never stalls on the gap. The test is `start`,
+                # not `window_end`: the query is `segments.date >= start`, so only a window that
+                # starts past `charge_from` holds rows guaranteed to advance the cursor. A window that
+                # merely ends past it straddles the cursor and can hold only overlap rows at or before
+                # `charge_from` — counting that as new ground lets the budget stop with the cursor
+                # unmoved, stalling every later run on the same windows.
+                if had_data and start > charge_from:
                     landed_new_ground = True
                 first_window = False
                 start = window_end

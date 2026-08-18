@@ -1543,8 +1543,41 @@ class TestGoogleAdsQueryConstruction:
         assert queries[0].startswith(
             "SELECT campaign.id,segments.date FROM campaign_stats WHERE segments.date >= '2026-04-04'"
         )
-        # Walked the four overlap windows and still landed one past the 2026-05-04 cursor.
-        assert "segments.date >= '2026-05-02'" in queries[-1]
+        # Walked the four overlap windows and the 2026-05-02 window that straddles the 2026-05-04
+        # cursor, then landed the first window that starts strictly past it — the one whose rows are
+        # all new ground.
+        assert "segments.date >= '2026-05-09'" in queries[-1]
+
+    def test_a_straddling_window_of_only_overlap_rows_cannot_stop_the_drain(self):
+        # The cursor sits at the last day with data before a gap (a paused account that later
+        # resumed), with the real backlog past the gap. The window that straddles the cursor holds
+        # only rows at or before it — data the table already has. Arming the budget on that window
+        # lets the run stop there with the cursor unmoved, so every later run repeats the same
+        # windows and the gap is never crossed: a silent no-progress stall. The budget must not stop
+        # the drain until a window that starts past the cursor has produced rows.
+        cursor = dt.date(2026, 1, 1)
+        w = GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS
+        # charge_from = cursor + 30d = 2026-01-31, straddled by the window starting 2026-01-29.
+        overlap_and_straddle = {(cursor + dt.timedelta(days=w * i)).isoformat(): 1 for i in range(5)}
+        data_past_gap = cursor + dt.timedelta(days=w * 22)  # 2026-06-04, after a run of empty windows
+        # One second of drain per loop check, against a two-second budget — the budget is spent long
+        # before the walk reaches the data past the gap, so only refusing to arm it on the straddle
+        # keeps the run going.
+        clock = iter(range(0, 500))
+
+        with freeze_time("2026-12-31"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+            with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 2):
+                _response, queries = self._run_source(
+                    self._stats_table(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=cursor,
+                    db_incremental_field_lookback_seconds=30 * 86400,
+                    incremental_field="segments.date",
+                    incremental_field_type=IncrementalFieldType.Date,
+                    window_rows={**overlap_and_straddle, data_past_gap.isoformat(): 1},
+                )
+
+        assert any(f"segments.date >= '{data_past_gap.isoformat()}'" in q for q in queries)
 
     def test_re_import_with_a_recorded_floor_resumes_at_the_old_history_start(self):
         # Deleting a schema's data clears the cursor, so the next run looks like a first sync and
@@ -1608,7 +1641,9 @@ class TestGoogleAdsQueryConstruction:
                     incremental_field_type=IncrementalFieldType.Date,
                 )
 
-        assert len(queries) == 4
+        # The first window starts at the cursor, so its rows aren't guaranteed to be past it; it
+        # doesn't arm the budget. The four seconds of budget then buy four more windows: five total.
+        assert len(queries) == 5
         assert "WHERE segments.date >= '2026-01-01' AND segments.date < '2026-01-08'" in queries[0]
 
     def test_empty_windows_are_crossed_within_one_run(self):
