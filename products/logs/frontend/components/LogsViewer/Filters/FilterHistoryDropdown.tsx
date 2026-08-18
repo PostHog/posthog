@@ -5,7 +5,7 @@ import { LemonButton, LemonMenu, LemonMenuSection } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
-import { getFiltersSummaryLines } from 'products/logs/frontend/utils'
+import { getFiltersSummaryLines, summaryServiceNames } from 'products/logs/frontend/utils'
 
 import { LogsFiltersHistoryEntry } from '../../../types'
 import { logsFilterHistoryLogic } from './logsFilterHistoryLogic'
@@ -18,10 +18,9 @@ const formatHistoryEntryDetails = (entry: LogsFiltersHistoryEntry): string => {
 }
 
 const formatServiceNames = (entry: LogsFiltersHistoryEntry): string => {
-    const { filters } = entry
-    const serviceNames = filters.serviceNames
+    const serviceNames = summaryServiceNames(entry.filters)
 
-    if (serviceNames && serviceNames.length > 0) {
+    if (serviceNames.length > 0) {
         const maxDisplayed = 3
         const displayedNames = serviceNames.slice(0, maxDisplayed)
         const remainingCount = serviceNames.length - displayedNames.length

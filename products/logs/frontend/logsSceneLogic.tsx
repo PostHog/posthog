@@ -22,12 +22,15 @@ import {
     DEFAULT_INITIAL_LOGS_LIMIT,
     logsViewerDataLogic,
 } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import {
+    SERVICE_NAME_FILTER,
+    SEVERITY_LEVEL_FILTER,
+    facetSelection,
+} from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 import { facetRailLogic } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetRailLogic'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import {
     DEFAULT_DATE_RANGE,
-    DEFAULT_SERVICE_NAMES,
-    DEFAULT_SEVERITY_LEVELS,
     isValidSeverityLevel,
     logsViewerFiltersLogic,
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
@@ -242,28 +245,30 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 filtersFromUrl.searchTerm = ''
                 hasFilterChanges = true
             }
+            // Level and service selections live in `filterGroup` now, so these two params are read
+            // but never written: they keep working for links minted before the move (and for
+            // hand-written ones like the services table's deep link), and `setFilters` folds them
+            // into the group. Compared against the group so a param the next syncUrl hasn't dropped
+            // yet doesn't re-apply itself on every URL change. Their absent-param case needs no
+            // reset branch: clearing `filterGroup` already clears these selections with it.
             if (params.severityLevels) {
                 const parsed = parseTagsFilter(params.severityLevels)
                 if (parsed) {
                     const levels = parsed.filter(isValidSeverityLevel)
-                    if (levels.length > 0 && !equal(levels, values.filters.severityLevels)) {
+                    const current = facetSelection(values.filters.filterGroup, SEVERITY_LEVEL_FILTER).included
+                    if (levels.length > 0 && !equal(levels, current)) {
                         filtersFromUrl.severityLevels = levels
                         hasFilterChanges = true
                     }
                 }
-            } else if (!equal(DEFAULT_SEVERITY_LEVELS, values.filters.severityLevels)) {
-                filtersFromUrl.severityLevels = DEFAULT_SEVERITY_LEVELS
-                hasFilterChanges = true
             }
             if (params.serviceNames) {
                 const names = parseTagsFilter(params.serviceNames)
-                if (names && !equal(names, values.filters.serviceNames)) {
+                const current = facetSelection(values.filters.filterGroup, SERVICE_NAME_FILTER).included
+                if (names && !equal(names, current)) {
                     filtersFromUrl.serviceNames = names
                     hasFilterChanges = true
                 }
-            } else if (!equal(DEFAULT_SERVICE_NAMES, values.filters.serviceNames)) {
-                filtersFromUrl.serviceNames = DEFAULT_SERVICE_NAMES
-                hasFilterChanges = true
             }
 
             if (hasFilterChanges) {
@@ -335,8 +340,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                         DEFAULT_UNIVERSAL_GROUP_FILTER
                     )
                     updateSearchParams(params, 'dateRange', values.filters.dateRange, DEFAULT_DATE_RANGE)
-                    updateSearchParams(params, 'severityLevels', values.filters.severityLevels, DEFAULT_SEVERITY_LEVELS)
-                    updateSearchParams(params, 'serviceNames', values.filters.serviceNames, DEFAULT_SERVICE_NAMES)
                     updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
                     updateSearchParams(params, 'facetNameSearch', values.facetNameSearch, '')
                     return params
