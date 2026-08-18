@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
 from posthog.models.user_integration import ReauthorizationRequired
@@ -10,9 +11,12 @@ from posthog.models.user_integration import ReauthorizationRequired
 from products.tasks.backend.logic.services.agent_command import CommandResult
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
     REFRESH_RETRY_DELAY_SECONDS,
+    REFRESH_TURN_IN_FLIGHT_MAX_WAIT_SECONDS,
+    REFRESH_TURN_IN_FLIGHT_POLL_SECONDS,
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     STEER_DECLINED_OUTCOME,
     SendFollowupToSandboxInput,
+    _refresh_blocked_by_active_turn,
     _refresh_sandbox_github,
     _refresh_sandbox_mcp,
     send_followup_to_sandbox,
@@ -84,6 +88,18 @@ def _arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refre
     mock_ph_configs.return_value = [_make_mcp_config(token="fresh-token")]
     mock_user_configs.return_value = []
     mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
+
+
+class TestRefreshBlockedByActiveTurn:
+    @parameterized.expand(
+        [
+            ("message", CommandResult(success=False, status_code=200, error="prompt turn is in flight"), True),
+            ("json_rpc_code", CommandResult(success=False, status_code=200, data={"error": {"code": -32002}}), True),
+            ("unrelated", CommandResult(success=False, status_code=502, error="Connection to sandbox failed"), False),
+        ]
+    )
+    def test_recognizes_the_active_turn_rejection(self, _name, result, expected):
+        assert _refresh_blocked_by_active_turn(result) is expected
 
 
 @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.time.sleep")
@@ -192,6 +208,48 @@ class TestRefreshSandboxMcp:
         assert mock_send_refresh.call_count == 2
         # Cache stays empty so the next follow-up retries the dispatch.
         assert get_sandbox_mcp_session_user("run-1") is None
+
+    def test_waits_out_an_active_turn_then_rebinds(
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, mock_sleep
+    ):
+        # The agent-server refuses a refresh mid-turn and clears once the turn ends.
+        # The rebind must wait for it rather than fail the follow-up closed after two
+        # quick attempts (the reported intermittent failure that a manual resend fixed).
+        _arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
+        in_flight = CommandResult(
+            success=False,
+            status_code=200,
+            error="Cannot refresh session while a prompt turn is in flight",
+        )
+        mock_send_refresh.side_effect = [in_flight, in_flight, CommandResult(success=True, status_code=200)]
+
+        actor = MagicMock(id=42)
+        safe = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
+
+        assert safe is True
+        assert mock_send_refresh.call_count == 3
+        assert get_sandbox_mcp_session_user("run-1") == 42
+
+    def test_gives_up_on_a_turn_that_never_ends(
+        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, mock_sleep
+    ):
+        # Waiting is bounded: an agent that never yields must still fail closed rather
+        # than block the activity forever.
+        _arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh)
+        mock_send_refresh.return_value = CommandResult(
+            success=False,
+            status_code=200,
+            error="Cannot refresh session while a prompt turn is in flight",
+        )
+
+        actor = MagicMock(id=42)
+        safe = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)
+
+        assert safe is False
+        assert get_sandbox_mcp_session_user("run-1") is None
+        # The in-flight poll budget, plus the one quick retry and the final attempt.
+        expected_polls = REFRESH_TURN_IN_FLIGHT_MAX_WAIT_SECONDS // REFRESH_TURN_IN_FLIGHT_POLL_SECONDS
+        assert mock_send_refresh.call_count == expected_polls + 2
 
     def test_token_mint_failure_is_non_fatal_and_skips_send(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _sleep

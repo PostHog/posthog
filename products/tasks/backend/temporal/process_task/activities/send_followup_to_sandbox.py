@@ -60,6 +60,19 @@ logger = structlog.get_logger(__name__)
 
 REFRESH_RETRY_DELAY_SECONDS = 0.5
 
+# The agent-server refuses a session refresh while it is still finishing a turn
+# and returns JSON-RPC -32002. This clears on its own the moment the turn ends,
+# so it is the dominant reason a follow-up rebind fails: the two quick retries
+# run out before the turn does, and only a manual resend minutes later succeeds.
+# Poll for the turn to finish instead of failing the follow-up closed. The
+# activity heartbeats from a side thread, so waiting here does not trip the
+# heartbeat timeout, and the -32002 rejection returns at once, so each poll is
+# cheap.
+REFRESH_TURN_IN_FLIGHT_CODE = -32002
+REFRESH_TURN_IN_FLIGHT_ERROR = "prompt turn is in flight"
+REFRESH_TURN_IN_FLIGHT_POLL_SECONDS = 5
+REFRESH_TURN_IN_FLIGHT_MAX_WAIT_SECONDS = 120
+
 # Retries exist for attempt-level deaths (worker restart kills the in-flight
 # attempt, detected via heartbeat timeout) and for delivery-unknown failures.
 # Application failures that write an error sentinel raise non-retryable.
@@ -122,6 +135,19 @@ def _current_attempt() -> int:
         return activity.info().attempt
     except Exception:
         return 1
+
+
+def _refresh_blocked_by_active_turn(result: CommandResult) -> bool:
+    """True when the agent-server refused the refresh because a turn is still running.
+
+    This is a self-clearing condition: the refresh succeeds once the turn ends, so the
+    caller waits for it rather than failing the follow-up closed.
+    """
+    if result.error and REFRESH_TURN_IN_FLIGHT_ERROR in result.error:
+        return True
+    data = result.data if isinstance(result.data, dict) else None
+    rpc_error = data.get("error") if data else None
+    return isinstance(rpc_error, dict) and rpc_error.get("code") == REFRESH_TURN_IN_FLIGHT_CODE
 
 
 def _is_duplicate_delivery(result_data: dict[str, Any] | None) -> bool:
@@ -418,42 +444,50 @@ def _refresh_sandbox_mcp(
 
     mcp_servers = [config.to_dict() for config in mcp_configs]
 
-    result = send_refresh_session(
-        task_run,
-        mcp_servers,
-        auth_token=auth_token,
-        timeout=REFRESH_TIMEOUT_SECONDS,
-    )
-    if result.success:
-        mark_sandbox_mcp_session(scope, actor_user.id)
-        logger.info("refresh_mcp_delivered", run_id=run_id, attempts=1)
-        return True
+    waited_for_turn = 0.0
+    quick_retry_used = False
+    attempts = 0
+    while True:
+        result = send_refresh_session(
+            task_run,
+            mcp_servers,
+            auth_token=auth_token,
+            timeout=REFRESH_TIMEOUT_SECONDS,
+        )
+        attempts += 1
+        if result.success:
+            mark_sandbox_mcp_session(scope, actor_user.id)
+            logger.info("refresh_mcp_delivered", run_id=run_id, attempts=attempts)
+            return True
 
-    logger.info(
-        "refresh_mcp_retrying",
-        run_id=run_id,
-        error=result.error,
-        status_code=result.status_code,
-    )
-    time.sleep(REFRESH_RETRY_DELAY_SECONDS)
-    retry: CommandResult = send_refresh_session(
-        task_run,
-        mcp_servers,
-        auth_token=auth_token,
-        timeout=REFRESH_TIMEOUT_SECONDS,
-    )
-    if retry.success:
-        mark_sandbox_mcp_session(scope, actor_user.id)
-        logger.info("refresh_mcp_delivered", run_id=run_id, attempts=2)
-        return True
+        # A turn is still running: wait for it to end and refresh again. This is
+        # the common failure — the rebind is fine, it just can't land mid-turn.
+        if _refresh_blocked_by_active_turn(result) and waited_for_turn < REFRESH_TURN_IN_FLIGHT_MAX_WAIT_SECONDS:
+            logger.info("refresh_mcp_waiting_for_active_turn", run_id=run_id, waited_seconds=waited_for_turn)
+            time.sleep(REFRESH_TURN_IN_FLIGHT_POLL_SECONDS)
+            waited_for_turn += REFRESH_TURN_IN_FLIGHT_POLL_SECONDS
+            continue
 
-    logger.warning(
-        "refresh_mcp_failed",
-        run_id=run_id,
-        error=retry.error,
-        status_code=retry.status_code,
-    )
-    return False  # rebind never confirmed → fail closed (unknown binding may hide a live session)
+        # Any other failure gets one quick retry for a transient transport error.
+        if not quick_retry_used:
+            quick_retry_used = True
+            logger.info(
+                "refresh_mcp_retrying",
+                run_id=run_id,
+                error=result.error,
+                status_code=result.status_code,
+            )
+            time.sleep(REFRESH_RETRY_DELAY_SECONDS)
+            continue
+
+        logger.warning(
+            "refresh_mcp_failed",
+            run_id=run_id,
+            error=result.error,
+            status_code=result.status_code,
+            attempts=attempts,
+        )
+        return False  # rebind never confirmed → fail closed (unknown binding may hide a live session)
 
 
 def _resolve_live_sandbox(state: dict[str, Any] | None) -> Any:
