@@ -453,8 +453,8 @@ export interface reviewHogSettingsLogicMeta {
             reviewDetail: ReviewDetailApi | null,
             settings: ReviewUserSettingsApi | null
         ) => ReviewFindingsSplit | null
-        perspectiveScoreboard: (reviewDetail: ReviewDetailApi | null) => PerspectiveScore[] | null
         triggerUrlResolving: (triggerPrUrl: string, recentReviews: ReviewRecentReviewApi[] | null) => boolean
+        perspectiveScoreboard: (reviewDetail: ReviewDetailApi | null) => PerspectiveScore[] | null
     }
 }
 
