@@ -85,22 +85,22 @@ In production a missing proxy URL is a startup error; `RASTERIZER_USE_PROXY=fals
 
 The `rasterize-recording` activity accepts `RasterizeRecordingInput` (see `types.ts`):
 
-| Field                  | Required | Default | Description                                 |
-| ---------------------- | -------- | ------- | ------------------------------------------- |
-| `session_id`           | yes      | —       | Session to rasterize                        |
-| `team_id`              | yes      | —       | Team ID                                     |
-| `s3_bucket`            | yes      | —       | S3 bucket for output                        |
-| `s3_key_prefix`        | yes      | —       | S3 key prefix                               |
-| `playback_speed`       | no       | `4`     | Playback speed multiplier                   |
-| `recording_fps`        | no       | `24`    | Output video framerate                      |
-| `start_offset_s`       | no       | —       | Start playback N seconds from session start |
-| `end_offset_s`         | no       | —       | Stop playback N seconds from session start  |
-| `trim`                 | no       | —       | Max output duration in seconds              |
-| `max_virtual_time`     | no       | —       | Max virtual time in seconds before stopping |
-| `output_format`        | no       | `mp4`   | Output video format (`mp4`, `webm` or `gif`) |
+| Field                  | Required | Default | Description                                   |
+| ---------------------- | -------- | ------- | --------------------------------------------- |
+| `session_id`           | yes      | —       | Session to rasterize                          |
+| `team_id`              | yes      | —       | Team ID                                       |
+| `s3_bucket`            | yes      | —       | S3 bucket for output                          |
+| `s3_key_prefix`        | yes      | —       | S3 key prefix                                 |
+| `playback_speed`       | no       | `4`     | Playback speed multiplier                     |
+| `recording_fps`        | no       | `24`    | Output video framerate                        |
+| `start_offset_s`       | no       | —       | Start playback N seconds from session start   |
+| `end_offset_s`         | no       | —       | Stop playback N seconds from session start    |
+| `trim`                 | no       | —       | Max output duration in seconds                |
+| `max_virtual_time`     | no       | —       | Max virtual time in seconds before stopping   |
+| `output_format`        | no       | `mp4`   | Output video format (`mp4`, `webm` or `gif`)  |
 | `recording_api_token`  | no       | —       | Team-scoped read JWT relayed to recording-api |
-| `viewport_width`       | no       | `1280`  | Capture viewport width                      |
-| `viewport_height`      | no       | `720`   | Capture viewport height                     |
-| `show_metadata_footer` | no       | `false` | Include metadata footer in output           |
-| `skip_inactivity`      | no       | `true`  | Skip inactive periods during playback       |
-| `mouse_tail`           | no       | `true`  | Show mouse trail in replay                  |
+| `viewport_width`       | no       | `1280`  | Capture viewport width                        |
+| `viewport_height`      | no       | `720`   | Capture viewport height                       |
+| `show_metadata_footer` | no       | `false` | Include metadata footer in output             |
+| `skip_inactivity`      | no       | `true`  | Skip inactive periods during playback         |
+| `mouse_tail`           | no       | `true`  | Show mouse trail in replay                    |
