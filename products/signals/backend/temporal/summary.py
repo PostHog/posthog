@@ -48,6 +48,7 @@ from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationInput,
     SignalReportInboxNotificationWorkflow,
 )
+from products.signals.backend.temporal.report_canvas import ReportCanvasWorkflowInput, SignalReportCanvasWorkflow
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
 from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
@@ -228,6 +229,24 @@ class SignalReportSummaryWorkflow:
                 metrics.increment_report_fetch_recovered(attempt)
                 return fetch_result
         return fetch_result
+
+    async def _start_report_canvas(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        if not workflow.patched("signals-report-canvases"):
+            return
+        try:
+            await workflow.start_child_workflow(
+                SignalReportCanvasWorkflow.run,
+                ReportCanvasWorkflowInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                id=SignalReportCanvasWorkflow.workflow_id_for(inputs.team_id, inputs.report_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                execution_timeout=timedelta(hours=5),
+            )
+        except temporalio.exceptions.WorkflowAlreadyStartedError:
+            pass
+        except Exception:
+            workflow.logger.exception(f"Failed to start report canvas generation for {inputs.report_id}")
 
     async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger) -> bool:
         """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
@@ -422,6 +441,7 @@ class SignalReportSummaryWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                await self._start_report_canvas(inputs)
                 # No loop, human input is required
                 return False
             # 6. Mark ready and check if new signals arrived during the run
@@ -443,6 +463,7 @@ class SignalReportSummaryWorkflow:
             if has_new_signals:
                 log.info("Report has new signals since run started, looping")
             else:  # Only emit the notification if we're not going to immediately re-run
+                await self._start_report_canvas(inputs)
                 # Publish is best-effort: a Kafka/notification failure shouldn't flip a
                 # successfully-generated READY report to FAILED.
                 try:
