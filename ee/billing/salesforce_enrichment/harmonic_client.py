@@ -115,14 +115,16 @@ class AsyncHarmonicClient:
 
         Operational failures on EVERY variation (network errors, non-2xx status, JSON decode,
         GraphQL errors) still re-raise, so callers retry and alert instead of mistaking an
-        outage for a missing company. Does not capture_exception — the caller owns error
-        handling.
+        outage for a missing company. On the mixed path — a clean not-found suppressing a
+        sibling error — the suppressed error is captured rather than discarded, since that is
+        exactly the failure mode that let the original bug hide with no signal anywhere.
         """
         await asyncio.sleep(0.2)
         domain = self._clean_domain(domain)
         domain_variations = [f"{prefix}{domain}" if prefix else domain for prefix in HARMONIC_DOMAIN_VARIATIONS]
 
         last_error: Optional[Exception] = None
+        last_error_variation: Optional[str] = None
         saw_clean_not_found = False
         for domain_variation in domain_variations:
             try:
@@ -145,13 +147,17 @@ class AsyncHarmonicClient:
                     result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
                     if result.get("companyFound"):
                         return result.get("company")
-                    saw_clean_not_found = True
+                    if result.get("companyFound") is False:
+                        saw_clean_not_found = True
             except Exception as e:
                 last_error = e
+                last_error_variation = domain_variation
                 continue
 
         if last_error is not None and not saw_clean_not_found:
             raise last_error
+        if last_error is not None:
+            capture_exception(last_error, {"domain": domain, "failed_variation": last_error_variation})
         return None
 
     async def get_company_by_urn(self, urn: str) -> Optional[dict[str, Any]]:

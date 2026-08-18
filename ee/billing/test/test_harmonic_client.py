@@ -43,6 +43,14 @@ def _found(company):
     return _response(json_data={"data": {"enrichCompanyByIdentifiers": {"companyFound": True, "company": company}}})
 
 
+def _missing_company_found_key():
+    return _response(json_data={"data": {"enrichCompanyByIdentifiers": {}}})
+
+
+def _graphql_errors():
+    return _response(json_data={"errors": [{"message": "internal error"}]})
+
+
 def _http_500():
     error = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=500, message="Server Error")
     return _response(raise_status=error)
@@ -88,6 +96,30 @@ async def test_strict_clean_not_found_is_authoritative_when_the_other_variation_
 async def test_strict_clean_not_found_first_then_error_is_also_not_found():
     client = _client_with_responses(_not_found(), _http_500())
     assert await client.enrich_company_by_domain_strict("posthog.com") is None
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_strict_raises_when_companyfound_key_missing_and_sibling_errored():
+    client = _client_with_responses(_http_500(), _missing_company_found_key())
+    with pytest.raises(aiohttp.ClientResponseError):
+        await client.enrich_company_by_domain_strict("posthog.com")
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_strict_graphql_error_with_clean_not_found_sibling_returns_none():
+    client = _client_with_responses(_graphql_errors(), _not_found())
+    assert await client.enrich_company_by_domain_strict("posthog.com") is None
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+@patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception")
+async def test_strict_captures_swallowed_error_on_mixed_path(mock_capture_exception):
+    client = _client_with_responses(_graphql_errors(), _not_found())
+    assert await client.enrich_company_by_domain_strict("posthog.com") is None
+    mock_capture_exception.assert_called_once()
 
 
 @pytest.mark.asyncio

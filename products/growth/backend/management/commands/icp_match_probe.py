@@ -9,9 +9,11 @@ directly: for each domain it runs three independent lookups and reports per-vari
 outcomes, so the fix (switch identifier / add REST / rely on the sweep) is chosen on
 measured hit rates instead of a guess.
 
-Strictly read-only: nothing is archived and no record is touched — running it must not
-perturb the very population being measured. Needs HARMONIC_API_KEY, so run it from a
-worker shell (the key deliberately never reaches web pods).
+Makes no local writes: nothing is archived and no record is touched here. But the
+rest_domain variant sends enrich_missing_company=true, which seeds Harmonic-side
+enrichment for every probed domain — so results are one-shot, and a repeat run measures
+a population the first run already contaminated. Needs HARMONIC_API_KEY, so run it from
+a worker shell (the key deliberately never reaches web pods).
 
 Variants per domain:
   graphql_url     — production today: enrichCompanyByIdentifiers {websiteUrl: https://<d>},
