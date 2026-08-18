@@ -14,8 +14,6 @@ pub const PROPERTY_DEFS_TABLE: &str = "posthog_propertydefinition";
 pub const EVENT_PROPERTY_TABLE: &str = "posthog_eventproperty";
 pub const EVENT_PROPERTY_TABLE_ALIAS: &str = "check_for_matching_event_property";
 
-pub const PARENT_PROPERTY_TYPES: [&str; 4] = ["event", "person", "group", "session"];
-
 pub const PROPERTY_DEFS_TABLE_COLUMNS: [&str; 6] = [
     "id",
     "project_id",
@@ -120,7 +118,7 @@ pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 243] = [
     ),
     ("$exception_issue_id", "exception issue id"),
     ("$exception_source", "exception capture source"),
-    ("$exception_releases", "exception releases"),
+    ("$exception_release", "exception release"),
     ("$debug_images", "debug images"),
     ("$issue_name", "issue name"),
     ("$issue_description", "issue description"),

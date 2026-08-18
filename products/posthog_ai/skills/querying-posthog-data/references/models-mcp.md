@@ -68,7 +68,13 @@ And two tools cover what SQL can't express at all: `posthog:mcp-analytics-intent
 | `$mcp_resource_name`              | SDK    | Name of the MCP resource/prompt/tool the event refers to (resource-read and prompt-get events).                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `$mcp_source`                     | SDK    | Constant identifier for the analytics SDK that emitted the event (e.g. `posthog_mcp_analytics`). Lets you separate SDK-emitted events from other/legacy MCP paths.                                                                                                                                                                                                                                                                                                                                                               |
 
-**Server-stamped extras (PostHog's own server only, not the SDK):** `$mcp_session_id` (transport-level session handle — see "Three identifiers" below), `$mcp_region` (cloud region that handled the request, e.g. `us`/`eu`), `$mcp_mode` (`cli` for single-exec, `tools` for one-tool-per-name), `$mcp_consumer` (upstream surface, e.g. `posthog-code`/`slack`), and the non-`$`-prefixed `mcp_vendor_client` (vendor/client identity from the `x-anthropic-client` header, e.g. `ClaudeCode`/`ClaudeAI` — used to resolve the harness in the bucketing SQL below) and `mcp_runtime` (server runtime, e.g. `hono`).
+**Server-stamped extras (PostHog's own server only, not the SDK):** `$mcp_session_id` (transport-level session handle — see "Three identifiers" below), `$mcp_region` (cloud region that handled the request, e.g. `us`/`eu`), `$mcp_mode` (`cli` for single-exec, `tools` for one-tool-per-name), `$mcp_consumer` (upstream surface, e.g. `posthog-code`/`slack`), and the non-`$`-prefixed `mcp_vendor_client` (vendor/client identity from the `x-anthropic-client` header, e.g. `ClaudeCode`/`ClaudeAI` — used to resolve the harness in the bucketing SQL below) and `mcp_runtime` (server runtime, e.g. `hono`), plus `$mcp_auth_method` (which credential the request authenticated with, from the bearer token's prefix: `oauth`, `personal_api_key`, `id_jag`, `none`, `unknown`).
+
+**Refused requests are a separate event.** A request the PostHog API rejects dies before any session, organization, or project is resolved, so it emits none of the events above — it emits `$mcp_auth_failed` instead, with `$mcp_auth_failure_reason` (`insufficient_scope`, `inactive_oauth_token`, `invalid_api_key`, `unknown`), `$mcp_missing_scope` when the API named a scope, and `$mcp_auth_status` (401/403). Only PostHog's own server emits it, so it is absent for customer-instrumented servers.
+
+It does not set `$mcp_is_error`/`$mcp_error_status`, which mean "a tool call failed against the PostHog API" — so an auth refusal never inflates tool error rates, and the status it did return lives in `$mcp_auth_status` instead.
+
+Two consequences for queries: it has no `$mcp_organization_id`/`$mcp_project_id`, and its `distinct_id` is a hash of the bearer token rather than a user id, so count it with `uniq(distinct_id)` for affected credentials and join to other MCP events by client and time, never by person. A connector looping on authorization shows up here; before this event existed the same outage looked like an absence of traffic.
 
 **Three identifiers, not one.** `$session_id` is the materialised column — `GROUP BY`/join on this one. `$mcp_session_id` is the transport-level handle the MCP SDK observed (MCP `extra.sessionId` or a framework session cookie); it rotates on process restart, reconnect, or framework boundary. `$mcp_conversation_id` is agent-echoed and stable across reconnects — reach for it when a "session" needs to survive a client reconnecting mid-task. In practice `$session_id` and `$mcp_session_id` carry the same value; `$mcp_conversation_id` is the more durable one when they diverge.
 
@@ -171,6 +177,10 @@ FROM (
             h = 'openai-mcp chatgpt', 'ChatGPT',
             h = 'openai-mcp agent builder', 'OpenAI Agent Builder',
             h = 'openai-mcp responses api', 'OpenAI Responses API',
+            -- Codex has two spellings: the `codex-mcp-client` clientInfo.name caught by
+            -- the prefix below, and this User-Agent surface. This branch must precede the
+            -- generic `openai-mcp` prefix, which would otherwise report it as "OpenAI".
+            h = 'openai-mcp codex', 'OpenAI Codex',
             startsWith(h, 'openai-mcp'), 'OpenAI',
             startsWith(h, 'codex'), 'OpenAI Codex',
             startsWith(h, 'grok'), 'Grok',
@@ -190,6 +200,10 @@ FROM (
             h = 'opencode', 'opencode',
             startsWith(h, 'kiro'), 'Kiro',
             startsWith(h, 'desktop-commander'), 'Desktop Commander',
+            h = 'posthog-cli', 'PostHog CLI',
+            -- Ranked top-N lists name an unrecognized client verbatim instead
+            -- (`harness_label_or_token_sql`); "Other" is for callers that need the label
+            -- confined to the bounded set, e.g. one aggregated into a per-row array.
             'Other'
         ) AS harness
     FROM (

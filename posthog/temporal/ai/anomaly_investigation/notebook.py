@@ -48,6 +48,12 @@ def build_investigation_notebook(ctx: NotebookRenderContext) -> dict[str, Any]:
     content.append(create_paragraph_with_text(f"{verdict_text} — {ctx.report.summary}"))
     content.append(create_empty_paragraph())
 
+    metric_meaning = ctx.report.metric_meaning.strip()
+    if metric_meaning:
+        content.append(create_heading_with_text("What this metric measures", level=2))
+        content.append(create_paragraph_with_text(metric_meaning))
+        content.append(create_empty_paragraph())
+
     content.append(create_heading_with_text("Source insight", level=2))
     content.append(_saved_insight_query_node(ctx.insight))
     content.append(create_empty_paragraph())

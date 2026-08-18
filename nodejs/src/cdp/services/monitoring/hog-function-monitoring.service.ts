@@ -8,6 +8,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import {
+    CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     LogEntry,
@@ -36,11 +37,30 @@ const hogFunctionMonitoringPendingMessages = new Gauge({
 
 export type MonitoringOutput = AppMetricsOutput | LogEntriesOutput
 
+// `app_metrics2` has no version column, and it can't gain one: it's an AggregatingMergeTree whose sort
+// key is its aggregation key, so a new dimension would have to join the ORDER BY and re-key existing
+// parts. Instead, every hog flow metric that knows its workflow version is written twice — once under
+// `hog_flow` (the version-agnostic series everything already reads) and once under this app source with
+// the version appended to the flow id. Same instance_id/kind/name semantics on both, so a
+// version-scoped read is the existing query with two substituted parameters.
+export const HOG_FLOW_VERSION_APP_SOURCE = 'hog_flow_version'
+
+// This key format is the contract for anything that reads the versioned series — see
+// "Metrics and version attribution" in products/workflows/CONTRIBUTING.md. Always the flow id, never
+// the run id the version-agnostic series uses for batch runs.
+export const versionedAppSourceId = (flowId: string, version: number): string => `${flowId}/${version}`
+
 // Check if the result is of type CyclotronJobInvocationHogFunction
 export const isHogFunctionResult = (
     result: CyclotronJobInvocationResult
 ): result is CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
     return 'hogFunction' in result.invocation
+}
+
+export const isHogFlowResult = (
+    result: CyclotronJobInvocationResult
+): result is CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> => {
+    return 'hogFlow' in result.invocation
 }
 
 export class HogFunctionMonitoringService {
@@ -96,6 +116,21 @@ export class HogFunctionMonitoringService {
             metric_name: metric.metric_name,
             count: metric.count,
         })
+
+        // Guarded on the type rather than truthiness: a flow loaded without its `version` column would
+        // otherwise key every mirrored row under a literal `.../undefined`.
+        if (source === 'hog_flow' && typeof metric.app_source_version?.version === 'number') {
+            this.appMetricsAggregator.queue({
+                team_id: metric.team_id,
+                app_source: HOG_FLOW_VERSION_APP_SOURCE,
+                // Deliberately not `metric.app_source_id` — see `app_source_version` on MinimalAppMetric.
+                app_source_id: versionedAppSourceId(metric.app_source_version.id, metric.app_source_version.version),
+                instance_id: metric.instance_id,
+                metric_kind: metric.metric_kind,
+                metric_name: metric.metric_name,
+                count: metric.count,
+            })
+        }
     }
 
     queueAppMetrics(metrics: MinimalAppMetric[], source: MetricLogSource) {
@@ -122,6 +157,13 @@ export class HogFunctionMonitoringService {
             const logSourceId = result.invocation.parentRunId
                 ? result.invocation.parentRunId
                 : result.invocation.functionId
+            // Stamped here rather than at each of the ~10 sites that push onto `result.metrics`
+            // (executor, action handlers, billing). The workflow is re-read from the manager on every
+            // dequeue, so this is the version that actually executed the step — a run started on v2
+            // that reaches its email step after v3 is published attributes that step to v3.
+            const appSourceVersion = isHogFlowResult(result)
+                ? { id: result.invocation.hogFlow.id, version: result.invocation.hogFlow.version }
+                : undefined
 
             this.queueLogs(
                 result.logs.map((logEntry) => ({
@@ -135,10 +177,17 @@ export class HogFunctionMonitoringService {
             )
 
             if (result.metrics) {
-                this.queueAppMetrics(result.metrics, source)
+                this.queueAppMetrics(
+                    appSourceVersion !== undefined
+                        ? result.metrics.map((metric) => ({ app_source_version: appSourceVersion, ...metric }))
+                        : result.metrics,
+                    source
+                )
             }
 
-            if (result.finished || result.error) {
+            // A canceled run is neither a success nor a failure: it carries its own
+            // 'canceled' metric on result.metrics, so the derived terminal metric is skipped.
+            if ((result.finished || result.error) && !result.canceled) {
                 // Process each timing entry individually instead of totaling them
                 const timings = isHogFunctionResult(result) ? (result.invocation.state?.timings ?? []) : []
                 for (const timing of timings) {
@@ -153,6 +202,7 @@ export class HogFunctionMonitoringService {
                         metric_kind: result.error ? 'failure' : 'success',
                         metric_name: result.error ? 'failed' : 'succeeded',
                         count: 1,
+                        app_source_version: appSourceVersion,
                     },
                     source
                 )

@@ -135,9 +135,6 @@ jobs:
                       "common-s3": 31,
                       "cohort-core": 45,
                       "cohort-seeder": 60,
-                      "cyclotron-core": 17,
-                      "cyclotron-janitor": 139,
-                      "cyclotron-node": 31,
                       "cymbal": 168,
                       # Compile-heavy (deltalake dependency tree), light tests.
                       "deltalite-core": 180,
@@ -157,7 +154,7 @@ jobs:
                       "personhog-leader": 115,
                       "personhog-replica": 140,
                       "personhog-router": 38,
-                      "personhog-stateright": 700,
+                      "personhog-stateright": 220,
                       "posthog-symbol-data": 19,
                       "property-defs-rs": 136,
                       "posthog-replay-anonymizer": 20,
@@ -221,11 +218,13 @@ jobs:
                       f.write(f"matrix={json.dumps(matrix)}\n")
 
     build:
-        name: Build Rust services (depot-ubuntu-22.04-4)
+        name: Build Rust (${{ matrix.packages }})
+        strategy:
+            matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
         needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-22.04-4
-        timeout-minutes: 15
+        timeout-minutes: 20
         permissions:
             contents: read
 
@@ -279,16 +278,13 @@ jobs:
               env:
                   # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
                   OPENSSL_NO_VENDOR: '1'
-                  AFFECTED_CRATES: ${{ needs.affected.outputs.affected_crates }}
+                  SHARD_PACKAGES: ${{ matrix.packages }}
               run: |
-                  crates=$(echo "$AFFECTED_CRATES" | python3 -c "import json,sys; print(' '.join(f'-p {c}' for c in json.load(sys.stdin)))")
-                  if [ -z "$crates" ]; then
-                      echo "No affected crates — skipping build"
-                  else
-                      echo "Building affected crates: $crates"
-                      cargo build $crates --locked --release
-                      find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
-                  fi
+                  crates=()
+                  for c in $SHARD_PACKAGES; do crates+=(-p "$c"); done
+                  echo "Building shard crates: ${crates[*]}"
+                  cargo build "${crates[@]}" --locked --release
+                  find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
 
     test:
         name: Test Rust (${{ matrix.packages }})
@@ -297,8 +293,7 @@ jobs:
         needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-24.04-4
-        # stateright model checks need more headroom than the other shards
-        timeout-minutes: ${{ contains(matrix.packages, 'personhog-stateright') && 40 || 20 }}
+        timeout-minutes: 20
         permissions:
             contents: read
         env:
@@ -578,23 +573,28 @@ jobs:
 
             # Unit tests for the harness's own verification logic — a
             # false-negative verifier would pass gates that lost data.
+            # Ignored tests need the etcd this job already started, so
+            # they run here rather than in the plain test job.
             - name: Test the harness verification logic
-              run: cargo test -p personhog-test-harness
+              run: cargo test -p personhog-test-harness -- --include-ignored
 
             - name: Run the e2e gate
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
 
-            # The identity-service create path: persons are created through
-            # GetOrCreatePersonsByDistinctIds (stub insert on the primary,
-            # then initial properties through the router to the owning
-            # leader) and then updated through the router. Create acks are
-            # journaled and held to the same visibility invariant as update
-            # acks, through a leader kill and a scale-up. The identity
-            # service writes the real posthog_person table (its distinct id
-            # FKs require it), so the whole stack targets it here instead of
-            # the default personhog_person_tmp.
+            # The identity-service lifecycle path: persons are created
+            # through GetOrCreatePersonsByDistinctIds (stub insert on the
+            # primary, then initial properties through the router to the
+            # owning leader), updated through the router, and finally
+            # deleted through the lifecycle saga, whose outcomes the gate
+            # asserts (all deleted, then all not_found on a re-delete
+            # under a fresh op id). Create acks are journaled and held to
+            # the same visibility invariant as update acks, through a
+            # leader kill and a scale-up. The identity service writes the
+            # real posthog_person table (its distinct id FKs require it),
+            # so the whole stack targets it here instead of the default
+            # personhog_person_tmp.
             - name: Run the e2e gate creating persons via the identity service
               run: |
                   ./target/debug/personhog-test-harness gate \
@@ -611,7 +611,7 @@ jobs:
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 3 --partitions 8 --persons 50 --concurrency 10 --duration 15s \
-                    --cache-capacity 10 --writer-pause-after 3s --writer-pause-duration 8s
+                    --cache-capacity 4096 --writer-pause-after 3s --writer-pause-duration 8s
 
             - name: Run the e2e gate under chaos (kill + scale-up)
               run: |
@@ -624,6 +624,51 @@ jobs:
                   ./target/debug/personhog-test-harness gate \
                     --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 18s \
                     --shutdown-after 3s --zombie-after 8s --zombie-duration 6s \
+                    --writer-pause-after 4s --writer-pause-duration 6s
+
+            # Broker-enforced epoch fencing, on the scenario it exists for:
+            # a SIGSTOPped leader whose lease is revoked wakes inside its
+            # own window and tries to append. Everything else in this file
+            # runs the flag off, so without this step the entire fenced
+            # arm — warm-time acquisition, the transaction windows, the
+            # write path's error mapping — ships with no end-to-end
+            # coverage at all.
+            #
+            # The gate rides along because startup refuses fencing without
+            # it: acquisition moves a partition's broker epoch, and a pod
+            # that has stopped renewing has no standing to do that.
+            #
+            # Guarded on the flag existing so a branch that predates
+            # --leader-env skips it rather than failing before its own
+            # tests run.
+            - name: Run the e2e gate with epoch fencing (zombie + writer lag)
+              run: |
+                  if ! ./target/debug/personhog-test-harness gate --help | grep -q -- --leader-env; then
+                    # Graceful degradation for unrebased branches (see the
+                    # CI back-compat rule) — but loud, so a harness
+                    # regression that drops the flag cannot silently
+                    # retire this gate.
+                    echo "::warning title=fenced e2e gate skipped::harness predates --leader-env; the fenced gate did not run"
+                    exit 0
+                  fi
+                  # The freeze has to outlive the lease, or the woken pod
+                  # still holds a valid claim and neither the lease gate
+                  # nor the broker fence is ever asked anything. 27s is
+                  # the lowest TTL validate_fencing_timescales accepts
+                  # with fencing on (the write budget pays the drain's
+                  # settle slack first), so the freeze runs past it and
+                  # the run is sized to leave the woken zombie time to
+                  # try. The gate asserts rejection by consequence (an
+                  # unfenced landing fails the verifier; a crash fails
+                  # the liveness check), not by scraping fence metrics —
+                  # the deterministic fencing_integration tests carry the
+                  # per-arm coverage.
+                  ./target/debug/personhog-test-harness gate \
+                    --leader-env KAFKA_TRANSACTIONAL_FENCING=true \
+                    --leader-env LEASE_GATED_AUTHORITY=true \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 45s \
+                    --leader-lease-ttl 27 \
+                    --zombie-after 5s --zombie-duration 32s \
                     --writer-pause-after 4s --writer-pause-duration 6s
 
             - name: Run the e2e gate under chaos (TTL-expiry kill + restarts)

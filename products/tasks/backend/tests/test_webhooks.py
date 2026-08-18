@@ -10,9 +10,10 @@ from django.test import TestCase
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
+from social_django.models import UserSocialAuth
 
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -122,6 +123,65 @@ class TestGitHubPRWebhook(TestCase):
         self.task_run.refresh_from_db()
         assert self.task_run.output is not None
         self.assertIs(self.task_run.output.get("pr_merged"), True)
+
+    @parameterized.expand(
+        [
+            ("resolvable_login", "Octocat", "merger-456", "merger-456"),
+            ("unresolvable_login", "stranger", None, "user-123"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_attributes_to_merger(
+        self, _name, merged_by_login, expected_property, expected_distinct_id, mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        merger = User.objects.create(email="merger@example.com", distinct_id="merger-456")
+        OrganizationMembership.objects.create(organization=self.organization, user=merger)
+        UserSocialAuth.objects.create(user=merger, provider="github", uid="583231", extra_data={"login": "octocat"})
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+                "merged_by": {"login": merged_by_login, "id": 583231},
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = mock_capture.call_args[1]
+        self.assertEqual(call_kwargs["distinct_id"], expected_distinct_id)
+        self.assertEqual(call_kwargs["properties"]["pr_merged_by_login"], merged_by_login)
+        self.assertEqual(call_kwargs["properties"]["pr_merged_by_id"], 583231)
+        self.assertEqual(call_kwargs["properties"].get("pr_merged_by_distinct_id"), expected_property)
+
+    @patch("products.tasks.backend.webhooks.resolve_org_github_login_to_users", side_effect=RuntimeError("boom"))
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_by_resolution_failure_keeps_webhook_successful(
+        self, mock_capture, mock_get_secret, _mock_resolve
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/123",
+                "merged": True,
+                "merged_by": {"login": "octocat", "id": 583231},
+            },
+        }
+
+        response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = mock_capture.call_args[1]
+        self.assertEqual(call_kwargs["distinct_id"], "user-123")
+        self.assertEqual(call_kwargs["properties"]["pr_merged_by_login"], "octocat")
+        self.assertNotIn("pr_merged_by_distinct_id", call_kwargs["properties"])
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -707,6 +767,103 @@ class TestGitHubPRWebhook(TestCase):
         mock_capture.assert_not_called()
 
 
+class TestGitHubPRReviewWebhook(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create(email="test@example.com", distinct_id="user-123")
+        cls.task = Task.objects.create(
+            team=cls.team,
+            created_by=cls.user,
+            title="Test Task",
+            description="Test description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        cls.task_run = TaskRun.objects.create(
+            task=cls.task,
+            team=cls.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
+            output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+        self.webhook_secret = "test-webhook-secret"
+
+    def _make_review_webhook_request(self, payload: dict):
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        signature = generate_github_signature(payload_bytes, self.webhook_secret)
+        return self.client.post(
+            "/webhooks/github/pr/",
+            data=payload_bytes,
+            content_type="application/json",
+            headers={"x-hub-signature-256": signature, "x-github-event": "pull_request_review"},
+        )
+
+    def _review_payload(self, reviewer: dict, action: str = "submitted", state: str = "approved") -> dict:
+        return {
+            "action": action,
+            "review": {"id": 99, "state": state, "user": reviewer},
+            "pull_request": {"html_url": "https://github.com/posthog/posthog/pull/123"},
+        }
+
+    @parameterized.expand(
+        [
+            ("resolvable_login", "Octocat", "reviewer-456", "reviewer-456"),
+            ("unresolvable_login", "stranger", None, "user-123"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_review_submission_attributes_to_reviewer(
+        self, _name, reviewer_login, expected_property, expected_distinct_id, mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        reviewer = User.objects.create(email="reviewer@example.com", distinct_id="reviewer-456")
+        OrganizationMembership.objects.create(organization=self.organization, user=reviewer)
+        UserSocialAuth.objects.create(user=reviewer, provider="github", uid="583231", extra_data={"login": "octocat"})
+
+        payload = self._review_payload(
+            {"login": reviewer_login, "id": 583231, "type": "User"}, state="changes_requested"
+        )
+        response = self._make_review_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        call_kwargs = mock_capture.call_args[1]
+        self.assertEqual(call_kwargs["event"], "pr_reviewed")
+        self.assertEqual(call_kwargs["distinct_id"], expected_distinct_id)
+        self.assertEqual(call_kwargs["properties"]["pr_review_state"], "changes_requested")
+        self.assertEqual(call_kwargs["properties"]["pr_reviewed_by_login"], reviewer_login)
+        self.assertEqual(call_kwargs["properties"]["pr_reviewed_by_id"], 583231)
+        self.assertEqual(call_kwargs["properties"].get("pr_reviewed_by_distinct_id"), expected_property)
+        self.assertEqual(call_kwargs["properties"]["pr_source"], "task")
+
+    @parameterized.expand(
+        [
+            ("bot_reviewer", {"login": "posthog-stamphog[bot]", "id": 1, "type": "Bot"}, "submitted"),
+            ("non_submitted_action", {"login": "octocat", "id": 583231, "type": "User"}, "dismissed"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_review_events_not_captured(self, _name, reviewer, action, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        response = self._make_review_webhook_request(self._review_payload(reviewer, action=action))
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_not_called()
+
+
 class TestGitHubPRWebhookResolvesSignalReports(TestCase):
     """Webhook resolves a SignalReport when its PR merges, and archives it when the PR closes unmerged."""
 
@@ -1040,6 +1197,43 @@ class TestFindTaskRun(TestCase):
         )
         result = find_task_run(branch="feature/my-branch", repository="posthog/posthog")
         self.assertEqual(result, task_run)
+
+    def test_finds_by_signed_commit_head_branch(self):
+        task_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="master",
+            output={
+                "head_branch": "posthog-code/feature",
+                "head_branches": [{"repository": "posthog/posthog", "branch": "posthog-code/feature"}],
+            },
+        )
+        result = find_task_run(branch="posthog-code/feature", repository="posthog/posthog")
+        self.assertEqual(result, task_run)
+
+    def test_signed_commit_head_branch_requires_matching_repository(self):
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={
+                "head_branch": "posthog-code/feature",
+                "head_branches": [{"repository": "posthog/posthog", "branch": "posthog-code/feature"}],
+            },
+        )
+        self.assertIsNone(find_task_run(branch="posthog-code/feature", repository="acme/other"))
+
+    def test_signed_commit_head_branch_requires_repository_pair(self):
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={
+                "head_branches": [{"repository": "posthog/code", "branch": "posthog-code/feature"}],
+            },
+        )
+        self.assertIsNone(find_task_run(branch="posthog-code/feature", repository="posthog/posthog"))
 
     def test_finds_multi_repository_run_from_snapshot(self):
         self.task.repositories = ["posthog/posthog", "posthog/code"]

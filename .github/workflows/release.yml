@@ -44,6 +44,7 @@ jobs:
               run: |
                   installer="$RUNNER_TEMP/cargo-dist-installer.sh"
                   curl --proto '=https' --tlsv1.2 -LsSf \
+                      --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                       "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
                       -o "$installer"
                   if command -v sha256sum >/dev/null 2>&1; then
@@ -71,7 +72,8 @@ jobs:
             # functionality based on whether this is a pull_request, and whether it's from a fork.
             # (PRs run on the *source* but secrets are usually on the *target* -- that's *good*
             # but also really annoying to build CI around when it needs secrets to work right.)
-            - id: plan
+            - name: Plan release with cargo-dist
+              id: plan
               env:
                   DIST_COMMAND: plan
               run: |
@@ -88,7 +90,7 @@ jobs:
     # Build and packages all the platform-specific things
     build-local-artifacts:
         name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
-        # Let the initial task tell us to not run (currently very blunt)
+        # Let the initial task tell us to not run (very blunt)
         needs:
             - plan
         if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload' && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -130,6 +132,7 @@ jobs:
               run: |
                   installer="$RUNNER_TEMP/cargo-dist-installer.sh"
                   curl --proto '=https' --tlsv1.2 -LsSf \
+                      --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                       "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
                       -o "$installer"
                   if command -v sha256sum >/dev/null 2>&1; then
@@ -260,7 +263,8 @@ jobs:
             - name: Verify API CLI release bundle
               run: |
                   node -e "const { existsSync, statSync } = require('node:fs'); const path = 'cli/lib/posthog-api-cli.mjs'; if (!existsSync(path) || statSync(path).size <= 0) { console.error('::error::API CLI bundle is missing or empty: ' + path); process.exit(1); }"
-            - id: cargo-dist
+            - name: Build global cargo-dist artifacts
+              id: cargo-dist
               shell: bash
               run: |
                   dist build ${{ needs.plan.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json

@@ -32,6 +32,24 @@ class TestConvertFiltersToRecordingsQuery(SimpleTestCase):
         query = convert_filters_to_recordings_query(_filters(outer, inner, [_visited_page("/cart")]))
         assert query.operand == expected
 
+    def test_experiment_exposure_survives_conversion(self):
+        # Dropped here, a saved playlist carrying the filter would count every recording in
+        # the project instead of the exposed population it displays.
+        filters = _filters("AND", "AND", [])
+        filters["experiment_exposure"] = {"experiment_id": 42, "variant": "test"}
+        query = convert_filters_to_recordings_query(filters)
+        assert query.experiment_exposure is not None
+        assert query.experiment_exposure.experiment_id == 42
+        assert query.experiment_exposure.variant == "test"
+
+    def test_session_ids_survive_conversion(self):
+        # Dropped here, a playlist pinned to specific recordings would count and render every
+        # recording matching the rest of the filters.
+        filters = _filters("AND", "AND", [])
+        filters["session_ids"] = ["0190abc", "0191def"]
+        query = convert_filters_to_recordings_query(filters)
+        assert query.session_ids == ["0190abc", "0191def"]
+
     def test_visited_page_becomes_recording_property_not_event(self):
         filters = _filters("OR", "OR", [_visited_page("/cart"), _visited_page("/orders")])
         query = convert_filters_to_recordings_query(filters)

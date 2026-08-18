@@ -184,7 +184,7 @@ FIELD_VALUES: dict[str, Any] = {
     "primary_dashboard": "__PER_TWIN_DASHBOARD__",  # special-cased: a dashboard belonging to each twin
     "live_events_columns": ["event"],
     "recording_domains": ["https://example.com"],
-    "cookieless_server_hash_mode": 1,
+    "cookieless_server_hash_mode": 2,
     "human_friendly_comparison_periods": True,
     "inject_web_apps": True,
     "extra_settings": {"foo": "bar"},
@@ -367,7 +367,11 @@ WRITE_ACTION_CASES = [
 
 class TestWriteActionParity(DifferentialParityBase):
     def _make_twin(self) -> tuple[Project, Team]:
-        project, team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
+        # Twins share an explicit name so body comparisons don't diverge on the auto-suffixed
+        # default name; the manager deliberately allows same-name creation for legacy data.
+        project, team = Project.objects.create_with_team(
+            organization=self.organization, name="Twin project", initiating_user=self.user
+        )
         return project, team
 
     def _assert_team_shaped_parity(self, body_a: dict, body_b: dict) -> None:
@@ -437,7 +441,9 @@ class TestLifecycleMethodParity(DifferentialParityBase):
     tests pin that unified behavior so a regression in the rewrite (or a re-divergence) fails loudly."""
 
     def _make_twin(self) -> tuple[Project, Team]:
-        project, team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
+        project, team = Project.objects.create_with_team(
+            organization=self.organization, name="Twin project", initiating_user=self.user
+        )
         return project, team
 
     def test_create_env_matches_project_via_rewrite(self):
@@ -449,8 +455,9 @@ class TestLifecycleMethodParity(DifferentialParityBase):
             {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
         ]
         self.organization.save()
+        # Distinct names: duplicate project names within an organization are rejected on create
         env = self.client.post("/api/environments/", {"name": "x"}, format="json")
-        proj = self.client.post("/api/projects/", {"name": "x"}, format="json")
+        proj = self.client.post("/api/projects/", {"name": "y"}, format="json")
         self.assertEqual(env.status_code, status.HTTP_201_CREATED, env.json())
         self.assertEqual(proj.status_code, status.HTTP_201_CREATED, proj.json())
 

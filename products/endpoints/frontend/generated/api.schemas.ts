@@ -1008,7 +1008,7 @@ export type EndpointsListParams = {
 
 export type EndpointsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string
     /**

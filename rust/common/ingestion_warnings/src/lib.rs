@@ -184,6 +184,19 @@ pub const CAPTURE_AI_OTEL: WarningSource = WarningSource {
     pipeline_step: "capture_validation",
 };
 
+/// Capture's session replay endpoint (`rust/capture/src/events/recordings.rs`,
+/// `/s`). Like `CAPTURE_LEGACY_ANALYTICS`, a validation failure aborts the whole
+/// request, so warnings charge the batch's event count; unlike it, the batch was
+/// on its way to becoming a single `$snapshot_items` message, so "the batch" and
+/// "the message" are the same thing here. One source rather than a validation /
+/// rate-limit pair because `CaptureMode::Recordings` registers no other route and
+/// runs no per-distinct_id limiter.
+pub const CAPTURE_REPLAY: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "replay",
+    pipeline_step: "capture_validation",
+};
+
 /// Sink-agnostic emitter seam. The Kafka implementation is
 /// [`KafkaWarningEmitter`]; tests use
 /// [`test_support::CollectingEmitter`].

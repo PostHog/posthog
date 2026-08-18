@@ -111,6 +111,13 @@ export const INGESTION_WARNING_TYPES = {
     replay_lib_version_too_old: { category: 'replay', severity: 'info' },
     message_contained_no_valid_rrweb_events: { category: 'replay', severity: 'warning' },
     message_timestamp_diff_too_large: { category: 'replay', severity: 'warning' },
+    // Capture's replay endpoint (/s), which validates the $snapshot envelope before
+    // the batch is collapsed into one $snapshot_items message. Distinguished from the
+    // three above by `source: capture` and `path: replay` — those describe conditions
+    // found after ingestion, these reject at the edge.
+    missing_session_id: { category: 'replay', severity: 'error', captureProduced: true },
+    invalid_session_id: { category: 'replay', severity: 'error', captureProduced: true },
+    missing_snapshot_data: { category: 'replay', severity: 'error', captureProduced: true },
 } as const satisfies Record<
     string,
     {

@@ -238,6 +238,36 @@ const mockSpeechNotifier = vi.hoisted(() => ({
   speak: vi.fn(),
 }));
 
+const mockAgentSessionNotifier = vi.hoisted(() => ({
+  notify: vi.fn(
+    (notification: {
+      kind: "needs_input" | "turn_completed";
+      taskTitle: string;
+      taskId: string;
+      stopReason?: string;
+      durationMs?: number;
+      isTaskAuthor?: boolean;
+    }) => {
+      if (notification.isTaskAuthor === false) {
+        return;
+      }
+      if (notification.kind === "needs_input") {
+        mockNotificationService.notifyPermissionRequest(
+          notification.taskTitle,
+          notification.taskId,
+        );
+        return;
+      }
+      mockNotificationService.notifyPromptComplete(
+        notification.taskTitle,
+        notification.stopReason,
+        notification.taskId,
+        notification.durationMs,
+      );
+    },
+  ),
+}));
+
 const mockFeatureFlags = vi.hoisted(() => ({
   isEnabled: vi.fn(() => false),
   onFlagsLoaded: vi.fn(() => vi.fn()),
@@ -321,6 +351,9 @@ vi.mock("@posthog/di/container", () => ({
     }
     if (typeof token === "function" && token.name === "SpeechNotifier") {
       return mockSpeechNotifier;
+    }
+    if (token === Symbol.for("posthog.notification.agentSessionNotifier")) {
+      return mockAgentSessionNotifier;
     }
     if (token === Symbol.for("posthog.ui.featureFlags")) {
       return mockFeatureFlags;
@@ -4023,6 +4056,7 @@ describe("SessionService", () => {
           expect.objectContaining({
             type: "user_message",
             content: "build me a thing",
+            pinToTop: true,
           }),
         );
       });
@@ -6239,7 +6273,7 @@ describe("SessionService", () => {
       );
     });
 
-    it("queues a cloud steer when the sandbox lacks the capability", async () => {
+    it("forwards a cloud steer when cached capability metadata is missing", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
@@ -6250,19 +6284,24 @@ describe("SessionService", () => {
           steering: undefined,
         }),
       );
+      mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
+        success: true,
+        result: { stopReason: "steered", steered: true },
+      });
 
       const prompt: ContentBlock[] = [{ type: "text", text: "steer me" }];
       const result = await service.sendPrompt("task-123", prompt, {
         steer: true,
       });
 
-      expect(result.stopReason).toBe("queued");
-      expect(mockSessionStoreSetters.enqueueMessage).toHaveBeenCalledWith(
-        "task-123",
-        "steer me",
-        prompt,
+      expect(result.stopReason).toBe("steered");
+      expect(mockSessionStoreSetters.enqueueMessage).not.toHaveBeenCalled();
+      expect(mockTrpcCloudTask.sendCommand.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "user_message",
+          params: { content: "steer me", steer: true },
+        }),
       );
-      expect(mockTrpcCloudTask.sendCommand.mutate).not.toHaveBeenCalled();
     });
 
     it("kicks an SSE retry when queueing on a disconnected cloud session", async () => {

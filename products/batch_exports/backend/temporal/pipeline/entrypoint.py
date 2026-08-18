@@ -127,14 +127,6 @@ async def execute_batch_export_using_internal_stage(
     assert batch_export_inputs.batch_export_id is not None
     assert batch_export_inputs.run_id is not None
 
-    finish_inputs = FinishBatchExportRunInputs(
-        id=batch_export_inputs.run_id,
-        batch_export_id=batch_export_inputs.batch_export_id,
-        status=BatchExportRun.Status.COMPLETED,
-        team_id=batch_export_inputs.team_id,
-        on_demand=batch_export_inputs.on_demand,
-    )
-
     if TEST:
         maximum_attempts = 1
 
@@ -142,18 +134,26 @@ async def execute_batch_export_using_internal_stage(
         heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
 
     override_start_to_close_timeout_timedelta = dt.timedelta(seconds=override_start_to_close_timeout_seconds or 0)
+    failure_check_window = 50  # Default, overriden based on interval
+
     if interval == "hour":
         # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
         # TODO: Review timeouts for internal stage activity.
         main_activity_start_to_close_timeout = max(dt.timedelta(hours=6), override_start_to_close_timeout_timedelta)
         stage_activity_start_to_close_timeout = dt.timedelta(hours=1)
+        failure_check_window = 24  # A day's worth of runs
+
     elif interval == "day":
         main_activity_start_to_close_timeout = max(dt.timedelta(days=1), override_start_to_close_timeout_timedelta)
         stage_activity_start_to_close_timeout = dt.timedelta(hours=6)
+        failure_check_window = 7  # A week's worth of runs
+
     elif interval == "week":
         # TODO - review these once we have more users using weekly batch exports
         main_activity_start_to_close_timeout = max(dt.timedelta(days=3), override_start_to_close_timeout_timedelta)
         stage_activity_start_to_close_timeout = dt.timedelta(days=1)
+        failure_check_window = 4  # A (roughly) months' worth of runs
+
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
@@ -162,8 +162,25 @@ async def execute_batch_export_using_internal_stage(
             dt.timedelta(minutes=20), dt.timedelta(**kwargs), override_start_to_close_timeout_timedelta
         )
         stage_activity_start_to_close_timeout = main_activity_start_to_close_timeout
+
+        if unit == "minutes":
+            runs_in_an_hour = 60 // int(value)
+            failure_check_window = runs_in_an_hour  # Last hour worth of runs
+        else:
+            # Anything other than minutes is not currently supported, but just
+            # setting a default in case we ever add support for, e.g., seconds.
+            failure_check_window = 50
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
+
+    finish_inputs = FinishBatchExportRunInputs(
+        id=batch_export_inputs.run_id,
+        batch_export_id=batch_export_inputs.batch_export_id,
+        status=BatchExportRun.Status.COMPLETED,
+        team_id=batch_export_inputs.team_id,
+        on_demand=batch_export_inputs.on_demand,
+        failure_check_window=failure_check_window,
+    )
 
     try:
         stage_inputs = BatchExportInsertIntoInternalStageInputs(
@@ -190,26 +207,19 @@ async def execute_batch_export_using_internal_stage(
                 non_retryable_error_types=["InvalidFilterError", "DataIntervalEndInFutureError"],
             ),
         }
-        # The stage activity's return type changed from `str` (just the folder) to
-        # `InternalStageResult`. Guard with `workflow.patched` so workflows whose history
-        # recorded the old bare-string result still replay correctly during a rolling deploy.
-        # TODO: clean up once new code is fully rolled out
-        if workflow.patched("batch-exports-stage-result"):
-            stage_result = await workflow.execute_activity(
-                insert_into_internal_stage_activity, stage_inputs, **stage_activity_kwargs
-            )
-            batch_export_inputs.stage_folder = stage_result.stage_folder
-            batch_export_inputs.records_total = stage_result.records_total
-            if stage_result.records_total is not None:
-                workflow.set_current_details(details.add("Staged records", stage_result.records_total).render())
-        else:
-            # Pass the activity by name (not the typed callable): `execute_activity` overrides
-            # `result_type` with the callable's annotation, which would force the old recorded
-            # `str` result to deserialize as `InternalStageResult` and fail. The string form
-            # honors `result_type=str`.
-            batch_export_inputs.stage_folder = await workflow.execute_activity(
-                "insert_into_internal_stage_activity", stage_inputs, result_type=str, **stage_activity_kwargs
-            )
+        # All workers now run the `InternalStageResult` path, so the pre-patch bare-string
+        # branch is gone. `deprecate_patch` keeps the marker compatible for any execution
+        # still in flight that recorded it.
+        # See https://docs.temporal.io/develop/python/workflows/versioning#deprecated-patches
+        # TODO: delete this call once those histories have drained.
+        workflow.deprecate_patch("batch-exports-stage-result")
+        stage_result = await workflow.execute_activity(
+            insert_into_internal_stage_activity, stage_inputs, **stage_activity_kwargs
+        )
+        batch_export_inputs.stage_folder = stage_result.stage_folder
+        batch_export_inputs.records_total = stage_result.records_total
+        if stage_result.records_total is not None:
+            workflow.set_current_details(details.add("Staged records", stage_result.records_total).render())
         result = await workflow.execute_activity(
             activity,
             inputs,

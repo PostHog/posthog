@@ -1,5 +1,5 @@
 import type {
-  AgentSessionEvent,
+  JsonAgentSessionEvent,
   RpcCommand,
   RpcResponse,
 } from "@earendil-works/pi-coding-agent";
@@ -11,16 +11,20 @@ import {
 } from "./conversation/translatePiConversation";
 import { getPiRpcClientProcess, type PiRpcClient } from "./rpc-client";
 import { sendPiRpcCommand } from "./rpc-transport";
+import type { PiExtensionEvent } from "./types";
 
 export class PiRuntime {
   readonly client: PiRpcClient;
 
   private readonly translator: PiConversationTranslator;
   private readonly runtimeListeners = new Set<
-    (event: AgentSessionEvent) => void
+    (event: JsonAgentSessionEvent) => void
   >();
   private readonly conversationListeners = new Set<
     (event: AgentConversationEvent) => void
+  >();
+  private readonly extensionListeners = new Set<
+    (event: PiExtensionEvent) => void
   >();
   private readonly pendingUserMessages: Array<{
     id: string;
@@ -39,7 +43,7 @@ export class PiRuntime {
     return getPiRpcClientProcess(this.client);
   }
 
-  onRuntimeEvent(listener: (event: AgentSessionEvent) => void): () => void {
+  onRuntimeEvent(listener: (event: JsonAgentSessionEvent) => void): () => void {
     this.runtimeListeners.add(listener);
     return () => this.runtimeListeners.delete(listener);
   }
@@ -49,6 +53,11 @@ export class PiRuntime {
   ): () => void {
     this.conversationListeners.add(listener);
     return () => this.conversationListeners.delete(listener);
+  }
+
+  onExtensionEvent(listener: (event: PiExtensionEvent) => void): () => void {
+    this.extensionListeners.add(listener);
+    return () => this.extensionListeners.delete(listener);
   }
 
   async sendCommand(command: RpcCommand): Promise<RpcResponse> {
@@ -113,7 +122,17 @@ export class PiRuntime {
     }
   }
 
-  private handleEvent(event: AgentSessionEvent): void {
+  private handleEvent(event: JsonAgentSessionEvent | PiExtensionEvent): void {
+    if (
+      event.type === "extension_ui_request" ||
+      event.type === "extension_error"
+    ) {
+      for (const listener of this.extensionListeners) {
+        listener(event);
+      }
+      return;
+    }
+
     for (const listener of this.runtimeListeners) {
       listener(event);
     }

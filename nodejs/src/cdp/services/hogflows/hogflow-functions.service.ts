@@ -7,7 +7,7 @@ import {
     HogFunctionType,
 } from '~/cdp/types'
 
-import { HogExecutorExecuteAsyncOptions, HogExecutorService } from '../hog-executor.service'
+import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
@@ -18,7 +18,7 @@ export class HogFlowFunctionsService {
     constructor(
         private siteUrl: string,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
-        private hogFunctionExecutor: HogExecutorService
+        private hogFunctionExecutor: HogExecutorAsyncService
     ) {}
 
     async buildHogFunction(hogFlow: HogFlow, configuration: Action['config']): Promise<HogFunctionType> {
@@ -110,7 +110,10 @@ export class HogFlowFunctionsService {
             ...invocation,
             hogFunction,
             state: invocation.state.currentAction?.hogFunctionState ?? {
-                globals: await this.hogFunctionExecutor.buildInputsWithGlobals(hogFunction, globalsWithSource),
+                globals: await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(
+                    hogFunction,
+                    globalsWithSource
+                ),
                 timings: [],
                 attempts: 0,
                 actionId: invocation.state.currentAction?.id,

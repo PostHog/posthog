@@ -22,6 +22,7 @@ import requests
 import structlog
 from prometheus_client import Counter
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
@@ -93,6 +94,19 @@ class GitHubCommitAttribution:
     is_bot: bool
     # Git author display name — untrusted free text, for display only, never parse it.
     name: str | None = None
+
+
+@frozen
+class PullRequestRef:
+    """A pull request's coordinates, parsed from its GitHub HTML URL."""
+
+    owner: str
+    repo: str
+    number: int
+
+    @property
+    def repository(self) -> str:
+        return f"{self.owner}/{self.repo}"
 
 
 class GitHubIntegrationError(Exception):
@@ -393,6 +407,12 @@ class GitHubIntegrationBase:
             "expires_in": expires_in,
             "refreshed_at": int(time.time()),
         }
+        # The token response names the permissions this installation actually holds. Persisting them
+        # lets the warehouse schema picker mark tables the installation can't read without an API
+        # call, and keeps the copy current as the App's requested permissions change: every hourly
+        # refresh rewrites it, including for integrations connected before this key existed.
+        if isinstance(data.get("permissions"), dict):
+            config["permissions"] = data["permissions"]
         config.pop(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, None)
         self.integration.config = config
         self.integration.sensitive_config = {
@@ -845,8 +865,8 @@ class GitHubIntegrationBase:
         return attributions
 
     @staticmethod
-    def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:
-        """Parse a GitHub pull request URL into ``(owner, repo, pr_number)``.
+    def parse_pull_request_url(pr_url: str) -> PullRequestRef | None:
+        """Parse a GitHub pull request URL into a :class:`PullRequestRef`.
 
         Returns ``None`` if the URL does not look like a GitHub PR URL.
         """
@@ -865,7 +885,7 @@ class GitHubIntegrationBase:
             pr_number = int(pr_number_str)
         except ValueError:
             return None
-        return owner, repo, pr_number
+        return PullRequestRef(owner=owner, repo=repo, number=pr_number)
 
     def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
@@ -929,8 +949,7 @@ class GitHubIntegrationBase:
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
-        return self.get_pull_request(f"{owner}/{repo}", pr_number)
+        return self.get_pull_request(parsed.repository, parsed.number)
 
     def close_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Close a pull request (``PATCH`` state=closed). ``repository`` is ``owner/repo`` or a bare repo.
@@ -966,8 +985,7 @@ class GitHubIntegrationBase:
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
-        return self.close_pull_request(f"{owner}/{repo}", pr_number)
+        return self.close_pull_request(parsed.repository, parsed.number)
 
     def comment_on_pull_request(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
         """Post a comment on a pull request. ``repository`` is ``owner/repo`` or a bare repo.
@@ -996,8 +1014,7 @@ class GitHubIntegrationBase:
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
-        return self.comment_on_pull_request(f"{owner}/{repo}", pr_number, body)
+        return self.comment_on_pull_request(parsed.repository, parsed.number, body)
 
     def get_pull_request_checks(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch the CI status for a PR — GitHub Actions check runs plus commit statuses from external
@@ -1380,11 +1397,10 @@ class GitHubIntegrationBase:
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
 
         data = self._gh_graphql(
             self._PR_SNAPSHOT_QUERY,
-            {"owner": owner, "repo": repo, "number": pr_number},
+            {"owner": parsed.owner, "repo": parsed.repo, "number": parsed.number},
             endpoint="/graphql:pullRequestSnapshot",
         )
         pr = ((data or {}).get("repository") or {}).get("pullRequest")
