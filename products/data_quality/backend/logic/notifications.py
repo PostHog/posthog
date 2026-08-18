@@ -195,10 +195,14 @@ def _blocking_referenced_names(team_id: int, saved_query_id: str) -> list[str]:
     not just over the view the recipient is already allowed to see.
     """
     names: set[str] = set()
+    # Only enabled checks ran in the suite that produced the count, so a check disabled while failing
+    # keeps a stale FAILED status that never belonged to this block. Exclude it, matching the suite's
+    # own selection and subject_health -- the three must never disagree.
     blocking = checks_for_subject(team_id, SubjectType.VIEW, saved_query_id).filter(
         check_type__in=referencing_check_types(),
         severity=CheckSeverity.ERROR,
         last_status=CheckRunStatus.FAILED,
+        enabled=True,
     )
     for check in blocking:
         names.update(referenced_subject_names(team_id, check.check_type, check.config))

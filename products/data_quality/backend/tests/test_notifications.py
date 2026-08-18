@@ -18,7 +18,11 @@ from products.data_quality.backend.facade.enums import (
     SubjectType,
     SuiteRunTrigger,
 )
-from products.data_quality.backend.logic.notifications import _WarehouseSubjectResolver, notify_materialization_blocked
+from products.data_quality.backend.logic.notifications import (
+    _blocking_referenced_names,
+    _WarehouseSubjectResolver,
+    notify_materialization_blocked,
+)
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.logic.subject_access import referenced_subject_names
 from products.data_quality.backend.models import DataQualityCheck, DataQualitySuiteRun
@@ -246,6 +250,29 @@ class TestDataQualityNotifications(BaseTest):
         resolved = resolver.resolve(TargetType.TEAM, str(self.team.id), self.team.id)
         assert self.user.id in resolved
         assert blocked.id not in resolved
+
+    @parameterized.expand([("enabled", True, ["orders"]), ("disabled", False, [])])
+    def test_only_enabled_failing_referencing_checks_gate_recipients(
+        self, _name, enabled: bool, expected: list[str]
+    ) -> None:
+        # blocking_failures counts the suite's outcomes, and the suite runs only enabled checks, so a
+        # check disabled while failing keeps a stale FAILED status that never belonged to this block.
+        # Its referenced subjects must not narrow the recipient set.
+        customers = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        self._check(
+            saved_query_id=customers.id,
+            subject_name="customers",
+            check_type=CheckType.RELATIONSHIPS,
+            column_name="",
+            config={"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(self.view.id), "to_column": "id"},
+            severity=CheckSeverity.ERROR,
+            last_status=CheckRunStatus.FAILED,
+            enabled=enabled,
+        )
+
+        assert _blocking_referenced_names(self.team.id, str(customers.id)) == expected
 
     def test_a_notification_failure_does_not_fail_the_run(self) -> None:
         check = self._check()
