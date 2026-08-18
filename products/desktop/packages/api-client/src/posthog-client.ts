@@ -232,6 +232,12 @@ export interface TaskListOptions {
   channel?: string;
   /** Caller-side cap for surfaces that only show the newest few. */
   limit?: number;
+  /**
+   * Which end of the list the page is cut from. A surface that asks for a short page and means
+   * "what has been happening here" has to say so, or the server hands back the newest-created
+   * few and a long-running session never makes the page.
+   */
+  ordering?: "-last_activity_at" | "-created_at";
 }
 
 export interface TaskSearchResult {
@@ -2336,6 +2342,10 @@ export class PostHogAPIClient {
 
     if (options?.channel) {
       params.channel = options.channel;
+    }
+
+    if (options?.ordering) {
+      params.ordering = options.ordering;
     }
 
     const data = await this.api.get(`/api/projects/{project_id}/tasks/`, {
