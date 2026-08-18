@@ -5,6 +5,7 @@ import hashlib
 import dataclasses
 from copy import deepcopy
 from datetime import timedelta
+from time import monotonic
 from typing import Any, NamedTuple, Optional, cast
 
 from django.conf import settings
@@ -33,6 +34,10 @@ from posthog.schema import ProductKey
 
 from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.hog_invocation_cancel import (
+    HogInvocationCancelRequestSerializer,
+    HogInvocationCancelResponseSerializer,
+)
 from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.hog_invocation_results import (
     HogInvocationResultDetailSerializer,
@@ -59,6 +64,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
+    cancel_hog_flow_invocations,
     create_hog_flow_invocation_test,
     create_hog_flow_scheduled_invocation,
     get_hog_flow_in_flight_count,
@@ -2721,6 +2727,7 @@ class HogFlowViewSet(
         "schedule_detail",
         "bulk_delete",
         "rerun",
+        "cancel_invocations",
         "graph",
         "action_email",
         "publish",
@@ -2884,6 +2891,76 @@ class HogFlowViewSet(
             )
 
         return Response(res.json())
+
+    @extend_schema(
+        request=HogInvocationCancelRequestSerializer,
+        responses={200: HogInvocationCancelResponseSerializer},
+    )
+    @action(detail=True, methods=["POST"], url_path="invocations/cancel")
+    def cancel_invocations(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Cancel in-flight invocations of this workflow, by id or all at once.
+
+        Cancellation is asynchronous: runs are flagged here, then terminated by
+        the workflow workers, promptly for parked runs (delays and waits) and at
+        the next step boundary for runs mid-execution. Steps that already
+        executed are not undone. Canceled runs can be re-run later via `rerun`.
+        """
+        # Workflow deletes are hard deletes, so a flow deleted with runs still parked has no row
+        # here while its jobs live on. Cancel must still reach those jobs: fall back to the URL id,
+        # which is safe because the service JWT pins team + flow and the sweep filters on both, so
+        # an id that never belonged to this team matches nothing.
+        try:
+            hog_flow = self.get_object()
+            hog_flow_id = str(hog_flow.id)
+        except Http404:
+            hog_flow = None
+            # The row is gone, so get_object's per-object access check never ran. Require
+            # project-wide workflow editor access instead - without this, a member whose editor
+            # access came from per-object grants could cancel any deleted flow's runs by UUID.
+            if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+                raise exceptions.NotFound()
+            try:
+                hog_flow_id = str(uuid_mod.UUID(self.kwargs["pk"]))
+            except (ValueError, KeyError):
+                raise exceptions.NotFound()
+
+        serializer = HogInvocationCancelRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        invocation_ids = serializer.validated_data.get("invocation_ids")
+        payload: dict = (
+            {"invocation_ids": [str(i) for i in invocation_ids]} if invocation_ids is not None else {"all": True}
+        )
+
+        # One CDP call flags a bounded chunk of rows, so a very large workflow needs several.
+        # Two stopping conditions keep one request from pinning a worker on a pathological
+        # backlog: a cap on the number of calls, and a wall-clock budget so that a
+        # slow-but-responsive CDP cannot stack several near-timeout (30s each) calls into a
+        # multi-minute hold. Either way the response's `done: false` tells the caller to
+        # request again for the rest.
+        sweep_deadline = monotonic() + 20
+        data: dict = {"marked": 0, "remaining": 0, "done": False}
+        for _ in range(5):
+            res = cancel_hog_flow_invocations(team_id=self.team_id, hog_flow_id=hog_flow_id, payload=payload)
+            if res.status_code != 200:
+                raise exceptions.APIException(detail=res.text, code="cancel_failed")
+            page = res.json()
+            data = {
+                "marked": data["marked"] + page.get("marked", 0),
+                "remaining": page.get("remaining", 0),
+                "done": page.get("done", False),
+            }
+            if data["done"] or monotonic() >= sweep_deadline:
+                break
+
+        if hog_flow is not None:
+            self._report_workflow_action(
+                "hog_flow_invocations_cancel_requested",
+                hog_flow,
+                {"mode": "ids" if invocation_ids is not None else "all", "marked": data["marked"]},
+            )
+        return Response(data)
 
     def _emit_resource_edited(self, instance: HogFlow) -> None:
         # Realtime "edited elsewhere" signal so an open builder (or another tab) can refresh instead of
