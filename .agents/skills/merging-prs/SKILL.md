@@ -5,7 +5,9 @@ description: >
   lands. Enqueue with a `/trunk merge` comment, then watch the `Trunk Merge Queue
   (master)` check run and the PR state until it is MERGED or the queue kicks it
   out, reporting the Trunk bot's failure reason. Use when asked to merge a PR,
-  "merge when ready", "land it", "ship it", or to babysit/watch a PR through the
+  "merge when ready", "land it", "ship it", to merge a whole stack (comment on
+  the top PR — the queue merges it and every layer below atomically), to get a
+  PR approved via the `stamphog` label, or to babysit/watch a PR through the
   queue. Never use `gh pr merge` in this repo — the queue is the only path into
   master.
 ---
@@ -29,13 +31,17 @@ gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup,b
 - **Draft** → it can't be merged. Ask the developer to confirm, then `gh pr ready <n>` before continuing. Don't un-draft silently.
 - **Failing required checks** (`statusCheckRollup`) → the queue will just reject it. Report which checks are red and stop; fix them first. **Pending** checks are fine — the queue waits for them. To work out _why_ a check is red, use `/debugging-ci-failures`.
 - **Merge conflicts** (`mergeable == "CONFLICTING"`) → report and stop; merge `master` in first.
-- **Part of a stack** (`baseRefName != "master"`, or the PR appears in `gh api repos/$REPO/stacks`) → merging it also merges every unmerged layer below it, and the queue only guards merges into `master`. Use `/stacking-prs`, which lands the bottom layer through the queue first.
+- **Missing approval** (`reviewDecision == "REVIEW_REQUIRED"`, or a stamphog approval was dismissed) → apply the `stamphog` label yourself: `gh pr edit <n> --add-label stamphog`. That triggers the automated review-and-approve flow ([tools/pr-approval-agent/README.md](../../../tools/pr-approval-agent/README.md)); on an `APPROVED` verdict the Stamphog app posts the approval that satisfies the required review. Re-applying the label is always safe and is the intended retry path — it gets stripped on a `REFUSED`/`ESCALATE` verdict, and after addressing that feedback you re-apply it to request a fresh review. It stays sticky across ordinary pushes (non-trivial deltas re-review automatically), and it never works on bot-authored PRs.
+- **Part of a stack** (`baseRefName != "master"`, or the PR appears in `gh api repos/$REPO/stacks`) → the queue handles stacks natively: enqueueing a PR enqueues it **and every unmerged layer below it**, tests them together, and merges them atomically. So comment `/trunk merge` on the **top** PR to merge the whole stack, or on the highest layer you want landed to merge just the bottom part. Run this preflight on every layer being merged, not only the one you comment on. `/stacking-prs` covers restack mechanics and the post-merge `gh stack sync --prune`.
 
 ## 2. Enqueue
 
 ```bash
 gh pr comment <n> --body "/trunk merge"
 ```
+
+For a stack, `<n>` is the highest layer you want merged — it and everything below it enqueue together (see the stack preflight bullet above).
+Append `--no-batch` to the comment to have the queue test the PR (or stack) alone instead of batched with other queued PRs.
 
 Within ~2 minutes, confirm Trunk picked it up — a check run whose name starts with `Trunk Merge Queue` should appear on the head commit:
 
