@@ -57,6 +57,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     sanitize_prompt,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -1403,11 +1404,18 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             AI_REPORT_SNAPSHOT_KEY in snapshot
             or AI_REPORT_PROMPT_SNAPSHOT_KEY in snapshot
             or AI_REPORT_DIAGNOSTICS_KEY in snapshot
+            or AI_REPORT_CHARTS_KEY in snapshot
         ):
             data["content_snapshot"] = {
                 key: value
                 for key, value in snapshot.items()
-                if key not in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY)
+                if key
+                not in (
+                    AI_REPORT_SNAPSHOT_KEY,
+                    AI_REPORT_PROMPT_SNAPSHOT_KEY,
+                    AI_REPORT_DIAGNOSTICS_KEY,
+                    AI_REPORT_CHARTS_KEY,
+                )
             }
         return data
 

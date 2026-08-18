@@ -14,11 +14,13 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
     _report_diagnostic_counts,
     _snapshot_diagnostic_counts,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.charts import RenderedChart
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     QueryStepDiagnostic,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -95,6 +97,28 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     ]
     # The generating prompt is captured so the delivery is reproducible and the viewer can show it.
     assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "weekly adoption + reliability report"
+    # Always present, so a reader never has to tell "no charts" apart from "row predates charts".
+    assert snapshot[AI_REPORT_CHARTS_KEY] == []
+
+
+async def test_persist_ai_report_writes_chart_references_not_images(team, user) -> None:
+    # Asset ids only: PNG bytes here would blow Temporal's payload cap, and a stored delivery url
+    # would be readable by anyone who can read the delivery.
+    delivery = await _create_delivery(team, user)
+
+    await _persist_ai_report(
+        delivery.id,
+        AiReportResult(
+            markdown="# Weekly report",
+            window_end_utc=_WINDOW_END_UTC,
+            diagnostics=(),
+            charts=(RenderedChart(export_asset_id=99, title="signups by day", step_index=0),),
+        ),
+        prompt="weekly report",
+    )
+
+    snapshot = await _snapshot(delivery.id)
+    assert snapshot[AI_REPORT_CHARTS_KEY] == [{"export_asset_id": 99, "title": "signups by day", "step_index": 0}]
 
 
 async def test_persist_ai_report_strips_null_bytes(team, user) -> None:

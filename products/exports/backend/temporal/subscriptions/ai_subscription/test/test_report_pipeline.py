@@ -53,13 +53,18 @@ def _test_window() -> ReportWindow:
     return ReportWindow(start=_WINDOW_END - timedelta(days=1), end=_WINDOW_END)
 
 
-_ALL_FAILED_RUN = (
+_ALL_FAILED_RUN: tuple[list[str], int, list[QueryStepDiagnostic], list[ValidatedChart]] = (
     ["### s0\n\n_Query failed to run (ExposedHogQLError)_"],
     1,
     [QueryStepDiagnostic("s0", "SELECT bad", False, "ExposedHogQLError")],
     [],
 )
-_OK_RUN = (["### s\n\nok"], 0, [QueryStepDiagnostic("s", "SELECT count() FROM events", True, None)], [])
+_OK_RUN: tuple[list[str], int, list[QueryStepDiagnostic], list[ValidatedChart]] = (
+    ["### s\n\nok"],
+    0,
+    [QueryStepDiagnostic("s", "SELECT count() FROM events", True, None)],
+    [],
+)
 
 
 def _spec(steps: int = 1) -> EnrichedPromptSpec:
