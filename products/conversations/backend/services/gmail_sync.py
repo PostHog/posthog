@@ -37,10 +37,15 @@ INITIAL_IMPORT_QUERY = "{in:inbox in:sent} newer_than:30d"
 INITIAL_IMPORT_LIMIT = 100
 HISTORY_PAGE_SIZE = 100
 HISTORY_MESSAGE_BATCH_SIZE = 100
+MAX_ATTACHMENT_BACKED_BODY_PARTS = 4
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
 
 
 class GmailSyncError(Exception):
+    pass
+
+
+class _GmailBodyPartLimitExceeded(Exception):
     pass
 
 
@@ -96,14 +101,7 @@ def sync_gmail_integration(integration_id: int, team_id: int) -> None:
 
 def _has_active_owner(integration: Integration) -> bool:
     owner = integration.created_by
-    return bool(
-        owner
-        and owner.is_active
-        and OrganizationMembership.objects.filter(
-            organization_id=integration.team.organization_id,
-            user_id=owner.id,
-        ).exists()
-    )
+    return bool(owner and owner.is_active and owner.teams.filter(id=integration.team_id).exists())
 
 
 def _get_fresh_access_token(integration: Integration) -> str:
@@ -335,12 +333,15 @@ def _ingest_message_id(
         )
         return str(attachment.get("data") or "")
 
-    parsed = _parse_gmail_message(
-        payload,
-        channel.from_email,
-        str(integration.integration_id),
-        load_attachment_data=load_attachment_data,
-    )
+    try:
+        parsed = _parse_gmail_message(
+            payload,
+            channel.from_email,
+            str(integration.integration_id),
+            load_attachment_data=load_attachment_data,
+        )
+    except _GmailBodyPartLimitExceeded:
+        return
     if parsed is None or not _has_external_participant(parsed, internal_emails):
         return
     labels = set(payload.get("labelIds") or [])
@@ -449,13 +450,18 @@ def _message_bodies(
 ) -> _EmailBodies:
     plain_parts: list[str] = []
     html_parts: list[str] = []
+    attachment_backed_body_parts = 0
 
     def visit(part: dict[str, Any]) -> None:
+        nonlocal attachment_backed_body_parts
         mime_type = str(part.get("mimeType") or "").lower()
         body = part.get("body") or {}
         data = str(body.get("data") or "")
         attachment_id = str(body.get("attachmentId") or "")
         if mime_type in ("text/plain", "text/html") and not data and attachment_id and load_attachment_data:
+            if attachment_backed_body_parts >= MAX_ATTACHMENT_BACKED_BODY_PARTS:
+                raise _GmailBodyPartLimitExceeded
+            attachment_backed_body_parts += 1
             data = load_attachment_data(attachment_id)
         decoded = _decode_body(data)
         if decoded and mime_type == "text/plain":

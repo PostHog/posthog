@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.egress.google_workspace.transport import GoogleWorkspaceEgressBudgetExhausted
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
@@ -19,6 +20,8 @@ from products.conversations.backend.models import (
 from products.conversations.backend.services import gmail_sync
 from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
 from products.customer_analytics.backend.models import Account
+
+from ee.models.rbac.access_control import AccessControl
 
 
 def _response(payload: dict, status_code: int = 200) -> MagicMock:
@@ -129,6 +132,33 @@ class TestGmailSync(BaseTest):
         imported = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
         assert imported.comment.content == "Attachment-backed message body"
 
+    def test_message_with_too_many_attachment_backed_bodies_is_skipped(self) -> None:
+        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
+        message["payload"]["mimeType"] = "multipart/alternative"
+        message["payload"]["body"] = {}
+        message["payload"]["parts"] = [
+            {"mimeType": "text/plain", "body": {"attachmentId": f"body-{index}"}}
+            for index in range(gmail_sync.MAX_ATTACHMENT_BACKED_BODY_PARTS + 1)
+        ]
+        attachment_body = base64.urlsafe_b64encode(b"Body part").decode().rstrip("=")
+
+        with patch.object(
+            gmail_sync,
+            "google_workspace_request",
+            side_effect=[
+                _response({"emailAddress": self.user.email, "historyId": "100"}),
+                _response({"messages": [{"id": "gmail-1"}]}),
+                _response(message),
+                *[_response({"data": attachment_body}) for _ in range(gmail_sync.MAX_ATTACHMENT_BACKED_BODY_PARTS)],
+            ],
+        ) as mock_request:
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        assert mock_request.call_count == 3 + gmail_sync.MAX_ATTACHMENT_BACKED_BODY_PARTS
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+        self.integration.refresh_from_db()
+        assert self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] == "100"
+
     def test_incremental_sync_checkpoints_each_imported_message(self) -> None:
         self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] = "100"
         self.integration.save(update_fields=["config"])
@@ -221,6 +251,28 @@ class TestGmailSync(BaseTest):
             organization=self.team.organization,
             user=self.user,
         ).delete()
+
+        with patch.object(gmail_sync, "google_workspace_request") as mock_request:
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        mock_request.assert_not_called()
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    def test_owner_without_project_access_is_not_synced(self) -> None:
+        self.team.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}
+        ]
+        self.team.organization.save(update_fields=["available_product_features"])
+        OrganizationMembership.objects.filter(
+            organization=self.team.organization,
+            user=self.user,
+        ).update(level=OrganizationMembership.Level.MEMBER)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="none",
+        )
 
         with patch.object(gmail_sync, "google_workspace_request") as mock_request:
             gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
