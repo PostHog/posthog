@@ -7,7 +7,7 @@ import {
 import { useService } from "@posthog/di/react";
 import { Button as QuillButton } from "@posthog/quill";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { shallow } from "zustand/shallow";
 import { useSessionResyncStore } from "../sessionResyncStore";
 import { useSessionSelector } from "../useSession";
@@ -33,6 +33,14 @@ export function ResyncCloudRunButton({ taskId }: ResyncCloudRunButtonProps) {
     shallow,
   );
   const [resyncing, setResyncing] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+    },
+    [],
+  );
 
   if (!isCloud || isTerminalStatus(cloudStatus)) return null;
 
@@ -43,7 +51,7 @@ export function ResyncCloudRunButton({ taskId }: ResyncCloudRunButtonProps) {
     bump(taskId);
     // Brief double-click guard; the rebuilt watcher replays a full snapshot,
     // so there is no completion signal to await here.
-    setTimeout(() => setResyncing(false), 2_000);
+    resetTimer.current = setTimeout(() => setResyncing(false), 2_000);
   };
 
   return (
