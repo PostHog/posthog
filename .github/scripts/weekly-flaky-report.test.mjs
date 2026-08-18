@@ -40,6 +40,7 @@ describe('weekly flaky report', () => {
                     classification: 'confirmed_flake',
                     quarantined_failed_run_count: 0,
                     failed_run_count: 4,
+                    failed_pr_count: 3,
                 },
             ],
             () => ({ owner: 'team-devex', repoPath: 'posthog/test/test_example.py' }),
@@ -57,7 +58,7 @@ describe('weekly flaky report', () => {
         assert.ok(table)
         assert.deepEqual(
             table.rows[0].map((tableCell) => tableCell.text),
-            ['test', 'runner', 'owner', 'quarantined', 'rescued', 'fails', 'logs']
+            ['test', 'runner', 'owner', 'quarantined', 'PRs', 'rescued', 'fails', 'logs']
         )
         // The edit-workflow context block may still render when Actions env vars are set;
         // only the action footer has to be gone.
@@ -83,7 +84,8 @@ describe('weekly flaky report', () => {
         })
         assert.deepEqual(rows[0][1], { type: 'raw_text', text: 'pytest' })
         assert.deepEqual(rows[0][3], { type: 'raw_text', text: '-' })
-        assert.deepEqual(rows[0][6], {
+        assert.deepEqual(rows[0][4], { type: 'raw_text', text: '3' })
+        assert.deepEqual(rows[0][7], {
             type: 'rich_text',
             elements: [
                 {
@@ -249,8 +251,8 @@ describe('weekly flaky report', () => {
 
         assert.equal(enrichmentRequested, false)
         assert.deepEqual(row[1], { type: 'raw_text', text: 'Jest' })
-        assert.deepEqual(row[4], { type: 'raw_text', text: '-' })
-        assert.deepEqual(row[6], { type: 'raw_text', text: '-' })
+        assert.deepEqual(row[5], { type: 'raw_text', text: '-' })
+        assert.deepEqual(row[7], { type: 'raw_text', text: '-' })
     })
 
     it('scopes enrichment to the current repository', async () => {

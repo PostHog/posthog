@@ -312,6 +312,7 @@ function collapseClusters(items, statusFor) {
                 cluster_size: group.length,
                 quarantined_member_count: group.filter((item) => statusFor(item)).length,
                 failed_run_count: group.reduce((sum, item) => sum + item.failed_run_count, 0),
+                // Members' PR sets can overlap, so the max is the provable floor rather than a sum.
                 failed_pr_count: Math.max(...group.map((item) => item.failed_pr_count)),
                 quarantined_failed_run_count: 0,
             })
@@ -370,6 +371,7 @@ function tableRows(items, ownerFor, extrasFor, statusFor = () => null) {
             cell(RUNNER_LABELS[item.runner] || item.runner),
             cell(owner.replace(/^team-/, '')),
             cell(statusFor(item) || '-'),
+            cell(item.failed_pr_count == null ? '-' : String(item.failed_pr_count)),
             cell(runsRescued == null ? '-' : String(runsRescued)),
             cell(String(item.failed_run_count)),
             logLinks.length > 0 ? linkedCell(logLinks) : cell('-'),
@@ -396,6 +398,7 @@ function buildBlocks(now, rows) {
                 { align: 'left' },
                 { align: 'right' },
                 { align: 'right' },
+                { align: 'right' },
                 { align: 'left' },
             ],
             rows: [
@@ -404,6 +407,7 @@ function buildBlocks(now, rows) {
                     cell('runner'),
                     cell('owner'),
                     cell('quarantined'),
+                    cell('PRs'),
                     cell('rescued'),
                     cell('fails'),
                     cell('logs'),
