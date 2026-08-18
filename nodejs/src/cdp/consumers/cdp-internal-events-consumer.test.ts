@@ -9,7 +9,12 @@ import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabas
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { insertHogFunction as _insertHogFunction, createInternalEvent, createKafkaMessage } from '../_tests/fixtures'
+import {
+    insertHogFunction as _insertHogFunction,
+    createInternalEvent,
+    createKafkaMessage,
+    insertIntegration,
+} from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionType } from '../types'
@@ -237,14 +242,14 @@ describe('CDP Internal Events Consumer', () => {
                 .withSimpleWorkflow({ trigger: { ...trigger, filters: { properties: [], bytecode: ['_h', 29] } } })
                 .build()
 
-        const slackMessage = (teamId: number) =>
+        const slackMessage = (teamId: number, properties: Record<string, any> = {}) =>
             createInternalEvent(teamId, {
                 event: {
                     timestamp: '2026-08-17T12:00:00.000Z',
                     uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
                     event: '$slack_message_received',
                     distinct_id: 'U123',
-                    properties: { channel: 'C0ALERTS', text: 'database is on fire' },
+                    properties: { channel: 'C0ALERTS', text: 'database is on fire', ...properties },
                 },
             })
 
@@ -270,6 +275,27 @@ describe('CDP Internal Events Consumer', () => {
             const { invocations } = await processor.processBatch(globals)
 
             expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(0)
+        })
+
+        it.each([
+            ['PostHog posted the message', 'A0POSTHOG', 0],
+            ['another app posted the message', 'A0OTHER', 1],
+        ])('starts a workflow only when it did not post the message: %s', async (_name, appId, expected) => {
+            // A workflow that replies in Slack sees its own reply arrive back on this topic. The
+            // guard is part of eligibility, not the trigger's stored filters, so a workflow created
+            // through the API or MCP still has it.
+            const integration = await insertIntegration(hub.postgres, team.id, {
+                kind: 'slack',
+                config: { app_id: 'A0POSTHOG' },
+            })
+            await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'slack-message' }))
+
+            const globals = await processor._parseKafkaBatch([
+                createKafkaMessage(slackMessage(team.id, { app_id: appId, integration_id: integration.id })),
+            ])
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(expected)
         })
 
         it('should parse a message for a team that has a hog flow but no hog functions', async () => {

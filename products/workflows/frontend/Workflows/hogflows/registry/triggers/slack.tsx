@@ -119,7 +119,7 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
 
             <LemonField.Pure
                 label="Who can start a run"
-                info="Apps and bots post the alerts most workflows care about, but a workflow that posts back to Slack will retrigger on its own message unless you exclude them."
+                info="Messages posted by PostHog never start a run, so a workflow can reply in Slack without triggering itself."
             >
                 <LemonSelect<SlackPosterMode>
                     value={filters.posterMode}
@@ -194,8 +194,6 @@ registerTriggerType({
     matchConfig: (config) => isSlackMessageTriggerConfig(config),
     buildConfig: () => ({
         type: 'slack-message',
-        // People only by default: a workflow that posts back to Slack would otherwise retrigger on
-        // its own message.
         filters: {
             properties: encodeSlackFilters({
                 channel: null,

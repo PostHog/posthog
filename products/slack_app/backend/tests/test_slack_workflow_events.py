@@ -36,7 +36,7 @@ def test_setting_gates_the_emit(produce, workspace_integration, enabled) -> None
 def test_emits_once_per_connected_project(produce, org_team_user, workspace_integration) -> None:
     org, first_team, _ = org_team_user
     second_team = Team.objects.create(organization=org, name="Second")
-    Integration.objects.create(
+    second_integration = Integration.objects.create(
         team=second_team,
         kind="slack",
         integration_id=SLACK_TEAM_ID,
@@ -50,6 +50,12 @@ def test_emits_once_per_connected_project(produce, org_team_user, workspace_inte
     # Same Slack event, different projects: the uuids have to differ or the second project's run
     # would be discarded as a duplicate of the first.
     assert len({call.args[1].uuid for call in produce.call_args_list}) == 2
+    # The consumer resolves this back to a stored app id to recognize a message PostHog posted, and
+    # each project has its own connection.
+    assert {call.args[1].properties["integration_id"] for call in produce.call_args_list} == {
+        workspace_integration.pk,
+        second_integration.pk,
+    }
 
 
 def test_emits_nothing_for_an_unconnected_workspace(produce, workspace_integration) -> None:

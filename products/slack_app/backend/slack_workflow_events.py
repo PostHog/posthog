@@ -24,9 +24,14 @@ SLACK_MESSAGE_RECEIVED_EVENT = "$slack_message_received"
 _SLACK_EVENT_NAMESPACE = uuid.UUID("6f1a4b3c-0d2e-4f6a-9b5c-8e7d1a2f3b4c")
 
 
-def _event_properties(event: dict[str, Any], slack_team_id: str, *, is_ext_shared_channel: bool) -> dict[str, Any]:
+def _event_properties(
+    event: dict[str, Any], slack_team_id: str, *, integration_id: int, is_ext_shared_channel: bool
+) -> dict[str, Any]:
     thread_ts = event.get("thread_ts")
     return {
+        # The PostHog Slack connection this copy belongs to. The CDP consumer reads its stored
+        # app id from here to recognize, and ignore, a message PostHog itself posted.
+        "integration_id": integration_id,
         "channel": event.get("channel"),
         "channel_type": event.get("channel_type"),
         "slack_team_id": slack_team_id,
@@ -67,24 +72,28 @@ def emit_slack_message_event(
         # Integration is per team), and each configures its own workflows, so every one gets a copy.
         # Projects with nothing listening are discarded by the CDP consumer, which is cheaper than
         # asking Postgres here.
-        team_ids = list(
-            Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list("team_id", flat=True)
+        integrations = list(
+            Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list("team_id", "id")
         )
     except Exception:
         logger.exception("slack_workflow_event_integration_lookup_failed", slack_team_id=slack_team_id)
         return
 
-    properties = _event_properties(event, slack_team_id, is_ext_shared_channel=is_ext_shared_channel)
     distinct_id = str(event.get("user") or event.get("bot_id") or event.get("channel") or slack_team_id)
 
-    for team_id in team_ids:
+    for team_id, integration_id in integrations:
         try:
             produce_internal_event(
                 team_id,
                 InternalEventEvent(
                     event=SLACK_MESSAGE_RECEIVED_EVENT,
                     distinct_id=distinct_id,
-                    properties=properties,
+                    properties=_event_properties(
+                        event,
+                        slack_team_id,
+                        integration_id=integration_id,
+                        is_ext_shared_channel=is_ext_shared_channel,
+                    ),
                     uuid=str(uuid.uuid5(_SLACK_EVENT_NAMESPACE, f"{team_id}:{event_id or ''}")),
                 ),
             )

@@ -22,6 +22,8 @@ import { counterParseError } from './metrics'
 // signals, and an event-triggered workflow expects those to arrive via analytics capture, not here.
 const INTERNAL_EVENT_TRIGGER_TYPES = new Set(['slack-message'])
 
+const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
+
 export class CdpInternalEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpInternalEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['internal_destination']
@@ -77,13 +79,16 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
 
         await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
+        const ownSlackMessages = await this.findOwnSlackMessages(invocationGlobals)
+
         const [hogInvocations, hogflowInvocations] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
                 hogTypes: this.hogTypes,
                 filterFn: () => true,
             }),
             this.hogFlowPipeline.buildInvocations(invocationGlobals, {
-                eligibilityFn: (flow) => INTERNAL_EVENT_TRIGGER_TYPES.has(flow.trigger.type),
+                eligibilityFn: (flow, globals) =>
+                    INTERNAL_EVENT_TRIGGER_TYPES.has(flow.trigger.type) && !ownSlackMessages.has(globals),
             }),
         ])
 
@@ -118,6 +123,41 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
             ]),
             invocations: invocationsToBeQueued,
         }
+    }
+
+    /**
+     * Slack messages PostHog's own app posted, resolved through the integration the emit stamped
+     * on the event.
+     *
+     * A workflow that replies in Slack sees its own reply arrive back on this topic, so without
+     * this it retriggers itself forever. This is part of eligibility rather than a trigger's stored
+     * filters, which a workflow created through the API or MCP would not carry.
+     */
+    private async findOwnSlackMessages(
+        invocationGlobals: HogFunctionInvocationGlobals[]
+    ): Promise<Set<HogFunctionInvocationGlobals>> {
+        const candidates = invocationGlobals.filter(
+            (globals) =>
+                globals.event.event === SLACK_MESSAGE_RECEIVED_EVENT &&
+                typeof globals.event.properties.app_id === 'string' &&
+                typeof globals.event.properties.integration_id === 'number'
+        )
+
+        if (!candidates.length) {
+            return new Set()
+        }
+
+        const integrations = await this.deps.integrationManager.getMany([
+            ...new Set(candidates.map((globals) => globals.event.properties.integration_id as number)),
+        ])
+
+        return new Set(
+            candidates.filter(
+                (globals) =>
+                    integrations[globals.event.properties.integration_id as number]?.config?.app_id ===
+                    globals.event.properties.app_id
+            )
+        )
     }
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')

@@ -7,7 +7,7 @@ export const SLACK_POSTER_MODE_OPTIONS: { value: SlackPosterMode; label: string;
     {
         value: 'people',
         label: 'People only',
-        description: 'Skips anything posted by an app or bot, including PostHog itself.',
+        description: 'Skips anything posted by an app or bot.',
     },
     {
         value: 'specific_people',
@@ -17,7 +17,7 @@ export const SLACK_POSTER_MODE_OPTIONS: { value: SlackPosterMode; label: string;
     {
         value: 'apps',
         label: 'Apps and bots only',
-        description: 'For alerts posted by a tool rather than typed by a person.',
+        description: 'For alerts posted by another tool rather than typed by a person.',
     },
     {
         value: 'specific_apps',
@@ -27,7 +27,7 @@ export const SLACK_POSTER_MODE_OPTIONS: { value: SlackPosterMode; label: string;
     {
         value: 'anyone',
         label: 'Anyone',
-        description: 'Every message in the channel. A workflow that posts back to Slack will trigger itself.',
+        description: 'Every message in the channel, from people and from other apps.',
     },
 ]
 
