@@ -141,6 +141,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
     const [resizingTileId, setResizingTileId] = useState<string | null>(null)
     const [layoutInteractionInProgress, setLayoutInteractionInProgress] = useState(false)
+    const [layoutInteractionSettling, setLayoutInteractionSettling] = useState(false)
     const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
     const [tileSpacingChanging, setTileSpacingChanging] = useState(false)
 
@@ -158,6 +159,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const draggingTileIdRef = useRef<string | null>(null)
     const pendingLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
     const dragEndTimeout = useRef<number | null>(null)
+    const layoutInteractionSettlingTimeout = useRef<number | null>(null)
     const scrollAnimationRef = useRef<number | null>(null)
     const scrollContainerRef = useRef<HTMLElement | null>(null)
     const scrollContainerRectRef = useRef<DOMRect | null>(null)
@@ -170,6 +172,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             }
             if (dragEndTimeout.current) {
                 window.clearTimeout(dragEndTimeout.current)
+            }
+            if (layoutInteractionSettlingTimeout.current) {
+                window.clearTimeout(layoutInteractionSettlingTimeout.current)
             }
             scrollContainerRef.current = null
             scrollContainerRectRef.current = null
@@ -217,8 +222,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         // last tile that scales with content. A margin wouldn't work — it sits outside clientHeight.
         'dashboard-edit-mode box-content pb-[40vh]': layoutEditMode,
         'dashboard-layout-interaction': layoutInteractionInProgress,
-        'dashboard-free-placement-interaction':
-            layoutInteractionInProgress && dashboard?.customization?.layout_compaction === 'stable',
+        'dashboard-layout-settling': layoutInteractionSettling,
         'dashboard-tile-spacing-changing': tileSpacingChanging,
     })
 
@@ -440,11 +444,24 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         [updateContainerWidth]
     )
 
+    const finishLayoutInteraction = useCallback(() => {
+        setLayoutInteractionInProgress(false)
+        setLayoutInteractionSettling(true)
+        if (layoutInteractionSettlingTimeout.current) {
+            window.clearTimeout(layoutInteractionSettlingTimeout.current)
+        }
+        layoutInteractionSettlingTimeout.current = window.setTimeout(() => setLayoutInteractionSettling(false), 180)
+    }, [])
+
     const handleResizeStart = useCallback((layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
         if (!newItem) {
             return
         }
         interactionInProgress.current = true
+        if (layoutInteractionSettlingTimeout.current) {
+            window.clearTimeout(layoutInteractionSettlingTimeout.current)
+        }
+        setLayoutInteractionSettling(false)
         setLayoutInteractionInProgress(true)
         resizeBaselineLayout.current = layout.map((item) => cloneLayoutItem(item))
         resizeBaselineById.current = new Map(resizeBaselineLayout.current.map((item) => [item.i, item]))
@@ -458,7 +475,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const handleResizeStop = useCallback(() => {
         setResizingTileId(null)
-        setLayoutInteractionInProgress(false)
+        finishLayoutInteraction()
         flushPendingLayouts()
         resizeBaselineLayout.current = null
         resizeBaselineById.current = null
@@ -466,13 +483,17 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
+    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, finishLayoutInteraction, flushPendingLayouts])
 
     const handleDragStart = useCallback((layout: Layout, _oldItem: LayoutItem | null, newItem: LayoutItem | null) => {
         if (!newItem) {
             return
         }
         interactionInProgress.current = true
+        if (layoutInteractionSettlingTimeout.current) {
+            window.clearTimeout(layoutInteractionSettlingTimeout.current)
+        }
+        setLayoutInteractionSettling(false)
         setLayoutInteractionInProgress(true)
         dragBaselineLayout.current = layout.map((item) => cloneLayoutItem(item))
         dragBaselineById.current = new Map(dragBaselineLayout.current.map((item) => [item.i, item]))
@@ -538,7 +559,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dragEndTimeout.current = window.setTimeout(() => {
             isDragging.current = false
         }, 250)
-        setLayoutInteractionInProgress(false)
+        finishLayoutInteraction()
         flushPendingLayouts()
         dragBaselineLayout.current = null
         dragBaselineById.current = null
@@ -546,7 +567,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
+    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, finishLayoutInteraction, flushPendingLayouts])
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>

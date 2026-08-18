@@ -45,7 +45,7 @@
         transition: none;
     }
 
-    &.dashboard-free-placement-interaction .react-grid-item:not(.react-draggable-dragging, .resizing) {
+    &.dashboard-layout-settling .react-grid-item:not(.react-draggable-dragging, .resizing) {
         transition: transform 180ms ease-out;
     }
 }
