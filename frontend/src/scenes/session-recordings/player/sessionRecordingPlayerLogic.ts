@@ -55,6 +55,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
+import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
 import {
     MAX_REPLAY_IFRAME_HTML_CHARS,
     ReplayIframeData,
@@ -2629,6 +2630,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 analyzed: true,
                 player_metadata: values.sessionPlayerMetaData,
             })
+            analysisNudgeLogic.findMounted()?.actions.recordingAnalyzed(props.sessionRecordingId)
         },
         setPause: () => {
             actions.stopAnimation()
