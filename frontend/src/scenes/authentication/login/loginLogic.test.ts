@@ -220,10 +220,7 @@ describe('loginLogic', () => {
             })
             logic.actions.setCodeVerificationRequired()
             logic.actions.recoverFromCodeVerification(null)
-            await expectLogic(logic).toDispatchActions([
-                'exitCodeVerification',
-                'recoverFromCodeVerificationSuccess',
-            ])
+            await expectLogic(logic).toDispatchActions(['exitCodeVerification', 'recoverFromCodeVerificationSuccess'])
 
             expect(logic.values.codeVerificationRequired).toBe(false)
             expect(logic.values.generalError).toEqual({

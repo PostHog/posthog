@@ -13,7 +13,11 @@ from rest_framework import status
 
 from posthog.api.authentication import CodeBasedVerificationSerializer
 from posthog.helpers.email_utils import ESPSuppressionResult
-from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
+from posthog.helpers.two_factor_session import (
+    CODE_MAX_ATTEMPTS,
+    add_code_based_verification_bypass,
+    remove_code_based_verification_bypass,
+)
 
 VERIFY_URL = "/api/login/code-based-verification/"
 RESEND_URL = "/api/login/code-based-verification/resend/"
@@ -198,26 +202,21 @@ class TestCodeBasedVerificationInstrumentation(APIBaseTest):
     @pytest.mark.disable_mock_code_based_verifier
     def test_admin_bypass_reports_an_event(self):
         # The staff Redis bypass used to only write a key and bump a counter, so its use was invisible.
-        from posthog.helpers.two_factor_session import (
-            add_code_based_verification_bypass,
-            remove_code_based_verification_bypass,
-        )
-
+        email = self.CONFIG_EMAIL
+        assert email is not None
         try:
             with (
                 enable_code_sending(),
                 patch("posthog.helpers.two_factor_session.posthoganalytics.capture") as mock_capture,
             ):
-                add_code_based_verification_bypass(self.CONFIG_EMAIL)
-                response = self.client.post(
-                    "/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
-                )
+                add_code_based_verification_bypass(email)
+                response = self.client.post("/api/login", {"email": email, "password": self.CONFIG_PASSWORD})
                 # The bypass skips the code entirely, so login completes.
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 events = [call.kwargs.get("event") for call in mock_capture.call_args_list]
                 self.assertIn("code_based_verification_bypassed_via_admin_list", events)
         finally:
-            remove_code_based_verification_bypass(self.CONFIG_EMAIL)
+            remove_code_based_verification_bypass(email)
 
 
 class TestCodeBasedVerificationRecoveryAPI(APIBaseTest):

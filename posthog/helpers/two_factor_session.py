@@ -102,7 +102,7 @@ def user_has_real_second_factor(user: User) -> bool:
     """True when the user has a second factor other than the emailed code — a confirmed TOTP device
     or a passkey enabled for 2FA. The emailed code is the fallback for users with neither, so this is
     the guard that keeps the emailed-code recovery route from bypassing a real factor."""
-    return bool(default_device(user)) or (has_passkeys(user) and user.passkeys_enabled_for_2fa)
+    return bool(default_device(user) or (has_passkeys(user) and user.passkeys_enabled_for_2fa))
 
 
 def has_passkeys(user: User) -> bool:
