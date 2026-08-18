@@ -504,12 +504,13 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       </div>
     );
 
+    const fills = editorHeight === "fill";
     const composerRow = (
-      <Flex gap="2" align="stretch">
+      <Flex gap="2" align="stretch" className={fills ? "min-h-0 flex-1" : ""}>
         <InputGroup
           onClick={handleContainerClick}
           onContextMenu={handleContextMenu}
-          className={`h-auto flex-1 cursor-text bg-card ${isBashMode ? "ring-1 ring-blue-9" : "focus-within:border-ring/50 focus-within:ring-3 focus-within:ring-ring/30"}`}
+          className={`${fills ? "h-full" : "h-auto"} flex-1 cursor-text bg-card ${isBashMode ? "ring-1 ring-blue-9" : "focus-within:border-ring/50 focus-within:ring-3 focus-within:ring-ring/30"}`}
           {...(tourTarget && {
             "data-tour": `${tourTarget}-editor`,
             "data-tour-ready": !isEmpty ? "true" : undefined,
@@ -585,7 +586,11 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     );
 
     return (
-      <Flex direction="column" gap="1">
+      <Flex
+        direction="column"
+        gap="1"
+        className={fills ? "h-full min-h-0" : ""}
+      >
         {composerRow}
         {toolbar}
       </Flex>

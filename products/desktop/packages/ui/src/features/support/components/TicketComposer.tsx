@@ -132,7 +132,7 @@ function SendAndSetMenu({
           </Button>
         }
       />
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="min-w-52">
         <DropdownMenuItem onClick={() => onPick(null)}>
           Leave the status alone
         </DropdownMenuItem>
