@@ -20,8 +20,6 @@ export interface SessionViewState {
   errorTitle: string | undefined;
   errorMessage: string | undefined;
   errorRetryable: boolean | undefined;
-  hasOlderTranscript: boolean;
-  isLoadingOlderTranscript: boolean;
 }
 
 export function deriveSessionViewState(
@@ -83,7 +81,5 @@ export function deriveSessionViewState(
       session?.errorMessage ??
       (isCloud ? (session?.cloudErrorMessage ?? undefined) : undefined),
     errorRetryable: session?.errorRetryable,
-    hasOlderTranscript: isCloud && (session?.transcriptWindowStart ?? 0) > 0,
-    isLoadingOlderTranscript: session?.isLoadingOlderTranscript ?? false,
   };
 }

@@ -1942,6 +1942,144 @@ describe("SessionService", () => {
       );
     });
 
+    it("falls back to the sequential fetch when the server omits the matching count", async () => {
+      const service = getSessionService();
+      const session = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "in_progress",
+        isCloud: true,
+        events: [],
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": session,
+      });
+      const chainEntries = Array.from({ length: 3 }, (_, i) => ({
+        timestamp: `2024-01-01T00:00:0${i}Z`,
+        notification: { method: `entry-${i}` },
+      }));
+      mockAuthenticatedClient.getTaskRunSessionLogsPage.mockResolvedValue({
+        entries: chainEntries.slice(0, 1),
+        hasMore: true,
+        matchingCount: null,
+      });
+      mockAuthenticatedClient.getTaskRunSessionLogsResult.mockResolvedValue({
+        entries: chainEntries,
+        complete: true,
+        truncatedHeadCount: 0,
+      });
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+        undefined,
+        "https://example.com/logs/run-123",
+        undefined,
+        "claude",
+        undefined,
+        undefined,
+        undefined,
+        "completed",
+      );
+
+      await vi.waitFor(() => {
+        expect(
+          mockAuthenticatedClient.getTaskRunSessionLogsResult,
+        ).toHaveBeenCalledWith("task-123", "run-123", { limit: 100000 });
+      });
+      expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({
+          transcriptWindowStart: 0,
+          cloudTranscriptEntryCount: 3,
+        }),
+      );
+    });
+
+    it("recovers from a failed older-page fetch and can retry", async () => {
+      const service = getSessionService();
+      const session = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "completed",
+        isCloud: true,
+        events: [],
+        transcriptWindowStart: 5000,
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": session,
+      });
+      mockAuthenticatedClient.getTaskRunSessionLogsPage.mockRejectedValue(
+        new Error("network down"),
+      );
+
+      await service.loadOlderCloudTranscript("task-123");
+
+      expect(mockSessionStoreSetters.updateSession).toHaveBeenLastCalledWith(
+        "run-123",
+        { isLoadingOlderTranscript: false },
+      );
+      expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({ events: expect.anything() }),
+      );
+
+      mockAuthenticatedClient.getTaskRunSessionLogsPage.mockResolvedValue({
+        entries: Array.from({ length: 5000 }, () => ({
+          timestamp: "2024-01-01T00:00:00Z",
+          notification: {},
+        })),
+        hasMore: true,
+        matchingCount: null,
+      });
+      await service.loadOlderCloudTranscript("task-123");
+      expect(
+        mockAuthenticatedClient.getTaskRunSessionLogsPage,
+      ).toHaveBeenCalledTimes(2);
+    });
+
+    it("discards an older page when the window moved while it was in flight", async () => {
+      const service = getSessionService();
+      const sessionAtFetch = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "completed",
+        isCloud: true,
+        events: [],
+        transcriptWindowStart: 5000,
+      });
+      const sessionAfterMove = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "completed",
+        isCloud: true,
+        events: [],
+        transcriptWindowStart: 2000,
+      });
+      mockSessionStoreSetters.getSessionByTaskId
+        .mockReturnValueOnce(sessionAtFetch)
+        .mockReturnValue(sessionAfterMove);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": sessionAtFetch,
+      });
+      mockAuthenticatedClient.getTaskRunSessionLogsPage.mockResolvedValue({
+        entries: [{ timestamp: "2024-01-01T00:00:00Z", notification: {} }],
+        hasMore: true,
+        matchingCount: null,
+      });
+
+      await service.loadOlderCloudTranscript("task-123");
+
+      expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({ events: expect.anything() }),
+      );
+    });
+
     it("falls back to the run log URL when terminal chain hydration is empty", async () => {
       const service = getSessionService();
       const session = createMockSession({

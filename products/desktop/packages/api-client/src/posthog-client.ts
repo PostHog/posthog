@@ -3756,11 +3756,18 @@ export class PostHogAPIClient {
         `Failed to fetch session logs page at offset ${options.offset ?? 0}: ${page.status} ${page.statusText}`,
       );
     }
-    const matchingHeader = Number(page.headers.get("X-Matching-Count"));
+    // An absent header must stay null: Number(null) is 0, and callers treat
+    // the count as authoritative when it is present.
+    const matchingHeader = page.headers.get("X-Matching-Count");
+    const matchingCount =
+      matchingHeader === null ? null : Number(matchingHeader);
     return {
       entries: page.entries,
       hasMore: page.headers.get("X-Has-More") === "true",
-      matchingCount: Number.isFinite(matchingHeader) ? matchingHeader : null,
+      matchingCount:
+        matchingCount !== null && Number.isFinite(matchingCount)
+          ? matchingCount
+          : null,
     };
   }
 

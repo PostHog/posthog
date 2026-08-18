@@ -73,8 +73,11 @@ export interface ThreadScrollResume {
  */
 export interface FlatThreadRow {
   /**
-   * Stable list key. User messages are keyed by ordinal so the optimistic->real id swap of a
-   * just-sent message doesn't remount its row (same scheme as the non-virtualized path).
+   * Stable list key: the row's content-derived item id, so keys hold steady when older history
+   * is prepended and the end-anchored virtualizer can keep the viewport still. Trade-off: the
+   * optimistic->real id swap of a just-sent user message remounts that one row, which the
+   * virtual engine absorbs by re-measuring — unlike the non-virtualized scroller engine, which
+   * needs ordinal keys (see {@link keyTurnRows}).
    */
   key: string;
   item: ThreadItem;
@@ -108,7 +111,6 @@ export function completedTurnTimestamp(turn: AgentTurn): number | undefined {
 /** Flatten turn rows into the windowed row list (see {@link FlatThreadRow}). */
 export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
   const out: FlatThreadRow[] = [];
-  let userTurn = 0;
   for (const row of rows) {
     if (row.type === "agent_turn") {
       const timestamp = completedTurnTimestamp(row);
@@ -132,7 +134,7 @@ export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
       continue;
     }
     out.push({
-      key: row.type === "user_message" ? `user-turn-${userTurn++}` : row.id,
+      key: row.id,
       item: row,
       inTurn: false,
       isTrailingInTurn: false,
