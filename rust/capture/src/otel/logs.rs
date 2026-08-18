@@ -144,6 +144,7 @@ fn evaluation_event(
         .map(str::to_string);
     attributes.remove(SCORE_LABEL);
     attributes.remove(SCORE_VALUE);
+    attributes.remove(EXPLANATION);
 
     let distinct_id =
         extract_distinct_id_for_span(&record.attributes, resource, request_fallback_distinct_id);
@@ -327,6 +328,7 @@ mod tests {
             events[0].properties["$ai_evaluation_reasoning"],
             "grounded in context"
         );
+        assert!(events[0].properties.get(EXPLANATION).is_none());
     }
 
     #[test]
