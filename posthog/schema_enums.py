@@ -2556,6 +2556,7 @@ class ExternalDataSourceType(StrEnum):
     DEEL_FLOWS = "DeelFlows"
     HOOTSUITE = "Hootsuite"
     WISPR_FLOW = "WisprFlow"
+    SAM_CART = "SamCart"
 
 
 class ExternalQueryErrorCode(StrEnum):
