@@ -77,12 +77,12 @@ def test_the_signature_only_verifies_at_the_authority_it_covers(authority: str, 
 def test_the_signature_covers_the_parameters_it_publishes():
     # The base and the header are built together for this reason: a mismatch in one character makes
     # every signature fail verification while both halves look correct on their own.
-    params, base = signature_base("thumb", "AAAA", 1750105829, "sha-256=:AAAA:")
+    signature_base_value = signature_base("thumb", "AAAA", 1750105829, "sha-256=:AAAA:")
 
-    assert base.endswith(f'"@signature-params": {params}')
-    assert params.startswith('("@authority";req "content-digest")')
-    assert 'tag="http-message-signatures-directory"' in params
-    assert "expires=1750106129" in params
+    assert signature_base_value.value.endswith(f'"@signature-params": {signature_base_value.parameters}')
+    assert signature_base_value.parameters.startswith('("@authority";req "content-digest")')
+    assert 'tag="http-message-signatures-directory"' in signature_base_value.parameters
+    assert "expires=1750106129" in signature_base_value.parameters
 
 
 def test_the_signature_covers_the_directory_content():

@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from posthog.cloud_utils import is_cloud_us
+from posthog.dataclasses import frozen
 
 CONTENT_TYPE = "application/http-message-signatures-directory+json"
 _TAG = "http-message-signatures-directory"
@@ -25,6 +26,12 @@ _SIGNATURE_LIFETIME_SECONDS = 300
 # posthog.com because Vercel reserves /.well-known and will not rewrite it, so posthog.com cannot
 # serve a response it computes per request.
 _AUTHORITY = "us.posthog.com"
+
+
+@frozen
+class SignatureBase:
+    parameters: str
+    value: str
 
 
 def _private_keys() -> list[Ed25519PrivateKey]:
@@ -48,7 +55,7 @@ def jwk_thumbprint(jwk: dict[str, str]) -> str:
     return base64.urlsafe_b64encode(hashlib.sha256(canonical.encode()).digest()).decode().rstrip("=")
 
 
-def signature_base(keyid: str, nonce: str, created_at_seconds: int, content_digest: str) -> tuple[str, str]:
+def signature_base(keyid: str, nonce: str, created_at_seconds: int, content_digest: str) -> SignatureBase:
     """
     RFC 9421 section 2.5. Returns the parameters alongside the base, because Signature-Input must
     repeat them byte for byte and building them twice invites the two copies to differ.
@@ -57,9 +64,9 @@ def signature_base(keyid: str, nonce: str, created_at_seconds: int, content_dige
         f'("@authority";req "content-digest");alg="ed25519";keyid="{keyid}";nonce="{nonce}";'
         f'tag="{_TAG}";created={created_at_seconds};expires={created_at_seconds + _SIGNATURE_LIFETIME_SECONDS}'
     )
-    return (
-        params,
-        f'"@authority";req: {_AUTHORITY}\n"content-digest": {content_digest}\n"@signature-params": {params}',
+    return SignatureBase(
+        parameters=params,
+        value=f'"@authority";req: {_AUTHORITY}\n"content-digest": {content_digest}\n"@signature-params": {params}',
     )
 
 
@@ -73,9 +80,9 @@ def signed_directory(
     signatures: list[str] = []
     for index, (key, jwk) in enumerate(zip(keys, jwks, strict=True), start=1):
         label = f"sig{index}"
-        params, base = signature_base(jwk_thumbprint(jwk), nonce, created_at_seconds, content_digest)
-        signature_inputs.append(f"{label}={params}")
-        signatures.append(f"{label}=:{base64.b64encode(key.sign(base.encode())).decode()}:")
+        signature_base_value = signature_base(jwk_thumbprint(jwk), nonce, created_at_seconds, content_digest)
+        signature_inputs.append(f"{label}={signature_base_value.parameters}")
+        signatures.append(f"{label}=:{base64.b64encode(key.sign(signature_base_value.value.encode())).decode()}:")
     return (
         body,
         {
