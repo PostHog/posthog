@@ -316,7 +316,6 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 if (selectedInterval === null) {
                     return null
                 }
-                // The clicked index is relative to the rows of one breakdown, not to the flat results
                 const rows =
                     selectedBreakdownValue === null
                         ? results

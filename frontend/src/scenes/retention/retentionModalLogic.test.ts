@@ -37,7 +37,6 @@ const cohortRow = (
 
 const fourCohorts = [cohortRow('Day 0', 100), cohortRow('Day 1', 90), cohortRow('Day 2', 80), cohortRow('Day 3', 70)]
 
-// Two breakdown groups, each with the same interval labels, as the query runner emits them
 const twoBreakdownGroups = [
     cohortRow('Day 0', 100, 'Chrome'),
     cohortRow('Day 1', 90, 'Chrome'),
@@ -71,9 +70,6 @@ describe('retentionModalLogic', () => {
     async function loadResults(result: Record<string, any>[]): Promise<void> {
         await expectLogic(logic, () => {
             retentionLogic(insightProps).actions.updateQuerySource(retentionQuery)
-            // Rebuilding with the query as props mirrors how InsightViz passes the source query
-            // down; retentionLogic.results gates on it. cachedResults set the response without
-            // a network round-trip.
             dataNodeLogic({
                 key: 'InsightViz.new',
                 query: retentionQuery as DataNode,
