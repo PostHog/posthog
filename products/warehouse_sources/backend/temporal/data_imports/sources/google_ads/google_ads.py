@@ -72,19 +72,13 @@ GOOGLE_ADS_HOST = "googleads.googleapis.com"
 # catch-up speed against per-run size.
 GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS = 7
 
-# The per-run budget is wall time, not a window count. A count can't express how much work a run is
-# doing, because a window is anywhere from empty to a full day of rows, so a fixed one has to be set
-# for the worst case and then throttles every table to it: at five windows a table years behind
-# advances 35 days a run and, on a 6-hour schedule, needs weeks to catch up while reporting success.
-# Time tracks the thing the budget exists to bound. It is sized well under the activity's
-# start_to_close timeout, leaving room for the load side of the run, and bounds how long one
-# schema's backfill holds a slot on a shared worker. A caught-up table still stops after its single
-# tail window, so this changes nothing for them.
+# The per-run budget is wall time rather than a count of windows. A window is anywhere from empty to
+# a full day of rows, so a count has to be set for the widest one and then throttles every table to
+# it: five windows is 35 days a run, which leaves a table years behind needing weeks of runs. Time
+# measures what the budget exists to bound. It is sized well under the activity's start_to_close
+# timeout, with room for the load side of the run, and it caps how long one schema's backfill holds a
+# slot on a shared worker. A caught-up table still stops after its single tail window.
 GOOGLE_ADS_MAX_DRAIN_SECONDS = 10 * 60
-
-# Backstop only, for a run whose windows are all cheap enough that the time budget never bites (a
-# long empty stretch). Keeps the loop from walking to today one request at a time.
-GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN = 2000
 
 # How far back a *first* sync starts its windowed drain. A first sync has no cursor to start from,
 # and the drain cannot begin at the 1970 incremental sentinel: empty windows are cheap but not free
@@ -620,20 +614,19 @@ def google_ads_source(
                 charge_from = start
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
             end = dt.date.today() + dt.timedelta(days=1)
-            windows_with_data = 0
+            landed_new_ground = False
             first_window = True
-            # Measured from here rather than from the activity's start so the budget covers the
-            # drain, not time already spent fetching schemas. The generator is pulled by the load
-            # side, so the elapsed reading includes writing each window out — which is the cost the
-            # budget is meant to bound, not just the API calls.
+            # Measured from here rather than from the activity's start, so the budget covers the
+            # drain and not the schema fetch before it. The load side pulls this generator, so the
+            # elapsed reading includes writing each window out, which is the cost worth bounding.
             drain_started = time.monotonic()
 
-            while start < end and windows_with_data < GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN:
-                # `windows_with_data` counts only windows past the cursor, so a run can't stop on the
-                # budget having spent all of it re-reading the lookback overlap: that would leave the
-                # cursor exactly where it started and the next run would repeat it forever. Always
-                # land at least one window of new ground before the budget can end the run.
-                if windows_with_data > 0 and time.monotonic() - drain_started >= GOOGLE_ADS_MAX_DRAIN_SECONDS:
+            while start < end:
+                # The budget can only end a run that has already imported a window past the cursor.
+                # A run is handed a cursor shifted back by the schema's lookback, and spending the
+                # whole budget re-reading that overlap would leave the cursor where it started, for
+                # the next run to repeat forever.
+                if landed_new_ground and time.monotonic() - drain_started >= GOOGLE_ADS_MAX_DRAIN_SECONDS:
                     break
 
                 window_end = min(start + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS), end)
@@ -646,17 +639,12 @@ def google_ads_source(
                     had_data = True
                     yield pa_table
 
-                # Empty windows don't count toward the backstop and don't stop the loop, so a gap in
-                # the data is crossed within a single run instead of stalling the cursor on it.
+                # An empty window doesn't count, so a gap in the data is crossed within a single run
+                # instead of ending it, and the cursor never stalls on the gap.
                 if had_data and window_end > charge_from:
-                    windows_with_data += 1
+                    landed_new_ground = True
                 first_window = False
                 start = window_end
-
-            # Stopping on the budget rather than on `end` means range is still unimported, and the
-            # cursor only moves forward, so nothing revisits it: the next run has to. Report it so a
-            # run that finished its slice isn't presented as one that finished the table.
-            response.backfill_incomplete = start < end
 
             # The run walked its bounded set of windows; drop the checkpoint so the next job restarts
             # cleanly from the (now-advanced) DB cursor rather than a stale mid-window page token.
@@ -682,8 +670,7 @@ def google_ads_source(
             service, customer_id, compose_query(lower_literal, upper_literal), table, resumable_source_manager
         )
 
-    # Bound before `get_rows` runs, so the drain above can report on it once the run is consumed.
-    response = SourceResponse(
+    return SourceResponse(
         name=name,
         items=get_rows,
         primary_keys=table.primary_key,
@@ -693,7 +680,6 @@ def google_ads_source(
         partition_format="day" if table.requires_filter else None,
         partition_keys=table.partition_keys or (["segments_date"] if table.requires_filter else None),
     )
-    return response
 
 
 # Google flags ``UNAVAILABLE`` (e.g. its frontend returning ``502:Bad Gateway`` — the request never

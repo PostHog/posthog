@@ -188,7 +188,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # ignored by version-migration tooling — only the user changes it. Not available for
     # webhook-sync schemas (webhook payload versions are configured per source at the vendor).
     api_version = models.CharField(max_length=128, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "backfill_floor": { "field": str, "value": any }, "backfill_incomplete": bool, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "backfill_floor": { "field": str, "value": any }, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -834,9 +834,6 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("incremental_field_last_value", None)
         self.sync_type_config.pop("incremental_field_earliest_value", None)
         self.sync_type_config.pop("incremental_staged", None)
-        # A reset re-imports from scratch, so any progress marker from the old run is meaningless;
-        # the first run under the new config sets it again if it stops short.
-        self.sync_type_config.pop("backfill_incomplete", None)
         self.sync_type_config.pop("partitioning_enabled", None)
         self.sync_type_config.pop("partition_size", None)
         self.sync_type_config.pop("partition_count", None)
@@ -1013,24 +1010,6 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             return None
 
         return floor.get("value")
-
-    @property
-    def backfill_incomplete(self) -> bool:
-        return bool(self.sync_type_config.get("backfill_incomplete")) if self.sync_type_config else False
-
-    def set_backfill_incomplete(self, incomplete: bool) -> None:
-        if incomplete == self.backfill_incomplete:
-            return
-
-        # Merged under a row lock rather than saved off this instance. Callers hold a schema loaded
-        # at the start of a run, before post-load linked the table, so a full save here would write
-        # that stale `table_id` and `last_synced_at` back over what the run just recorded.
-        self.sync_type_config = update_sync_type_config_keys(
-            self.id,
-            self.team_id,
-            updates={"backfill_incomplete": True} if incomplete else None,
-            removes=None if incomplete else ["backfill_incomplete"],
-        )
 
 
 # JS `Date.prototype.toString()` output (e.g. "Sun Mar 15 2026 16:59:47 GMT+0000 (Coordinated

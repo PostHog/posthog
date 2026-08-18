@@ -31,7 +31,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
-    persist_backfill_state,
     persist_primary_keys,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
@@ -540,7 +539,6 @@ class PipelineV3(Generic[ResumableData]):
         )
 
         await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
-        await persist_backfill_state(self._resource, self._schema)
 
         # initial_sync_complete is set by the loader's post-load after data lands in Delta.
 

@@ -718,19 +718,6 @@ async def finalize_desc_sort_incremental_value(
             await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
 
 
-async def persist_backfill_state(
-    resource: SourceResponse,
-    schema: "ExternalDataSchema",
-) -> None:
-    """Record whether the run left range unimported, so a partial slice isn't shown as a finished table.
-
-    Sources that drain in a bounded number of windows per run land a chunk, advance the cursor and
-    report success while still being behind, which reads as "this table is done" and invites a resync
-    that throws the progress away. Written at completion, once the run's data is durable.
-    """
-    await database_sync_to_async_pool(schema.set_backfill_incomplete)(resource.backfill_incomplete)
-
-
 async def advance_xmin_state(
     resource: SourceResponse,
     schema: "ExternalDataSchema",

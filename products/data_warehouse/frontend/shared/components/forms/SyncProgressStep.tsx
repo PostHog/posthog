@@ -73,15 +73,6 @@ export const SyncProgressStep = (): JSX.Element => {
             }
         }
 
-        // The first sync of a windowed table lands data and succeeds with range still to import.
-        // Without this it falls through to the Error branch below, which reads as a failed setup.
-        if (schema.status === 'Catching up') {
-            return {
-                status: 'Catching up',
-                tagType: 'primary',
-            }
-        }
-
         if (schema.status === 'Paused') {
             return {
                 status: 'Paused',

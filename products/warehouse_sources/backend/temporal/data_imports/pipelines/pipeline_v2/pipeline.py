@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     cleanup_memory,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
-    persist_backfill_state,
     persist_primary_keys,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
@@ -274,7 +273,6 @@ class PipelineNonDLT(Generic[ResumableData]):
             prepared_queryable_folder = await self._post_run_operations(row_count=row_count)
 
             await advance_xmin_state(self._resource, self._schema, self._logger)
-            await persist_backfill_state(self._resource, self._schema)
 
             result = PipelineResult(should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run())
             if isinstance(prepared_queryable_folder, str):

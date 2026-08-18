@@ -77,11 +77,6 @@ class SourceResponse:
     """xmin syncs: full 64-bit `xid8` ceiling, the durable wraparound-safe cursor."""
     xmin_num_wraparound: Optional[int] = None
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
-    backfill_incomplete: bool = False
-    """Set by a source that budgets its work per run when it stopped on that budget with range still
-    left to import, rather than because it reached the present. Sources set this while yielding, so
-    it is only meaningful once the run's data has been consumed. Read at completion to tell a run
-    that finished its slice apart from one that finished the table."""
 
 
 @dataclasses.dataclass
