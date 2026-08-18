@@ -31796,6 +31796,8 @@ export namespace Schemas {
     export interface ExperimentExposureCriteria {
       /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
       activation_config?: ExperimentEventExposureConfig | ActionsNode | null;
+      /** Exclude likely-bot traffic (empty or bot user agents) from exposures, via `isLikelyBot`. Defaults on for new experiments; when absent it stays off so running experiments keep the exposures they already counted. */
+      exclude_bot_traffic?: boolean | null;
       exposure_config?: ExperimentEventExposureConfig | ActionsNode | null;
       filterTestAccounts?: boolean | null;
       multiple_variant_handling?: MultipleVariantHandling | null;
@@ -31829,6 +31831,13 @@ export namespace Schemas {
       user_access_level?: AccessControlLevel | null;
     }
 
+    export interface ExposureCompositionWarning {
+      /** Share of exposed entities with no `$device_type` on their first exposure, as a percentage (0-100). */
+      missing_device_type_percentage: number;
+      /** Share of exposed entities with no user agent on their first exposure, as a percentage (0-100). */
+      missing_user_agent_percentage: number;
+    }
+
     export type SampleRatioMismatchExpected = {[key: string]: number};
 
     export interface SampleRatioMismatch {
@@ -31847,6 +31856,7 @@ export namespace Schemas {
     export interface ExperimentExposureQueryResponse {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      exposure_composition_warning?: ExposureCompositionWarning | null;
       kind?: 'ExperimentExposureQuery';
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
@@ -66381,6 +66391,7 @@ export namespace Schemas {
     export interface QueryResponseAlternative19 {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      exposure_composition_warning?: ExposureCompositionWarning | null;
       kind?: 'ExperimentExposureQuery';
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
