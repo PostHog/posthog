@@ -45,6 +45,11 @@ import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/Em
 import { EmailFieldErrors } from '../../../scenes/hog-functions/email-templater/types'
 import { CUSTOM_INPUT_RENDERERS } from './customInputRenderers'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
+import {
+    CyclotronJobInputTaskMcpInstallations,
+    CyclotronJobInputTaskModel,
+    CyclotronJobInputTaskRepository,
+} from './CyclotronJobInputTaskFields'
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
@@ -720,6 +725,14 @@ function CyclotronJobInputRenderer({
                     configuration={configuration}
                 />
             )
+        case 'task_model':
+            return <CyclotronJobInputTaskModel schema={schema} value={input.value} onChange={onValueChange} />
+        case 'task_mcp_installations':
+            return (
+                <CyclotronJobInputTaskMcpInstallations schema={schema} value={input.value} onChange={onValueChange} />
+            )
+        case 'task_repository':
+            return <CyclotronJobInputTaskRepository schema={schema} value={input.value} onChange={onValueChange} />
         case 'email':
         case 'native_email':
             return (

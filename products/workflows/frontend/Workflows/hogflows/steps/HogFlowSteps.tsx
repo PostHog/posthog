@@ -11,6 +11,7 @@ import {
     IconLeave,
     IconLetter,
     IconNotification,
+    IconSparkles,
     IconPercentage,
     IconWebhooks,
 } from '@posthog/icons'
@@ -127,6 +128,10 @@ const HogFlowStepConfigs: Partial<{
 
             if (action.config.template_id === 'template-native-push') {
                 return <IconNotification />
+            }
+
+            if (action.config.template_id === 'native-posthog-create-task') {
+                return <IconSparkles />
             }
 
             const template = hogFunctionTemplatesById[action.config.template_id]

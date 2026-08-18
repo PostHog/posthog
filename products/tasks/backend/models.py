@@ -207,6 +207,8 @@ class Task(DeletedMetaFields, models.Model):
         # minted server-side by products/signals so the origin proves the run is entitled
         # through the generally-available Inbox rather than PostHog Desktop.
         SIGNALS_CHAT = "signals_chat", "Signals Chat"
+        # Unattended like LOOP: the Slack app reads this to keep thread replies from steering it.
+        WORKFLOW = "workflow", "Workflow"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -283,6 +285,13 @@ class Task(DeletedMetaFields, models.Model):
         db_constraint=True,
     )
 
+    # Follows `loop`/`signal_report` above. That per-origin-column pattern is worth replacing with a
+    # generic (origin_product, origin_id) pair before a fourth origin needs one.
+    hog_flow_id = models.UUIDField(null=True, blank=True, db_index=False)
+
+    # {"type": "slack", "channel", "thread_ts", "slack_user_id", "slack_team_id"} — where to reply.
+    origin_context = models.JSONField(default=dict, blank=True)
+
     # DEPRECATED - do not use
     signal_report = models.ForeignKey(
         "signals.SignalReport",
@@ -344,6 +353,7 @@ class Task(DeletedMetaFields, models.Model):
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
             models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
             models.Index(fields=["loop"], name="posthog_task_loop_idx"),
+            models.Index(fields=["hog_flow_id", "-created_at"], name="posthog_task_hog_flow_idx"),
         ]
 
     def __str__(self):

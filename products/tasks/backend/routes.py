@@ -4,6 +4,7 @@ import products.tasks.backend.presentation.views.api as tasks
 import products.tasks.backend.presentation.views.loops as loops
 import products.tasks.backend.presentation.views.seat_api as seats
 import products.tasks.backend.presentation.views.channels_api as channels
+import products.tasks.backend.presentation.views.workflow_tasks_api as workflow_tasks
 import products.tasks.backend.presentation.views.sandbox_pricing_api as sandbox_pricing
 
 
@@ -34,6 +35,9 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"task_activity", channels.TaskActivityViewSet, "project_task_activity", ["team_id"])
     routers.projects.register(r"task_automations", tasks.TaskAutomationViewSet, "project_task_automations", ["team_id"])
     routers.projects.register(r"loops", loops.LoopViewSet, "project_loops", ["team_id"])
+    routers.projects.register(
+        r"workflow_tasks", workflow_tasks.WorkflowTaskViewSet, "project_workflow_tasks", ["team_id"]
+    )
     routers.projects.register(
         r"sandbox_environments", tasks.SandboxEnvironmentViewSet, "project_sandbox_environments", ["team_id"]
     )

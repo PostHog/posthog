@@ -20,6 +20,7 @@ class PosthogJwtAudience(Enum):
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
     RECORDING_API = "posthog:recording_api"
     INTEGRATION_SERVICE = "posthog:integration_service"
+    TASKS_CREATE = "posthog:tasks:create"
 
 
 def signing_key_fingerprint(key: str) -> str:

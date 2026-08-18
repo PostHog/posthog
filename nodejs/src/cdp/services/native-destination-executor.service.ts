@@ -4,6 +4,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
 
+import { PluginsServerConfig } from '../../types'
 import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Response } from '../types'
 import { destinationE2eLagMsSummary } from '../utils'
@@ -52,7 +53,7 @@ const convertFetchResponse = (response: FetchResponse, text: string): Response =
  */
 
 export class NativeDestinationExecutorService {
-    constructor(private serverConfig: CdpFetchConfig) {}
+    constructor(private serverConfig: CdpFetchConfig & Pick<PluginsServerConfig, 'SITE_URL'>) {}
 
     public async execute(
         invocation: CyclotronJobInvocationHogFunction
@@ -233,6 +234,9 @@ export class NativeDestinationExecutorService {
                 },
                 {
                     payload: config,
+                    teamId: invocation.teamId,
+                    hogFunctionId: invocation.hogFunction.id,
+                    siteUrl: this.serverConfig.SITE_URL ?? '',
                 }
             )
 

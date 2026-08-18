@@ -368,6 +368,9 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "non_failure_status_codes",
             "customer_analytics_account_properties",
             "customer_analytics_account_relationships",
+            "task_model",
+            "task_mcp_installations",
+            "task_repository",
         ]
     )
     key = serializers.CharField()

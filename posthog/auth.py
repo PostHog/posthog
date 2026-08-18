@@ -1164,18 +1164,25 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
 
 
 def _team_id_from_request_path(request: Request) -> Optional[str]:
+    # Team-nested routes are registered through drf-nested-routers, which names the capture
+    # `parent_lookup_team_id`. Without it the cross-team check silently passes on every such route.
+    keys = ("team_id", "parent_lookup_team_id")
+
     parser_context = getattr(request, "parser_context", None)
     if isinstance(parser_context, dict):
         kwargs = parser_context.get("kwargs")
-        if isinstance(kwargs, dict) and kwargs.get("team_id") is not None:
-            return str(kwargs["team_id"])
+        if isinstance(kwargs, dict):
+            for key in keys:
+                if kwargs.get(key) is not None:
+                    return str(kwargs[key])
 
     django_request = getattr(request, "_request", request)
     resolver_match = getattr(django_request, "resolver_match", None)
     if resolver_match and getattr(resolver_match, "kwargs", None):
-        team_id = resolver_match.kwargs.get("team_id")
-        if team_id is not None:
-            return str(team_id)
+        for key in keys:
+            team_id = resolver_match.kwargs.get(key)
+            if team_id is not None:
+                return str(team_id)
 
     return None
 

@@ -62,6 +62,14 @@ const PUSH_NOTIFICATION_ACTION_NODE: CreateActionType = {
     config: { template_id: 'template-native-push', inputs: {} },
 }
 
+const AI_TASK_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'AI task',
+    description: 'Start an agent task, optionally reporting back into the Slack thread that triggered it.',
+    config: { template_id: 'native-posthog-create-task', inputs: {} },
+    output_variable: { key: 'task', result_path: null, spread: true },
+}
+
 const DEFAULT_DELAY = '10m'
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     {
@@ -306,6 +314,9 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
             {ACTION_NODES_TO_SHOW.map((node, index) => (
                 <HogFlowEditorToolbarNode key={`${node.type}-${index}`} action={node} />
             ))}
+            {featureFlags[FEATURE_FLAGS.SLACK_WORKFLOW_TRIGGERS] && (
+                <HogFlowEditorToolbarNode key="ai-task" action={AI_TASK_ACTION_NODE} />
+            )}
             {featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS] && (
                 <HogFlowEditorToolbarNode key="push-notifications" action={PUSH_NOTIFICATION_ACTION_NODE}>
                     <span className="inline-flex items-center gap-1.5">

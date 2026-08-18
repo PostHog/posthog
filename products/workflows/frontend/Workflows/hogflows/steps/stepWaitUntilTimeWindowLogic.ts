@@ -145,6 +145,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   type: 'event'
               }
             | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
+              }
+            | {
                   condition: {
                       filters?:
                           | {
@@ -388,6 +394,12 @@ export interface stepWaitUntilTimeWindowLogicActions {
                       name?: string | undefined
                   }[]
                   delay_duration?: string | undefined
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
               }
             | {
                   filters: {

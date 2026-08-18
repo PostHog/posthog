@@ -625,6 +625,14 @@ export type Response = {
     headers: Record<string, any>
 }
 
+export type NativeTemplateContext = {
+    payload: Record<string, any>
+    teamId: number
+    // Inside a workflow this is the flow's id, not a standalone function's.
+    hogFunctionId: string
+    siteUrl: string
+}
+
 export type NativeTemplate = Omit<HogFunctionTemplate, 'code' | 'code_language'> & {
     perform: (
         request: (
@@ -638,6 +646,6 @@ export type NativeTemplate = Omit<HogFunctionTemplate, 'code' | 'code_language'>
                 searchParams?: Record<string, any>
             }
         ) => Promise<Response>,
-        inputs: Record<string, any>
+        context: NativeTemplateContext
     ) => Promise<any> | any
 }
