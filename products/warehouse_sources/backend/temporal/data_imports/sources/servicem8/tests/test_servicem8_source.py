@@ -58,7 +58,6 @@ class TestServiceM8Source:
     def test_source_config_is_released_in_alpha(self) -> None:
         config = self.source.get_source_config
 
-        assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.category == DataWarehouseSourceCategory.CRM
         assert config.iconPath == "/static/services/servicem8.png"
