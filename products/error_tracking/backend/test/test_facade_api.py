@@ -7,12 +7,14 @@ from django.test import override_settings
 from django.utils.timezone import now
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.models import Team
 from posthog.models.integration import GitLabIntegrationError, Integration
 
 from products.error_tracking.backend.facade import api, contracts
 from products.error_tracking.backend.models import (
+    ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -202,6 +204,31 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         )
         assert duplicate.id == reference.id
         assert mock_create_attachment.call_count == 1
+
+    @override_settings(LINEAR_APP_CLIENT_ID="linear-client-id", LINEAR_APP_CLIENT_SECRET="linear-client-secret")
+    @patch("products.error_tracking.backend.logic.LinearIntegration.create_attachment")
+    def test_link_existing_linear_issue_aborts_when_attachment_fails(self, mock_create_attachment):
+        # A failed attachment (invalid issue id, forbidden, rate limit) must not persist a
+        # reference that promises a back-link Linear never created.
+        mock_create_attachment.side_effect = DRFValidationError("Failed to attach")
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.LINEAR.value,
+            config={"data": {"viewer": {"organization": {"urlKey": "acme", "name": "Acme"}}}},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        with self.assertRaises(DRFValidationError):
+            api.create_external_reference(
+                team_id=self.team.id,
+                issue_id=issue.id,
+                integration_id=integration.id,
+                external_context={"id": "ENG-42"},
+                distinct_id=self.user.id,
+            )
+
+        assert not ErrorTrackingExternalReference.objects.exists()
 
     @parameterized.expand(
         [
