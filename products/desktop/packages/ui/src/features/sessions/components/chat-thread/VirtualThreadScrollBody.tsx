@@ -360,6 +360,24 @@ export function VirtualThreadScrollBody({
   const onLoadOlderHistoryRef = useRef(onLoadOlderHistory);
   onLoadOlderHistoryRef.current = onLoadOlderHistory;
 
+  const maybeLoadOlderHistory = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el || !loadOlderArmedRef.current) return;
+    if (el.scrollTop > OLDER_HISTORY_LOAD_THRESHOLD_PX) return;
+    loadOlderArmedRef.current = false;
+    onLoadOlderHistoryRef.current?.();
+  }, []);
+
+  // A viewport parked at the very top produces no scroll events (Home or a
+  // wheel-up at scrollTop 0 changes nothing), so arming alone must also
+  // attempt a load: on mount at the top, and again after each page lands
+  // while the reader stays parked there.
+  useEffect(() => {
+    if (!hasOlderHistory || isLoadingOlderHistory) return;
+    const id = window.setTimeout(maybeLoadOlderHistory, 250);
+    return () => window.clearTimeout(id);
+  }, [hasOlderHistory, isLoadingOlderHistory, maybeLoadOlderHistory]);
+
   const { followRef, leaveEnd, settleAtEnd, settleToIndex } = useSettleControls(
     virtualizer,
     viewportRef,
@@ -425,16 +443,10 @@ export function VirtualThreadScrollBody({
       const sample = sampleThreadScroll(el, lastScrollTopRef.current);
       lastScrollTopRef.current = el.scrollTop;
       followRef.current = nextThreadFollowState(followRef.current, sample);
-      if (
-        loadOlderArmedRef.current &&
-        el.scrollTop <= OLDER_HISTORY_LOAD_THRESHOLD_PX
-      ) {
-        loadOlderArmedRef.current = false;
-        onLoadOlderHistoryRef.current?.();
-      }
+      maybeLoadOlderHistory();
     }
     scheduleStickyRecompute();
-  }, [scheduleStickyRecompute, followRef]);
+  }, [scheduleStickyRecompute, followRef, maybeLoadOlderHistory]);
 
   useFollowBottom({
     virtualizer,
