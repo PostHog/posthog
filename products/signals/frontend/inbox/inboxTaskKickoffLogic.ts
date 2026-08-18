@@ -68,6 +68,15 @@ function buildDiscussReportPrompt(reportUrl: string, question: string): string {
     return `Answer this question about the PostHog Inbox report at ${reportUrl}:\n\n${question.trim()}`
 }
 
+// The per-report cap 429 carries its message under `error` (TaskRunErrorResponseSerializer);
+// DRF's rate-limit 429 carries `detail`. Both are user-facing copy the server owns.
+function taskLimitMessage(error: any): string | null {
+    if (error?.code === 'signal_report_task_cap' || error?.status === 429) {
+        return error?.data?.error || error?.detail || 'Task limit reached for this report. Try again later.'
+    }
+    return null
+}
+
 async function createReportTask(
     report: SignalReport,
     relationship: SignalReportTaskRelationship,
@@ -228,8 +237,19 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
             } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || "Couldn't ask AI about this report. Try again.")
-                captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'failure' })
+                const limitMessage = taskLimitMessage(error)
+                if (limitMessage) {
+                    lemonToast.error(limitMessage)
+                    captureInboxReportActionCompleted({
+                        report,
+                        actionType: 'discuss',
+                        outcome: 'blocked',
+                        blockedReason: limitMessage,
+                    })
+                } else {
+                    lemonToast.error(error?.detail || error?.message || "Couldn't ask AI about this report. Try again.")
+                    captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'failure' })
+                }
                 actions.discussReportFailure()
             }
         },
@@ -256,8 +276,19 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'success' })
                 actions.createPrSuccess()
             } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || 'Failed to start PR task')
-                captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'failure' })
+                const limitMessage = taskLimitMessage(error)
+                if (limitMessage) {
+                    lemonToast.error(limitMessage)
+                    captureInboxReportActionCompleted({
+                        report,
+                        actionType: 'create_pr',
+                        outcome: 'blocked',
+                        blockedReason: limitMessage,
+                    })
+                } else {
+                    lemonToast.error(error?.detail || error?.message || 'Failed to start PR task')
+                    captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'failure' })
+                }
                 actions.createPrFailure()
             }
         },

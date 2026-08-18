@@ -21,6 +21,9 @@ from posthog.temporal.common.client import async_connect
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.models import SignalSourceConfig
 
+# Re-exported for external products (tasks presentation catches it around facade create_task).
+from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
+
 if TYPE_CHECKING:
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
