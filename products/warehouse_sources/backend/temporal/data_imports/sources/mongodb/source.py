@@ -181,7 +181,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         with mongo_client(config.connection_string, team_id=team_id) as client:
             db = client[connection_params["database"]]
             filtered_results = [
-                (collection_name, filter_mongo_incremental_fields(columns, db[collection_name]))
+                (collection_name, filter_mongo_incremental_fields(columns))
                 for collection_name, columns in mongo_schemas.items()
             ]
             for collection_name in mongo_schemas:

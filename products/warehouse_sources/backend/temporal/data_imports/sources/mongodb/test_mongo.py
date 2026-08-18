@@ -22,10 +22,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _adaptive_chunk_size,
     _build_query,
     _get_rows_to_sync,
+    _get_schema_from_query,
     _list_importable_collection_names,
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
+    filter_mongo_incremental_fields,
     get_leading_index_keys,
     mongo_source,
 )
@@ -331,6 +333,50 @@ class TestGetLeadingIndexKeys(SimpleTestCase):
     def test_returns_empty_set_for_collection_with_no_indexes(self):
         coll = self._collection_with_indexes([])
         assert get_leading_index_keys(coll) == set()
+
+
+class TestFilterMongoIncrementalFields(SimpleTestCase):
+    """A type-eligible field must be offered as a cursor whether or not it is indexed — hiding
+    un-indexed fields is the dead end that forced MongoDB users to contact support. The
+    `is_indexed` warning, not this filter, is what tells them an index is missing."""
+
+    @parameterized.expand(
+        [
+            ("timestamp_maps_to_timestamp", "updated_at", "timestamp", IncrementalFieldType.Timestamp),
+            ("integer_maps_to_integer", "seq", "integer", IncrementalFieldType.Integer),
+            ("double_maps_to_numeric", "version", "double", IncrementalFieldType.Numeric),
+            ("id_string_maps_to_objectid", "_id", "string", IncrementalFieldType.ObjectID),
+        ]
+    )
+    def test_eligible_types_are_offered(self, _name, column, bson_type, expected_type):
+        # No index metadata is passed in — an un-indexed field of an eligible type is still offered.
+        assert filter_mongo_incremental_fields([(column, bson_type)]) == [(column, expected_type)]
+
+    @parameterized.expand(
+        [
+            ("non_id_string", "name", "string"),
+            ("boolean", "is_active", "boolean"),
+            ("object", "address", "object"),
+            ("array", "tags", "array"),
+        ]
+    )
+    def test_ineligible_types_are_dropped(self, _name, column, bson_type):
+        assert filter_mongo_incremental_fields([(column, bson_type)]) == []
+
+
+class TestGetSchemaFromQuery(SimpleTestCase):
+    def test_samples_newest_documents_first(self):
+        # Sorting by _id descending before the limit is what lets recently added fields be
+        # discovered; without it discovery only ever sees the oldest documents.
+        collection = MagicMock()
+        collection.aggregate.return_value = iter([{"_id": "updated_at", "types": ["date"]}])
+
+        result = _get_schema_from_query(collection)
+
+        pipeline = collection.aggregate.call_args.args[0]
+        assert pipeline[0] == {"$sort": {"_id": -1}}
+        assert pipeline[1] == {"$limit": 10_000}
+        assert result == [("updated_at", "timestamp")]
 
 
 class TestBuildQuery(SimpleTestCase):

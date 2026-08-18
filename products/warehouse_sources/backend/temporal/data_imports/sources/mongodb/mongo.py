@@ -154,15 +154,6 @@ def _process_nested_value(value: Any) -> Any:
         return value
 
 
-def get_indexes(collection: Collection) -> list[str]:
-    """Get all indexes for a MongoDB collection."""
-    try:
-        index_cursor = collection.list_indexes()
-        return [field for index in index_cursor for field in index["key"].keys()]
-    except Exception:
-        return []
-
-
 def get_leading_index_keys(collection: Collection) -> set[str] | None:
     """Return the set of fields that are the first key of any index.
 
@@ -187,17 +178,16 @@ def get_leading_index_keys(collection: Collection) -> set[str] | None:
         return None
 
 
-def filter_mongo_incremental_fields(
-    columns: list[tuple[str, str]], collection: Collection
-) -> list[tuple[str, IncrementalFieldType]]:
+def filter_mongo_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+    """Return every type-eligible field as a candidate cursor.
+
+    Indexing is not a filter here — an un-indexed but type-eligible field is still a valid cursor,
+    it just makes the source scan the collection on each sync. The caller marks each field's
+    `is_indexed` flag from `get_leading_index_keys` so the UI can warn instead of hiding the field.
+    """
     results: list[tuple[str, IncrementalFieldType]] = []
-    indexed_fields = get_indexes(collection)
 
     for column_name, type in columns:
-        # Only include fields that have indexes
-        if column_name not in indexed_fields:
-            continue
-
         type = type.lower()
         if type == "timestamp":
             results.append((column_name, IncrementalFieldType.Timestamp))
@@ -389,7 +379,10 @@ def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
     try:
         # Use aggregation pipeline with limit to avoid full collection scan
         pipeline: list[dict[str, Any]] = [
-            # Limit documents to avoid scanning entire collection (uses _id index)
+            # Sample the newest documents, not the oldest, so fields added recently are still
+            # discovered. Sorting by _id descending walks the _id index in reverse and stops after
+            # SCHEMA_INFERENCE_LIMIT documents, so this stays an index scan, not a full sort.
+            {"$sort": {"_id": -1}},
             {"$limit": SCHEMA_INFERENCE_LIMIT},
             # Convert each document to an array of key-value pairs
             {"$project": {"arrayofkeyvalue": {"$objectToArray": "$$ROOT"}}},
