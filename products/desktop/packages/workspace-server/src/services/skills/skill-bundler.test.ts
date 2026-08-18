@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { unzipSync } from "fflate";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { bundleLocalSkill } from "./skill-bundler";
+import { bundleLocalSkill, countFilesByTopLevelDir } from "./skill-bundler";
 
 let root: string;
 
@@ -70,5 +70,22 @@ describe("bundleLocalSkill", () => {
     await expect(failure).rejects.toThrow(/more than 1000 files\./);
     await expect(failure).rejects.toThrow(/aaa \(600 files\)/);
     await expect(failure).rejects.toThrow(/zzz \(600 files\)/);
+  });
+});
+
+describe("countFilesByTopLevelDir", () => {
+  it("stops once the entry budget is spent instead of walking the whole tree", async () => {
+    const skillPath = path.join(root, "huge-skill");
+    await mkdir(path.join(skillPath, "aaa"), { recursive: true });
+    await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        writeFile(path.join(skillPath, "aaa", `f${i}.txt`), "x"),
+      ),
+    );
+
+    const counts = await countFilesByTopLevelDir(skillPath, 5);
+
+    const totalCounted = [...counts.values()].reduce((a, b) => a + b, 0);
+    expect(totalCounted).toBeLessThan(20);
   });
 });

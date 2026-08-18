@@ -126,15 +126,17 @@ export function isIgnoredSkillEntry(
 /**
  * Path form of `isIgnoredSkillEntry` for callers holding "/"-separated
  * relative paths instead of walking a directory (the web bundler's
- * API-supplied file lists): every non-final segment is a directory and the
- * final segment is the file. Backslashes are treated as separators so a
- * caller cannot forget to normalize a Windows-style path. Empty segments
- * (which cover "", trailing slashes, and absolute or doubled-slash paths)
- * and `.`/`..` segments are rejected too, which hardens against hostile
- * API-supplied paths.
+ * API-supplied file lists, per `ExportedSkillFile`'s "using '/' separators"
+ * contract): every non-final segment is a directory and the final segment is
+ * the file. A backslash is an ordinary character, never a separator — this
+ * function is host-neutral and cannot assume a platform's path semantics, so
+ * a caller with a raw OS-native path decides for itself whether a backslash
+ * should be normalized or rejected. Empty segments (which cover "", trailing
+ * slashes, and absolute or doubled-slash paths) and `.`/`..` segments are
+ * rejected too, which hardens against hostile API-supplied paths.
  */
 export function isIgnoredSkillPath(relativePath: string): boolean {
-  const segments = relativePath.replaceAll("\\", "/").split("/");
+  const segments = relativePath.split("/");
   return segments.some((segment, index) => {
     if (!segment || segment === "." || segment === "..") return true;
     return isIgnoredSkillEntry(

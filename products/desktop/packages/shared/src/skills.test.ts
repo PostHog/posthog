@@ -34,7 +34,9 @@ describe("isIgnoredSkillPath", () => {
     ["foo/..", true],
     ["a//b.md", true],
     ["/etc/evil.md", true],
-    [".venv\\lib\\mod.py", true],
+    // A backslash is an ordinary character here, not a separator: this is
+    // one literal filename with no "/" in it, so it is kept.
+    [".venv\\lib\\mod.py", false],
   ] as const)("isIgnoredSkillPath(%j) === %s", (relativePath, expected) => {
     expect(isIgnoredSkillPath(relativePath)).toBe(expected);
   });

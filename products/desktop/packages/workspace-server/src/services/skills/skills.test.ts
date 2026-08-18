@@ -727,6 +727,16 @@ describe("write-path guard", () => {
     ).rejects.toThrow("path outside skill directory");
   });
 
+  it("rejects a path containing a backslash instead of writing it verbatim", async () => {
+    const skillPath = await createSkill(repoSkillsDir, "alpha");
+
+    // A local write must not create a filename the cloud sandbox's "\" to
+    // "/" extraction normalization would silently reinterpret as nested.
+    await expect(
+      makeService().saveSkillFile(skillPath, "references\\guide.md", "x"),
+    ).rejects.toThrow("cannot contain a backslash");
+  });
+
   it("rejects write destinations the file tree would not show", async () => {
     const skillPath = await createSkill(repoSkillsDir, "alpha");
     const service = makeService();

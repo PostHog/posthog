@@ -57,18 +57,33 @@ interface SkillFileAccumulator {
 class SkillBundleFileLimitError extends Error {}
 
 /**
+ * Generous relative to SKILL_BUNDLE_MAX_FILES so real "too many files"
+ * skills still get an exact count; bounds the recount below so a
+ * pathologically large committed tree can't turn the error path into
+ * unbounded I/O.
+ */
+const MAX_COUNT_WALK_ENTRIES = SKILL_BUNDLE_MAX_FILES * 50;
+
+/**
  * Counts every non-ignored file per top-level folder. The collection walk
  * stops at the file cap, so counts derived from it reflect readdir order and
  * could name a minor folder while omitting the real offender; this walk runs
- * only when the cap has tripped and reads no file contents.
+ * only when the cap has tripped and reads no file contents. Stops once
+ * `maxEntries` directory entries have been visited, so an oversized tree
+ * still terminates promptly.
  */
-async function countFilesByTopLevelDir(
+export async function countFilesByTopLevelDir(
   root: string,
+  maxEntries = MAX_COUNT_WALK_ENTRIES,
 ): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
+  let visited = 0;
   const walk = async (dir: string, topLevel: string | null): Promise<void> => {
+    if (visited >= maxEntries) return;
     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
+      if (visited >= maxEntries) return;
+      visited++;
       if (
         isIgnoredSkillEntry(
           entry.name,

@@ -776,6 +776,14 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 function resolveSkillFilePath(skillDir: string, filePath: string): string {
+  // Skill-relative paths are always "/"-separated (see SkillFileEntry). A
+  // literal backslash on POSIX would sit inside one path.resolve segment
+  // here, but the cloud sandbox's extractor normalizes "\" to "/" on unzip,
+  // so such a file would reappear nested on extraction and could silently
+  // collide with (and overwrite) an unrelated file at that path.
+  if (filePath.includes("\\")) {
+    throw new Error("File and folder names cannot contain a backslash.");
+  }
   const resolved = path.resolve(skillDir, filePath);
   if (resolved === skillDir || !resolved.startsWith(skillDir + path.sep)) {
     throw new Error("Access denied: path outside skill directory");
