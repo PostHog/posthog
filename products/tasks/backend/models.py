@@ -498,6 +498,14 @@ class Task(DeletedMetaFields, models.Model):
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
         state.setdefault("repositories", self.repositories or ([self.repository] if self.repository else []))
+        # A workflow task's later runs (a teammate continuing it) must keep the connector
+        # allowlist the workflow selected; without the snapshot the run would mount every
+        # installation its owner has (see loop_mcp_installation_allowlist).
+        if self.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state:
+            previous = self.latest_run
+            previous_snapshot = previous.state.get("config_snapshot") if previous else None
+            if previous_snapshot:
+                state["config_snapshot"] = previous_snapshot
         # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
         if "use_dedicated_stream" not in state:
             distinct_id = (self.created_by.distinct_id if self.created_by else None) or f"team_{self.team_id}"

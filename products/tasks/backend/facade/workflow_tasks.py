@@ -7,7 +7,15 @@ and starts the task through this boundary.
 from products.tasks.backend.logic.services.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskLimitExceeded,
+    WorkflowTaskOriginKeyConflict,
+    WorkflowTaskOwnerIneligible,
     create_workflow_task,
 )
 
-__all__ = ["WorkflowTaskConnectorsInvalid", "WorkflowTaskLimitExceeded", "create_workflow_task"]
+__all__ = [
+    "WorkflowTaskConnectorsInvalid",
+    "WorkflowTaskLimitExceeded",
+    "WorkflowTaskOriginKeyConflict",
+    "WorkflowTaskOwnerIneligible",
+    "create_workflow_task",
+]

@@ -13,6 +13,7 @@ from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
@@ -188,6 +189,16 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
+    def test_refuses_an_owner_removed_from_the_organization(self) -> None:
+        former_member = self._create_user("former@posthog.com")
+        flow = HogFlow.objects.create(team=self.team, name="Orphaned", created_by=former_member)
+        OrganizationMembership.objects.filter(user=former_member, organization=self.organization).delete()
+
+        response = self._post(token=_token(self.team.id, str(flow.id)))
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        assert not Task.objects.filter(hog_flow_id=flow.id).exists()
+
     @parameterized.expand([("unknown_workflow",), ("another_teams_workflow",)])
     def test_refuses_a_workflow_it_cannot_find_in_the_tokens_team(self, case: str) -> None:
         if case == "unknown_workflow":
@@ -225,6 +236,48 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert replay.json()["id"] == first.json()["id"]
         assert replay.json()["run_id"] == first.json()["run_id"]
         assert Task.objects.filter(hog_flow_id=self.hog_flow.id).count() == 1
+
+    @patch("products.tasks.backend.logic.services.workflow_tasks.get_active_installations")
+    def test_a_replay_succeeds_even_after_connectors_and_the_limit_would_reject_it(
+        self, get_active_installations
+    ) -> None:
+        get_active_installations.return_value = [SimpleNamespace(id="inst-1")]
+        first = self._post({"idempotency_key": "invocation-1", "connectors": ["inst-1"], "max_parallel_tasks": 1})
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        # The connector is gone and the workflow is at its limit; the retry of the
+        # already-created request must still return the existing task.
+        get_active_installations.return_value = []
+        replay = self._post({"idempotency_key": "invocation-1", "connectors": ["inst-1"], "max_parallel_tasks": 1})
+
+        assert replay.status_code == status.HTTP_200_OK, replay.json()
+        assert replay.json()["id"] == first.json()["id"]
+
+    def test_rejects_an_idempotency_key_used_by_another_workflow(self) -> None:
+        Task.objects.create(
+            team=self.team,
+            title="other",
+            description="other",
+            origin_product=Task.OriginProduct.WORKFLOW,
+            hog_flow_id=uuid4(),
+            origin_key="invocation-1",
+        )
+
+        response = self._post({"idempotency_key": "invocation-1"})
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
+    @patch("products.tasks.backend.logic.services.workflow_tasks.get_active_installations")
+    def test_a_later_run_inherits_the_connector_snapshot(self, get_active_installations) -> None:
+        get_active_installations.return_value = [SimpleNamespace(id="inst-1")]
+        response = self._post({"connectors": ["inst-1"]})
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+
+        later_run = task.create_run(mode="background")
+
+        assert later_run.state["config_snapshot"]["connectors"]["mcp_installation_ids"] == ["inst-1"]
 
     @parameterized.expand([("with_repository", True), ("without_repository", False)])
     def test_pr_creation_follows_the_repository(self, _name: str, with_repository: bool) -> None:

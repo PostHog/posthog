@@ -11,11 +11,12 @@ from rest_framework.response import Response
 
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 from posthog.models.team.team import Team
-from posthog.models.user import User
 
 from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskLimitExceeded,
+    WorkflowTaskOriginKeyConflict,
+    WorkflowTaskOwnerIneligible,
     create_workflow_task,
 )
 from products.workflows.backend.models import HogFlow
@@ -105,7 +106,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             ),
             409: OpenApiResponse(
                 response=WorkflowTaskRejectedSerializer,
-                description="The workflow already has its maximum runs in flight",
+                description="The workflow already has its maximum runs in flight, or the idempotency key belongs to another workflow",
             ),
             422: OpenApiResponse(
                 response=WorkflowTaskRejectedSerializer,
@@ -150,6 +151,16 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             raise serializers.ValidationError(
                 {"connectors": f"MCP installation(s) not found or inactive: {error.invalid_ids}"}
             )
+        except WorkflowTaskOwnerIneligible:
+            return Response(
+                {"detail": "Workflow has no owner who can run tasks."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        except WorkflowTaskOriginKeyConflict:
+            return Response(
+                {"detail": "Idempotency key is already used by another workflow."},
+                status=status.HTTP_409_CONFLICT,
+            )
         except WorkflowTaskLimitExceeded as error:
             logger.info(
                 "workflow_task_create_throttled",
@@ -170,10 +181,9 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
 
 def _resolve_workflow_owner(team_id: int, hog_flow_id: uuid.UUID) -> int | None:
     """The workflow's creator, who the run executes as. Read from the row rather than the
-    request so a token can never assert a different user."""
+    request so a token can never assert a different user. Eligibility (active account,
+    current project access) is enforced in-transaction by the tasks service."""
     hog_flow = HogFlow.objects.filter(team_id=team_id, id=hog_flow_id).only("created_by_id").first()
     if hog_flow is None or hog_flow.created_by_id is None:
-        return None
-    if not User.objects.filter(id=hog_flow.created_by_id, is_active=True).exists():
         return None
     return hog_flow.created_by_id
