@@ -703,6 +703,95 @@ describe('mapOtelAttributes', () => {
         })
     })
 
+    describe('OpenInference (llm.* attributes)', () => {
+        it.each([
+            ['llm.model_name', '$ai_model', 'gpt-4o'],
+            ['llm.provider', '$ai_provider', 'openai'],
+            ['llm.token_count.prompt', '$ai_input_tokens', 150],
+            ['llm.token_count.completion', '$ai_output_tokens', 50],
+        ])('maps %s to %s', (otelKey, phKey, value) => {
+            const event = createEvent('$ai_generation', { [otelKey]: value })
+            mapOtelAttributes(event)
+            expect(event.properties![phKey]).toBe(value)
+            expect(event.properties![otelKey]).toBeUndefined()
+        })
+
+        it('unwraps {message: ...} wrappers from llm.input_messages into $ai_input', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.input_messages': [
+                    { message: { role: 'user', content: 'Hello' } },
+                    { message: { role: 'assistant', content: 'Hi' } },
+                ],
+            })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_input).toEqual([
+                { role: 'user', content: 'Hello' },
+                { role: 'assistant', content: 'Hi' },
+            ])
+            expect(event.properties!['llm.input_messages']).toBeUndefined()
+        })
+
+        it('unwraps {message: ...} wrappers from JSON-string llm.input_messages', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.input_messages': '[{"message": {"role": "user", "content": "Hello"}}]',
+            })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'Hello' }])
+        })
+
+        it('unwraps {message: ...} wrappers from llm.output_messages into $ai_output_choices', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.output_messages': [{ message: { role: 'assistant', content: 'Hello there' } }],
+            })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_output_choices).toEqual([{ role: 'assistant', content: 'Hello there' }])
+            expect(event.properties!['llm.output_messages']).toBeUndefined()
+        })
+
+        it('keeps already-flat llm.input_messages entries as-is', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.input_messages': [{ role: 'user', content: 'Hello' }],
+            })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'Hello' }])
+        })
+
+        it('keeps original string when llm.input_messages JSON parsing fails', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.input_messages': 'not valid json',
+            })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_input).toBe('not valid json')
+            expect(event.properties!['llm.input_messages']).toBeUndefined()
+        })
+
+        it('does not overwrite $ai_input already set from gen_ai attributes', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.input.messages': JSON.stringify([{ role: 'user', content: 'gen-ai' }]),
+                'llm.input_messages': [{ message: { role: 'user', content: 'open-inference' } }],
+            })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'gen-ai' }])
+            expect(event.properties!['llm.input_messages']).toBeUndefined()
+        })
+
+        it('falls back to llm.model_name when gen_ai.response.model is absent', () => {
+            const event = createEvent('$ai_generation', { 'llm.model_name': 'gpt-4o' })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_model).toBe('gpt-4o')
+        })
+
+        it('prefers gen_ai.response.model over llm.model_name', () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.response.model': 'gpt-4o',
+                'llm.model_name': 'gpt-4o-mini',
+            })
+            mapOtelAttributes(event)
+            expect(event.properties!.$ai_model).toBe('gpt-4o')
+            expect(event.properties!['llm.model_name']).toBeUndefined()
+        })
+    })
+
     describe('$groups normalization', () => {
         it('parses a JSON-string $groups into an object', () => {
             const event = createEvent('$ai_generation', {

@@ -75,6 +75,22 @@ const PYDANTIC_AI: SupportedProvider = SupportedProvider {
     classify: |_| "$ai_span",
 };
 
+/// OpenInference (Arize) (`openinference.*`). Spans carry
+/// `openinference.span.kind` plus `llm.*` attributes, but never set
+/// `gen_ai.operation.name`, so they need their own classifier. The prefix is
+/// unique to OpenInference — spans don't carry `gen_ai.` / `ai.` attributes,
+/// so there's no shadowing risk against the other providers.
+const OPENINFERENCE: SupportedProvider = SupportedProvider {
+    prefixes: &["openinference."],
+    classify: |attrs| {
+        classify_by_key(attrs, "openinference.span.kind", |kind| match kind {
+            "LLM" => "$ai_generation",
+            "EMBEDDING" => "$ai_embedding",
+            _ => "$ai_span",
+        })
+    },
+};
+
 /// Providers are matched in order — first prefix match wins. More specific
 /// matchers must come before less specific ones to avoid shadowing. For example,
 /// Vercel AI spans carry both `ai.*` and `gen_ai.*` attributes; if GEN_AI were
@@ -86,6 +102,7 @@ const SUPPORTED_PROVIDERS: &[SupportedProvider] = &[
     PYDANTIC_AI,
     // 2. Spec variations — alternative telemetry standards with distinct classification keys
     TRACELOOP,
+    OPENINFERENCE,
     // 3. Generic catch-all — standard OpenTelemetry semantic conventions (gen_ai.*)
     GEN_AI,
 ];
@@ -244,6 +261,52 @@ mod tests {
         assert_eq!(
             get_event_name(&attrs_with("llm.request.type", "embedding")),
             Some("$ai_embedding")
+        );
+    }
+
+    #[test]
+    fn test_from_openinference_span_kind() {
+        for (kind, expected) in [
+            ("LLM", "$ai_generation"),
+            ("EMBEDDING", "$ai_embedding"),
+            ("CHAIN", "$ai_span"),
+            ("RETRIEVER", "$ai_span"),
+            ("AGENT", "$ai_span"),
+            ("unknown", "$ai_span"),
+        ] {
+            assert_eq!(
+                get_event_name(&attrs_with("openinference.span.kind", kind)),
+                Some(expected),
+                "openinference.span.kind={kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_openinference_span_with_only_llm_attrs() {
+        // OpenInference LLM spans carry llm.* attributes (llm.model_name,
+        // llm.input_messages, llm.output_messages) but no gen_ai.* attrs and
+        // no llm.request.type. The openinference.* prefix is what makes these
+        // accepted and classified instead of being dropped.
+        let mut attrs = serde_json::Map::new();
+        attrs.insert(
+            "openinference.span.kind".to_string(),
+            Value::String("LLM".to_string()),
+        );
+        attrs.insert(
+            "llm.model_name".to_string(),
+            Value::String("gpt-4o".to_string()),
+        );
+        assert_eq!(get_event_name(&attrs), Some("$ai_generation"));
+    }
+
+    #[test]
+    fn test_openinference_span_without_span_kind_defaults_to_ai_span() {
+        // A span accepted on the openinference.* prefix but missing the
+        // span kind classifier should default to $ai_span, not drop.
+        assert_eq!(
+            get_event_name(&attrs_with("openinference.metadata", "some-metadata")),
+            Some("$ai_span")
         );
     }
 
