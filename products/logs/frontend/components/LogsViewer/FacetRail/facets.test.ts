@@ -184,6 +184,30 @@ describe('facets', () => {
             })
         })
 
+        describe('alias spellings', () => {
+            const RESOLVED = 'deployment.environment.name'
+            const ALIAS = 'env'
+
+            it('reads selection across the resolved key and an alias spelling', () => {
+                const group = groupOf([
+                    railFilter(PropertyOperator.Exact, ['prod'], RESOLVED),
+                    railFilter(PropertyOperator.Exact, ['staging'], ALIAS),
+                ])
+                expect(resourceAttributeSelection(group, RESOLVED, [ALIAS])).toEqual({
+                    included: ['prod', 'staging'],
+                    excluded: [],
+                })
+            })
+
+            it('folds an alias-spelled filter into the resolved key on toggle, leaving no contradictory filter', () => {
+                const group = groupOf([railFilter(PropertyOperator.Exact, ['prod'], ALIAS)])
+                const next = cycleResourceAttributeFilter(group, RESOLVED, 'dev', [ALIAS])
+                expect((next.values[0] as UniversalFiltersGroup).values).toEqual([
+                    railFilter(PropertyOperator.Exact, ['prod', 'dev'], RESOLVED),
+                ])
+            })
+        })
+
         describe('column facet exclusions (log filters)', () => {
             const LEVEL_KEY = 'severity_level'
             const logFilter = (
@@ -249,6 +273,7 @@ describe('facets', () => {
         const LEVEL = configured('level')
         const SERVICE = configured('service')
         const NAMESPACE = configured('namespace')
+        const ENVIRONMENT = configured('environment')
 
         const group = (...filters: Record<string, unknown>[]): UniversalFiltersGroup => ({
             type: FilterLogicalOperator.And,
@@ -353,6 +378,18 @@ describe('facets', () => {
                         filter(PropertyFilterType.LogResourceAttribute, 'k8s.namespace.name', PropertyOperator.IsNot, [
                             'argocd',
                         ])
+                    ),
+                },
+                false,
+            ],
+            [
+                // Resolution renders environment on its current key; a selection saved under an alias
+                // spelling is still its own, so reacting to it would refetch a list the backend keeps fixed.
+                'environment ignores its own selection under an alias spelling',
+                ENVIRONMENT,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.LogResourceAttribute, 'env', PropertyOperator.Exact, ['prod'])
                     ),
                 },
                 false,

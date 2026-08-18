@@ -119,7 +119,10 @@ export const facetRailLogic = kea<facetRailLogicType>([
             if (source.type === 'resourceAttribute') {
                 // Selection lives as log_resource_attribute filters inside the group; a click
                 // cycles the value included → excluded → cleared.
-                actions.setFilterGroup(cycleResourceAttributeFilter(filterGroup, source.key, value), false)
+                actions.setFilterGroup(
+                    cycleResourceAttributeFilter(filterGroup, source.key, value, source.aliasKeys),
+                    false
+                )
                 return
             }
 

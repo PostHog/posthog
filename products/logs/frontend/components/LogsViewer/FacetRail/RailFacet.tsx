@@ -48,7 +48,7 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
     // resource-attribute facets read their log_resource_attribute filters, both polarities.
     const { included: selected, excluded } =
         source.type === 'resourceAttribute'
-            ? resourceAttributeSelection(filterGroup, source.key)
+            ? resourceAttributeSelection(filterGroup, source.key, source.aliasKeys)
             : {
                   included: selectedByKey[source.filterKey],
                   excluded: source.exclusionKey ? logFilterExclusions(filterGroup, source.exclusionKey) : [],

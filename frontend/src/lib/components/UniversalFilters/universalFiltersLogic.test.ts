@@ -128,6 +128,36 @@ describe('universalFiltersLogic', () => {
         })
     })
 
+    it('re-seeds the internal group when the controlled group prop changes', () => {
+        const nextGroup: UniversalFiltersGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            key: '$browser',
+                            value: ['Firefox'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                },
+            ],
+        }
+
+        // The parent re-renders the same filter bar with a controlled value it changed — e.g. after
+        // normalizing a write. The rendered pills must follow the applied group, not the mounted copy.
+        universalFiltersLogic({
+            rootKey: 'test',
+            group: nextGroup,
+            taxonomicGroupTypes: [],
+            onChange: () => {},
+        })
+
+        expect(logic.values.filterGroup).toEqual(nextGroup)
+    })
+
     it('setGroupType', async () => {
         await expectLogic(logic, () => {
             logic.actions.setGroupType(FilterLogicalOperator.Or)

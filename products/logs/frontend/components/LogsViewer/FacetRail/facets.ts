@@ -102,11 +102,19 @@ export interface FacetSelection {
 // untouched on write.
 const RAIL_OPERATORS: PropertyOperator[] = [PropertyOperator.Exact, PropertyOperator.IsNot]
 
-function isRailFacetFilter(entry: RailFilterEntry, key: string): entry is RailPropertyFilter {
+// A resource-attribute facet owns its resolved key and every alias spelling of it. A saved view or
+// URL can carry a filter under an older spelling (e.g. `env`) than the one resolution rendered the
+// facet on; claiming only the resolved key would leave that filter applied to the query with no rail
+// row to show or clear it.
+function attributeKeys(key: string, aliasKeys?: string[]): string[] {
+    return aliasKeys && aliasKeys.length > 0 ? Array.from(new Set([key, ...aliasKeys])) : [key]
+}
+
+function isRailFacetFilter(entry: RailFilterEntry, keys: string[]): entry is RailPropertyFilter {
     return (
         isPropertyLeaf(entry) &&
         entry?.type === PropertyFilterType.LogResourceAttribute &&
-        entry?.key === key &&
+        keys.includes(entry?.key) &&
         RAIL_OPERATORS.includes(entry?.operator)
     )
 }
@@ -119,9 +127,18 @@ function filterValues(filter: RailPropertyFilter): string[] {
     return value != null && value !== '' ? [String(value)] : []
 }
 
-/** A resource-attribute facet's selection, read from its exact (include) and is_not (exclude) filters. */
-export function resourceAttributeSelection(group: UniversalFiltersGroup | undefined, key: string): FacetSelection {
-    const railFilters = innerFilters(group).filter((f) => isRailFacetFilter(f, key))
+/**
+ * A resource-attribute facet's selection, read from its exact (include) and is_not (exclude) filters
+ * across the resolved key and every alias spelling, so a filter saved under an older spelling still
+ * reads as selected.
+ */
+export function resourceAttributeSelection(
+    group: UniversalFiltersGroup | undefined,
+    key: string,
+    aliasKeys?: string[]
+): FacetSelection {
+    const keys = attributeKeys(key, aliasKeys)
+    const railFilters = innerFilters(group).filter((f) => isRailFacetFilter(f, keys))
     return {
         included: railFilters.filter((f) => f.operator === PropertyOperator.Exact).flatMap(filterValues),
         excluded: railFilters.filter((f) => f.operator === PropertyOperator.IsNot).flatMap(filterValues),
@@ -130,16 +147,19 @@ export function resourceAttributeSelection(group: UniversalFiltersGroup | undefi
 
 /**
  * Advance `value` one step through the facet cycle — unchecked → included → excluded → unchecked —
- * returning a new filterGroup. Selection is stored as up to two log_resource_attribute filters per
- * key with array values, `exact` and `is_not` (logs have no `in` operator); a filter is dropped
- * when its side of the selection empties.
+ * returning a new filterGroup. Selection is stored as up to two log_resource_attribute filters under
+ * the resolved `key` with array values, `exact` and `is_not` (logs have no `in` operator); a filter
+ * is dropped when its side of the selection empties. Any filter under an alias spelling is folded in
+ * on read and stripped on write, so the same click never leaves a contradictory second filter behind.
  */
 export function cycleResourceAttributeFilter(
     group: UniversalFiltersGroup | undefined,
     key: string,
-    value: string
+    value: string,
+    aliasKeys?: string[]
 ): UniversalFiltersGroup {
-    const { included, excluded } = resourceAttributeSelection(group, key)
+    const keys = attributeKeys(key, aliasKeys)
+    const { included, excluded } = resourceAttributeSelection(group, key, aliasKeys)
     let nextIncluded = included
     let nextExcluded = excluded
     if (included.includes(value)) {
@@ -152,7 +172,7 @@ export function cycleResourceAttributeFilter(
     }
 
     // Annotated: negating the type guard would otherwise narrow the survivors to nested groups.
-    const values: RailFilterEntry[] = innerFilters(group).filter((f) => !isRailFacetFilter(f, key))
+    const values: RailFilterEntry[] = innerFilters(group).filter((f) => !isRailFacetFilter(f, keys))
     if (nextIncluded.length > 0) {
         values.push({
             key,
@@ -244,7 +264,7 @@ export interface FacetScope {
 export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): string {
     const { source } = facet
     const selfLogKey = source.type === 'column' ? COLUMN_SELF_LOG_KEY[source.column] : undefined
-    const selfResourceKey = source.type === 'resourceAttribute' ? source.key : undefined
+    const selfResourceKeys = source.type === 'resourceAttribute' ? attributeKeys(source.key, source.aliasKeys) : []
     const groupSignature = innerFilters(scope.queryFilterGroup)
         .map((entry): unknown[] | null => {
             if (!isPropertyLeaf(entry)) {
@@ -255,12 +275,8 @@ export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): stri
             if (selfLogKey !== undefined && entry.type === PropertyFilterType.Log && entry.key === selfLogKey) {
                 return null
             }
-            // Both polarities, any operator.
-            if (
-                selfResourceKey !== undefined &&
-                entry.type === PropertyFilterType.LogResourceAttribute &&
-                entry.key === selfResourceKey
-            ) {
+            // Both polarities, any operator, across every spelling the facet owns.
+            if (entry.type === PropertyFilterType.LogResourceAttribute && selfResourceKeys.includes(entry.key)) {
                 return null
             }
             return [entry.type, entry.key, entry.operator, JSON.stringify(entry.value ?? null)]
