@@ -1,7 +1,3 @@
-from typing import cast
-
-from django.db.models import QuerySet
-
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.parser import parse_expr, parse_select
@@ -13,7 +9,7 @@ from products.revenue_analytics.backend.views.sources.constants import (
     POSTHOG_PERSON_DISTINCT_ID_SOURCE_METADATA_KEY,
 )
 from products.revenue_analytics.backend.views.sources.helpers import extract_json_string, get_cohort_expr
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
+from products.warehouse_sources.backend.facade.contracts import RevenueSourceSchema, RevenueSourceTable
 from products.warehouse_sources.backend.facade.sources import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -58,7 +54,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
     prefix = view_prefix_for_source(source)
 
     # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land to avoid n+1 queries
-    schemas = source.schemas.all()
+    schemas = source.schemas
     customer_schema = next((schema for schema in schemas if schema.name == STRIPE_CUSTOMER_RESOURCE_NAME), None)
     if customer_schema is None:
         return BuiltQuery(
@@ -68,7 +64,6 @@ def build(handle: SourceHandle) -> BuiltQuery:
             test_comments="no_schema",
         )
 
-    customer_schema = cast(ExternalDataSchema, customer_schema)
     if customer_schema.table is None:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found
@@ -77,7 +72,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
             test_comments="no_table",
         )
 
-    customer_table = cast(DataWarehouseTable, customer_schema.table)
+    customer_table = customer_schema.table
     invoice_table = _get_table(schemas, STRIPE_INVOICE_RESOURCE_NAME)
     subscription_table = _get_table(schemas, STRIPE_SUBSCRIPTION_RESOURCE_NAME)
     charge_table = _get_table(schemas, STRIPE_CHARGE_RESOURCE_NAME)
@@ -174,7 +169,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
                 ),
             )
 
-    child_tables: list[tuple[str, DataWarehouseTable]] = []
+    child_tables: list[tuple[str, RevenueSourceTable]] = []
     if subscription_table is not None:
         child_tables.append(("subscription", subscription_table))
     if charge_table is not None:
@@ -191,20 +186,16 @@ def build(handle: SourceHandle) -> BuiltQuery:
     return BuiltQuery(key=str(customer_table.id), prefix=prefix, query=query)
 
 
-def _get_table(schemas: QuerySet[ExternalDataSchema], schema_name: str) -> DataWarehouseTable | None:
+def _get_table(schemas: tuple[RevenueSourceSchema, ...], schema_name: str) -> RevenueSourceTable | None:
     schema = next((schema for schema in schemas if schema.name == schema_name), None)
     if schema is None:
         return None
 
-    table = schema.table
-    if table is not None:
-        table = cast(DataWarehouseTable, table)
-
-    return table
+    return schema.table
 
 
 def _build_resolved_distinct_id_query(
-    child_tables: list[tuple[str, DataWarehouseTable]], query: SelectQuery
+    child_tables: list[tuple[str, RevenueSourceTable]], query: SelectQuery
 ) -> SelectQuery:
     resolved_subquery = _build_resolved_subquery(child_tables)
 
@@ -264,7 +255,7 @@ def _build_resolved_distinct_id_query(
     return outer_query
 
 
-def _build_resolved_subquery(child_tables: list[tuple[str, DataWarehouseTable]]) -> ast.SelectQuery:
+def _build_resolved_subquery(child_tables: list[tuple[str, RevenueSourceTable]]) -> ast.SelectQuery:
     union_legs = [_build_child_union_leg(table.name, label) for label, table in child_tables]
 
     union_query: ast.SelectQuery | ast.SelectSetQuery = union_legs[0]

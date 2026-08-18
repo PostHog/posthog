@@ -313,6 +313,30 @@ const sharedSecureH2Agent = new Agent({
 })
 const sharedInsecureAgent = new InsecureAgent()
 
+function destroyBody(body: Dispatcher.ResponseData['body']): void {
+    try {
+        body.on('error', () => {})
+        body.destroy()
+    } catch {
+        // The body already ended, or another caller destroyed it.
+    }
+}
+
+/**
+ * The prototype is null because every key comes from the remote server, and `__proto__` on a plain
+ * object literal is a setter rather than a key.
+ */
+function flattenHeaders(raw: Dispatcher.ResponseData['headers']): Record<string, string> {
+    const headers: Record<string, string> = Object.create(null)
+    for (const [key, value] of Object.entries(raw)) {
+        const singleValue = Array.isArray(value) ? value[0] : value
+        if (singleValue) {
+            headers[key] = singleValue
+        }
+    }
+    return headers
+}
+
 /**
  * Reads a response body stream and destroys it immediately after to release
  * the underlying socket and its off-heap buffers. Without explicit destruction,
@@ -324,11 +348,7 @@ async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promis
     // After text() fully consumes the stream, destroy to release socket buffers.
     // At this point the stream is already ended so destroy is a cleanup no-op,
     // but it signals undici to release the underlying socket immediately.
-    try {
-        body.destroy()
-    } catch {
-        // Ignore destroy errors — the body is already fully consumed
-    }
+    destroyBody(body)
     return text
 }
 
@@ -360,13 +380,7 @@ export async function _fetch(
         signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
     })
 
-    const headers: Record<string, string> = {}
-    for (const [key, value] of Object.entries(result.headers)) {
-        const singleValue = Array.isArray(value) ? value[0] : value
-        if (singleValue) {
-            headers[key] = singleValue
-        }
-    }
+    const headers = flattenHeaders(result.headers)
 
     // On first .text()/.json() call, read the full body and destroy the
     // stream immediately after. This releases undici's socket buffers
@@ -388,12 +402,7 @@ export async function _fetch(
         dump: () => {
             if (!bodyPromise) {
                 bodyPromise = Promise.resolve('')
-                try {
-                    result.body.on('error', () => {})
-                    result.body.destroy()
-                } catch {
-                    // Ignore destroy errors
-                }
+                destroyBody(result.body)
             }
             return Promise.resolve()
         },
@@ -419,6 +428,117 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
         return await _fetch(url, options, dispatcher, requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS)
     } finally {
         inflightExternalRequests.dec()
+    }
+}
+
+export type StreamedFetchOptions = {
+    headers?: HeadersInit
+    timeoutMs: number
+}
+
+export type StreamedResponse = {
+    status: number
+    headers: Record<string, string>
+    /**
+     * Reads at most `maxBytes`, then abandons the rest. `overLimit` says the response had more, and
+     * `bytes` is then empty, because a truncated payload is not usable.
+     */
+    read: (maxBytes: number) => Promise<{ bytes: Buffer; overLimit: boolean }>
+    discard: () => void
+}
+
+/**
+ * Memory here follows the bytes that arrive, never the bytes a response claims.
+ *
+ * One buffer sized from `Content-Length` would halve the peak for an honest response, because the
+ * chunks and the concatenated copy exist together for a moment. It would also let an origin hold
+ * `maxBytes` for the whole request timeout, once for every request in flight, by declaring a large
+ * body and then sending almost nothing.
+ */
+async function readCappedBody(
+    body: Dispatcher.ResponseData['body'],
+    maxBytes: number
+): Promise<{ bytes: Buffer; overLimit: boolean }> {
+    const chunks: Buffer[] = []
+    let total = 0
+    let overLimit = false
+    try {
+        for await (const chunk of body) {
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+            total += buffer.length
+            if (total > maxBytes) {
+                overLimit = true
+                break
+            }
+            chunks.push(buffer)
+        }
+    } finally {
+        destroyBody(body)
+    }
+    return { bytes: overLimit ? Buffer.alloc(0) : Buffer.concat(chunks), overLimit }
+}
+
+/**
+ * A third-party request whose caller reads the body under a byte limit.
+ *
+ * `fetch` above gives the caller `text()`, which buffers a whole body of any size. An origin can
+ * answer a request for a small image with gigabytes. Here the caller reads the status and the
+ * headers first, then sets a byte limit or abandons the body.
+ *
+ * This does not follow redirects, as `fetch` does not, so a response cannot bounce to a host that no
+ * check has seen. A caller that follows one must call this again for the new URL.
+ *
+ * The caller must call `read` or `discard`, and only one of them. The socket stays held until then.
+ */
+export async function fetchStreamed(url: string, options: StreamedFetchOptions): Promise<StreamedResponse> {
+    const parsed = validateUrl(url)
+    validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
+
+    inflightExternalRequests.inc()
+    let result: Dispatcher.ResponseData
+    try {
+        result = await request(parsed.toString(), {
+            method: 'GET',
+            headers: options.headers,
+            dispatcher: sharedSecureAgent,
+            signal: AbortSignal.timeout(options.timeoutMs),
+        })
+    } catch (error) {
+        inflightExternalRequests.dec()
+        throw error
+    }
+
+    // The gauge holds until the body is done, not until the headers arrive, because the body takes
+    // nearly all the time of an image request.
+    let settled = false
+    const settle = (): boolean => {
+        if (settled) {
+            return false
+        }
+        settled = true
+        inflightExternalRequests.dec()
+        return true
+    }
+
+    const headers = flattenHeaders(result.headers)
+    return {
+        status: result.statusCode,
+        headers,
+        read: async (maxBytes: number) => {
+            if (settled) {
+                return { bytes: Buffer.alloc(0), overLimit: false }
+            }
+            try {
+                return await readCappedBody(result.body, maxBytes)
+            } finally {
+                settle()
+            }
+        },
+        discard: () => {
+            if (settle()) {
+                destroyBody(result.body)
+            }
+        },
     }
 }
 

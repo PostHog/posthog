@@ -21,3 +21,7 @@ pub fn is_javascript_file(entry: &DirEntry) -> bool {
             .extension()
             .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs")
 }
+
+pub fn is_stylesheet_file(entry: &DirEntry) -> bool {
+    entry.file_type().is_file() && entry.path().extension().is_some_and(|ext| ext == "css")
+}

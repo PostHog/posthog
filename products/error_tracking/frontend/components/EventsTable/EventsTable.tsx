@@ -1,7 +1,9 @@
+import { useEffect, useRef } from 'react'
+
 import { Link } from '@posthog/lemon-ui'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
-import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import { getExceptionTypeAndValue, getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import {
     Button,
@@ -108,8 +110,19 @@ function EventRow({
     lastEventUuid?: string
     onSelect: (event: ErrorEventType) => void
 }): JSX.Element {
+    const rowRef = useRef<HTMLTableRowElement>(null)
+
+    // Scroll only when this row becomes the selected one. Depending on the list's loading state
+    // would re-fire on every pagination request and yank the list back to the selection.
+    useEffect(() => {
+        if (selected) {
+            rowRef.current?.scrollIntoView({ block: 'nearest' })
+        }
+    }, [selected])
+
     return (
         <TableRow
+            ref={rowRef}
             data-state={selected ? 'selected' : undefined}
             className={cn(
                 'cursor-pointer',
@@ -149,13 +162,16 @@ function EventRow({
 function EventTitle({ record }: { record: ErrorEventType }): JSX.Element {
     const library = record.properties.$lib
     const runtime = getRuntimeFromLib(typeof library === 'string' ? library : null)
+    const { type, value } = getExceptionTypeAndValue(record.properties)
 
     return (
         <div className="grid w-full min-w-0 grid-cols-[0.75rem_minmax(0,1fr)] items-center gap-x-2 gap-y-0.5 py-0.5">
             <RuntimeIcon runtime={runtime} fontSize="0.75rem" />
-            <div className="min-w-0 truncate text-sm font-semibold">{record.properties.$exception_types[0]}</div>
+            <div className="min-w-0 truncate text-sm font-semibold">
+                {type ?? <span className="italic text-muted-foreground">Unknown</span>}
+            </div>
             <div className="col-span-2 min-w-0 truncate text-xs text-muted-foreground">
-                {record.properties.$exception_values[0]}
+                {value ?? <span className="italic">No message</span>}
             </div>
         </div>
     )
