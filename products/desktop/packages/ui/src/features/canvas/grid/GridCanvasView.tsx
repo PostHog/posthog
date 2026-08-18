@@ -1,15 +1,17 @@
+import { SquaresFourIcon } from "@phosphor-icons/react";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
+  EmptyMedia,
   EmptyTitle,
   Spinner,
 } from "@posthog/quill";
 import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   GridPlacementTile,
   type PlacementTileActions,
@@ -25,6 +27,30 @@ function gridItemStyle(rect: GridRect): React.CSSProperties {
     gridColumn: `${rect.x + 1} / span ${rect.w}`,
     gridRow: `${rect.y + 1} / span ${rect.h}`,
   };
+}
+
+// Where the how-to tile sits on an empty grid: centered, wide enough to read,
+// one row down so it looks placed rather than docked to the top edge.
+function emptyHintRect(columns: number): GridRect {
+  const w = Math.min(4, columns);
+  return { x: Math.floor((columns - w) / 2), y: 1, w, h: 3 };
+}
+
+// The dot lattice needs the surface's real pixel width: columns are fractional
+// (1fr), so corner positions can't be expressed in pure CSS background math.
+function useMeasuredWidth(element: HTMLDivElement | null): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    if (!element) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setWidth(entry.contentRect.width);
+    });
+    observer.observe(element);
+    setWidth(element.clientWidth);
+    return () => observer.disconnect();
+  }, [element]);
+  return width;
 }
 
 /**
@@ -51,6 +77,14 @@ export function GridCanvasView({
   });
 
   const surfaceRef = useRef<HTMLDivElement>(null);
+  // The surface mounts only after loading, so a plain ref never retriggers the
+  // measurement effect; a state-backed element does.
+  const [surfaceEl, setSurfaceEl] = useState<HTMLDivElement | null>(null);
+  const setSurfaceRef = useCallback((el: HTMLDivElement | null) => {
+    surfaceRef.current = el;
+    setSurfaceEl(el);
+  }, []);
+  const surfaceWidth = useMeasuredWidth(surfaceEl);
   const placements = layout?.placements;
 
   const onDragComplete = useCallback(
@@ -203,45 +237,35 @@ export function GridCanvasView({
     );
   }
   const { grid } = layout;
+  // Cell pitch in px: cell size plus one gap. Vertical pitch is fixed by the
+  // layout; horizontal comes from the measured surface width (1fr columns).
+  const pitchX = (surfaceWidth + grid.gap) / grid.columns;
+  const pitchY = grid.rowHeight + grid.gap;
 
   return (
-    // `relative` anchors the empty-state overlay below; without it the
-    // absolute inset-0 escapes to the nearest positioned ancestor.
-    <div className="relative h-full overflow-y-auto p-4">
-      {placements.length === 0 && !drag ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <Empty>
-            <EmptyHeader>
-              <EmptyTitle>
-                {interactive ? "Draw your first widget" : "An empty canvas"}
-              </EmptyTitle>
-              <EmptyDescription>
-                {interactive
-                  ? "Drag anywhere on the grid, then describe what should live there."
-                  : "Nothing has been placed on this canvas yet."}
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        </div>
-      ) : null}
+    <div className="h-full overflow-y-auto p-4">
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the surface is a drawing target; tiles inside stay keyboard-reachable. */}
       <div
-        ref={surfaceRef}
-        className="relative grid min-h-full"
+        ref={setSurfaceRef}
+        className="relative grid"
         style={{
           gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))`,
           gridAutoRows: `${grid.rowHeight}px`,
           gap: `${grid.gap}px`,
-          minHeight: surfaceRows(placements) * (grid.rowHeight + grid.gap),
+          // Fill the viewport even when the content needs fewer rows, so the
+          // whole visible page is drawable (and dotted) rather than a strip.
+          minHeight: `max(100%, ${surfaceRows(placements) * pitchY}px)`,
           cursor: interactive ? "crosshair" : undefined,
-          // Edit mode reveals the grid itself: a soft dot at each cell center
-          // (the fade to transparent is the blur), sized to the real cell
-          // pitch so the lattice matches where tiles snap.
-          ...(interactive
+          // Edit mode reveals the lattice: a soft dot (the fade to transparent
+          // is the blur) on each cell corner, i.e. where tiles snap and drawing
+          // starts. Shifting the tiled background by half a pitch minus half a
+          // gap lands each dot's center mid-gap, on the shared corner.
+          ...(interactive && surfaceWidth > 0
             ? {
                 backgroundImage:
                   "radial-gradient(circle, var(--gray-7) 1px, transparent 4px)",
-                backgroundSize: `calc((100% + ${grid.gap}px) / ${grid.columns}) ${grid.rowHeight + grid.gap}px`,
+                backgroundSize: `${pitchX}px ${pitchY}px`,
+                backgroundPosition: `${pitchX / 2 - grid.gap / 2}px ${pitchY / 2 - grid.gap / 2}px`,
               }
             : {}),
         }}
@@ -249,6 +273,31 @@ export function GridCanvasView({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
       >
+        {placements.length === 0 && !drag ? (
+          // How-to placed on the grid as a tile of its own, instead of a
+          // full-width overlay that looks like broken chrome. Pointer events
+          // pass through so the user can draw right over it.
+          <div
+            className="pointer-events-none flex items-center justify-center rounded-(--radius-3) border border-(--gray-6) border-dashed bg-(--gray-2)"
+            style={gridItemStyle(emptyHintRect(grid.columns))}
+          >
+            <Empty className="border-0 bg-transparent">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <SquaresFourIcon size={24} />
+                </EmptyMedia>
+                <EmptyTitle>
+                  {interactive ? "Draw your first widget" : "An empty canvas"}
+                </EmptyTitle>
+                <EmptyDescription>
+                  {interactive
+                    ? "Click and drag on the dotted grid to draw a box, then describe what should go there or pick a component from the store."
+                    : "Select Edit to draw your first widget."}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          </div>
+        ) : null}
         {placements.map((placement) => {
           const dragged =
             drag && drag.kind !== "draw" && drag.placementId === placement.id
