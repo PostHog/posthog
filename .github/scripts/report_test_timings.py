@@ -293,14 +293,19 @@ def normalize_jest_file(file: str) -> str:
 
 
 def infer_pytest_file(classname: str) -> str:
-    """Find the longest checked-in Python module prefix in a pytest classname."""
+    """Find a safe pytest file path from a JUnit classname."""
     parts = classname.split(".")
-    if not parts or any(not part.isidentifier() for part in parts):
+    if not parts or any(not part or "/" in part or "\\" in part for part in parts):
         return ""
+
     for module_length in range(len(parts), 0, -1):
         candidate = REPO_ROOT.joinpath(*parts[:module_length]).with_suffix(".py")
         if candidate.is_file():
             return candidate.relative_to(REPO_ROOT).as_posix()
+
+    for module_length, part in enumerate(parts, start=1):
+        if part.startswith("test_") or part.endswith("_test"):
+            return Path(*parts[:module_length]).with_suffix(".py").as_posix()
     return ""
 
 
