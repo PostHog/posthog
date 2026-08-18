@@ -61,11 +61,19 @@ export function ComponentFrame({ placement }: { placement: GridPlacement }) {
       !publishedBuild &&
       (!newestBuild || newestBuild.buildStatus === "failed");
     if (buildDead) {
+      const failure = newestBuild?.diagnostics.find(
+        (entry) => entry.severity === "error",
+      )?.message;
       return (
-        <div className="flex h-full w-full items-center justify-center p-3 text-center">
-          <Text size="sm">
-            This widget failed to build. Open its component canvas to see the
-            diagnostics.
+        <div className="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden p-3 text-center">
+          <Text size="sm">This widget failed to build.</Text>
+          {failure ? (
+            <Text size="xs" variant="muted" className="line-clamp-3">
+              {failure}
+            </Text>
+          ) : null}
+          <Text size="xs" variant="muted">
+            Open the component canvas to fix and republish.
           </Text>
         </div>
       );
