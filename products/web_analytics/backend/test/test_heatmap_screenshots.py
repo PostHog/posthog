@@ -1,8 +1,9 @@
 from datetime import timedelta
 from io import BytesIO
+from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
@@ -465,12 +466,12 @@ def _jpeg_bytes(width: int = 12, height: int = 12) -> bytes:
 
 @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
 class TestHeatmapToolbarCapture(APIBaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
-    def _capture(self, **overrides):
+    def _capture(self, **overrides: Any) -> Any:
         data = {
             "image": SimpleUploadedFile("heatmap.jpg", _jpeg_bytes(), content_type="image/jpeg"),
             "url": "https://app.example.com/dashboard",
@@ -480,7 +481,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         data.update(overrides)
         return self.client.post(f"/api/environments/{self.team.id}/saved/capture/", data, format="multipart")
 
-    def test_capture_creates_completed_toolbar_heatmap_and_serves_bytes(self, mock_task):
+    def test_capture_creates_completed_toolbar_heatmap_and_serves_bytes(self, mock_task: MagicMock) -> None:
         image_bytes = _jpeg_bytes()
         resp = self.client.post(
             f"/api/environments/{self.team.id}/saved/capture/",
@@ -518,7 +519,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         self.assertEqual(content["Content-Type"], "image/jpeg")
         self.assertEqual(content.content, image_bytes)
 
-    def test_capture_defaults_name_to_url(self, _mock_task):
+    def test_capture_defaults_name_to_url(self, _mock_task: MagicMock) -> None:
         resp = self._capture(name="")
         self.assertEqual(resp.status_code, 201, resp.data)
         self.assertEqual(resp.data["name"], "https://app.example.com/dashboard")
@@ -529,7 +530,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
             ("not_an_image", "https://app.example.com/x", b"<html>not a jpeg</html>"),
         ]
     )
-    def test_capture_rejects_invalid_input(self, _mock_task, _name, url, content):
+    def test_capture_rejects_invalid_input(self, _mock_task: MagicMock, _name: str, url: str, content: bytes) -> None:
         resp = self._capture(
             url=url,
             image=SimpleUploadedFile("heatmap.jpg", content, content_type="image/jpeg"),
@@ -539,7 +540,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
 
     @parameterized.expand([("single",), ("multi",)])
     @patch("products.web_analytics.backend.api.heatmaps_api.HEATMAP_SCREENSHOT_MAX_BYTES", 10)
-    def test_capture_rejects_oversized_image(self, _mock_task, _name):
+    def test_capture_rejects_oversized_image(self, _mock_task: MagicMock, _name: str) -> None:
         if _name == "single":
             payload: dict = {"image": SimpleUploadedFile("h.jpg", _jpeg_bytes(), "image/jpeg"), "width": 1440}
         else:
@@ -555,7 +556,19 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         self.assertEqual(resp.status_code, 400)
         self.assertFalse(SavedHeatmap.objects.filter(team=self.team).exists())
 
-    def test_capture_multi_width_creates_one_heatmap_with_all_widths(self, _mock_task):
+    @patch("products.web_analytics.backend.api.heatmaps_api.MAX_CAPTURE_IMAGE_PIXELS", 100)
+    def test_capture_rejects_oversized_dimensions(self, _mock_task: MagicMock) -> None:
+        resp = self._capture()
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(SavedHeatmap.objects.filter(team=self.team).exists())
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.MAX_CAPTURE_TOTAL_BYTES", 1)
+    def test_capture_rejects_oversized_total_bytes(self, _mock_task: MagicMock) -> None:
+        resp = self._capture()
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(SavedHeatmap.objects.filter(team=self.team).exists())
+
+    def test_capture_multi_width_creates_one_heatmap_with_all_widths(self, _mock_task: MagicMock) -> None:
         widths = [320, 768, 1440]
         images = [_jpeg_bytes(width=w // 100, height=6) for w in widths]
         resp = self.client.post(
@@ -582,7 +595,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
             self.assertEqual(content.status_code, 200)
             self.assertEqual(content.content, img)
 
-    def test_regenerate_blocked_for_toolbar_capture(self, mock_task):
+    def test_regenerate_blocked_for_toolbar_capture(self, mock_task: MagicMock) -> None:
         saved = SavedHeatmap.objects.create(
             team=self.team,
             url="https://app.example.com/dashboard",
@@ -596,6 +609,41 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         resp = self.client.post(f"/api/environments/{self.team.id}/saved/{saved.short_id}/regenerate/")
         self.assertEqual(resp.status_code, 400)
         mock_task.assert_not_called()
+
+    def test_partial_update_blocks_render_input_change_for_toolbar_but_allows_rename(
+        self, mock_task: MagicMock
+    ) -> None:
+        saved = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            data_url="https://example.com",
+            target_widths=[1440],
+            type=SavedHeatmap.Type.SCREENSHOT,
+            source=SavedHeatmap.Source.TOOLBAR,
+            status=SavedHeatmap.Status.COMPLETED,
+            block_consent_modals=False,
+            created_by=self.user,
+        )
+        HeatmapSnapshot.objects.create(heatmap=saved, width=1440, content=_jpeg_bytes())
+
+        blocked = self.client.patch(
+            f"/api/environments/{self.team.id}/saved/{saved.short_id}/",
+            {"block_consent_modals": True},
+        )
+        self.assertEqual(blocked.status_code, 400, blocked.data)
+        saved.refresh_from_db()
+        self.assertFalse(saved.block_consent_modals)
+        self.assertEqual(saved.status, SavedHeatmap.Status.COMPLETED)
+        self.assertEqual(saved.snapshots.count(), 1)
+        mock_task.delay.assert_not_called()
+
+        renamed = self.client.patch(
+            f"/api/environments/{self.team.id}/saved/{saved.short_id}/",
+            {"name": "Renamed"},
+        )
+        self.assertEqual(renamed.status_code, 200, renamed.data)
+        saved.refresh_from_db()
+        self.assertEqual(saved.name, "Renamed")
 
 
 class TestSavedHeatmapCaptureRequestSerializer(SimpleTestCase):
@@ -616,6 +664,7 @@ class TestSavedHeatmapCaptureRequestSerializer(SimpleTestCase):
         [
             ("mismatched_lengths", [320, 768, 1440], 2, False),
             ("both_single_and_multi", [320, 768], 2, True),
+            ("duplicate_widths", [1440, 1440], 2, False),
         ]
     )
     def test_rejects_bad_multi_width_shape(

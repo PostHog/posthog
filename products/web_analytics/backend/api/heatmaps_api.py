@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from json import JSONDecodeError, loads
 from typing import Any, List, Literal, cast, get_args  # noqa: UP035
 from urllib.parse import urlparse
@@ -13,6 +14,7 @@ import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from PIL import Image
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, UnsupportedMediaType, ValidationError
@@ -75,6 +77,11 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 
 STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
 
+MAX_CAPTURE_IMAGE_WIDTH = 4000
+MAX_CAPTURE_IMAGE_HEIGHT = 30000
+MAX_CAPTURE_IMAGE_PIXELS = 50_000_000
+MAX_CAPTURE_TOTAL_BYTES = 60 * 1024 * 1024
+
 HEATMAPS_COHORT_FILTER_FLAG = "heatmaps-cohort-filter"
 
 logger = structlog.get_logger(__name__)
@@ -93,6 +100,20 @@ def _heatmaps_cohort_filter_enabled(user: User, team: Team) -> bool:
         team_id=team.id,
         organization_id=str(team.organization_id),
     )
+
+
+def _reject_oversized_capture_image(image_bytes: bytes) -> None:
+    try:
+        with Image.open(BytesIO(image_bytes)) as im:
+            width, height = im.size
+    except Exception:
+        raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
+    if (
+        width > MAX_CAPTURE_IMAGE_WIDTH
+        or height > MAX_CAPTURE_IMAGE_HEIGHT
+        or width * height > MAX_CAPTURE_IMAGE_PIXELS
+    ):
+        raise ValidationError(code="image_too_large", detail="Screenshot dimensions are too large to process")
 
 
 DEFAULT_QUERY = """
@@ -1143,6 +1164,8 @@ class SavedHeatmapCaptureRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Both 'images' and 'widths' are required for a multi-width capture.")
             if len(data["images"]) != len(data["widths"]):
                 raise serializers.ValidationError("'images' and 'widths' must be the same length.")
+            if len(set(data["widths"])) != len(data["widths"]):
+                raise serializers.ValidationError("'widths' must not contain duplicate values.")
         elif not ("image" in data and "width" in data):
             raise serializers.ValidationError("Provide 'image'+'width' or 'images'+'widths'.")
         return data
@@ -1443,6 +1466,9 @@ class SavedHeatmapViewSet(
         else:
             width_image_pairs = [(validated["width"], validated["image"])]
 
+        if sum(image_file.size for _, image_file in width_image_pairs) > MAX_CAPTURE_TOTAL_BYTES:
+            raise ValidationError(code="request_too_large", detail="Total screenshot size is too large")
+
         user_id = cast(User, request.user).id
         snapshot_bytes: list[tuple[int, bytes]] = []
         for width, image_file in width_image_pairs:
@@ -1453,6 +1479,7 @@ class SavedHeatmapViewSet(
                 raise UnsupportedMediaType(content_type or "unknown")
             image_file.seek(0)
             image_bytes = image_file.read()
+            _reject_oversized_capture_image(image_bytes)
             if not validate_image_file(image_bytes, user=user_id):
                 raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
             snapshot_bytes.append((width, image_bytes))
@@ -1626,6 +1653,22 @@ class SavedHeatmapViewSet(
 
         serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+
+        if obj.source == SavedHeatmap.Source.TOOLBAR:
+            validated = serializer.validated_data
+            render_input_changing = (
+                ("url" in validated and validated["url"] != obj.url)
+                or ("data_url" in validated and validated["data_url"] != obj.data_url)
+                or (
+                    "block_consent_modals" in validated
+                    and validated["block_consent_modals"] != obj.block_consent_modals
+                )
+            )
+            if render_input_changing:
+                raise ValidationError(
+                    "Toolbar-captured heatmaps can't change their URL or rendering settings; re-capture from the toolbar instead."
+                )
+
         updated = serializer.save()
 
         render_input_changed = updated.url != old_url or updated.block_consent_modals != old_block_consent_modals
