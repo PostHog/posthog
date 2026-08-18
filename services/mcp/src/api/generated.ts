@@ -39132,6 +39132,29 @@ export namespace Schemas {
     }
 
     /**
+     * Response from the batch job cancel endpoint. Stopping is asynchronous: this call flags the
+     * run's audience fan-out and its in-flight child runs, and the workflow workers terminate
+     * them shortly after. Messages already sent are not recalled.
+     */
+    export interface HogFlowBatchJobCancelResponse {
+      /** The batch run's status after this request. 'cancelled' once every in-flight run is flagged; a completion that raced the stop wins and is reported instead.
+       *
+       * * `waiting` - Waiting
+       * * `queued` - Queued
+       * * `active` - Active
+       * * `completed` - Completed
+       * * `cancelled` - Cancelled
+       * * `failed` - Failed */
+      status: HogFlowBatchJobStatusEnum;
+      /** In-flight runs newly flagged for cancellation by this request. */
+      marked: number;
+      /** In-flight runs of this batch not yet flagged. Non-zero on very large runs; call again. */
+      remaining: number;
+      /** True when no in-flight runs of this batch remain unflagged. */
+      done: boolean;
+    }
+
+    /**
      * * `update_action` - update_action
      * * `add_action` - add_action
      * * `remove_action` - remove_action
@@ -53768,6 +53791,8 @@ export namespace Schemas {
       created_at?: string | null;
       /** @nullable */
       updated_at?: string | null;
+      /** @nullable */
+      last_activity_at?: string | null;
       created_by?: TaskUserBasicInfo | null;
       /** @nullable */
       ci_prompt: string | null;
@@ -70852,6 +70877,20 @@ export namespace Schemas {
     }
 
     /**
+     * Response of GET /vision/scanners/:id/self_driving_stats/.
+     */
+    export interface ScannerSelfDrivingStats {
+      /** Signals this scanner has pushed into the Signals inbox, all time. */
+      signals_emitted: number;
+      /** Signal reports that include at least one of this scanner's signals. Reports usually aggregate signals from several sources, so this counts contributions, not sole causes. */
+      reports_contributed: number;
+      /** Implementation PRs opened by self-driving on those reports. */
+      prs_opened: number;
+      /** Of the opened PRs, how many have merged. */
+      prs_merged: number;
+    }
+
+    /**
      * Per-scanner-type count of enabled vs total scanners.
      */
     export interface ScannerTypeStats {
@@ -79276,6 +79315,15 @@ export namespace Schemas {
     export interface TaskThreadMessageWrite {
       /** Message text. */
       content: string;
+    }
+
+    export interface TaskUsageResponse {
+      /** Estimated model cost attributed to this task in US dollars. */
+      token_cost_usd: number;
+      /** Estimated cloud compute cost attributed to this task in US dollars. */
+      compute_cost_usd: number;
+      /** Estimated total cost attributed to this task in US dollars. */
+      total_cost_usd: number;
     }
 
     /**
@@ -91854,6 +91902,14 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.
+     *
+     * * `-created_at` - -created_at
+     * * `-last_activity_at` - -last_activity_at
+     * @minLength 1
+     */
+    ordering?: TasksListOrdering;
+    /**
      * Filter by repository organization
      * @minLength 1
      */
@@ -91907,6 +91963,14 @@ export namespace Schemas {
       True: 'true',
       False: 'false',
       All: 'all',
+    } as const;
+
+    export type TasksListOrdering = typeof TasksListOrdering[keyof typeof TasksListOrdering];
+
+
+    export const TasksListOrdering = {
+      CreatedAt: '-created_at',
+      LastActivityAt: '-last_activity_at',
     } as const;
 
     export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];

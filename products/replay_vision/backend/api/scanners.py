@@ -107,7 +107,9 @@ from products.replay_vision.backend.scanner_draft import DraftError, draft_scann
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
+from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
+from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
@@ -1358,6 +1360,22 @@ class AffectedCohortResponseSerializer(serializers.Serializer):
     )
 
 
+class ScannerSelfDrivingStatsSerializer(serializers.Serializer):
+    """Response of GET /vision/scanners/:id/self_driving_stats/."""
+
+    signals_emitted = serializers.IntegerField(
+        help_text="Signals this scanner has pushed into the Signals inbox, all time."
+    )
+    reports_contributed = serializers.IntegerField(
+        help_text=(
+            "Signal reports that include at least one of this scanner's signals. Reports usually "
+            "aggregate signals from several sources, so this counts contributions, not sole causes."
+        )
+    )
+    prs_opened = serializers.IntegerField(help_text="Implementation PRs opened by self-driving on those reports.")
+    prs_merged = serializers.IntegerField(help_text="Of the opened PRs, how many have merged.")
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1379,7 +1397,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     scope_object = "replay_scanner"
     # Custom actions must be listed explicitly or personal-API-key callers 403 silently.
-    scope_object_read_actions = ["list", "retrieve", "creators", "stats"]
+    scope_object_read_actions = ["list", "retrieve", "creators", "stats", "self_driving_stats"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -1751,6 +1769,33 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
         return Response(ScannerImpactSerializer(instance=impact).data)
+
+    @extend_schema(responses={200: ScannerSelfDrivingStatsSerializer})
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="self_driving_stats",
+        required_scopes=["replay_scanner:read", "task:read"],
+    )
+    def self_driving_stats(self, request: Request, **kwargs: Any) -> Response:
+        """What self-driving did with this scanner's signals: reports contributed to and PRs opened."""
+        scanner = self.get_object()
+        outcomes = get_outcomes_for_signal_source_slice(
+            team=self.team,
+            source_product=VISION_SIGNALS_SOURCE_PRODUCT,
+            source_type=VISION_SIGNALS_SOURCE_TYPE,
+            extra_equals={"scanner_id": str(scanner.id)},
+        )
+        return Response(
+            ScannerSelfDrivingStatsSerializer(
+                instance={
+                    "signals_emitted": outcomes.signal_count,
+                    "reports_contributed": outcomes.report_count,
+                    "prs_opened": outcomes.pr_count,
+                    "prs_merged": outcomes.merged_pr_count,
+                }
+            ).data
+        )
 
     @extend_schema(
         request=AffectedCohortRequestSerializer,
