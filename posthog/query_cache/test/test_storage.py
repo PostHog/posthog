@@ -187,7 +187,10 @@ class TestStoredValueFormats(BaseTest):
         # A corrupt frame's declared content size raises MemoryError, not zstd.Error.
         with patch("posthog.query_cache.storage.zstd.decompress", side_effect=MemoryError):
             assert cache.lookup().entry is None
-        assert _redis_raw(cache_key) is None
+        # The miss must not mutate: the entry is still there and served once reads work again.
+        entry = cache.lookup().entry
+        assert entry is not None
+        assert entry.as_full_response() == response
 
     @parameterized.expand(
         [
@@ -395,7 +398,7 @@ class TestQueryCacheS3Routing(BaseTest):
         assert entry is not None
         assert entry.as_full_response() == response
 
-    def test_missing_blob_reads_as_miss_and_drops_pointer(self):
+    def test_missing_blob_reads_as_miss_and_keeps_the_entry(self):
         cache_key = f"s3_missing_{self.team.pk}"
         cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
 
@@ -403,8 +406,9 @@ class TestQueryCacheS3Routing(BaseTest):
             cache.store_result(response=self._large_response(), target_age=None)
         self.storage.objects.clear()
 
+        # Reads never mutate; the recompute a miss triggers is what overwrites dead entries.
         assert cache.lookup().entry is None
-        assert _redis_raw(cache_key) is None
+        assert self._redis_holds_pointer(cache_key)
 
     def test_disabled_object_storage_reads_as_miss_and_keeps_pointer(self):
         cache_key = f"s3_disabled_read_{self.team.pk}"

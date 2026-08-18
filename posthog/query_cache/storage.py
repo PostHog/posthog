@@ -163,30 +163,6 @@ def delete_entry(cache_key: str) -> None:
     query_cache_raw_client().delete(entry_redis_key(cache_key))
 
 
-def _delete_entry_silently(cache_key: str) -> None:
-    try:
-        delete_entry(cache_key)
-    except Exception:
-        pass
-
-
-_DELETE_IF_UNCHANGED_SCRIPT = """
-if redis.call('GET', KEYS[1]) == ARGV[1] then
-    return redis.call('DEL', KEYS[1])
-end
-return 0
-"""
-
-
-def _delete_entry_if_unchanged(cache_key: str, expected_value: bytes) -> None:
-    # Guards the generation race: between loading this value and condemning it, a fresh entry
-    # may have replaced it under the same key, and that entry must survive.
-    try:
-        query_cache_raw_client().eval(_DELETE_IF_UNCHANGED_SCRIPT, 1, entry_redis_key(cache_key), expected_value)  # type: ignore[union-attr]
-    except Exception:
-        pass
-
-
 def encode_inline_value(payload: bytes) -> bytes:
     """The bytes stored inline in Redis for a serialized result: the payload or its zstd frame.
 
@@ -298,11 +274,11 @@ def schedule_upload_for_pointer(
 
 
 def decode_stored_value(value: bytes, *, team_id: int, cache_key: str) -> Optional[bytes]:
-    """Resolve stored bytes back to the result payload. Never raises.
+    """Resolve stored bytes back to the result payload. Never raises, never mutates.
 
-    None means the entry is unusable: definitively dead values (unresolvable pointers, corrupt
-    frames) are deleted so subsequent reads miss on the Redis lookup alone, while transient S3
-    errors keep the pointer, because the entry becomes readable again once S3 recovers.
+    None means this read found the entry unusable (corrupt bytes, an unresolvable pointer).
+    The miss sends the caller to recompute, and its store overwrites the entry, so dead
+    entries heal by replacement rather than by deletion here.
     """
     if value.startswith(S3_POINTER_MAGIC):
         return _read_blob(value, team_id=team_id, cache_key=cache_key)
@@ -313,7 +289,6 @@ def decode_stored_value(value: bytes, *, team_id: int, cache_key: str) -> Option
             # Broader than zstd.Error on purpose: a corrupt frame's declared content size
             # raises MemoryError or OverflowError, and this function must never raise.
             logger.warning("query_cache_decompress_failed", team_id=team_id, cache_key=cache_key, exc_info=True)
-            _delete_entry_if_unchanged(cache_key, value)
             return None
         return _unpickle_if_legacy(payload, team_id=team_id, cache_key=cache_key)
     if value.startswith(PICKLE_PROTO_MARKER):
@@ -351,8 +326,8 @@ def decode_pointer(data: bytes) -> Optional[S3BlobPointer]:
         return None
     try:
         payload = OrjsonJsonSerializer({}).loads(data[len(S3_POINTER_MAGIC) :])
-        # An unrecognized version or shape must land on the corrupt path (delete + recompute),
-        # not decode into a bogus pointer that is retried against S3 for its whole TTL.
+        # An unrecognized version or shape must read as corrupt (miss + recompute), not decode
+        # into a bogus pointer that is retried against S3.
         if payload.get("v") != 1 or not isinstance(payload.get("b"), str) or not isinstance(payload.get("k"), str):
             return None
         last_refresh = payload.get("lr")
@@ -444,7 +419,6 @@ def _read_blob(pointer_bytes: bytes, *, team_id: int, cache_key: str) -> Optiona
     if pointer is None:
         _record_s3_read("pointer_corrupt")
         logger.warning("query_cache_s3_pointer_corrupt", team_id=team_id, cache_key=cache_key)
-        _delete_entry_if_unchanged(cache_key, pointer_bytes)
         return None
     if not settings.OBJECT_STORAGE_ENABLED:
         # UnavailableStorage returns None for every read, indistinguishable from a missing
@@ -462,7 +436,6 @@ def _read_blob(pointer_bytes: bytes, *, team_id: int, cache_key: str) -> Optiona
     fetch_seconds = time.perf_counter() - fetch_start
     if payload is None:
         _record_s3_read("missing", fetch_seconds)
-        _delete_entry_if_unchanged(cache_key, pointer_bytes)
         return None
     try:
         data = zstd.decompress(payload)
@@ -471,7 +444,6 @@ def _read_blob(pointer_bytes: bytes, *, team_id: int, cache_key: str) -> Optiona
         # MemoryError or OverflowError, and this function must never raise.
         _record_s3_read("blob_corrupt", fetch_seconds)
         logger.warning("query_cache_s3_decompress_failed", team_id=team_id, cache_key=cache_key, exc_info=True)
-        _delete_entry_if_unchanged(cache_key, pointer_bytes)
         return None
     _record_s3_read("hit", fetch_seconds)
     return data
@@ -498,11 +470,9 @@ def _unpickle_if_legacy(payload: bytes, *, team_id: int, cache_key: str) -> Opti
         legacy = _LegacyValueUnpickler(io.BytesIO(payload)).load()
     except Exception:
         logger.warning("query_cache_legacy_unpickle_failed", team_id=team_id, cache_key=cache_key, exc_info=True)
-        _delete_entry_silently(cache_key)
         return None
     if not isinstance(legacy, bytes):
         logger.warning("query_cache_legacy_value_not_bytes", team_id=team_id, cache_key=cache_key)
-        _delete_entry_silently(cache_key)
         return None
     LEGACY_VALUE_READ_COUNTER.inc()
     return legacy
