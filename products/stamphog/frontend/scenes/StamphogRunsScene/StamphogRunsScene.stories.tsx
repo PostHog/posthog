@@ -110,6 +110,8 @@ const reviewRuns = {
             pr_number: 83801,
             title: 'fix(insights): guard empty series in trend export',
             head_sha: '8ba0e4192f7c6ab35d0e17c9f4a82b6d503e1a99',
+            // The supersede paths stamp the status and updated_at but leave completed_at null, so this
+            // row is what proves a terminal run's duration stops instead of growing against now.
             status: 'superseded',
             verdict: 'none',
             gate_result: {},
@@ -117,7 +119,8 @@ const reviewRuns = {
             posted_review_id: null,
             verdict_posted_at: null,
             created_at: '2026-08-17T13:12:08Z',
-            completed_at: '2026-08-17T13:12:50Z',
+            updated_at: '2026-08-17T13:12:50Z',
+            completed_at: null,
         } as Partial<ReviewRunApi>),
         run({
             id: '00000000-0000-0000-0000-0000000000b4',

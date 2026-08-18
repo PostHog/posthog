@@ -58,12 +58,14 @@ const digestRuns = {
     previous: null,
     results: [
         digestRun({}),
-        // A channel with no slack_channel_name falls back to its ID, and an empty digest still posts.
+        // A channel with no slack_channel_name falls back to its ID. This run also found nothing worth
+        // summarizing, so it completed with posted_at stamped but never called Slack — only the empty
+        // slack_message_ts separates it from a real post.
         digestRun({
             id: '00000000-0000-0000-0000-0000000000e1',
             digest_channel: '00000000-0000-0000-0000-0000000000d2',
             pr_count: 0,
-            slack_message_ts: '1755424801.002100',
+            slack_message_ts: '',
             created_at: '2026-08-17T09:00:01Z',
             posted_at: '2026-08-17T09:00:06Z',
         }),

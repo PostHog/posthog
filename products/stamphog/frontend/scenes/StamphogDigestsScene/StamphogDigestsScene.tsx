@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -39,9 +39,9 @@ function DigestFilters(): JSX.Element {
 }
 
 function DigestsTable(): JSX.Element {
-    const { digestRuns, digestRunsCount, digestRunsResponseLoading, page, channelsById } =
+    const { digestRuns, digestRunsCount, digestRunsResponseLoading, digestRunsFailed, page, channelsById } =
         useValues(stamphogDigestsSceneLogic)
-    const { setPage } = useActions(stamphogDigestsSceneLogic)
+    const { setPage, loadDigestRuns } = useActions(stamphogDigestsSceneLogic)
 
     const columns: LemonTableColumns<DigestRunApi> = [
         {
@@ -68,7 +68,7 @@ function DigestsTable(): JSX.Element {
             title: 'Status',
             key: 'status',
             render: (_, run) => {
-                const { type, label } = digestStatusDisplay(run.status)
+                const { type, label } = digestStatusDisplay(run)
                 return <LemonTag type={type}>{label}</LemonTag>
             },
         },
@@ -83,6 +83,18 @@ function DigestsTable(): JSX.Element {
             render: (_, run) => (run.posted_at ? <TZLabel time={run.posted_at} /> : null),
         },
     ]
+
+    if (digestRunsFailed) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{ children: 'Try again', onClick: () => loadDigestRuns() }}
+                data-attr="stamphog-digests-error"
+            >
+                Could not load digests. This is usually temporary.
+            </LemonBanner>
+        )
+    }
 
     return (
         <LemonTable
@@ -112,7 +124,7 @@ function DigestRunDetails({ run }: { run: DigestRunApi }): JSX.Element {
         <div className="flex flex-col gap-2 pl-2 pr-4 py-4 text-xs">
             {run.error && <span className="font-mono text-danger break-all">{run.error}</span>}
             {run.slack_message_ts && (
-                <span className="font-mono text-muted break-all">Slack message ts: {run.slack_message_ts}</span>
+                <span className="font-mono text-muted break-all">Slack message timestamp: {run.slack_message_ts}</span>
             )}
         </div>
     )
@@ -123,7 +135,7 @@ export function StamphogDigestsScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Digests"
-                description="Every merged-PR digest stamphog posted, and where it went."
+                description="Every digest Stamphog posted, and where it went."
                 resourceType={{ type: 'stamphog' }}
             />
             <StamphogTabs activeKey="digests" />

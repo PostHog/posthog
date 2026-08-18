@@ -59,15 +59,30 @@ export const TRIGGER_OPTIONS: { value: StamphogReviewRunsListTrigger; label: str
     TRIGGER_LABEL
 ).map(([value, label]) => ({ value: value as StamphogReviewRunsListTrigger, label }))
 
+// Statuses that mean the run is over. Mirrors TERMINAL_STATUSES in the backend's facade/enums.py.
+const TERMINAL_STATUSES: ReadonlySet<ReviewRunStatusEnumApi> = new Set([
+    ReviewRunStatusEnumApi.Completed,
+    ReviewRunStatusEnumApi.Failed,
+    ReviewRunStatusEnumApi.Superseded,
+    ReviewRunStatusEnumApi.Gated,
+])
+
 /**
  * How long the run took, or how long it has been going.
  *
- * A run without completed_at is still in flight, so it's measured against now — a run wedged in the
- * sandbox is exactly what someone opens this table to find, and a blank cell would hide it. The
- * status column is what says which of the two a given number is.
+ * A run still in flight is measured against now — a run wedged in the sandbox is exactly what someone
+ * opens this table to find, and a blank cell would hide it. The status column is what says which of
+ * the two a given number is.
+ *
+ * Terminal runs fall back to updated_at, because the supersede paths set the status without stamping
+ * completed_at. Measuring those against now would grow a finished run's duration forever.
  */
 export function runDuration(run: ReviewRunApi): string {
-    const end = run.completed_at ? dayjs(run.completed_at) : dayjs()
+    const end = run.completed_at
+        ? dayjs(run.completed_at)
+        : TERMINAL_STATUSES.has(run.status)
+          ? dayjs(run.updated_at)
+          : dayjs()
     const seconds = end.diff(dayjs(run.created_at), 'second')
     if (seconds < 0) {
         return ''

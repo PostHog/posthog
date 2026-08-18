@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -48,8 +48,8 @@ function RunFilters(): JSX.Element {
 }
 
 function RunsTable(): JSX.Element {
-    const { runs, runCount, runsResponseLoading, page } = useValues(stamphogRunsSceneLogic)
-    const { setPage } = useActions(stamphogRunsSceneLogic)
+    const { runs, runCount, runsResponseLoading, runsFailed, page } = useValues(stamphogRunsSceneLogic)
+    const { setPage, loadRuns } = useActions(stamphogRunsSceneLogic)
 
     const columns: LemonTableColumns<ReviewRunApi> = [
         {
@@ -112,6 +112,18 @@ function RunsTable(): JSX.Element {
         },
     ]
 
+    if (runsFailed) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{ children: 'Try again', onClick: () => loadRuns() }}
+                data-attr="stamphog-runs-error"
+            >
+                Could not load runs. This is usually temporary.
+            </LemonBanner>
+        )
+    }
+
     return (
         <LemonTable
             columns={columns}
@@ -137,7 +149,7 @@ export function StamphogRunsScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Runs"
-                description="Every time stamphog reviewed a pull request, and what it decided."
+                description="Every time Stamphog reviewed a pull request, and what it decided."
                 resourceType={{ type: 'stamphog' }}
             />
             <StamphogTabs activeKey="runs" />

@@ -21,6 +21,7 @@ export interface stamphogDigestsSceneLogicValues {
     digestChannelsLoading: boolean
     digestRuns: DigestRunApi[]
     digestRunsCount: number
+    digestRunsFailed: boolean
     digestRunsResponse: PaginatedDigestRunListApi | null
     digestRunsResponseLoading: boolean
     page: number
@@ -94,6 +95,17 @@ export const stamphogDigestsSceneLogic = kea<stamphogDigestsSceneLogicType>([
                 setDigestChannel: () => 1,
             },
         ],
+        // A failed request resolves the loader with a null response, which the runs selector turns into
+        // an empty list. Without this the table would claim there are no digests when it simply could
+        // not ask. Loading, empty and error are three different screens.
+        digestRunsFailed: [
+            false,
+            {
+                loadDigestRuns: () => false,
+                loadDigestRunsSuccess: () => false,
+                loadDigestRunsFailure: () => true,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -118,8 +130,21 @@ export const stamphogDigestsSceneLogic = kea<stamphogDigestsSceneLogicType>([
             [] as DigestChannelApi[],
             {
                 loadDigestChannels: async () => {
-                    const response = await stamphogDigestChannelsList(String(values.currentProjectId), { limit: 200 })
-                    return response.results
+                    // Follow LimitOffset pagination the same way the repositories scene does: a truncated
+                    // first page would leave channels out of the filter while their digests still show up.
+                    const pageSize = 100
+                    const all: DigestChannelApi[] = []
+                    for (let offset = 0; ; offset += pageSize) {
+                        const response = await stamphogDigestChannelsList(String(values.currentProjectId), {
+                            limit: pageSize,
+                            offset,
+                        })
+                        all.push(...response.results)
+                        if (all.length >= response.count || response.results.length === 0) {
+                            break
+                        }
+                    }
+                    return all
                 },
             },
         ],

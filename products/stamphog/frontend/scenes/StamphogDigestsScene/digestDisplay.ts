@@ -1,6 +1,6 @@
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
 
-import { DigestChannelApi, DigestRunStatusEnumApi } from '../../generated/api.schemas'
+import { DigestChannelApi, DigestRunApi, DigestRunStatusEnumApi } from '../../generated/api.schemas'
 
 const STATUS_DISPLAY: Record<DigestRunStatusEnumApi, { type: LemonTagType; label: string }> = {
     pending: { type: 'default', label: 'Pending' },
@@ -8,8 +8,18 @@ const STATUS_DISPLAY: Record<DigestRunStatusEnumApi, { type: LemonTagType; label
     failed: { type: 'danger', label: 'Failed' },
 }
 
-export function digestStatusDisplay(status: DigestRunStatusEnumApi): { type: LemonTagType; label: string } {
-    return STATUS_DISPLAY[status] ?? { type: 'muted', label: status }
+/**
+ * What happened to a digest run.
+ *
+ * A run that found nothing worth summarizing completes without calling Slack, and still stamps
+ * posted_at. Only slack_message_ts proves a message exists, so it decides "Posted" against
+ * "Nothing to post" — otherwise the table claims a Slack post the reader will not find.
+ */
+export function digestStatusDisplay(run: DigestRunApi): { type: LemonTagType; label: string } {
+    if (run.status === DigestRunStatusEnumApi.Completed && !run.slack_message_ts) {
+        return { type: 'muted', label: 'Nothing to post' }
+    }
+    return STATUS_DISPLAY[run.status] ?? { type: 'muted', label: run.status }
 }
 
 /**

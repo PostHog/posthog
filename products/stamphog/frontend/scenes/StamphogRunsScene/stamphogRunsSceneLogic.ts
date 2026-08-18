@@ -25,6 +25,7 @@ export interface stamphogRunsSceneLogicValues {
     repositoryOptions: { value: string; label: string }[]
     runCount: number
     runs: ReviewRunApi[]
+    runsFailed: boolean
     runsResponse: PaginatedReviewRunListApi | null
     runsResponseLoading: boolean
     trigger: StamphogReviewRunsListTrigger | null
@@ -101,6 +102,17 @@ export const stamphogRunsSceneLogic = kea<stamphogRunsSceneLogicType>([
                 setTrigger: () => 1,
             },
         ],
+        // A failed request resolves the loader with a null response, which the runs selector turns into
+        // an empty list. Without this the table would claim there are no runs when it simply could not
+        // ask. Loading, empty and error are three different screens.
+        runsFailed: [
+            false,
+            {
+                loadRuns: () => false,
+                loadRunsSuccess: () => false,
+                loadRunsFailure: () => true,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -126,8 +138,22 @@ export const stamphogRunsSceneLogic = kea<stamphogRunsSceneLogicType>([
             [] as StamphogRepoConfigApi[],
             {
                 loadRepoConfigs: async () => {
-                    const response = await stamphogRepoConfigsList(String(values.currentProjectId), { limit: 200 })
-                    return response.results
+                    // An installation can surface hundreds of repos, so follow LimitOffset pagination and
+                    // fetch every page. A truncated first page would leave repos out of the filter while
+                    // their runs still show up in the table.
+                    const pageSize = 100
+                    const all: StamphogRepoConfigApi[] = []
+                    for (let offset = 0; ; offset += pageSize) {
+                        const response = await stamphogRepoConfigsList(String(values.currentProjectId), {
+                            limit: pageSize,
+                            offset,
+                        })
+                        all.push(...response.results)
+                        if (all.length >= response.count || response.results.length === 0) {
+                            break
+                        }
+                    }
+                    return all
                 },
             },
         ],
