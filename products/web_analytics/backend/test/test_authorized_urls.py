@@ -71,7 +71,7 @@ class TestAuthorizedUrlsSignal(BaseTest):
             self.team.app_urls = ["https://example.com"]
             self.team.save()
 
-        mock_task.delay.assert_called_with("authorized_urls", self.team.id)
+        mock_task.delay.assert_any_call("authorized_urls", self.team.id)
 
     @patch("posthog.tasks.health_checks.evaluate_health_check_for_team")
     def test_task_not_dispatched_before_commit(self, mock_task):

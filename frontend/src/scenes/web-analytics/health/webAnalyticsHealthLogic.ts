@@ -249,15 +249,15 @@ export interface webAnalyticsHealthLogicActions {
     refreshHealthChecks: (isManual?: boolean) => {
         isManual: boolean
     }
-    setNextRefreshAvailableAt: (timestamp: number | null) => {
-        timestamp: number | null
-    }
     setIssueDismissed: (
         id: string,
         dismissed: boolean
     ) => {
         dismissed: boolean
         id: string
+    }
+    setNextRefreshAvailableAt: (timestamp: number | null) => {
+        timestamp: number | null
     }
     setNow: (now: number) => {
         now: number

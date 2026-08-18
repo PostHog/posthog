@@ -36,9 +36,10 @@ export function HealthCheckSection({
     onToggle,
 }: HealthCheckSectionProps): JSX.Element {
     const config = CATEGORY_CONFIG[category]
-    const passedCount = checks.filter((c) => c.status === 'success').length
-    const totalCount = checks.length
-    const hasIssues = checks.some((c) => c.status === 'warning' || c.status === 'error')
+    const counted = checks.filter((c) => !c.dismissed)
+    const passedCount = counted.filter((c) => c.status === 'success' || c.status === 'info').length
+    const totalCount = counted.length
+    const hasIssues = counted.some((c) => c.status === 'warning' || c.status === 'error')
 
     const handleChange = (activeKey: HealthCheckCategory | null): void => {
         onToggle?.(category, activeKey === category)
