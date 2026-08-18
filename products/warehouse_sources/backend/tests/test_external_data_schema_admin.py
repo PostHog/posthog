@@ -206,6 +206,29 @@ class TestExternalDataSchemaAdmin(BaseTest):
                     "partition_keys": ["action_date"],
                 },
             ),
+            # The composite escape hatch for a single over-budget day: needs format AND count, plus
+            # a date key first and at least one more key to hash into sub-buckets.
+            (
+                "datetime_escalates_to_composite",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "day",
+                    "partitioning_keys": ["action_date"],
+                    "partitioning_enabled": True,
+                },
+                {
+                    "partition_mode": "datetime_md5",
+                    "partition_format": "day",
+                    "partition_count": "8",
+                    "partitioning_keys": "action_date,record_id",
+                },
+                {
+                    "partition_mode": "datetime_md5",
+                    "partition_format": "day",
+                    "partition_count": 8,
+                    "partition_keys": ["action_date", "record_id"],
+                },
+            ),
         ]
     )
     def test_change_partition_mode_queues_pending_target(
@@ -248,6 +271,19 @@ class TestExternalDataSchemaAdmin(BaseTest):
             ),
             ("md5_without_count", {"partition_mode": "md5"}),
             ("numerical_without_size", {"partition_mode": "numerical", "partitioning_keys": "id"}),
+            (
+                "datetime_md5_without_count",
+                {"partition_mode": "datetime_md5", "partition_format": "day", "partitioning_keys": "a,b"},
+            ),
+            (
+                "datetime_md5_single_key_cannot_subbucket",
+                {
+                    "partition_mode": "datetime_md5",
+                    "partition_format": "day",
+                    "partition_count": "8",
+                    "partitioning_keys": "action_date",
+                },
+            ),
         ]
     )
     def test_change_partition_mode_rejects_invalid_input(self, _name: str, post_data: dict) -> None:

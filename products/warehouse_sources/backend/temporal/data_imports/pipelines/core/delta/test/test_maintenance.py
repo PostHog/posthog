@@ -324,6 +324,7 @@ class TestRunScheduled:
 
     def _schema(self) -> MagicMock:
         schema = MagicMock()
+        schema.partition_mode = "md5"
         schema.partition_count = 10
         schema.last_vacuum_version = 41
         schema.last_vacuum_version_cdc = 7
@@ -356,16 +357,20 @@ class TestRunScheduled:
 
     @parameterized.expand(
         [
-            # (name, is_cdc_companion, schema_partition_count, fallback, expected_count, expected_last, expected_key)
+            # (name, is_cdc_companion, partition_mode, schema_partition_count, fallback, expected_count,
+            #  expected_last, expected_key)
             # The schema's persisted count wins over the source's fallback.
-            ("main_schema_count_wins", False, 10, 72, 10, 41, "last_vacuum_version"),
+            ("main_schema_count_wins", False, "md5", 10, 72, 10, 41, "last_vacuum_version"),
             # md5-less schemas persist no count; the source-provided fallback applies.
-            ("main_falls_back_to_source_count", False, None, 72, 72, 41, "last_vacuum_version"),
-            ("main_both_none_derives_downstream", False, None, None, None, 41, "last_vacuum_version"),
+            ("main_falls_back_to_source_count", False, "datetime", None, 72, 72, 41, "last_vacuum_version"),
+            ("main_both_none_derives_downstream", False, "datetime", None, None, None, 41, "last_vacuum_version"),
+            # A composite schema's count is sub-buckets per date, not physical partitions; passing it
+            # would inflate files_per_partition by the date count and compact every pass. Derive it.
+            ("composite_count_is_ignored", False, "datetime_md5", 8, 72, None, 41, "last_vacuum_version"),
             # The snapshot and _cdc companion are different delta tables with unrelated versions, so
             # the companion must use last_vacuum_version_cdc — sharing a key corrupts both cadences —
             # and must ignore schema.partition_count, which describes the snapshot table's layout.
-            ("companion_own_key_and_layout", True, 10, 72, None, 7, "last_vacuum_version_cdc"),
+            ("companion_own_key_and_layout", True, "md5", 10, 72, None, 7, "last_vacuum_version_cdc"),
         ]
     )
     @pytest.mark.asyncio
@@ -373,6 +378,7 @@ class TestRunScheduled:
         self,
         _name: str,
         is_cdc_companion: bool,
+        partition_mode: str,
         schema_count: int | None,
         fallback: int | None,
         expected_count: int | None,
@@ -380,6 +386,7 @@ class TestRunScheduled:
         expected_key: str,
     ):
         schema = self._schema()
+        schema.partition_mode = partition_mode
         schema.partition_count = schema_count
         run_maintenance, update_config, _ = await self._run(
             _make_maintenance(MagicMock()),

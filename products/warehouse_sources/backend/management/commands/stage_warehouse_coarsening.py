@@ -131,9 +131,14 @@ class Command(BaseCommand):
 
     def _report(self, candidates: list[ExternalDataSchema], threshold: int) -> None:
         self.stdout.write(f"Largest-partition threshold: {threshold:,} bytes\n")
-        self.stdout.write(f"{'schema_id':38} {'team':>7} {'source':14} {'format':6} {'largest_bytes':>14}  name")
+        self.stdout.write(
+            f"{'schema_id':38} {'team':>7} {'source':14} {'mode':12} {'format':6} {'count':>5} {'largest_bytes':>14}  name"
+        )
         for schema in candidates:
+            # Mode and count make composite nominations reviewable: `day` alone can't tell a plain
+            # daily table from a day x 32 sub-bucket one, and they coarsen very differently.
             self.stdout.write(
                 f"{str(schema.id):38} {schema.team_id:>7} {schema.source.source_type:14} "
-                f"{str(schema.partition_format or '-'):6} {schema.max_partition_bytes or 0:>14,}  {schema.name}"
+                f"{str(schema.partition_mode or '-'):12} {str(schema.partition_format or '-'):6} "
+                f"{str(schema.partition_count or '-'):>5} {schema.max_partition_bytes or 0:>14,}  {schema.name}"
             )

@@ -367,8 +367,8 @@ def select_repartition_target(
     than stepping blindly: md5 grows the bucket count, numerical shrinks the row-size, datetime steps
     one format tier finer. When no target is chosen the reason explains why (reported in metrics so a
     skipped table is diagnosable): `within_budget`, `datetime_at_finest_tier`, `numerical_cannot_shrink`,
-    `numerical_no_size`, `composite_needs_over_budget`, or `unpartitionable_no_keys`. A chosen target
-    carries reason `selected`.
+    `numerical_no_size`, `composite_needs_over_budget`, `composite_cannot_split`, or
+    `unpartitionable_no_keys`. A chosen target carries reason `selected`.
 
     `true_budget_bytes` guards md5 sub-bucketing: creating or growing `datetime_md5` sub-buckets is
     allowed only while the largest partition exceeds it. The OOM trigger passes a halved split budget
@@ -403,6 +403,17 @@ def select_repartition_target(
         # budget: grow the sub-bucket count. Sized from the largest composite partition so a date's
         # heaviest sub-bucket lands near budget after the rewrite.
         current = schema.partition_count or 1
+        if current > 1:
+            # Growth must have evidence it can work. If the heaviest date already had several
+            # sub-buckets available and still landed all its bytes in one, the md5 keys don't vary
+            # within that date, so a bigger count re-runs the same full-table rewrite every cooldown
+            # and changes nothing. Refuse rather than grow forever.
+            max_key = max(partition_bytes, key=lambda k: partition_bytes[k])
+            if max_key is not None and "_" in max_key:
+                max_date = max_key.rsplit("_", 1)[0]
+                observed_buckets = sum(1 for k in partition_bytes if k is not None and k.rsplit("_", 1)[0] == max_date)
+                if observed_buckets <= 1:
+                    return None, "composite_cannot_split"
         new_count = max(current + 1, math.ceil(current * max_bytes / target_partition_bytes))
         return RepartitionTarget(
             partition_keys=keys,
@@ -712,17 +723,22 @@ def select_coarsen_target(
         # datetime ceiling, so once whole dates fit again the sub-buckets have no reason to stay.
         collapsed = _simulate_composite_collapse(partition_bytes, current_format)
         if collapsed is not None:
+            # A collapse back to plain datetime must also shed the md5 sub-bucket keys: persisting the
+            # full composite list makes `_datetime_tier_ceiling` read the key as non-date-granular
+            # (`len(keys) != 1`) and offer `hour` again, wasting a full no-op rewrite on date-only keys
+            # before the next escalation.
+            date_key_only = [keys[0]]
             for new_format in _COARSER_DATETIME_TIERS.get(current_format, ()):
                 if acceptable(_simulate_datetime_coarsening(collapsed, current_format, new_format)):
                     return RepartitionTarget(
-                        partition_keys=keys,
+                        partition_keys=date_key_only,
                         trigger_reason="",
                         partition_mode="datetime",
                         partition_format=new_format,
                     ), "selected"
             if acceptable(collapsed):
                 return RepartitionTarget(
-                    partition_keys=keys,
+                    partition_keys=date_key_only,
                     trigger_reason="",
                     partition_mode="datetime",
                     partition_format=current_format,
@@ -789,7 +805,11 @@ def _read_next_batch(reader: pa.RecordBatchReader) -> pa.RecordBatch | None:
 
 
 def _format_scheme(target: RepartitionTarget) -> str:
-    """`datetime/month`, `md5/64`, `numerical/1000000` — the scheme in one readable token."""
+    """`datetime/month`, `md5/64`, `datetime_md5/day/8` — the scheme in one readable token."""
+    if target.partition_mode == "datetime_md5":
+        # Both knobs matter for a composite: format alone can't distinguish a subcount change
+        # (day/8 -> day/16) from a no-op.
+        return f"datetime_md5/{target.partition_format}/{target.partition_count}"
     knob = target.partition_format or target.partition_count or target.partition_size
     return f"{target.partition_mode or 'auto'}/{knob}" if knob else (target.partition_mode or "auto")
 

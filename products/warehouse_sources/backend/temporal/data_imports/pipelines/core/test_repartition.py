@@ -347,6 +347,23 @@ class TestSelectRepartitionTarget:
             assert target is None
             assert reason == "composite_needs_over_budget"
 
+    def test_composite_growth_refused_when_keys_cannot_split(self):
+        # The heaviest date had 4 sub-buckets available and still landed every byte in one: the md5
+        # keys don't vary within that date, so growing the count would re-run a full-table rewrite
+        # every cooldown without ever relieving the pressure.
+        target, reason = select_repartition_target(
+            _schema(
+                partition_mode="datetime_md5",
+                partition_format="day",
+                partition_count=4,
+                partitioning_keys=["segments_date", "ad_id"],
+            ),
+            {"2024-01-01_0": 5000, "2024-01-02_1": 100},
+            1000,
+        )
+        assert target is None
+        assert reason == "composite_cannot_split"
+
     @parameterized.expand(
         [
             ("composite_under_true_budget_refuses_growth", 8000, False),
@@ -516,7 +533,9 @@ class TestSelectCoarsenTarget:
                 },
                 {f"2024-01-{day:02d}_{bucket}": 50 for day in range(1, 5) for bucket in range(4)},
                 1000,
-                {"partition_mode": "datetime", "partition_format": "month"},
+                # The collapse must shed the sub-bucket keys too, or the multi-key list defeats the
+                # date-only tier ceiling on the next growth cycle.
+                {"partition_mode": "datetime", "partition_format": "month", "partition_keys": ["created_at"]},
             ),
             # Whole dates still exceed the target, so the composite stays but with the fewest
             # sub-buckets (a divisor) whose merged buckets fit.

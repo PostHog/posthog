@@ -298,7 +298,14 @@ class DeltaMaintenance:
                 watermark_key = "last_vacuum_version_cdc"
                 last_vacuum_version = schema.last_vacuum_version_cdc
             else:
-                partition_count = schema.partition_count or partition_count_fallback
+                if schema.partition_mode == "datetime_md5":
+                    # A composite schema's persisted count is sub-buckets *per date*, not physical
+                    # partitions. Passing it would inflate files_per_partition by the number of
+                    # dates and trip the fragmentation threshold on every pass, scheduling a full
+                    # compact + vacuum each sync. Derive the real count from the table's layout.
+                    partition_count = None
+                else:
+                    partition_count = schema.partition_count or partition_count_fallback
                 watermark_key = "last_vacuum_version"
                 last_vacuum_version = schema.last_vacuum_version
 

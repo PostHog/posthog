@@ -202,9 +202,9 @@
                            type="text" value="{% if current_partition_keys %}{{ current_partition_keys|join:',' }}{% endif %}"
                            placeholder="comma-separated column names (table not synced yet)">
                 {% endif %}
-                <span class="help" id="repartition_keys_hint">md5 hashes one or more keys together; datetime/numerical use a single column. Leave blank for md5 to use the table's primary keys.</span>
+                <span class="help" id="repartition_keys_hint">md5 hashes one or more keys together; datetime/numerical use a single column; datetime_md5 uses the first key as the date column and hashes the remaining keys into sub-buckets, so key order matters. Leave blank for md5 to use the table's primary keys.</span>
             </div>
-            <div class="partitioning-controls" id="repartition_format_row"{% if effective_partition_mode != "datetime" %} style="display: none"{% endif %}>
+            <div class="partitioning-controls" id="repartition_format_row"{% if effective_partition_mode != "datetime" and effective_partition_mode != "datetime_md5" %} style="display: none"{% endif %}>
                 <label for="repartition_format">Partition format:</label>
                 <select id="repartition_format" name="partition_format" form="repartition-action-form">
                     {% for choice in partition_format_choices %}
@@ -212,7 +212,7 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="partitioning-controls" id="repartition_count_row"{% if effective_partition_mode != "md5" %} style="display: none"{% endif %}>
+            <div class="partitioning-controls" id="repartition_count_row"{% if effective_partition_mode != "md5" and effective_partition_mode != "datetime_md5" %} style="display: none"{% endif %}>
                 <label for="repartition_count">Partition count:</label>
                 <input id="repartition_count" name="partition_count" form="repartition-action-form"
                        type="number" min="1" step="1" value="{{ current_partition_count|default_if_none:'' }}"
@@ -225,6 +225,11 @@
                 10&nbsp;GB → ~50; use the source-side size incl. indexes/TOAST). md5 scatters changed
                 rows across all buckets, so every incremental sync rewrites every changed partition —
                 don't over-partition a small or low-churn table.
+            </p>
+            <p class="help" id="repartition_datetime_md5_help"{% if effective_partition_mode != "datetime_md5" %} style="display: none"{% endif %}>
+                datetime_md5 keeps a date bucket from the first key and splits each date into
+                <code>partition_count</code> md5 sub-buckets over the remaining keys. Use it when a
+                table at its finest datetime tier still has a single day or hour over budget.
             </p>
             <div class="partitioning-controls" id="repartition_size_row"{% if effective_partition_mode != "numerical" %} style="display: none"{% endif %}>
                 <label for="repartition_size">Partition size:</label>
@@ -252,7 +257,15 @@
                         datetime: ["repartition_format_row"],
                         md5: ["repartition_count_row", "repartition_md5_help"],
                         numerical: ["repartition_size_row", "repartition_numerical_help"],
+                        datetime_md5: ["repartition_format_row", "repartition_count_row", "repartition_datetime_md5_help"],
                     };
+                    // Rows shared by several modes (format, count) must be resolved against the
+                    // selected mode's id set, not per-group: iterating groups and toggling each
+                    // group's ids would let a later group hide a row an earlier one just showed.
+                    var allControlIds = {};
+                    Object.keys(groups).forEach(function (m) {
+                        groups[m].forEach(function (id) { allControlIds[id] = true; });
+                    });
                     function setVisible(id, visible) {
                         var el = document.getElementById(id);
                         if (!el) return;
@@ -298,10 +311,9 @@
                     }
                     function sync() {
                         var mode = modeSelect.value;
-                        Object.keys(groups).forEach(function (m) {
-                            groups[m].forEach(function (id) {
-                                setVisible(id, m === mode);
-                            });
+                        var active = groups[mode] || [];
+                        Object.keys(allControlIds).forEach(function (id) {
+                            setVisible(id, active.indexOf(id) !== -1);
                         });
                         applyKeyMode(mode);
                     }
