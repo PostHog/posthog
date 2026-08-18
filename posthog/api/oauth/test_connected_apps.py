@@ -195,8 +195,7 @@ class TestConnectedAppsViewSet(APIBaseTest):
         response = self.client.post(f"/api/oauth/connected-apps/{app.id}/revoke/")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        refresh_token.refresh_from_db()
-        assert refresh_token.revoked is not None
+        assert not OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
 
     def test_revoke_does_not_affect_other_users_tokens(self):
         other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
