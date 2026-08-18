@@ -54,12 +54,6 @@ Create a thin product module like `products/logs/backend/alert_destinations.py`.
 
 Shared support for a destination does not opt the product into it.
 
-Before protecting the product's destinations from generic HogFunction management, inventory every existing product that
-matches the same event naming, templates, or query filters. A product-owned API must support creation, listing,
-retrieval, mutation, deletion, and test delivery before its UI leaves the generic path. Keep a narrow compatibility
-exception for legacy clients that cannot migrate in the same change, and test those clients through their real request
-paths.
-
 ## 5. Make delivery transactional with lifecycle state
 
 For HogFunction destinations:
