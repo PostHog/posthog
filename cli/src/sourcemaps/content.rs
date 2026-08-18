@@ -430,13 +430,15 @@ fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<u
         line_start = line_end;
     }
 
+    let mut is_trailing_content = true;
     for (line_start, line_end, line) in lines.into_iter().rev() {
         let trimmed_line = line.trim();
         if trimmed_line.is_empty() || trimmed_line.starts_with("//# chunkId=") {
             continue;
         }
-        if trimmed_line.starts_with("//# sourceMappingURL=")
-            || trimmed_line.starts_with("//@ sourceMappingURL=")
+        if is_trailing_content
+            && (trimmed_line.starts_with("//# sourceMappingURL=")
+                || trimmed_line.starts_with("//@ sourceMappingURL="))
         {
             return Some(line_start..line_end);
         }
@@ -448,7 +450,7 @@ fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<u
             let content_end = line.trim_end_matches(['\r', '\n']).len();
             return Some((line_start + comment_start)..(line_start + content_end));
         }
-        return None;
+        is_trailing_content = false;
     }
 
     None
@@ -688,6 +690,20 @@ mod tests {
         );
         assert!(source.remove_sourcemap_reference());
         assert_eq!(source.inner.content, ".app{color:black}\n");
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_strips_css_comment_before_license() {
+        let mut source = minified_source(
+            ".app{color:black}\n/*# sourceMappingURL=app.css.map */\n/* license */\n",
+        );
+
+        assert_eq!(
+            source.get_sourcemap_reference().unwrap(),
+            Some("app.css.map".to_string())
+        );
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, ".app{color:black}\n/* license */\n");
     }
 
     #[test]
