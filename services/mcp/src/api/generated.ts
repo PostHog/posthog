@@ -330,6 +330,94 @@ export namespace Schemas {
     }
 
     /**
+     * * `internal` - Internal
+     * * `customer` - Customer
+     */
+    export type EmailThreadParticipantKindEnum = typeof EmailThreadParticipantKindEnum[keyof typeof EmailThreadParticipantKindEnum];
+
+
+    export const EmailThreadParticipantKindEnum = {
+      Internal: 'internal',
+      Customer: 'customer',
+    } as const;
+
+    export interface AccountEmailThreadParticipant {
+      /** Email address of the thread participant. */
+      readonly email: string;
+      /** Display name from the captured email headers. */
+      readonly display_name: string;
+      /** Whether the participant belongs to the PostHog organization or the customer.
+       *
+       * * `internal` - Internal
+       * * `customer` - Customer */
+      readonly kind: EmailThreadParticipantKindEnum;
+    }
+
+    export interface AccountEmailThread {
+      /** UUID of the captured email thread. */
+      readonly id: string;
+      /** Email thread subject. */
+      readonly subject: string;
+      /** Plain-text preview of the latest captured message. */
+      readonly preview: string;
+      /**
+         * Source timestamp of the first captured message.
+         * @nullable
+         */
+      readonly first_message_at: string | null;
+      /**
+         * Source timestamp of the latest captured message.
+         * @nullable
+         */
+      readonly last_message_at: string | null;
+      /** Number of captured messages in the thread. */
+      readonly message_count: number;
+      /** Participants included in the email thread. */
+      readonly participants: readonly AccountEmailThreadParticipant[];
+    }
+
+    export interface AccountEmailThreadAddress {
+      /** Name from the email header. */
+      readonly name: string;
+      /** Email address from the email header. */
+      readonly email: string;
+    }
+
+    /**
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound
+     */
+    export type EmailThreadMessageDirectionEnum = typeof EmailThreadMessageDirectionEnum[keyof typeof EmailThreadMessageDirectionEnum];
+
+
+    export const EmailThreadMessageDirectionEnum = {
+      Inbound: 'inbound',
+      Outbound: 'outbound',
+    } as const;
+
+    export interface AccountEmailThreadMessage {
+      /** UUID of the captured email message. */
+      readonly id: string;
+      /** Timestamp from the source email. */
+      readonly sent_at: string;
+      /** Sender from the email From header. */
+      readonly sender: AccountEmailThreadAddress;
+      /** Recipients from the email To header. */
+      readonly to_recipients: readonly AccountEmailThreadAddress[];
+      /** Recipients from the email Cc header. */
+      readonly cc_recipients: readonly AccountEmailThreadAddress[];
+      /** Whether Mailgun authentication verified the sender domain. */
+      readonly sender_authenticated: boolean;
+      /** Whether PostHog received or sent the message.
+       *
+       * * `inbound` - Inbound
+       * * `outbound` - Outbound */
+      readonly direction: EmailThreadMessageDirectionEnum;
+      /** Plain-text email content. */
+      readonly content: string;
+    }
+
+    /**
      * * `engineering` - Engineering
      * * `data` - Data
      * * `product` - Product Management
@@ -12959,6 +13047,398 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `check` - Check
+     * * `firing` - Firing
+     * * `resolved` - Resolved
+     * * `errored` - Errored
+     * * `broken_config` - Broken config
+     */
+    export type BillingAlertEventKindEnum = typeof BillingAlertEventKindEnum[keyof typeof BillingAlertEventKindEnum];
+
+
+    export const BillingAlertEventKindEnum = {
+      Check: 'check',
+      Firing: 'firing',
+      Resolved: 'resolved',
+      Errored: 'errored',
+      BrokenConfig: 'broken_config',
+    } as const;
+
+    /**
+     * * `scheduled` - Scheduled
+     * * `manual` - Manual
+     */
+    export type BillingAlertEventSourceEnum = typeof BillingAlertEventSourceEnum[keyof typeof BillingAlertEventSourceEnum];
+
+
+    export const BillingAlertEventSourceEnum = {
+      Scheduled: 'scheduled',
+      Manual: 'manual',
+    } as const;
+
+    /**
+     * * `spend` - Spend
+     * * `projected_spend` - Projected spend
+     */
+    export type BillingAlertMetricEnum = typeof BillingAlertMetricEnum[keyof typeof BillingAlertMetricEnum];
+
+
+    export const BillingAlertMetricEnum = {
+      Spend: 'spend',
+      ProjectedSpend: 'projected_spend',
+    } as const;
+
+    /**
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken
+     */
+    export type BillingAlertStateEnum = typeof BillingAlertStateEnum[keyof typeof BillingAlertStateEnum];
+
+
+    export const BillingAlertStateEnum = {
+      NotFiring: 'not_firing',
+      Firing: 'firing',
+      Errored: 'errored',
+      Snoozed: 'snoozed',
+      Broken: 'broken',
+    } as const;
+
+    export interface BillingAlertEvent {
+      /** Unique identifier for this billing alert event. */
+      readonly id: string;
+      /** Event kind for a check, state transition, or delivery-worthy alert event.
+       *
+       * * `check` - Check
+       * * `firing` - Firing
+       * * `resolved` - Resolved
+       * * `errored` - Errored
+       * * `broken_config` - Broken config */
+      readonly kind: BillingAlertEventKindEnum;
+      /** Whether this evaluation was scheduled or manually requested.
+       *
+       * * `scheduled` - Scheduled
+       * * `manual` - Manual */
+      readonly source: BillingAlertEventSourceEnum;
+      /** Attempt number for this billing date and configuration revision. */
+      readonly attempt_number: number;
+      /** When this event was recorded. */
+      readonly created_at: string;
+      /**
+         * Billing data date evaluated by this event.
+         * @nullable
+         */
+      readonly evaluation_date: string | null;
+      /** Configuration revision used for this evaluation. */
+      readonly configuration_revision: number;
+      /**
+         * Start of the evaluated billing period.
+         * @nullable
+         */
+      readonly period_start: string | null;
+      /**
+         * End of the evaluated billing period.
+         * @nullable
+         */
+      readonly period_end: string | null;
+      /** Billing metric evaluated by this event.
+       *
+       * * `spend` - Spend
+       * * `projected_spend` - Projected spend */
+      readonly metric: BillingAlertMetricEnum;
+      /**
+         * Metric value for the evaluated billing date.
+         * @nullable
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      readonly current_value: string | null;
+      /**
+         * Average metric value across the baseline window.
+         * @nullable
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      readonly baseline_value: string | null;
+      /**
+         * Current value minus the baseline value.
+         * @nullable
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      readonly absolute_delta: string | null;
+      /**
+         * Percentage change against the baseline value.
+         * @nullable
+         * @pattern ^-?\d{0,22}(?:\.\d{0,6})?$
+         */
+      readonly relative_delta_percentage: string | null;
+      /** Whether the evaluated value breached the configured threshold. */
+      readonly threshold_breached: boolean;
+      /** Alert state before this event was applied.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state_before: BillingAlertStateEnum | null;
+      /** Alert state after this event was applied.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state_after: BillingAlertStateEnum | null;
+      /**
+         * When notifications for this event were delivered.
+         * @nullable
+         */
+      readonly notification_sent_at: string | null;
+      /** Notification targets recorded for this event. */
+      readonly targets_notified: unknown;
+      /**
+         * Milliseconds spent fetching billing data for this evaluation.
+         * @nullable
+         */
+      readonly query_duration_ms: number | null;
+      /**
+         * Exception class name recorded when the evaluation failed.
+         * @nullable
+         */
+      readonly error_code: string | null;
+      /**
+         * Failure description recorded when the evaluation failed.
+         * @nullable
+         */
+      readonly error_message: string | null;
+      /** Human-readable explanation of the evaluation outcome. */
+      readonly reason: string;
+    }
+
+    export interface BillingAlertCheckNowResponse {
+      /** Evaluation event recorded by the manual check, or null for a paused preview. */
+      event?: BillingAlertEvent | null;
+      /** Number of destination HogFunctions queued. */
+      dispatched_destinations: number;
+      /** True when the alert is paused: it was evaluated but no notifications were sent. */
+      preview: boolean;
+      /** Whether the evaluated billing-period total breached the configured threshold. */
+      threshold_breached: boolean;
+      /**
+         * Evaluated billing-period total, or null when billing data was not available.
+         * @nullable
+         */
+      current_value?: string | null;
+    }
+
+    /**
+     * * `USD` - USD
+     */
+    export type CurrencyEnum = typeof CurrencyEnum[keyof typeof CurrencyEnum];
+
+
+    export const CurrencyEnum = {
+      Usd: 'USD',
+    } as const;
+
+    /**
+     * * `relative_increase` - Relative increase
+     * * `absolute_value` - Absolute value
+     * * `absolute_increase` - Absolute increase
+     */
+    export type ThresholdTypeEnum = typeof ThresholdTypeEnum[keyof typeof ThresholdTypeEnum];
+
+
+    export const ThresholdTypeEnum = {
+      RelativeIncrease: 'relative_increase',
+      AbsoluteValue: 'absolute_value',
+      AbsoluteIncrease: 'absolute_increase',
+    } as const;
+
+    /**
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     */
+    export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
+
+
+    export const NotificationDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+    } as const;
+
+    export interface BillingAlertDestinationSummary {
+      type: NotificationDestinationTypeEnum;
+      hog_function_ids: string[];
+    }
+
+    export interface BillingAlertDestinationCreateData {
+      /** Destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook
+       * * `teams` - teams */
+      type: NotificationDestinationTypeEnum;
+      /** Slack integration ID in the alert execution project. */
+      slack_workspace_id?: number;
+      /** Slack channel ID for alert delivery. */
+      slack_channel_id?: string;
+      /** Optional Slack channel name shown in the UI. */
+      slack_channel_name?: string;
+      /** HTTPS webhook URL for webhook or Microsoft Teams delivery. */
+      webhook_url?: string;
+    }
+
+    export interface BillingAlertDestinationChanges {
+      /**
+         * @items.minItems 4
+         * @items.maxItems 4
+         */
+      delete?: string[][];
+      create?: BillingAlertDestinationCreateData[];
+    }
+
+    export interface BillingAlertConfiguration {
+      /** Unique identifier for this billing alert. */
+      readonly id: string;
+      /** Organization this billing alert belongs to. */
+      readonly organization_id: string;
+      /**
+         * Team used as the execution context for internal notification destinations.
+         * @nullable
+         */
+      readonly execution_team_id: number | null;
+      /**
+         * User ID that created this alert.
+         * @nullable
+         */
+      readonly created_by_id: number | null;
+      /**
+         * User ID that last updated this alert.
+         * @nullable
+         */
+      readonly updated_by_id: number | null;
+      /**
+         * Display name for this billing alert.
+         * @maxLength 160
+         */
+      name: string;
+      /** Optional internal description. */
+      description?: string;
+      /** Whether scheduled checks should evaluate this alert. */
+      enabled?: boolean;
+      /** Billing-period total to evaluate: current spend so far, or projected period-end spend.
+       *
+       * * `spend` - Spend
+       * * `projected_spend` - Projected spend */
+      metric?: BillingAlertMetricEnum;
+      /** Server-controlled currency for spend values.
+       *
+       * * `USD` - USD */
+      readonly currency: CurrencyEnum;
+      /** Revision incremented whenever evaluation behavior changes. */
+      readonly configuration_revision: number;
+      /** Threshold rule type. The first version supports absolute value only.
+       *
+       * * `relative_increase` - Relative increase
+       * * `absolute_value` - Absolute value
+       * * `absolute_increase` - Absolute increase */
+      threshold_type?: ThresholdTypeEnum;
+      /**
+         * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,2})?$
+         */
+      threshold_percentage?: string | null;
+      /**
+         * Absolute value or absolute increase that triggers absolute threshold alerts.
+         * @nullable
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      threshold_value?: string | null;
+      /**
+         * Minimum current value before the alert can fire.
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      minimum_value?: string;
+      /**
+         * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
+         * @minimum 1
+         * @maximum 90
+         */
+      baseline_window_days?: number;
+      /**
+         * Hours after a UTC billing date ends before it becomes eligible for evaluation.
+         * @minimum 0
+         * @maximum 72
+         */
+      evaluation_delay_hours?: number;
+      /** Current lifecycle state of this alert.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state: BillingAlertStateEnum;
+      /**
+         * Minimum hours between repeated firing notifications.
+         * @minimum 0
+         * @maximum 720
+         */
+      cooldown_hours?: number;
+      /**
+         * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
+         * @nullable
+         */
+      snoozed_until?: string | null;
+      /**
+         * When the next scheduled evaluation is due.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+      /**
+         * When this alert was last evaluated.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /**
+         * When notifications were last delivered for this alert.
+         * @nullable
+         */
+      readonly last_notified_at: string | null;
+      /** Number of consecutive failed evaluations. */
+      readonly consecutive_failures: number;
+      /** Notification destination groups configured for this alert, including their shared HogFunctions. */
+      readonly destinations: readonly BillingAlertDestinationSummary[];
+      /** Destination groups to create or delete in the same transaction as this configuration write. */
+      destination_changes?: BillingAlertDestinationChanges;
+      /** When this alert was created. */
+      readonly created_at: string;
+      /**
+         * When this alert was last updated.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
+    export interface BillingAlertDeleteDestination {
+      /**
+         * HogFunction IDs to delete as one atomic destination group.
+         * @minItems 4
+         * @maxItems 4
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface BillingAlertDestinationResponse {
+      hog_function_ids: string[];
+    }
+
+    /**
      * * `posthog_health_check` - PostHog health check
      * * `posthog_onboarding` - PostHog onboarding
      * * `posthog_system` - PostHog system
@@ -14337,6 +14817,103 @@ export namespace Schemas {
     }
 
     /**
+     * One registered action verb, as the host renders it before invoking.
+     */
+    export interface CanvasActionDefinition {
+      /** The verb's registry name, e.g. 'annotations.create'. */
+      verb: string;
+      /** One line naming what invoking the verb does. */
+      summary: string;
+      /** True when the verb deletes or disables something; the host must confirm with the viewer first. */
+      destructive: boolean;
+      /** Authoring docs for the verb: payload and result shape, behavior, and the confirmation copy it warrants. */
+      usage: string;
+    }
+
+    /**
+     * Verb-specific arguments, validated against the verb's payload schema.
+     */
+    export type CanvasActionInvokePayload = { [key: string]: unknown };
+
+    /**
+     * Payload for invoking one action verb.
+     */
+    export interface CanvasActionInvoke {
+      /**
+         * Registered verb to invoke, e.g. 'tasks.create'.
+         * @maxLength 64
+         */
+      verb: string;
+      /** Verb-specific arguments, validated against the verb's payload schema. */
+      payload?: CanvasActionInvokePayload;
+    }
+
+    /**
+     * Verb-specific result, e.g. {'task_id': ...} for tasks.create.
+     */
+    export type CanvasActionResultResult = { [key: string]: unknown };
+
+    /**
+     * Result of one action invocation.
+     */
+    export interface CanvasActionResult {
+      /** The verb that executed. */
+      verb: string;
+      /** Verb-specific result, e.g. {'task_id': ...} for tasks.create. */
+      result: CanvasActionResultResult;
+    }
+
+    /**
+     * The action registry: every verb a canvas may declare and invoke.
+     */
+    export interface CanvasActionsResponse {
+      /** Registered verbs, sorted by name. */
+      actions: CanvasActionDefinition[];
+    }
+
+    /**
+     * A viewer-approved request for the canvas's authoring agent.
+     */
+    export interface CanvasAgentRequest {
+      /**
+         * Exact change request the viewer reviewed and approved in the trusted host dialog.
+         * @maxLength 10000
+         */
+      prompt: string;
+    }
+
+    /**
+     * * `signaled` - signaled
+     * * `new_run` - new_run
+     * * `already_queued` - already_queued
+     * * `reported` - reported
+     */
+    export type RequestOutcomeEnum = typeof RequestOutcomeEnum[keyof typeof RequestOutcomeEnum];
+
+
+    export const RequestOutcomeEnum = {
+      Signaled: 'signaled',
+      NewRun: 'new_run',
+      AlreadyQueued: 'already_queued',
+      Reported: 'reported',
+    } as const;
+
+    /**
+     * Outcome of routing a canvas change request.
+     */
+    export interface CanvasAgentRequestResult {
+      /** signaled: the live run received the request. new_run: a fresh run started. already_queued: an identical run was already starting. reported: a non-creator's request was filed in the task thread for the creator.
+       *
+       * * `signaled` - signaled
+       * * `new_run` - new_run
+       * * `already_queued` - already_queued
+       * * `reported` - reported */
+      request_outcome: RequestOutcomeEnum;
+      /** Authoring task that received the request or report. */
+      task_id: string;
+    }
+
+    /**
      * One emitted file of a built canvas artifact.
      */
     export interface CanvasArtifactAsset {
@@ -14482,6 +15059,18 @@ export namespace Schemas {
       builds: CanvasBuild[];
     }
 
+    /**
+     * * `user` - user
+     * * `shared` - shared
+     */
+    export type CanvasStateScopeEnum = typeof CanvasStateScopeEnum[keyof typeof CanvasStateScopeEnum];
+
+
+    export const CanvasStateScopeEnum = {
+      User: 'user',
+      Shared: 'shared',
+    } as const;
+
     export interface CanvasPostHogCapabilities {
       /**
          * @maxItems 100
@@ -14494,6 +15083,18 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       captureEvents: string[];
+      /**
+         * State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).
+         * @maxItems 2
+         */
+      state?: CanvasStateScopeEnum[];
+      /**
+         * Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.
+         * @maxItems 32
+         * @items.maxLength 64
+         */
+      actions?: string[];
+      agentRequests?: boolean;
     }
 
     export interface CanvasNetworkCapabilities {
@@ -14522,8 +15123,14 @@ export namespace Schemas {
       capture_events_added: string[];
       /** True when the draft enables inline queries and the current head does not. */
       inline_queries_enabled: boolean;
+      /** True when the draft enables requests to the canvas's authoring agent and the current head does not. */
+      agent_requests_enabled: boolean;
       /** Network origins the draft newly declares it may reach. */
       network_origins_added: string[];
+      /** State scopes (user, shared) the draft newly declares for ph.state. */
+      state_scopes_added: string[];
+      /** Action verbs the draft newly declares it may invoke via ph.actions. */
+      actions_added: string[];
     }
 
     /**
@@ -14760,7 +15367,7 @@ export namespace Schemas {
     export type CanvasSourceProjectAssets = {[key: string]: CanvasSourceAsset};
 
     /**
-     * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
+     * Exact-version dependencies, restricted to the platform-supported set at its pinned versions.
      */
     export type CanvasSourceProjectDependencies = {[key: string]: string};
 
@@ -14776,11 +15383,11 @@ export namespace Schemas {
       assets?: CanvasSourceProjectAssets;
       /** The project's entry HTML file. Currently always "index.html". */
       entryHtml: string;
-      /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
+      /** Exact-version dependencies, restricted to the platform-supported set at its pinned versions. */
       dependencies?: CanvasSourceProjectDependencies;
       /** Version of the host-injected `ph` canvas SDK the project targets. */
       canvasSdkVersion?: string;
-      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
+      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins. */
       capabilities?: CanvasCapabilities;
     }
 
@@ -14924,6 +15531,52 @@ export namespace Schemas {
          * @nullable
          */
       current_version_id: string | null;
+    }
+
+    /**
+     * One key of a canvas's runtime key-value state (the ph.state store).
+     */
+    export interface CanvasStateEntry {
+      /** user: private to the viewer who wrote it. shared: one value per canvas, visible to every viewer.
+       *
+       * * `user` - user
+       * * `shared` - shared */
+      scope: CanvasStateScopeEnum;
+      /**
+         * The entry's key, unique within its scope.
+         * @maxLength 200
+         */
+      key: string;
+      /** The stored JSON value. */
+      value: unknown;
+      /** When the entry was last written. */
+      updated_at: string;
+    }
+
+    /**
+     * The canvas state readable by the caller.
+     */
+    export interface CanvasStateResponse {
+      /** The canvas's shared entries plus the caller's own user-scoped entries. */
+      entries: CanvasStateEntry[];
+    }
+
+    /**
+     * Payload for writing (or deleting) one key of a canvas's runtime state.
+     */
+    export interface CanvasStateSet {
+      /** Scope to write into; the canvas must declare it in capabilities.posthog.state.
+       *
+       * * `user` - user
+       * * `shared` - shared */
+      scope: CanvasStateScopeEnum;
+      /**
+         * Key to write, unique within its scope.
+         * @maxLength 200
+         */
+      key: string;
+      /** JSON value to store (at most 64 KB serialized), or null to delete the key. */
+      value: unknown;
     }
 
     /**
@@ -31985,6 +32638,8 @@ export namespace Schemas {
       min_arm_persons: number;
       /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
       max_card_recordings: number;
+      /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
+      dropped_duplicate_cards: number;
       /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
       too_early: boolean;
     }
@@ -33973,6 +34628,8 @@ export namespace Schemas {
       readonly access_method: AccessMethodEnum;
       /** Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works. */
       readonly supports_hogql: boolean;
+      /** Whether this option is the built-in PostHog managed warehouse connection. */
+      readonly is_builtin_managed_warehouse: boolean;
       /**
          * User-set description of the source, shown as its display name in the connection picker when set.
          * @nullable
@@ -35981,8 +36638,8 @@ export namespace Schemas {
          * @maxLength 400
          */
       title: string;
-      /** Required customer-facing request description in Markdown. */
-      description: string;
+      /** Optional customer-facing request description in Markdown. */
+      description?: string;
       /** ID of the affected Customer Analytics account. */
       account_id: string;
       /** One or more active product area IDs. Duplicate IDs are ignored. */
@@ -36118,7 +36775,7 @@ export namespace Schemas {
          * @maxLength 400
          */
       title?: string;
-      /** Updated customer-facing request description in Markdown. */
+      /** Updated optional customer-facing request description in Markdown. */
       description?: string;
       /** Updated affected Customer Analytics account ID. */
       account_id?: string;
@@ -37199,6 +37856,8 @@ export namespace Schemas {
       updated_at: string;
       locked: boolean;
       state: string;
+      author_login?: string | null;
+      author_association?: string | null;
     }
 
     export interface GitlabIssueSignalExtra {
@@ -43279,20 +43938,6 @@ export namespace Schemas {
       enabled: boolean;
     }
 
-    /**
-     * * `slack` - slack
-     * * `webhook` - webhook
-     * * `teams` - teams
-     */
-    export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
-
-
-    export const NotificationDestinationTypeEnum = {
-      Slack: 'slack',
-      Webhook: 'webhook',
-      Teams: 'teams',
-    } as const;
-
     export interface LogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id: string;
@@ -45637,6 +46282,222 @@ export namespace Schemas {
       sources: ManagedWarehouseSourcesStatus;
       /** When this status snapshot was generated. */
       generated_at: string;
+    }
+
+    export interface ManagedWarehouseMonitoringCoverage {
+      /**
+         * Number of control planes that contributed live data.
+         * @minimum 0
+         */
+      cp_responders: number;
+      /**
+         * Number of control planes queried for live data.
+         * @minimum 0
+         */
+      cp_total: number;
+      /** Whether one or more control planes failed to contribute live data. */
+      partial: boolean;
+    }
+
+    export interface ManagedWarehouseMonitoringErrorResponse {
+      /** Human-readable managed warehouse monitoring error. */
+      error?: string;
+      /** Machine-readable validation error type. */
+      type?: string;
+      /** Machine-readable validation error code. */
+      code?: string;
+      /** Human-readable validation error detail. */
+      detail?: string;
+      /**
+         * Query parameter associated with an error.
+         * @nullable
+         */
+      attr?: string | null;
+    }
+
+    export interface ManagedWarehouseMonitoringLimits {
+      /**
+         * Maximum concurrent workers for the organization. Zero means no organization-specific limit.
+         * @minimum 0
+         */
+      max_workers: number;
+      /**
+         * Maximum active session vCPUs admitted for the organization. Zero means no organization-specific limit.
+         * @minimum 0
+         */
+      max_vcpus: number;
+      /** Default worker CPU as a Kubernetes resource quantity, such as 2 or 500m. */
+      default_worker_cpu: string;
+      /** Default worker memory as a Kubernetes resource quantity, such as 8Gi. */
+      default_worker_memory: string;
+      /**
+         * Default number of seconds an idle worker remains available for reuse.
+         * @minimum 0
+         */
+      default_worker_ttl_seconds: number;
+      /**
+         * Minimum number of idle workers the organization keeps warm.
+         * @minimum 0
+         */
+      default_worker_min_hot_idle: number;
+    }
+
+    export interface ManagedWarehouseMonitoringPoint {
+      /** UTC timestamp of the sample. */
+      timestamp: string;
+      /** Metric value at the sample timestamp. */
+      value: number;
+    }
+
+    /**
+     * Allow-listed labels distinguishing this series, such as query outcome or acquisition source.
+     */
+    export type ManagedWarehouseMonitoringSeriesLabels = {[key: string]: string};
+
+    export interface ManagedWarehouseMonitoringSeries {
+      /** Allow-listed labels distinguishing this series, such as query outcome or acquisition source. */
+      labels: ManagedWarehouseMonitoringSeriesLabels;
+      /** Chronologically ordered metric samples. */
+      points: ManagedWarehouseMonitoringPoint[];
+    }
+
+    export interface ManagedWarehouseMonitoringSeriesResponse {
+      /**
+         * Version of the managed warehouse monitoring response schema.
+         * @minimum 1
+         * @maximum 1
+         */
+      schema_version: number;
+      /** Organization whose managed warehouse is represented. */
+      org_id: string;
+      /** Allow-listed metric returned by this response. */
+      metric: string;
+      /** Unit for every value in the response. */
+      unit: string;
+      /** Inclusive UTC start of the returned time window. */
+      start: string;
+      /** Inclusive UTC end of the returned time window. */
+      end: string;
+      /**
+         * Number of seconds between requested samples.
+         * @minimum 1
+         */
+      step_seconds: number;
+      /** Metric series grouped by their allow-listed labels. */
+      series: ManagedWarehouseMonitoringSeries[];
+    }
+
+    export interface ManagedWarehouseMonitoringWarehouse {
+      /** Current managed warehouse lifecycle state, such as ready, provisioning, or resharding. */
+      state: string;
+    }
+
+    export interface ManagedWarehouseMonitoringTotals {
+      /**
+         * Number of current non-terminal workers.
+         * @minimum 0
+         */
+      workers: number;
+      /**
+         * Total CPU cores allocated to current workers.
+         * @minimum 0
+         */
+      allocated_cpu_cores: number;
+      /**
+         * Total memory bytes allocated to current workers.
+         * @minimum 0
+         */
+      allocated_memory_bytes: number;
+      /**
+         * Number of active database sessions across the organization's control planes.
+         * @minimum 0
+         */
+      active_sessions: number;
+      /**
+         * Number of sessions currently executing a query.
+         * @minimum 0
+         */
+      running_queries: number;
+      /**
+         * Number of connections waiting for worker capacity.
+         * @minimum 0
+         */
+      queued_connections: number;
+    }
+
+    export interface ManagedWarehouseMonitoringWorkerSession {
+      /** Connection protocol, such as pg or flight. */
+      protocol: string;
+      /** Current database session state. */
+      state: string;
+      /**
+         * Milliseconds elapsed for the current query, or zero when the session is idle.
+         * @minimum 0
+         */
+      elapsed_ms: number;
+      /**
+         * Best-effort query progress percentage, or null when DuckDB cannot estimate progress.
+         * @minimum 0
+         * @nullable
+         */
+      percentage: number | null;
+      /**
+         * Rows processed by the current query.
+         * @minimum 0
+         */
+      rows: number;
+      /**
+         * Estimated total rows for the current query when available.
+         * @minimum 0
+         */
+      total_rows: number;
+      /** Whether the current query appears stalled. */
+      stalled: boolean;
+    }
+
+    export interface ManagedWarehouseMonitoringWorker {
+      /** Opaque identifier for the worker. */
+      id: string;
+      /** Current worker lifecycle state. */
+      state: string;
+      /** Worker CPU as a Kubernetes resource quantity, such as 2 or 500m. Blank when unavailable. */
+      cpu: string;
+      /** Worker memory as a Kubernetes resource quantity, such as 8Gi. Blank when unavailable. */
+      memory: string;
+      /**
+         * Number of seconds the worker remains available while idle.
+         * @minimum 0
+         */
+      ttl_seconds: number;
+      /** UTC timestamp when the worker was created. */
+      created_at: string;
+      /** UTC timestamp of the worker's latest heartbeat. */
+      last_heartbeat_at: string;
+      /** Sanitized live session assigned to the worker, when one exists. */
+      session?: ManagedWarehouseMonitoringWorkerSession | null;
+    }
+
+    export interface ManagedWarehouseMonitoringSnapshotResponse {
+      /**
+         * Version of the managed warehouse monitoring response schema.
+         * @minimum 1
+         * @maximum 1
+         */
+      schema_version: number;
+      /** Organization whose managed warehouse is represented. */
+      org_id: string;
+      /** UTC timestamp when this snapshot was assembled. */
+      as_of: string;
+      /** Managed warehouse lifecycle details. */
+      warehouse: ManagedWarehouseMonitoringWarehouse;
+      /** Organization-level worker limits and defaults. */
+      limits: ManagedWarehouseMonitoringLimits;
+      /** Current organization-level activity totals. */
+      totals: ManagedWarehouseMonitoringTotals;
+      /** Current non-terminal workers with tenant-safe runtime details. */
+      workers: ManagedWarehouseMonitoringWorker[];
+      /** Completeness of the cross-control-plane live data. */
+      coverage: ManagedWarehouseMonitoringCoverage;
     }
 
     /**
@@ -48101,6 +48962,24 @@ export namespace Schemas {
       results: AccountChannelSummary[];
     }
 
+    export interface PaginatedAccountEmailThreadList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountEmailThread[];
+    }
+
+    export interface PaginatedAccountEmailThreadMessageList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountEmailThreadMessage[];
+    }
+
     export interface PaginatedAccountList {
       count: number;
       /** @nullable */
@@ -48250,6 +49129,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: BatchImportSupportList[];
+    }
+
+    export interface PaginatedBillingAlertConfigurationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: BillingAlertConfiguration[];
+    }
+
+    export interface PaginatedBillingAlertEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: BillingAlertEvent[];
     }
 
     export interface PaginatedBriefConfigList {
@@ -50151,7 +51048,7 @@ export namespace Schemas {
          */
       description?: string;
       /**
-         * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+         * Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.
          * @maxItems 32
          * @items.maxLength 255
          */
@@ -51343,12 +52240,18 @@ export namespace Schemas {
       CiDurationRegression: 'ci_duration_regression',
     } as const;
 
+    /**
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+     */
+    export type SignalSourceConfigConfig = { [key: string]: unknown };
+
     export interface SignalSourceConfig {
       readonly id: string;
       source_product: SignalSourceConfigSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      config?: unknown;
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+      config?: SignalSourceConfigConfig;
       readonly created_at: string;
       readonly updated_at: string;
       /** @nullable */
@@ -51463,13 +52366,6 @@ export namespace Schemas {
       readonly deletions: number;
       /** Files changed, recorded when the pull request merges. */
       readonly changed_files: number;
-      /** Digest bucket this merged PR belongs to; blank unless it was digest-eligible. */
-      readonly audience_key: string;
-      /**
-         * ID of the digest run that reported this merged PR, if any.
-         * @nullable
-         */
-      readonly digest_run: string | null;
       /** When this pull request was first captured. */
       readonly created_at: string;
       /** When this pull request was last updated. */
@@ -51513,7 +52409,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
       readonly installation_id: string;
-      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
@@ -54444,6 +55340,130 @@ export namespace Schemas {
       readonly import_config?: unknown;
     }
 
+    export interface PatchedBillingAlertConfiguration {
+      /** Unique identifier for this billing alert. */
+      readonly id?: string;
+      /** Organization this billing alert belongs to. */
+      readonly organization_id?: string;
+      /**
+         * Team used as the execution context for internal notification destinations.
+         * @nullable
+         */
+      readonly execution_team_id?: number | null;
+      /**
+         * User ID that created this alert.
+         * @nullable
+         */
+      readonly created_by_id?: number | null;
+      /**
+         * User ID that last updated this alert.
+         * @nullable
+         */
+      readonly updated_by_id?: number | null;
+      /**
+         * Display name for this billing alert.
+         * @maxLength 160
+         */
+      name?: string;
+      /** Optional internal description. */
+      description?: string;
+      /** Whether scheduled checks should evaluate this alert. */
+      enabled?: boolean;
+      /** Billing-period total to evaluate: current spend so far, or projected period-end spend.
+       *
+       * * `spend` - Spend
+       * * `projected_spend` - Projected spend */
+      metric?: BillingAlertMetricEnum;
+      /** Server-controlled currency for spend values.
+       *
+       * * `USD` - USD */
+      readonly currency?: CurrencyEnum;
+      /** Revision incremented whenever evaluation behavior changes. */
+      readonly configuration_revision?: number;
+      /** Threshold rule type. The first version supports absolute value only.
+       *
+       * * `relative_increase` - Relative increase
+       * * `absolute_value` - Absolute value
+       * * `absolute_increase` - Absolute increase */
+      threshold_type?: ThresholdTypeEnum;
+      /**
+         * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,2})?$
+         */
+      threshold_percentage?: string | null;
+      /**
+         * Absolute value or absolute increase that triggers absolute threshold alerts.
+         * @nullable
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      threshold_value?: string | null;
+      /**
+         * Minimum current value before the alert can fire.
+         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
+         */
+      minimum_value?: string;
+      /**
+         * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
+         * @minimum 1
+         * @maximum 90
+         */
+      baseline_window_days?: number;
+      /**
+         * Hours after a UTC billing date ends before it becomes eligible for evaluation.
+         * @minimum 0
+         * @maximum 72
+         */
+      evaluation_delay_hours?: number;
+      /** Current lifecycle state of this alert.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state?: BillingAlertStateEnum;
+      /**
+         * Minimum hours between repeated firing notifications.
+         * @minimum 0
+         * @maximum 720
+         */
+      cooldown_hours?: number;
+      /**
+         * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
+         * @nullable
+         */
+      snoozed_until?: string | null;
+      /**
+         * When the next scheduled evaluation is due.
+         * @nullable
+         */
+      readonly next_check_at?: string | null;
+      /**
+         * When this alert was last evaluated.
+         * @nullable
+         */
+      readonly last_checked_at?: string | null;
+      /**
+         * When notifications were last delivered for this alert.
+         * @nullable
+         */
+      readonly last_notified_at?: string | null;
+      /** Number of consecutive failed evaluations. */
+      readonly consecutive_failures?: number;
+      /** Notification destination groups configured for this alert, including their shared HogFunctions. */
+      readonly destinations?: readonly BillingAlertDestinationSummary[];
+      /** Destination groups to create or delete in the same transaction as this configuration write. */
+      destination_changes?: BillingAlertDestinationChanges;
+      /** When this alert was created. */
+      readonly created_at?: string;
+      /**
+         * When this alert was last updated.
+         * @nullable
+         */
+      readonly updated_at?: string | null;
+    }
+
     export interface PatchedBriefConfig {
       readonly id?: string;
       /**
@@ -56534,7 +57554,7 @@ export namespace Schemas {
          * @maxLength 400
          */
       title?: string;
-      /** Updated customer-facing request description in Markdown. */
+      /** Updated optional customer-facing request description in Markdown. */
       description?: string;
       /** Updated affected Customer Analytics account ID. */
       account_id?: string;
@@ -56890,7 +57910,7 @@ export namespace Schemas {
       base_updated_at?: string;
       /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
       operations?: DesignOperation[];
-      /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it. */
+      /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. The design is edited via operations, and html is always re-rendered from it. */
       email_patch?: unknown;
     }
 
@@ -59406,7 +60426,7 @@ export namespace Schemas {
          */
       description?: string;
       /**
-         * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+         * Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.
          * @maxItems 32
          * @items.maxLength 255
          */
@@ -59977,12 +60997,18 @@ export namespace Schemas {
       mcp_gateway_server_ids?: string[];
     }
 
+    /**
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+     */
+    export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SignalSourceConfigSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      config?: unknown;
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+      config?: PatchedSignalSourceConfigConfig;
       readonly created_at?: string;
       readonly updated_at?: string;
       /** @nullable */
@@ -60005,7 +61031,7 @@ export namespace Schemas {
       enabled?: boolean;
       /** Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes. */
       readonly installation_id?: string;
-      /** Whether merged PRs on this repo are captured for the daily Slack digest. */
+      /** Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved. */
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
@@ -75524,7 +76550,7 @@ export namespace Schemas {
          */
       prompt: string;
       /**
-         * The current tag vocabulary, so suggestions never duplicate a tag the user already has.
+         * The categories already configured, so suggestions never duplicate one the user has.
          * @maxItems 200
          * @items.maxLength 200
          */
@@ -79845,7 +80871,7 @@ export namespace Schemas {
     export type _LogPatternSeverityCounts = {[key: string]: number};
 
     export interface _LogPatternExample {
-      /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, not the raw stored line. */
+      /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, with the message field extracted from JSON bodies. This is not the raw stored line. */
       body: string;
       /** Severity of the sampled line, e.g. "info", "error". */
       severity_text: string;
@@ -79881,7 +80907,7 @@ export namespace Schemas {
       /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
       severity_counts: _LogPatternSeverityCounts;
       /**
-         * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the pattern's own examples before being offered. Null when the template lacks literal content or validation failed — never trust an unvalidated predicate. Use with the message/regex log property filter.
+         * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the raw bodies of the pattern's own sampled rows before being offered. Null when the template lacks literal content or validation failed. Never trust an unvalidated predicate. Use with the message/regex log property filter.
          * @nullable
          */
       match_regex: string | null;
@@ -81710,6 +82736,28 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type BillingAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type BillingAlertsEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type CimdVerificationTokensListParams = {
     /**
      * Number of results to return per page.
@@ -82026,6 +83074,28 @@ export namespace Schemas {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean;
+    };
+
+    export type AccountsEmailThreadsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AccountsEmailThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type AccountsMeetingsListParams = {
@@ -82926,6 +83996,21 @@ export namespace Schemas {
      */
     version_id?: string;
     };
+
+    export type CanvasesStateRetrieveParams = {
+    /**
+     * Only return entries in this scope.
+     */
+    scope?: CanvasesStateRetrieveScope;
+    };
+
+    export type CanvasesStateRetrieveScope = typeof CanvasesStateRetrieveScope[keyof typeof CanvasesStateRetrieveScope];
+
+
+    export const CanvasesStateRetrieveScope = {
+      Shared: 'shared',
+      User: 'user',
+    } as const;
 
     export type CanvasesVersionsRetrieveParams = {
     /**
@@ -83925,6 +85010,61 @@ export namespace Schemas {
      */
     name: string;
     };
+
+    export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams = {
+    /**
+     * Allow-listed managed warehouse metric to retrieve.
+     *
+     * * `query_rate` - query_rate
+     * * `error_ratio` - error_ratio
+     * * `duration_p50` - duration_p50
+     * * `duration_p95` - duration_p95
+     * * `sessions_active` - sessions_active
+     * * `acquire_p95` - acquire_p95
+     * * `acquire_by_source` - acquire_by_source
+     * * `storage_bytes` - storage_bytes
+     * * `worker_crash_rate` - worker_crash_rate
+     * @minLength 1
+     */
+    metric: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric;
+    /**
+     * Trailing time window to retrieve. Defaults to 24h.
+     *
+     * * `1h` - 1h
+     * * `6h` - 6h
+     * * `24h` - 24h
+     * * `7d` - 7d
+     * * `30d` - 30d
+     * @minLength 1
+     */
+    window?: DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow;
+    };
+
+    export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric = typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric[keyof typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric];
+
+
+    export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveMetric = {
+      QueryRate: 'query_rate',
+      ErrorRatio: 'error_ratio',
+      DurationP50: 'duration_p50',
+      DurationP95: 'duration_p95',
+      SessionsActive: 'sessions_active',
+      AcquireP95: 'acquire_p95',
+      AcquireBySource: 'acquire_by_source',
+      StorageBytes: 'storage_bytes',
+      WorkerCrashRate: 'worker_crash_rate',
+    } as const;
+
+    export type DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow = typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow[keyof typeof DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow];
+
+
+    export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow = {
+      '1h': '1h',
+      '6h': '6h',
+      '24h': '24h',
+      '7d': '7d',
+      '30d': '30d',
+    } as const;
 
     export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
     /**
@@ -89406,7 +90546,7 @@ export namespace Schemas {
 
     export type SdkHealthReportRetrieveParams = {
     /**
-     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. Use sparingly — data is refreshed every 12 hours by a background job.
+     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. A background job refreshes this data once a day, so the cached answer is usually current. Use sparingly.
      */
     force_refresh?: boolean;
     };

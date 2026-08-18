@@ -9,7 +9,10 @@ from posthog.temporal.data_modeling.activities import (
     notify_dag_materialization_failures_activity,
     preempt_dag_run_activity,
     prepare_queryable_table_activity,
+    publish_queryable_table_activity,
+    quality_block_materialization_activity,
     record_skipped_data_modeling_jobs_activity,
+    stage_queryable_files_activity,
     succeed_materialization_activity,
 )
 from posthog.temporal.data_modeling.run_workflow import (
@@ -45,6 +48,9 @@ ACTIVITIES = [
     materialize_view_activity,
     materialize_view_duckgres_activity,
     prepare_queryable_table_activity,
+    publish_queryable_table_activity,
+    quality_block_materialization_activity,
+    stage_queryable_files_activity,
     succeed_materialization_activity,
     finish_run_activity,
     start_run_activity,
