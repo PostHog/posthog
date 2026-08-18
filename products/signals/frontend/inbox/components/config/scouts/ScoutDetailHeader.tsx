@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconExternal, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -32,7 +32,30 @@ function Metric({ value, label }: { value: React.ReactNode; label: string }): JS
  * is there on a click for the reader who wants the full brief.
  */
 function ScoutDescription({ text }: { text: string }): JSX.Element {
+    const ref = useRef<HTMLParagraphElement | null>(null)
     const [expanded, setExpanded] = useState(false)
+    const [truncatable, setTruncatable] = useState(false)
+
+    // Measure whether the two-line clamp actually hides anything, mirroring FlagDescription in
+    // feature flags. Runs while the paragraph is still clamped, so the toggle only appears when
+    // there is more to reveal.
+    useEffect(() => {
+        if (ref.current) {
+            setTruncatable(ref.current.scrollHeight > ref.current.clientHeight)
+        }
+    }, [text])
+
+    const paragraph = (
+        <p ref={ref} className={`mb-0 text-sm leading-snug text-secondary ${expanded ? '' : 'line-clamp-2'}`}>
+            {text}
+        </p>
+    )
+
+    // A description that fits in two lines stays plain text — no control that changes nothing on click.
+    if (!truncatable) {
+        return paragraph
+    }
+
     return (
         <button
             type="button"
@@ -40,7 +63,7 @@ function ScoutDescription({ text }: { text: string }): JSX.Element {
             aria-expanded={expanded}
             onClick={() => setExpanded((value) => !value)}
         >
-            <p className={`mb-0 text-sm leading-snug text-secondary ${expanded ? '' : 'line-clamp-2'}`}>{text}</p>
+            {paragraph}
             <span className="text-xs text-muted group-hover:text-primary">{expanded ? 'Show less' : 'Show more'}</span>
         </button>
     )
