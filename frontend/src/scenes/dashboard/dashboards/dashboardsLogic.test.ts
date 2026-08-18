@@ -3,12 +3,13 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { DashboardsFilters, DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
@@ -47,12 +48,21 @@ describe('dashboardsLogic', () => {
                 pinned: true,
             }),
         },
-        { ...dashboard({ created_by: CURRENT_USER, folder: 'Marketing/Website' }) },
+        {
+            ...dashboard({
+                created_by: CURRENT_USER,
+                folder: 'Marketing/Website',
+                file_system_id: 'fs-filed',
+                file_system_path: 'Marketing/Website/Filed',
+            }),
+        },
         {
             ...dashboard({
                 created_by: OTHER_USER,
                 name: 'needle',
                 folder: 'Marketing/Website',
+                file_system_id: 'fs-needle',
+                file_system_path: 'Marketing/Website/needle',
             }),
         },
         {
@@ -64,6 +74,7 @@ describe('dashboardsLogic', () => {
     ]
 
     beforeEach(async () => {
+        jest.clearAllMocks()
         window.POSTHOG_APP_CONTEXT = { current_user: MOCK_DEFAULT_USER } as unknown as AppContext
 
         useMocks({
@@ -85,6 +96,68 @@ describe('dashboardsLogic', () => {
 
         logic = dashboardsLogic({ tabId: '1' })
         logic.mount()
+    })
+
+    describe('reflecting a completed move', () => {
+        it('updates the moved dashboard to its new folder', async () => {
+            await expectLogic(logic, () => {
+                projectTreeDataLogic.actions.movedItem(
+                    { id: 'fs-1', type: 'dashboard', ref: String(dashboardId), path: 'Marketing/A' } as any,
+                    'Marketing/A',
+                    'Revenue/Q3/A'
+                )
+            }).toDispatchActions([
+                dashboardsModel.actionCreators.patchDashboardFolders({ [dashboardId]: 'Revenue/Q3/A' }),
+            ])
+        })
+
+        it('moves a dashboard to the project root', async () => {
+            await expectLogic(logic, () => {
+                projectTreeDataLogic.actions.movedItem(
+                    { id: 'fs-1', type: 'dashboard', ref: String(dashboardId), path: 'Marketing/A' } as any,
+                    'Marketing/A',
+                    'A'
+                )
+            }).toDispatchActions([dashboardsModel.actionCreators.patchDashboardFolders({ [dashboardId]: 'A' })])
+        })
+
+        it('hands a moved folder to the model to re-parent', async () => {
+            await expectLogic(logic, () => {
+                projectTreeDataLogic.actions.movedItem(
+                    { id: 'fs-3', type: 'folder', path: 'Marketing' } as any,
+                    'Marketing',
+                    'Revenue/Marketing'
+                )
+            }).toDispatchActions([
+                dashboardsModel.actionCreators.reparentDashboardFolders('Marketing', 'Revenue/Marketing'),
+            ])
+        })
+
+        it('ignores a moved shortcut, which only points at the dashboard', async () => {
+            const before = dashboardsModel.values.rawDashboards
+            projectTreeDataLogic.actions.movedItem(
+                {
+                    id: 'fs-4',
+                    type: 'dashboard',
+                    ref: String(dashboardId),
+                    path: 'Marketing/A',
+                    shortcut: true,
+                } as any,
+                'Marketing/A',
+                'Revenue/A'
+            )
+            expect(dashboardsModel.values.rawDashboards).toBe(before)
+        })
+
+        it('ignores moves of other item types', async () => {
+            const before = dashboardsModel.values.rawDashboards
+            projectTreeDataLogic.actions.movedItem(
+                { id: 'fs-2', type: 'insight', ref: String(dashboardId), path: 'Marketing/An insight' } as any,
+                'Marketing/An insight',
+                'Revenue/An insight'
+            )
+            expect(dashboardsModel.values.rawDashboards).toBe(before)
+        })
     })
 
     it('shows all dashboards when no filters', async () => {
@@ -212,16 +285,12 @@ describe('dashboardsLogic', () => {
             },
         })
 
-        const reportSearched = jest.spyOn(eventUsageLogic.actions, 'reportDashboardListSearched')
         await expectLogic(logic, () => {
             logic.actions.setSearch('needl')
         }).toDispatchActions(['loadSearchedDashboardsSuccess'])
 
         expect(logic.values.dashboards).toHaveLength(1)
         expect(logic.values.dashboards[0].name).toBe('needle')
-        // Findability signal fires once per settled search: term length + result count, never the query text.
-        // Covers the dashboards-list-view experiment instrumentation (flag: dashboards-list-view · experiment 379125).
-        expect(reportSearched).toHaveBeenCalledWith(5, 1)
     })
 
     it('does not refetch when only pinned / shared / createdBy change', async () => {
@@ -410,6 +479,85 @@ describe('dashboardsLogic', () => {
         expect(lastRequestUrl).not.toBeNull()
         expect(lastRequestUrl!.searchParams.get('search')).toBe('sales')
         expect(lastRequestUrl!.searchParams.getAll('tags')).toEqual(['finance'])
+    })
+
+    it('opens the move modal with the entry the list already carries', async () => {
+        moveToLogic.mount()
+        const filed = logic.values.dashboards.find((d) => d.file_system_id)!
+
+        logic.actions.moveDashboardsToFolder([filed.id], 'single')
+
+        expect(moveToLogic.values.movingItems).toEqual([
+            expect.objectContaining({ id: filed.file_system_id, path: filed.file_system_path }),
+        ])
+        expect(moveToLogic.values.isOpen).toBe(true)
+    })
+
+    it('moves a dashboard the search returned that the model never loaded', async () => {
+        moveToLogic.mount()
+        const filed = logic.values.dashboards.find((d) => d.file_system_id)!
+        // A dashboard created after this page loaded is reachable through search but absent from the model
+        delete (dashboardsModel.values.rawDashboards as Record<string, unknown>)[filed.id]
+
+        logic.actions.moveDashboardsToFolder([filed.id], 'single')
+
+        expect(moveToLogic.values.isOpen).toBe(true)
+    })
+
+    it('carries the href the project tree needs to keep the moved row clickable', async () => {
+        moveToLogic.mount()
+        const filed = logic.values.dashboards.find((d) => d.file_system_id)!
+
+        logic.actions.moveDashboardsToFolder([filed.id], 'single')
+
+        expect(moveToLogic.values.movingItems[0]).toEqual(expect.objectContaining({ href: urls.dashboard(filed.id) }))
+    })
+
+    it('does nothing for a dashboard that is not filed anywhere', async () => {
+        moveToLogic.mount()
+        const unfiled = logic.values.dashboards.find((d) => !d.file_system_id)!
+
+        logic.actions.moveDashboardsToFolder([unfiled.id], 'single')
+
+        expect(moveToLogic.values.isOpen).toBe(false)
+    })
+
+    it('deselects a dashboard only once its move lands, leaving the rest ticked', async () => {
+        moveToLogic.mount()
+        const [first, second] = logic.values.dashboards.filter((d) => d.file_system_id)
+        const onStillSelected = jest.fn()
+
+        logic.actions.moveDashboardsToFolder([first.id, second.id], 'bulk', onStillSelected)
+
+        // The modal is open; nothing has moved yet, so nothing is deselected.
+        expect(onStillSelected).not.toHaveBeenCalled()
+
+        projectTreeDataLogic.actions.movedItem(
+            { id: first.file_system_id, type: 'dashboard', ref: String(first.id), path: first.file_system_path } as any,
+            first.file_system_path!,
+            'Revenue/Filed'
+        )
+
+        expect(onStillSelected).toHaveBeenCalledWith([second.id])
+    })
+
+    it('stops tracking a move once the modal is dismissed', async () => {
+        moveToLogic.mount()
+        const [first, second] = logic.values.dashboards.filter((d) => d.file_system_id)
+        const onStillSelected = jest.fn()
+
+        logic.actions.moveDashboardsToFolder([first.id, second.id], 'bulk', onStillSelected)
+        moveToLogic.actions.closeMoveToModal()
+
+        // movedItem fires for moves made anywhere in the project tree. Once the modal is gone, one of those
+        // must not rewrite the table's selection from the abandoned bulk action.
+        projectTreeDataLogic.actions.movedItem(
+            { id: first.file_system_id, type: 'dashboard', ref: String(first.id), path: first.file_system_path } as any,
+            first.file_system_path!,
+            'Revenue/Filed'
+        )
+
+        expect(onStillSelected).not.toHaveBeenCalled()
     })
 
     it('does not refetch when toggling pinned while a search is active on the /dashboard URL', async () => {

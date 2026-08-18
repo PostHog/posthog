@@ -15,7 +15,6 @@ import type {
   ConversationItem,
   TurnContext,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
-import { CloudArtifactDownloads } from "@posthog/ui/features/sessions/components/CloudArtifactDownloads";
 import { ConversationSearchBar } from "@posthog/ui/features/sessions/components/ConversationSearchBar";
 import {
   PROMPT_RECALL_HINT_KEY,
@@ -147,7 +146,9 @@ export function ConversationView({
     items: conversationItems,
     lastTurnInfo,
     isCompacting,
+    isClearing,
     completedToolCallCount,
+    lastActivityAt,
   } = useConversationItems(events, isPromptPending, {
     showDebugLogs,
   });
@@ -326,9 +327,12 @@ export function ConversationView({
   const handleJumpToMessage = useCallback(
     (id: string) => {
       const message = userMessages.find((entry) => entry.id === id);
-      if (!message) return;
+      // Reported, not swallowed: a request for a message this list has not built yet is
+      // retried by the caller rather than dropped.
+      if (!message) return false;
       setKeyboardFocusedMessageId(id);
       scrollToUserMessage(id, message.index);
+      return true;
     },
     [userMessages, scrollToUserMessage],
   );
@@ -476,7 +480,6 @@ export function ConversationView({
 
   const footer = (
     <div className={compact ? "pb-1" : "pb-16"}>
-      <CloudArtifactDownloads taskId={taskId} task={task} />
       <SessionFooter
         task={task}
         isPromptPending={isPromptPending}
@@ -491,7 +494,9 @@ export function ConversationView({
         hasPendingPermission={pendingPermissionsCount > 0}
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
+        isClearing={isClearing}
         completedToolCallCount={completedToolCallCount}
+        lastActivityAt={lastActivityAt}
       />
     </div>
   );

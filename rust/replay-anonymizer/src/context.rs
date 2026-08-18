@@ -37,7 +37,7 @@ pub struct Ctx<'a> {
     images: ImageQueue,
     // `Some` routes collectable images to the scrub lane instead of the blur (inline or pooled).
     collector: Option<RefCell<ImageCollector>>,
-    // `Some` routes remote image URLs to the fetch lane instead of the media placeholder.
+    // `Some` routes remote image URLs to the fetch lane and emits refs beside the media placeholder.
     url_collector: Option<RefCell<UrlCollector>>,
     // Whether a well-formed ref already present in the *input* is left alone. Off unless the
     // caller vouches for the input's provenance; see `preserving_image_refs`.
@@ -81,8 +81,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Leave well-formed `image:<pseudo_team>:<hash>` refs already present in the input alone
-    /// instead of scrubbing them.
+    /// Leave well-formed image refs already present in the input alone instead of scrubbing them.
     ///
     /// Off by default, and it must stay off for anything scrubbing untrusted capture input: the
     /// ref format is not a secret, so a page could set a media attribute to a forged one and have
@@ -147,8 +146,8 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Route remote image URLs to the fetch lane. Off unless set, exactly like image collection,
-    /// so a caller that does not opt in keeps the media placeholder it has today.
+    /// Route remote image URLs to the fetch lane. Off unless set, exactly like image collection.
+    /// The media source keeps its placeholder either way.
     pub fn collecting_urls(mut self, url_collection: Option<UrlCollection>) -> Self {
         self.url_collector = url_collection.map(|c| RefCell::new(UrlCollector::new(c)));
         self
@@ -157,7 +156,8 @@ impl<'a> Ctx<'a> {
     /// The fetch lane's ref for a remote image URL.
     ///
     /// `None` when collection is off, when the URL is not fetchable, or when the per-message cap
-    /// is reached. The caller then writes the placeholder, as before.
+    /// is reached. The caller writes the placeholder regardless and stashes a returned ref beside
+    /// it.
     pub(crate) fn collect_url(&self, original: &str) -> Option<String> {
         let collector = self.url_collector.as_ref()?;
         collector.borrow_mut().collect(original)

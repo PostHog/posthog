@@ -1490,7 +1490,7 @@ export const HogFlowsActionsEmailPartialUpdateBody = /* @__PURE__ */ zod.object(
         .unknown()
         .optional()
         .describe(
-            "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it."
+            "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. The design is edited via operations, and html is always re-rendered from it."
         ),
 })
 
@@ -2107,6 +2107,35 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Cancel in-flight invocations of this workflow, by id or all at once.
+ *
+ * Cancellation is asynchronous: runs are flagged here, then terminated by
+ * the workflow workers, promptly for parked runs (delays and waits) and at
+ * the next step boundary for runs mid-execution. Steps that already
+ * executed are not undone. Canceled runs can be re-run later via `rerun`.
+ */
+export const hogFlowsInvocationsCancelCreateBodyInvocationIdsMax = 10000
+
+export const hogFlowsInvocationsCancelCreateBodyAllDefault = false
+
+export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
+    .object({
+        invocation_ids: zod
+            .array(zod.uuid())
+            .min(1)
+            .max(hogFlowsInvocationsCancelCreateBodyInvocationIdsMax)
+            .optional()
+            .describe(
+                'Cancel these specific invocations. Capped at 10000 per request. Invocations that already finished are skipped rather than failing the request.'
+            ),
+        all: zod
+            .boolean()
+            .default(hogFlowsInvocationsCancelCreateBodyAllDefault)
+            .describe('Cancel every in-flight invocation of this workflow, including parked delays and waits.'),
+    })
+    .describe('Cancel in-flight invocations of a workflow. Provide exactly one selector.')
+
 export const hogFlowsPublishCreateBodyConfirmDefault = false
 
 export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
@@ -2154,8 +2183,10 @@ export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
                 status: zod
                     .array(
                         zod
-                            .enum(['running', 'succeeded', 'failed'])
-                            .describe('\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed')
+                            .enum(['running', 'succeeded', 'failed', 'canceled'])
+                            .describe(
+                                '\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed\n\* `canceled` - canceled'
+                            )
                     )
                     .optional()
                     .describe("Restrict to invocations whose latest status is one of these. Defaults to ['failed']."),
@@ -2200,6 +2231,12 @@ export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
         .default(hogFlowsRevisionsRestoreCreateBodyOverwriteDefault)
         .describe(
             "Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409."
+        ),
+    expected_draft_updated_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'The draft_updated_at of the staged draft this overwrite was confirmed against. If a draft exists with a different stamp (it was staged or edited since the confirmation was shown), the restore returns 409 instead of overwriting it. Omit to overwrite unconditionally.'
         ),
 })
 

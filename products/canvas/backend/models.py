@@ -160,3 +160,44 @@ class CanvasBuild(TeamScopedRootMixin, UUIDModel):
                 name="canvas_build_retention",
             ),
         ]
+
+
+class CanvasState(TeamScopedRootMixin, UUIDModel):
+    """One key of a canvas's runtime key-value store (the ``ph.state`` verb).
+
+    ``user`` rows belong to one viewer; ``shared`` rows to the canvas itself.
+    Values are application data written from viewer sessions — never secrets —
+    and bounded at write time (value size, keys per scope), which keeps every
+    access a point lookup and table growth capped by canvas count.
+    """
+
+    SCOPE_USER = "user"
+    SCOPE_SHARED = "shared"
+    SCOPES = [SCOPE_USER, SCOPE_SHARED]
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="state_entries")
+    scope = models.CharField(max_length=8)
+    # The owning viewer for user-scoped rows; always null for shared rows.
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True, blank=True, db_constraint=False)
+    key = models.CharField(max_length=200)
+    value = models.JSONField()
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_canvas_state"
+        constraints = [
+            # Postgres treats NULLs as distinct, so shared rows (user NULL) get
+            # their own uniqueness arm instead of one four-column constraint.
+            models.UniqueConstraint(
+                fields=["canvas", "scope", "user", "key"],
+                condition=Q(user__isnull=False),
+                name="canvas_state_user_key",
+            ),
+            models.UniqueConstraint(
+                fields=["canvas", "scope", "key"],
+                condition=Q(user__isnull=True),
+                name="canvas_state_shared_key",
+            ),
+        ]
