@@ -20,8 +20,8 @@ import jsonschema
 
 from posthog.models.scoping import team_scope
 
-from products.canvas.backend.contract import contract_limits
-from products.canvas.backend.source import GRID_COLUMN_CHOICES, MAX_COMPONENT_HEIGHT, diagnostic
+from products.canvas.backend.contract import GRID_COLUMN_CHOICES, MAX_COMPONENT_HEIGHT, contract_limits
+from products.canvas.backend.source import diagnostic
 
 CANVAS_LAYOUT_SCHEMA_VERSION = 1
 

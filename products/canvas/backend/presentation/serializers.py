@@ -8,19 +8,19 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 
 from products.canvas.backend.contract import (
+    GRID_COLUMN_CHOICES,
     MAX_COMPONENT_HEIGHT,
     MAX_COMPONENT_WIDTH,
     canvas_sdk_version,
     contract_limits,
 )
-from products.canvas.backend.layout import (
+from products.canvas.backend.facade.api import (
     CANVAS_LAYOUT_SCHEMA_VERSION,
     MAX_LAYOUT_PATCH_OPERATIONS,
     PLACEMENT_ID_RE,
     PLACEMENT_STATUSES,
 )
 from products.canvas.backend.models import Canvas, CanvasState
-from products.canvas.backend.source import GRID_COLUMN_CHOICES
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.

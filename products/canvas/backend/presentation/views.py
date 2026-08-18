@@ -26,13 +26,14 @@ from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
-from products.canvas.backend import build_service, error_reports, welcome
+from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
-from products.canvas.backend.layout import (
+from products.canvas.backend.facade.api import (
     apply_layout_ops,
     default_layout,
+    seed_home_canvas,
     subtract_preexisting_diagnostics,
     validate_layout,
     validate_layout_references,
@@ -1257,7 +1258,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Starter content is best-effort: an empty home still provisions when
         # object storage or the seed publish is unavailable.
         try:
-            welcome.seed_home_canvas(canvas, user=user, channel_id=channel_id)
+            seed_home_canvas(canvas, user=user, channel_id=channel_id)
         except Exception:
             logger.exception("Failed to seed home canvas", canvas_id=str(canvas.id), team_id=self.team_id)
         self._log_canvas_activity(canvas, "created", Detail(name=canvas.name))
