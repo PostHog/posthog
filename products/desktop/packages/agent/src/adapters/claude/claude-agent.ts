@@ -223,6 +223,14 @@ function confirmConsumedSteers(turn: Turn): void {
       turn.pendingSteers.delete(uuid);
     }
   }
+  if (turn.pendingSteers.size > 0) {
+    return;
+  }
+  if (turn.steerTimer) {
+    clearTimeout(turn.steerTimer);
+    turn.steerTimer = undefined;
+  }
+  turn.deferredResult = undefined;
 }
 
 /** Report every steer left on a finishing turn as undelivered so callers redeliver it. */
