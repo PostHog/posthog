@@ -114,6 +114,13 @@ class TestAzureCostManagementSource:
         assert isinstance(field, SourceFieldInputConfig)
         assert field.required is False
 
+    def test_connection_host_fields_force_secret_reentry_on_retarget(self) -> None:
+        # `tenant_id` chooses the Azure AD directory the client secret is exchanged against and
+        # `scope` chooses the ARM path the minted token is spent on, so changing either on an
+        # existing source must require the secret to be re-entered rather than reusing the stored
+        # one against a directory or billing scope it was never connected to.
+        assert self.source.connection_host_fields == ["tenant_id", "scope"]
+
     def test_api_version_metadata(self) -> None:
         assert self.source.supported_versions == ("2025-03-01",)
         assert self.source.default_version == "2025-03-01"

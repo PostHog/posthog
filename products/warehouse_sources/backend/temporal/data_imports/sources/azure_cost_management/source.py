@@ -43,6 +43,15 @@ class AzureCostManagementSource(ResumableSource[AzureCostManagementSourceConfig,
         return ExternalDataSourceType.AZURECOSTMANAGEMENT
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `tenant_id` picks the Azure AD directory the stored client secret is exchanged against
+        # (a multi-tenant app registration will mint a token in another directory), and `scope`
+        # picks the ARM path the resulting token is spent on. Retargeting either would let an
+        # editor point a preserved secret at a directory or subscription/billing account it wasn't
+        # connected to, so both must force credential re-entry.
+        return ["tenant_id", "scope"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AZURE_COST_MANAGEMENT,
