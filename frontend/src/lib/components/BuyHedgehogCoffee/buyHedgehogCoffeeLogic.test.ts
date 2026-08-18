@@ -1,8 +1,14 @@
+/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
+
 import { dayjs } from 'lib/dayjs'
 
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import type { BillingType } from '~/types'
 
-import { canShowAgain, isOrgOldEnough, isUnderFreeAllowance } from './buyHedgehogCoffeeLogic'
+import { buyHedgehogCoffeeLogic, canShowAgain, isOrgOldEnough, isUnderFreeAllowance } from './buyHedgehogCoffeeLogic'
 
 function billing(partial: Partial<BillingType>): BillingType {
     return partial as BillingType
@@ -65,6 +71,23 @@ describe('buyHedgehogCoffeeLogic', () => {
             ['shown seven months ago', dayjs().subtract(7, 'month').toISOString(), true],
         ])('%s', (_name, lastShownAt, expected) => {
             expect(canShowAgain(lastShownAt)).toBe(expected)
+        })
+    })
+
+    describe('deep link', () => {
+        it('force-opens the popup on mount via ?modal=buy-a-hedgehog-a-coffee even when not eligible', async () => {
+            useMocks({ get: { '/api/billing': () => [200, {}] } })
+            initKeaTests()
+            router.actions.push('/home', { modal: 'buy-a-hedgehog-a-coffee' })
+
+            const logic = buyHedgehogCoffeeLogic()
+            logic.mount()
+            try {
+                // No billing / young org — ineligible, so only the forced-open path can show it.
+                await expectLogic(logic).delay(1).toMatchValues({ forcedOpen: true, shouldShowModal: true })
+            } finally {
+                logic.unmount()
+            }
         })
     })
 })

@@ -10,26 +10,38 @@ import { HERTS_WILDLIFE_TRUST_DONATE_URL, buyHedgehogCoffeeLogic } from './buyHe
  * long-term free-tier user who's stayed under their allowance, and only up to twice a year. */
 export function MaybeBuyHedgehogCoffeeModal(): JSX.Element | null {
     const { shouldShowModal } = useValues(buyHedgehogCoffeeLogic)
+    const { closeModal, donate } = useActions(buyHedgehogCoffeeLogic)
     if (!shouldShowModal) {
         return null
     }
-    return <BuyHedgehogCoffeeModal />
+    return <BuyHedgehogCoffeeModal isOpen onClose={closeModal} onDonate={donate} />
 }
 
-function BuyHedgehogCoffeeModal(): JSX.Element {
-    const { shouldShowModal } = useValues(buyHedgehogCoffeeLogic)
-    const { closeModal, donate } = useActions(buyHedgehogCoffeeLogic)
+export interface BuyHedgehogCoffeeModalProps {
+    isOpen: boolean
+    onClose: () => void
+    onDonate: () => void
+    /** Render in place instead of in a portal — for Storybook. */
+    inline?: boolean
+}
 
+export function BuyHedgehogCoffeeModal({
+    isOpen,
+    onClose,
+    onDonate,
+    inline,
+}: BuyHedgehogCoffeeModalProps): JSX.Element {
     return (
         <LemonModal
-            isOpen={shouldShowModal}
-            onClose={() => closeModal()}
+            isOpen={isOpen}
+            onClose={onClose}
+            inline={inline}
             width={480}
             title="Buy a hedgehog a coffee ☕️🦔"
             data-attr="buy-hedgehog-coffee"
             footer={
                 <div className="flex flex-row justify-between items-center w-full">
-                    <LemonButton type="tertiary" onClick={() => closeModal()} data-attr="hedgehog-coffee-dismiss">
+                    <LemonButton type="tertiary" onClick={onClose} data-attr="hedgehog-coffee-dismiss">
                         Maybe later
                     </LemonButton>
                     <LemonButton
@@ -37,7 +49,7 @@ function BuyHedgehogCoffeeModal(): JSX.Element {
                         to={HERTS_WILDLIFE_TRUST_DONATE_URL}
                         targetBlank
                         disableClientSideRouting
-                        onClick={() => donate()}
+                        onClick={onDonate}
                         data-attr="hedgehog-coffee-donate"
                     >
                         Donate to Herts Wildlife Trust
