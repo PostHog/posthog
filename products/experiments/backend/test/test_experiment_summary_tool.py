@@ -358,6 +358,9 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(pending_calculation)
         self.assertEqual(mock_query_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
         self.assertEqual(mock_exposure_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
+        # The real exposure runner rejects a feature_flag dict without a non-empty "key".
+        exposure_query = mock_exposure_runner_class.call_args.kwargs["query"]
+        self.assertEqual(exposure_query.feature_flag["key"], "query-runner-test")
         # The agent can't poll, so it always blocks on stale cache rather than dropping pending metrics.
         self.assertEqual(
             mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"],
