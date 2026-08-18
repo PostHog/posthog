@@ -1164,8 +1164,7 @@ jobs:
               # Must match the migration-set computation in turbo-discover and the
               # push-side save below (inputs, hash, and key prefix). Keyed off the
               # master checkout (HEAD here) so a restored dump is exactly the state
-              # that "Run migrations up to master" would build from scratch; any
-              # difference in the migration set is a cache miss, never a stale hit.
+              # that "Run migrations up to master" would build from scratch.
               if: github.event_name != 'push'
               id: master-schema-key
               run: |
@@ -1189,15 +1188,11 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
-                  # An exact-key-only restore misses whenever master gains a migration between
-                  # the last push run that saved a dump and this job's master checkout, which on
-                  # a busy day is most PRs — and the miss costs a full replay of every migration.
-                  # Fall back to the newest dump under the same epoch: "Run migrations up to
-                  # master" below applies whatever that dump is missing, and the prime step drops
-                  # any dump holding migrations this checkout doesn't have. The Django shards
-                  # already restore an older (merge-base) dump and migrate the delta this way.
+                  # The exact key misses in the minutes between a master migration
+                  # landing and its dump being saved. The PR base commit's dump is
+                  # always older than the checkout, so migrate just tops it up.
                   restore-keys: |
-                      posthog-schema-mig-${{ env.SCHEMA_CACHE_EPOCH }}-
+                      posthog-schema-master-${{ github.event.pull_request.base.sha }}
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -1218,13 +1213,8 @@ jobs:
                   # the fallback below recreates an empty DB for a full migrate.
                   # ensure_migration_defaults re-seeds data-migration rows the
                   # schema-only dump lacks.
-                  # A restore-keys hit can carry a dump built from a different master commit, so
-                  # only keep one this checkout can migrate forward from: every migration the dump
-                  # records as applied must exist on disk here. A dump from ahead of this checkout
-                  # fails that test, and migrate would leave its extra schema in place.
                   if gunzip -c schema.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -v ON_ERROR_STOP=1 --single-transaction -U posthog posthog > /dev/null \
-                      && .venv-master/bin/python manage.py ensure_migration_defaults \
-                      && .venv-master/bin/python .github/scripts/check-schema-dump-ancestry.py; then
+                      && .venv-master/bin/python manage.py ensure_migration_defaults; then
                       echo "Primed posthog DB from cached master schema"
                   else
                       echo "::warning::Cached schema restore failed — recreating empty DB; the next step runs all migrations from scratch"
