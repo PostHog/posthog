@@ -243,8 +243,8 @@ class TestHasMaintainedSources(BaseTest):
         status: str = SourceStatus.READY,
         always_include: bool = False,
         refresh_interval: str = RefreshInterval.MANUAL,
-        documents: int = 1,
-        tombstoned_documents: int = 0,
+        live_chunks: int = 1,
+        tombstoned_chunks: int = 0,
         age: datetime.timedelta = datetime.timedelta(days=1),
     ) -> KnowledgeSource:
         source = KnowledgeSource.objects.unscoped().create(
@@ -255,17 +255,32 @@ class TestHasMaintainedSources(BaseTest):
             always_include=always_include,
             refresh_interval=refresh_interval,
         )
-        for index in range(documents + tombstoned_documents):
-            KnowledgeDocument.objects.unscoped().create(
+        # An upload or a paste stores the whole text as one document, so the content-volume
+        # signal lives in the chunk count, not the document count — keep every chunk on one
+        # document so a book-length source reads as one document with many chunks.
+        for tombstoned, count in ((False, live_chunks), (True, tombstoned_chunks)):
+            if not count:
+                continue
+            document = KnowledgeDocument.objects.unscoped().create(
                 team_id=self.team.id,
                 source=source,
                 stable_id=str(uuid.uuid4()),
-                title=f"doc-{index}",
+                title="doc",
                 content="content",
-                content_hash=str(index),
+                content_hash=str(uuid.uuid4()),
                 safety_verdict=SafetyVerdict.SAFE,
-                tombstoned_at=timezone.now() if index >= documents else None,
+                tombstoned_at=timezone.now() if tombstoned else None,
             )
+            for ordinal in range(count):
+                KnowledgeChunk.objects.unscoped().create(
+                    id=uuid.uuid4(),
+                    team_id=self.team.id,
+                    source=source,
+                    document=document,
+                    ordinal=ordinal,
+                    content="chunk",
+                    char_count=5,
+                )
         # `updated_at` is auto_now, so the create above stamps it now — reach past save() to age it.
         KnowledgeSource.objects.unscoped().filter(id=source.id).update(updated_at=timezone.now() - age)
         return source
@@ -273,8 +288,8 @@ class TestHasMaintainedSources(BaseTest):
     @parameterized.expand(
         [
             ("no_sources", [], False),
-            # The shape the predicate exists to catch: one page pasted in to try the product, left
-            # alone since. Every variation below breaks it in exactly one place and must pass.
+            # The shape the predicate exists to catch: a little text pasted in to try the product,
+            # left alone since. Every variation below breaks it in exactly one place and must pass.
             ("lone_abandoned_trial", [{"age": TRIAL_QUIET_PERIOD * 2}], False),
             ("lone_source_touched_recently", [{"age": datetime.timedelta(days=1)}], True),
             ("lone_pinned_source", [{"age": TRIAL_QUIET_PERIOD * 2, "always_include": True}], True),
@@ -283,20 +298,22 @@ class TestHasMaintainedSources(BaseTest):
                 [{"age": TRIAL_QUIET_PERIOD * 2, "refresh_interval": RefreshInterval.DAILY}],
                 True,
             ),
-            ("lone_source_with_content", [{"age": TRIAL_QUIET_PERIOD * 2, "documents": 5}], True),
+            # A book-length handbook is ONE document with many chunks — the case a document count
+            # would misread as a trial and hide from every scout.
+            ("lone_abandoned_handbook", [{"age": TRIAL_QUIET_PERIOD * 2, "live_chunks": 50}], True),
             (
                 "two_abandoned_sources",
                 [{"age": TRIAL_QUIET_PERIOD * 2}, {"age": TRIAL_QUIET_PERIOD * 2}],
                 True,
             ),
-            # A crawl that stopped discovering pages tombstones them, and search skips those, so
-            # they must not lift an abandoned source over the content bar either.
+            # A crawl that stopped discovering pages tombstones the document, and search skips its
+            # chunks, so they must not lift an abandoned source over the content bar either.
             (
-                "lone_trial_with_tombstoned_documents",
-                [{"age": TRIAL_QUIET_PERIOD * 2, "tombstoned_documents": 5}],
+                "lone_trial_with_tombstoned_content",
+                [{"age": TRIAL_QUIET_PERIOD * 2, "tombstoned_chunks": 50}],
                 False,
             ),
-            ("pending_source_only", [{"status": SourceStatus.PENDING, "documents": 5}], False),
+            ("pending_source_only", [{"status": SourceStatus.PENDING, "live_chunks": 50}], False),
         ]
     )
     def test_classifies_the_team_knowledge_base(self, _name: str, sources: list[dict], expected: bool) -> None:
@@ -306,5 +323,5 @@ class TestHasMaintainedSources(BaseTest):
 
     def test_scoped_to_one_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
-        self._create_source(documents=5)
+        self._create_source(live_chunks=50)
         assert has_maintained_sources(other_team.id) is False

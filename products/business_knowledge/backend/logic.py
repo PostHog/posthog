@@ -69,7 +69,7 @@ from .constants import (
     RECONCILE_EMBEDDING_GRACE,
     RECONCILE_EMBEDDING_SCAN_CAP,
     REEMIT_EMBEDDING_SCAN_CAP,
-    TRIAL_MAX_DOCUMENTS,
+    TRIAL_MAX_CHUNKS,
     TRIAL_QUIET_PERIOD,
 )
 from .models import (
@@ -1581,18 +1581,22 @@ def has_maintained_sources(team_id: int) -> bool:
     Searches leave no trace anywhere — no hit counters, no `last_searched_at`, no analytics
     event — so this reads the rows for evidence of upkeep instead of for evidence of use. Any
     of a second source, an `always_include` pin, a configured refresh cadence, more than
-    `TRIAL_MAX_DOCUMENTS` live documents, or a source touched inside `TRIAL_QUIET_PERIOD`
-    counts as maintained; only the full trial shape fails.
+    `TRIAL_MAX_CHUNKS` live chunks, or a source touched inside `TRIAL_QUIET_PERIOD` counts as
+    maintained; only the full trial shape fails.
 
-    `updated_at` is load-bearing here and only trustworthy because the disqualifier already
-    requires a manual source: the refresh coordinator stamps `updated_at` on every pass of an
-    auto-refreshing source (a 304 included), so recency on those proves a cron ran, not that a
-    human returned.
+    The content bar counts chunks, not documents: an upload or a paste is one document however
+    long, so a document count would read a book-length handbook as a one-item trial (see the
+    note on `TRIAL_MAX_CHUNKS`). `updated_at` is load-bearing too, and only trustworthy because
+    the disqualifier already requires a manual source: the refresh coordinator stamps
+    `updated_at` on every pass of an auto-refreshing source (a 304 included), so recency on
+    those proves a cron ran, not that a human returned.
     """
     sources = list(
         KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY)
-        .annotate(live_documents=Count("documents", filter=Q(documents__tombstoned_at__isnull=True)))
-        .values("refresh_interval", "always_include", "updated_at", "live_documents")[:2]
+        .annotate(
+            live_chunks=Count("documents__chunks", filter=Q(documents__tombstoned_at__isnull=True), distinct=True)
+        )
+        .values("refresh_interval", "always_include", "updated_at", "live_chunks")[:2]
     )
     if not sources:
         return False
@@ -1602,7 +1606,7 @@ def has_maintained_sources(team_id: int) -> bool:
     return bool(
         only["always_include"]
         or only["refresh_interval"] != RefreshInterval.MANUAL
-        or only["live_documents"] > TRIAL_MAX_DOCUMENTS
+        or only["live_chunks"] > TRIAL_MAX_CHUNKS
         or only["updated_at"] > timezone.now() - TRIAL_QUIET_PERIOD
     )
 
