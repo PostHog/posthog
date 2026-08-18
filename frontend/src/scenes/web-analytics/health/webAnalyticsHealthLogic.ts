@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
+import { healthSummaryLogic } from 'lib/components/HelpMenu/healthSummaryLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -40,6 +41,7 @@ interface WebHealthCheckConfig {
     title: string
     passingDescription: string
     failingDescription: string
+    infoDescription?: string
     passingAction?: HealthCheckAction
     failingAction?: HealthCheckAction
     docsUrl?: string
@@ -139,9 +141,11 @@ const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
         passingDescription: 'LCP, INP, and CLS are being tracked. You can monitor your real user experience!',
         failingDescription:
             'Core Web Vitals (LCP, INP, CLS) measure real user experience. Google uses these metrics for search ranking.',
-        passingAction: { label: 'View Web Vitals', to: '/web/web-vitals' },
+        infoDescription:
+            "Web vitals is enabled. We haven't received any $web_vitals events yet, which can take a few minutes after enabling. If it persists, check that you're on a recent posthog-js version.",
+        passingAction: { label: 'View web vitals', to: '/web/web-vitals' },
         failingAction: {
-            label: 'Enable Web Vitals',
+            label: 'Enable web vitals',
             to: urls.settings('environment-web-analytics', 'web-vitals-autocapture'),
         },
         docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
@@ -155,6 +159,7 @@ export interface webAnalyticsHealthLogicValues {
     activeIssuesByKind: Record<string, HealthIssue>
     allChecks: HealthCheck[]
     checksByCategory: Record<HealthCheckCategory, HealthCheck[]>
+    hasDismissedChecks: boolean
     hasIssues: boolean
     hasUrgentIssues: boolean
     healthIssues: HealthIssuesResponse | null
@@ -163,6 +168,7 @@ export interface webAnalyticsHealthLogicValues {
     now: number
     overallHealthStatus: OverallHealthStatus
     refreshDisabledReason: string | null
+    showDismissed: boolean
     urgentFailedChecks: HealthCheck[]
 }
 
@@ -246,8 +252,18 @@ export interface webAnalyticsHealthLogicActions {
     setNextRefreshAvailableAt: (timestamp: number | null) => {
         timestamp: number | null
     }
+    setIssueDismissed: (
+        id: string,
+        dismissed: boolean
+    ) => {
+        dismissed: boolean
+        id: string
+    }
     setNow: (now: number) => {
         now: number
+    }
+    setShowDismissed: (show: boolean) => {
+        show: boolean
     }
     startCooldownCountdown: () => {
         value: true
@@ -283,9 +299,11 @@ export interface webAnalyticsHealthLogicMeta {
             activeIssuesByKind: Record<string, HealthIssue>,
             healthIssuesLoading: boolean,
             healthIssues: HealthIssuesResponse | null,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            showDismissed: boolean
         ) => HealthCheck[]
         checksByCategory: (allChecks: HealthCheck[]) => Record<HealthCheckCategory, HealthCheck[]>
+        hasDismissedChecks: (activeIssuesByKind: Record<string, HealthIssue>) => boolean
         overallHealthStatus: (allChecks: HealthCheck[]) => OverallHealthStatus
         hasIssues: (overallHealthStatus: OverallHealthStatus) => boolean
         urgentFailedChecks: (allChecks: HealthCheck[]) => HealthCheck[]
@@ -336,6 +354,8 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         setNextRefreshAvailableAt: (timestamp: number | null) => ({ timestamp }),
         setNow: (now: number) => ({ now }),
         startCooldownCountdown: true,
+        setIssueDismissed: (id: string, dismissed: boolean) => ({ id, dismissed }),
+        setShowDismissed: (show: boolean) => ({ show }),
     }),
 
     reducers({
@@ -352,6 +372,12 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 setNow: (_, { now }) => now,
             },
         ],
+        showDismissed: [
+            false,
+            {
+                setShowDismissed: (_, { show }) => show,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -359,7 +385,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
             __default: null as HealthIssuesResponse | null,
             loadHealthIssues: async (): Promise<HealthIssuesResponse> => {
                 return await api.get<HealthIssuesResponse>(
-                    `api/projects/${values.currentTeamIdStrict}/health_issues/?status=active&dismissed=false`
+                    `api/projects/${values.currentTeamIdStrict}/health_issues/?status=active`
                 )
             },
         },
@@ -378,55 +404,68 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         ],
 
         allChecks: [
-            (s) => [s.activeIssuesByKind, s.healthIssuesLoading, s.healthIssues, s.featureFlags],
+            (s) => [s.activeIssuesByKind, s.healthIssuesLoading, s.healthIssues, s.featureFlags, s.showDismissed],
             (
                 activeIssuesByKind: Record<string, HealthIssue>,
                 loading: boolean,
                 healthIssues: HealthIssuesResponse | null,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                showDismissed: boolean
             ): HealthCheck[] => {
                 const enabledChecks = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS]
                     ? WEB_HEALTH_CHECKS
                     : WEB_HEALTH_CHECKS.filter((config) => config.kind !== 'path_cleaning_suggestions')
-                return enabledChecks.map((config) => {
-                    // Show loading only on the first load (no data yet), like the rest of the health UI.
-                    if (loading && !healthIssues) {
-                        return {
-                            id: config.id,
-                            category: config.category,
-                            title: config.title,
-                            description: 'Checking...',
-                            status: 'loading' as HealthCheckStatus,
+                return enabledChecks
+                    .map((config): HealthCheck | null => {
+                        // Show loading only on the first load (no data yet), like the rest of the health UI.
+                        if (loading && !healthIssues) {
+                            return {
+                                id: config.id,
+                                category: config.category,
+                                title: config.title,
+                                description: 'Checking...',
+                                status: 'loading' as HealthCheckStatus,
+                            }
                         }
-                    }
 
-                    const issue = activeIssuesByKind[config.kind]
-                    if (!issue) {
+                        const issue = activeIssuesByKind[config.kind]
+                        if (!issue) {
+                            return {
+                                id: config.id,
+                                category: config.category,
+                                title: config.title,
+                                description: config.passingDescription,
+                                status: 'success' as HealthCheckStatus,
+                                action: config.passingAction,
+                                docsUrl: config.docsUrl,
+                                urgent: config.urgent,
+                            }
+                        }
+
+                        if (issue.dismissed && !showDismissed) {
+                            return null
+                        }
+
+                        // Critical backend severity surfaces as an error, info as a neutral note (e.g. web
+                        // vitals enabled but no events yet), everything else as a warning.
+                        const status: HealthCheckStatus =
+                            issue.severity === 'critical' ? 'error' : issue.severity === 'info' ? 'info' : 'warning'
+                        const description =
+                            (status === 'info' ? config.infoDescription : undefined) ?? config.failingDescription
                         return {
                             id: config.id,
                             category: config.category,
                             title: config.title,
-                            description: config.passingDescription,
-                            status: 'success' as HealthCheckStatus,
-                            action: config.passingAction,
+                            description,
+                            status,
+                            action: status === 'info' ? undefined : config.failingAction,
                             docsUrl: config.docsUrl,
-                            urgent: config.urgent,
+                            urgent: status === 'info' || issue.dismissed ? false : config.urgent,
+                            issueId: issue.id,
+                            dismissed: issue.dismissed,
                         }
-                    }
-
-                    // Critical backend severity surfaces as an error, everything else as a warning.
-                    const status: HealthCheckStatus = issue.severity === 'critical' ? 'error' : 'warning'
-                    return {
-                        id: config.id,
-                        category: config.category,
-                        title: config.title,
-                        description: config.failingDescription,
-                        status,
-                        action: config.failingAction,
-                        docsUrl: config.docsUrl,
-                        urgent: config.urgent,
-                    }
-                })
+                    })
+                    .filter((check): check is HealthCheck => check !== null)
             },
         ],
 
@@ -439,14 +478,23 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
             }),
         ],
 
+        hasDismissedChecks: [
+            (s) => [s.activeIssuesByKind],
+            (activeIssuesByKind: Record<string, HealthIssue>): boolean =>
+                WEB_HEALTH_CHECKS.some((config) => activeIssuesByKind[config.kind]?.dismissed),
+        ],
+
         overallHealthStatus: [
             (s) => [s.allChecks],
             (allChecks: HealthCheck[]): OverallHealthStatus => {
-                const passedCount = allChecks.filter((check) => check.status === 'success').length
-                const warningCount = allChecks.filter((check) => check.status === 'warning').length
-                const errorCount = allChecks.filter((check) => check.status === 'error').length
-                const loadingCount = allChecks.filter((check) => check.status === 'loading').length
-                const totalCount = allChecks.length
+                const counted = allChecks.filter((check) => !check.dismissed)
+                const passedCount = counted.filter(
+                    (check) => check.status === 'success' || check.status === 'info'
+                ).length
+                const warningCount = counted.filter((check) => check.status === 'warning').length
+                const errorCount = counted.filter((check) => check.status === 'error').length
+                const loadingCount = counted.filter((check) => check.status === 'loading').length
+                const totalCount = counted.length
 
                 let status: HealthCheckStatus
                 let summary: string
@@ -621,6 +669,15 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 status,
                 is_urgent: isUrgent,
             })
+        },
+        setIssueDismissed: async ({ id, dismissed }) => {
+            try {
+                await api.update(`api/projects/${values.currentTeamIdStrict}/health_issues/${id}/`, { dismissed })
+                actions.loadHealthIssues()
+                healthSummaryLogic.actions.loadHealthSummary()
+            } catch {
+                lemonToast.error(dismissed ? 'Failed to dismiss issue' : 'Failed to restore issue')
+            }
         },
     })),
 

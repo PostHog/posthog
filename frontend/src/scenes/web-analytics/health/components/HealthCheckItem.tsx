@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 
-import { IconCheck, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconCheck, IconEllipsis, IconInfo, IconWarning, IconX } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { isExternalLink } from 'lib/utils/url'
@@ -14,7 +14,8 @@ interface HealthCheckItemProps {
 }
 
 export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
-    const { trackActionClicked } = useActions(webAnalyticsHealthLogic)
+    const { trackActionClicked, setIssueDismissed } = useActions(webAnalyticsHealthLogic)
+    const issueId = check.issueId
 
     const handleActionClick = (): void => {
         trackActionClicked(check.id, check.category, check.status, check.urgent ?? false)
@@ -22,7 +23,11 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
     }
 
     return (
-        <div className="flex items-start gap-3 p-3 rounded border border-primary/10 bg-surface-primary">
+        <div
+            className={`flex items-start gap-3 p-3 rounded border border-primary/10 bg-surface-primary ${
+                check.dismissed ? 'opacity-60' : ''
+            }`}
+        >
             <StatusIcon status={check.status} urgent={check.urgent} />
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -31,6 +36,7 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
                     ) : (
                         <span className="font-medium">{check.title}</span>
                     )}
+                    {check.dismissed && <LemonTag type="muted">Dismissed</LemonTag>}
                     {check.docsUrl && (
                         <Link to={check.docsUrl} target="_blank" className="text-xs text-muted">
                             Docs
@@ -41,7 +47,7 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
                     {check.status === 'loading' ? <LemonSkeleton className="w-32 h-4" /> : check.description}
                 </div>
             </div>
-            {check.action && (
+            {check.action && !check.dismissed && (
                 <div className="flex-shrink-0">
                     {check.action.to ? (
                         <LemonButton
@@ -60,6 +66,25 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
                             {check.action.label}
                         </LemonButton>
                     ) : null}
+                </div>
+            )}
+            {issueId && (
+                <div className="flex-shrink-0">
+                    <LemonMenu
+                        items={[
+                            check.dismissed
+                                ? { label: 'Restore', onClick: () => setIssueDismissed(issueId, false) }
+                                : { label: 'Dismiss', onClick: () => setIssueDismissed(issueId, true) },
+                        ]}
+                    >
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={<IconEllipsis />}
+                            aria-label="Issue options"
+                            data-attr="web-analytics-health-issue-menu"
+                        />
+                    </LemonMenu>
                 </div>
             )}
         </div>
@@ -82,6 +107,12 @@ function StatusIcon({ status, urgent }: { status: HealthCheckStatus; urgent?: bo
             return (
                 <div className="w-6 h-6 rounded-full bg-success-highlight flex items-center justify-center flex-shrink-0">
                     <IconCheck className="text-success w-4 h-4" />
+                </div>
+            )
+        case 'info':
+            return (
+                <div className="w-6 h-6 rounded-full bg-fill-info-secondary flex items-center justify-center flex-shrink-0">
+                    <IconInfo className="text-info w-4 h-4" />
                 </div>
             )
         case 'warning':

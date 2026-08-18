@@ -1229,6 +1229,18 @@ def reevaluate_authorized_urls_health(sender, instance: Team, **kwargs):
     transaction.on_commit(lambda: evaluate_health_check_for_team.delay("authorized_urls", team_id))
 
 
+@mutable_receiver(post_save, sender=Team)
+def reevaluate_web_vitals_health(sender, instance: Team, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "autocapture_web_vitals_opt_in" not in update_fields:
+        return
+
+    from posthog.tasks.health_checks import evaluate_health_check_for_team
+
+    team_id = instance.id
+    transaction.on_commit(lambda: evaluate_health_check_for_team.delay("web_vitals", team_id))
+
+
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):
     available_product_features: Optional[list[dict[str, str]]] = (
         Team.objects.select_related("organization")
