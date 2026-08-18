@@ -950,9 +950,9 @@ class CustomPropertySourceViewSet(
     )
     @action(methods=["POST"], detail=True)
     def sync(self, request: Request, *args, **kwargs) -> Response:
-        """Person and group sources only: trigger the underlying warehouse schema's sync now. This
-        re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
-        off it."""
+        """Person and group sources only: run what this source reads now — an import for a table
+        binding (a real, billable warehouse sync), a materialization for a view binding. The
+        incremental person/group-property update runs off that run."""
         self._guard_group_source(request, self.kwargs["pk"])
         try:
             triggered = api.trigger_person_property_sync(
@@ -960,7 +960,7 @@ class CustomPropertySourceViewSet(
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
-        except api.WarehouseSyncPausedError as e:
+        except (api.WarehouseSyncPausedError, api.ViewNotSyncableError) as e:
             return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if not triggered:
             raise ValidationError("This action is only available for enabled person- or group-property sources.")
