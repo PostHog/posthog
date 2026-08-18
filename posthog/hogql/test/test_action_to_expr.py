@@ -46,7 +46,7 @@ class TestActionToExpr(BaseTest):
                                     )
                                 },
                             ),
-                            self._parse_expr("arrayCount(x -> x IN ['a'], elements_chain_elements) > 0"),
+                            self._parse_expr("arrayCount(x -> x IN ['a'], elements_chain_elements_enum) > 0"),
                         ]
                     ),
                 },

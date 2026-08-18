@@ -847,7 +847,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr("a[href='boo']"),
             clear_locations(
                 parse_expr(
-                    "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
+                    "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements_enum) > 0",
                     {"regex": elements_chain_match('(^|;)a.*?href="boo".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
                 )
             ),
@@ -860,7 +860,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr("a#withid"),
             clear_locations(
                 parse_expr(
-                    """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
+                    """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements_enum) > 0""",
                     {"regex": elements_chain_match('(^|;)a.*?attr_id="withid".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
                 )
             ),
@@ -870,7 +870,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr("a#with-dashed-id"),
             clear_locations(
                 parse_expr(
-                    """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
+                    """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements_enum) > 0""",
                     {
                         "regex": elements_chain_match(
                             '(^|;)a.*?attr_id="with\\-dashed\\-id".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))'

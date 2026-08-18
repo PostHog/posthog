@@ -1,3 +1,4 @@
+from posthog.hogql import ast
 from posthog.hogql.database.lazy_join_tags import (
     EVENTS_TO_SESSIONS_V1,
     GROUP_N,
@@ -7,6 +8,7 @@ from posthog.hogql.database.lazy_join_tags import (
 from posthog.hogql.database.models import (
     DatabaseField,
     DateTimeDatabaseField,
+    ExpressionField,
     FieldOrTable,
     FieldTraverser,
     IntegerDatabaseField,
@@ -190,7 +192,25 @@ class EventsTable(Table):
         "elements_chain_href": StringDatabaseField(name="elements_chain_href", nullable=False),
         "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts", nullable=False),
         "elements_chain_ids": StringArrayDatabaseField(name="elements_chain_ids", nullable=False),
-        "elements_chain_elements": StringArrayDatabaseField(name="elements_chain_elements", nullable=False),
+        # The stored column is Array(Enum8(...)) with no member for 0, so indexing it directly
+        # (e.g. `elements_chain_elements[1]`) reads the enum default of 0 on empty rows and
+        # ClickHouse raises "Unexpected value 0 in enum". Expose the field as a genuine
+        # Array(String) via arrayMap(toString), which never dereferences the enum default.
+        "elements_chain_elements": ExpressionField(
+            name="elements_chain_elements",
+            expr=ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(args=["x"], expr=ast.Call(name="toString", args=[ast.Field(chain=["x"])])),
+                    ast.Field(chain=["elements_chain_elements_enum"]),
+                ],
+            ),
+        ),
+        # Raw enum column. Hidden so query authors reach the safe Array(String) field above, but
+        # kept resolvable for the element-tag filter, which compares enum members directly.
+        "elements_chain_elements_enum": StringArrayDatabaseField(
+            name="elements_chain_elements", nullable=False, hidden=True
+        ),
     }
 
     def to_printed_clickhouse(self, context):
