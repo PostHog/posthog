@@ -29,7 +29,7 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
     current_b: datetime
 
     @classmethod
-    def setUpTestData(cls):
+    def setUpTestData(cls) -> None:
         super().setUpTestData()
         connect_github_source_without_data(cls.team, prefix="teams", repository="PostHog/posthog")
         sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
@@ -76,7 +76,7 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
             ),
             # Ownership re-stamp: prior-window failure stamped team-old, current stamped team-new.
             # The latest stamp owns the whole test, in the roster and the drill-in alike.
-            cls._span(15, T_RESTAMPED, "failed", ts=prior, owner="team-old", run="601", pr="601"),
+            cls._span(18, T_RESTAMPED, "failed", ts=prior, owner="team-old", run="601", pr="601"),
             cls._span(16, T_RESTAMPED, "failed", ts=cls.current_b, owner="team-new", run="602", pr="602"),
             # No owner stamp: buckets under the literal 'unowned'.
             cls._span(12, T_UNOWNED, "rerun_passed", ts=cls.current_b, owner="", run="401", pr="401"),
@@ -104,7 +104,7 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
     @classmethod
-    def tearDownClass(cls):
+    def tearDownClass(cls) -> None:
         sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
         sync_execute("DROP TABLE IF EXISTS trace_spans")
         sync_execute(TRACE_SPANS_TABLE_SQL())
@@ -150,7 +150,7 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
     def _roster(self) -> dict[str, dict]:
         return {item["owner_team"]: item for item in self._get("team_ci_health")["items"]}
 
-    def test_roster_uses_the_same_flake_proof_as_the_queue(self):
+    def test_roster_uses_the_same_flake_proof_as_the_queue(self) -> None:
         rows = self._roster()
 
         # Only the pass-on-retry test is proven flaky. The 3-PR test failed with no recovery, so it
@@ -177,7 +177,7 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         # A re-run pass that pairs with no failure is not evidence: no phantom all-zero team row.
         assert "team-quiet" not in rows
 
-    def test_restamped_test_lands_under_its_latest_owner_in_roster_and_drill_in(self):
+    def test_restamped_test_lands_under_its_latest_owner_in_roster_and_drill_in(self) -> None:
         rows = self._roster()
 
         # All evidence, prior window included, follows the latest stamp; the old team keeps nothing.
@@ -192,7 +192,7 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         ] == [(T_RESTAMPED, 1, 1)]
         assert self._get("team_ci_activity", owner_team="team-old")["tests"] == []
 
-    def test_activity_scopes_to_team_and_pairs_windows(self):
+    def test_activity_scopes_to_team_and_pairs_windows(self) -> None:
         data = self._get("team_ci_activity", owner_team="team-replay")
 
         assert data["owner_team"] == "team-replay"
@@ -203,10 +203,10 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         ]
         assert not data["truncated_tests"]
 
-    def test_activity_for_unknown_team_is_empty(self):
+    def test_activity_for_unknown_team_is_empty(self) -> None:
         data = self._get("team_ci_activity", owner_team="team-nonexistent")
         assert data["tests"] == []
 
-    def test_activity_requires_owner_team(self):
+    def test_activity_requires_owner_team(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/team_ci_activity/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST

@@ -22,7 +22,7 @@ If you add or remove a Signals workflow/activity from `backend/temporal/__init__
 Several additional Signals workflows also exist but are not part of the main report pipeline:
 
 - `backfill-error-tracking` (`backend/temporal/backfill_error_tracking.py`) — backfills recent error tracking issues as signals
-- `emit-eval-signal` (`backend/temporal/emit_eval_signal.py`) — converts LLMA evaluation results into Signals inputs on the Signals worker queue
+- `emit-eval-signal` (`backend/temporal/emit_eval_signal.py`) - compatibility-only workflow retained for existing Temporal histories; its activity no longer emits signals
 - `run-signals-scout-coordinator` (`backend/temporal/agentic/scout_coordinator.py`) — periodic tick (every `COORDINATOR_INTERVAL_MINUTES = 30`) that fans out scheduled `signals-scout-*` scout runs per (team, skill). Spec'd separately below.
 - `RunSignalsScoutWorkflow` (`backend/temporal/agentic/scout_scheduler.py`) — child workflow per planned run; thin wrapper around the harness activity. Spec'd separately below.
 
@@ -155,6 +155,9 @@ Defined in `backend/temporal/summary.py`.
    The gate re-runs before repository selection (`pre_repo_selection`) and before agentic research (`pre_research`) — a block there reverts the report `in_progress → candidate` via `revert_report_to_candidate_activity` before exiting, so a promotion rule can pick it up again.
    All three sites are gated with `workflow.patched("self-driving-quota-gates")`.
 1. **Fetch signals** for the report from ClickHouse → `fetch_signals_for_report_activity`
+   An empty result is retried up to `EMPTY_FETCH_RETRY_ATTEMPTS` times at `EMPTY_FETCH_RETRY_INTERVAL`, since freshly emitted signals can trail the run into ClickHouse.
+   If it stays empty, `report_has_assigned_signals_activity` checks Postgres `signal_count`: signals assigned but not yet visible → the workflow exits and the report stays `candidate` for re-promotion; none assigned → `failed` with `failure_reason=no_signals_found`.
+   Gated with `workflow.patched("signals-empty-fetch-retry")`.
 2. **Mark in-progress** in Postgres and advance `signals_at_run` by 3 → `mark_report_in_progress_activity`
 3. **Safety judge** → `report_safety_judge_activity`
    - Evaluates the underlying signals for prompt injection / manipulation attempts
@@ -457,7 +460,7 @@ An **append-only, attributed, schema-validated log of the work done on a report*
 
 `query` is an `InsightVizNode` / `DataVisualizationNode` / `SavedInsightNode` node, kept as an unparsed dict — validating it against the real node models would mean importing `posthog.schema`, so only the `kind` allowlist, a size bound, and the executable-payload refusals (`bytecode`, a nested `HogQuery`, `sendRawQuery` — a chart renders data, it does not run code — plus a nested `SuggestedQuestionsQuery`, refused for cost, since its runner calls an LLM once per reader who opens the report) are enforced server-side, and the renderer degrades in place on a bad query. That is the same contract a notebook's `ph-query` node has.
 
-`chart_id` is the author's own slug because a report's summary and its charts are written in one call: the summary places a chart by referencing it as a markdown link with a `chart:` target (`[Daily signups](chart:signups-drop)`), and an unreferenced chart still renders below the summary. Ids are unique within the set, so a reference resolves to exactly one chart. Placement is resolved from the same markdown parse the renderer runs (`frontend/src/scenes/inbox/utils/chartPlacement.ts`) rather than by matching the raw summary: a reference in a code span is literal text, one in a table cell or heading has no room to draw, and a repeated reference points back at a chart rather than asking for a second copy — each of those resolves to "not placed here", so the chart falls to the trailing block instead of being drawn twice or lost. A paragraph holding nothing but references lays its charts out as a row. Height comes from the node (a `BoldNumber` gets a short box, a retention grid a tall scrolling one) unless the author sets `size`.
+`chart_id` is the author's own slug because a report's summary and its charts are written in one call: the summary places a chart by referencing it as a markdown link with a `chart:` target (`[Daily signups](chart:signups-drop)`), and an unreferenced chart still renders below the summary. Ids are unique within the set, so a reference resolves to exactly one chart. Placement is resolved from the same markdown parse the renderer runs (`products/signals/frontend/inbox/utils/chartPlacement.ts`) rather than by matching the raw summary: a reference in a code span is literal text, one in a table cell or heading has no room to draw, and a repeated reference points back at a chart rather than asking for a second copy — each of those resolves to "not placed here", so the chart falls to the trailing block instead of being drawn twice or lost. A paragraph holding nothing but references lays its charts out as a row. Height comes from the node (a `BoldNumber` gets a short box, a retention grid a tall scrolling one) unless the author sets `size`.
 
 Scouts write them via `charts` on `emit_report` / `edit_report`. On an edit `charts` is the report's whole set — it replaces what was there, the way `summary` replaces the summary. Omitting the field (or sending null) leaves the existing charts alone; an explicit empty list clears them, so a scout can retract a chart its finding has outgrown rather than only ever swap one for another. On the emit path the safety judge sees a report's chart titles, captions, and queries alongside its prose, so an injected chart is suppressed with the report. The edit path judges nothing today — not title, summary, notes, reviewers, or charts — so a chart set by a later edit reaches the reader unscreened, exactly as an edited summary does.
 
@@ -519,21 +522,21 @@ The legacy report↔task link table. General task↔report association has moved
 
 Per-team configuration for which signal sources are enabled.
 
-| Field            | Type      | Description                                                                                                                                                                            |
-| ---------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                                                                   |
-| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)                                    |
-| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
-| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                                         |
-| `config`         | JSONField | Source-specific configuration                                                                                                                                                          |
-| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                                                 |
+| Field            | Type      | Description                                                                                                                                                              |
+| ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                                                     |
+| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)                      |
+| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
+| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                           |
+| `config`         | JSONField | Source-specific configuration, plus the shared steering keys (`steering`, `default_not_actionable`) read by the emission actionability gate                              |
+| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                                   |
 
 **Behavioral notes:**
 
-- `llm_analytics` signals go through the standard enabled-row check like every other source. Per-result `evaluation` signals are additionally filtered by the per-evaluation `evaluation_ids` allowlist in the row's `config`, enforced upstream in the eval workflows; `evaluation_report` signals are gated by their own `(llm_analytics, evaluation_report)` row (the inbox "AI observability" toggle).
+- `llm_analytics` signals go through the standard enabled-row check like every other source. `evaluation_report` is the only type AI observability emits, gated by its own `(llm_analytics, evaluation_report)` row (the inbox "AI observability" toggle). The per-result workflow and activity remain registered only so existing Temporal histories can finish replaying.
 - For session replay configs, serializer validation enforces that `config.recording_filters` is a JSON object when present.
+- Two `config` keys steer the emission actionability gate per source: `config.steering` (free text, the team's preferences about the source's records — injected into the canonical actionability prompt, never replacing it) and `config.default_not_actionable` (boolean — flips the gate's "when in doubt" posture from keep to filter). Serializer validation enforces `steering` is a string capped at `STEERING_MAX_LENGTH` (2000 chars) and `default_not_actionable` is a boolean; injection escapes braces so the text can never break the gate's one-word output contract (see `backend/emission/steering.py`). The keys apply to sources that run `run_signal_pipeline` (data warehouse imports and Conversations); other sources persist them unread today, and future consumers (report research, the autostart gate) are expected to read the same text.
 - The serializer exposes a computed `status` field:
-  - `session_analysis_cluster` derives status from the Temporal clustering workflow
   - data-import-backed sources (`github`, `linear`, `zendesk`) derive status from `ExternalDataSchema`
 - The `signals_scout` source variant pairs with `source_type=cross_source_issue` and is the emission channel used by the headless Signals agent's `emit_signal_*` tools. It is the only `(source_product, source_type)` pair the agent emits today.
 
@@ -730,7 +733,7 @@ All Signals queries filter to `product = 'signals'` and `document_type = 'signal
 1. **Fetch signal type examples** (`fetch_signal_type_examples_activity`): fetches one example signal per unique `(source_product, source_type)` pair from the last month, selecting the most recent example per type. Used to give the search-query generation LLM context about heterogeneous signal types.
 2. **Semantic search** (`run_signal_semantic_search_activity`): uses `cosineDistance(embedding, {embedding})` to find nearest neighbors with a non-empty `report_id`, limited to the last month.
 3. **Fetch for report** (`fetch_signals_for_report_activity`): fetches all non-deleted signals for a report, ordered by timestamp ascending.
-4. **Wait for ClickHouse** (`wait_for_signal_in_clickhouse_activity`): a two-tier poll tuned by `WaitForClickHouseMode`. Every attempt first checks the embedding worker's recently-seen store (a cheap key-value lookup over `posthog.api.embedding_worker.async_get_recently_seen_documents`). When a document already exists in ClickHouse, its cached `emitted_at` must be later than that document's latest `inserted_at`; newly created documents only require a cache hit. Once the store confirms every signal, the wait either ends outright (`optimistic` — grouping and report deletion) or runs the ClickHouse confirmation query (`ch_confirmed` — reprocessing). For the first 5 minutes the wait is otherwise store-exclusive; after that ClickHouse also polls on every 3rd attempt (a third of the store's rate) as a fallback, since the store is best-effort. The ClickHouse query counts emitted `document_id`s within a widened timestamp range (`min(timestamp)-2m` to `max(timestamp)+2m`) and `inserted_at >= now() - 30 minutes`, which avoids matching stale earlier emissions of the same IDs while tolerating precision loss and queueing delay. This query intentionally does **not** filter on `deleted`.
+4. **Wait for ClickHouse** (`wait_for_signal_in_clickhouse_activity`): a two-tier poll tuned by `WaitForClickHouseMode`. Every attempt first checks the embedding worker's recently-seen store (a cheap key-value lookup over `posthog.api.embedding_worker.async_get_recently_seen_documents`). When a document already exists in ClickHouse, its cached `emitted_at` must be later than that document's latest `inserted_at`; newly created documents only require a cache hit. Once the store confirms every signal, the wait either ends outright (`optimistic` — grouping batches that promoted no report, and report deletion) or runs the ClickHouse confirmation query (`ch_confirmed` — reprocessing, and grouping batches that promoted a report, since the summary workflow spawned right after reads those rows from ClickHouse). For the first 5 minutes the wait is otherwise store-exclusive; after that ClickHouse also polls on every 3rd attempt (a third of the store's rate) as a fallback, since the store is best-effort. The ClickHouse query counts emitted `document_id`s within a widened timestamp range (`min(timestamp)-2m` to `max(timestamp)+2m`) and `inserted_at >= now() - 30 minutes`, which avoids matching stale earlier emissions of the same IDs while tolerating precision loss and queueing delay. This query intentionally does **not** filter on `deleted`.
 5. **Filter reports by source product** (`fetch_report_ids_for_source_products`): used by the list API’s `source_product` filter. Note that it currently has a hard `LIMIT 300`.
 
 `execute_hogql_query_with_retry()` in `backend/temporal/clickhouse.py` wraps transient ClickHouse failures with heartbeat-safe retry behavior for activities.
@@ -806,10 +809,8 @@ Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `A
 
 Important side effects:
 
-- Creating or enabling a `session_analysis_cluster` config starts the clustering workflow
 - Creating an enabled `error_tracking / issue_created` config starts the error-tracking backfill workflow
 - Enabling data-import-backed sources can trigger external data syncs
-- Disabling a clustering config cancels the clustering workflow
 
 #### `SignalTeamConfigViewSet`
 
@@ -934,7 +935,7 @@ Generated MCP tool names:
 - **`SignalSourceConfigSerializer`**
   - Exposes `id`, `source_product`, `source_type`, `enabled`, `config`, `created_at`, `updated_at`, `status`
   - Validates that `recording_filters` in config is a JSON object for `session_replay`
-  - Computes `status` from the clustering workflow or external data import state depending on the source
+  - Computes `status` from external data import state for data-import-backed sources
 - **`SignalTeamConfigSerializer`**
   - ModelSerializer for `SignalTeamConfig`
   - Exposes `id`, `default_autostart_priority`, `created_at`, `updated_at`
@@ -991,6 +992,14 @@ That said, **not all “LLM-ish” behavior in Signals goes through `call_llm()`
 - Eval-signal summarization uses `call_llm()`
 - **Repository selection** runs via the sandbox agent flow, not `call_llm()`
 - **Agentic report research** runs via `MultiTurnSession` in `report_generation/research.py`, not `call_llm()`
+
+The sandbox-backed paths (repo selection, report research, scout runs, and the coding runs autonomy auto-starts) all
+land in the `posthog-sandbox-self-driving` Modal app rather than the default one, because their tasks carry
+`origin_product=signal_report` / `signals_scout` (see `SELF_DRIVING_ORIGIN_PRODUCTS` in
+`products/tasks/backend/logic/services/sandbox.py`). The app is resolved inside the Tasks provisioning activity, so
+nothing in Signals selects it. Same image, resources, and egress policy as any other run — the split only separates
+the fleet's Modal cost from user-driven runs. Egress is still governed by the `SandboxEnvironment` each caller
+upserts (`temporal/agentic/__init__.py`).
 
 ### `call_llm()` (`backend/temporal/llm.py`)
 
@@ -1132,9 +1141,9 @@ Report ↔ task relationships are recorded as `task_run` artefacts (see `SignalR
 
 Auto-start dedup is separate from this freeform log: `maybe_autostart_implementation_task()` (`backend/auto_start.py`) gates on a legacy `SignalReportTask` implementation row, checked inside the report-row `select_for_update`, so concurrent evaluations can't double-start. Both the auto-start and the manual tasks-API path go through `record_implementation_task`, which dual-writes that gate row and the `implementation` `task_run` artefact — the transitional arrangement until the backfill lets the gate move to artefacts (see `SignalReportTask`).
 
-### Eval-signal summarization (`backend/temporal/emit_eval_signal.py`)
+### Legacy eval-signal compatibility (`backend/temporal/emit_eval_signal.py`)
 
-Separate from report generation, the `emit-eval-signal` workflow uses `call_llm()` with extended thinking to turn an LLMA evaluation result into a signal-sized description plus significance score. Low-significance eval results are dropped before calling `emit_signal()`.
+New evaluation workflows record a removal patch and skip the per-result signal path. The old workflow and activity names remain registered as no-op compatibility definitions so histories that recorded those commands can replay. Evaluation reports are the only evaluation-based AI observability signal source.
 
 ### Resetting self-driving state for local re-testing
 
@@ -1345,7 +1354,6 @@ products/signals/
 │   │       ├── run_signals_scout.py       # One-shot scout run; bypasses the coordinator
 │   │       ├── select_repo.py
 │   │       ├── signal_pipeline_status.py
-│   │       ├── summarize_single_session.py
 │   │       └── sync_signals_scout_skills.py  # Force a canonical SKILL.md sync to LLMSkill rows
 │   ├── report_generation/
 │   │   ├── AGENTS.md                # Documentation for the agentic report generation flow
@@ -1397,7 +1405,7 @@ products/signals/
 │       ├── buffer.py                # BufferSignalsWorkflow + object-storage flush/backpressure activities
 │       ├── clickhouse.py            # Retry wrapper for HogQL / ClickHouse activity queries
 │       ├── deletion.py              # SignalReportDeletionWorkflow
-│       ├── emit_eval_signal.py      # EmitEvalSignalWorkflow — eval result → signal
+│       ├── emit_eval_signal.py      # Compatibility definitions for old Temporal histories
 │       ├── emitter.py               # SignalEmitterWorkflow — per-signal backpressure bridge
 │       ├── grouping.py              # Legacy v1 workflow + active shared grouping implementation
 │       ├── grouping_v2.py           # Active grouping v2 workflow + pause/unpause support

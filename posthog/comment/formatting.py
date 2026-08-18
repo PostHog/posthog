@@ -3,8 +3,9 @@
 import re
 import html as html_mod
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
 JSON = dict[str, Any]
@@ -27,6 +28,7 @@ _RE_MD_ITALIC = re.compile(r"(?<!\*)\*([^*]+?)\*(?!\*)")
 _RE_MD_STRIKE = re.compile(r"~~(.+?)~~")
 _RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
+_RE_INLINE_MENTION = re.compile(r"@\[([^\][\n]+)\]\(([^\s()@]+@[^\s()@]+)\)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
 _RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
 _RE_MD_ESCAPED_CHAR = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
@@ -174,7 +176,11 @@ def strip_slack_user_mentions(text: str) -> str:
     return _RE_SLACK_USER_MENTION.sub("", text)
 
 
-def content_to_slack_mrkdwn(content: str, organization_id: str | UUID | None = None) -> str:
+def content_to_slack_mrkdwn(
+    content: str,
+    organization_id: str | UUID | None = None,
+    slack_user_id_by_email: Callable[[str], str | None] | None = None,
+) -> str:
     """Convert markdown comment content to Slack mrkdwn text.
 
     Backslash-escaped characters are unescaped: mrkdwn has no escape syntax, so a
@@ -186,6 +192,10 @@ def content_to_slack_mrkdwn(content: str, organization_id: str | UUID | None = N
     the rendered text lands in someone's Slack workspace, so an unscoped lookup would let a comment
     pull a name or email out of another organization. Without an organization every marker falls
     back to the generic "@teammate".
+
+    ``slack_user_id_by_email`` renders ``@[Name](email)`` mentions as native Slack mentions when the
+    caller can map the address to a member of the destination workspace. Callers without a workspace
+    to resolve against get the plain display name.
     """
     if not content:
         return ""
@@ -224,6 +234,19 @@ def content_to_slack_mrkdwn(content: str, organization_id: str | UUID | None = N
     text = _RE_MD_BOLD.sub(capture_bold, text)
     text = _RE_MD_ITALIC.sub(r"_\1_", text)
     text = _RE_MD_STRIKE.sub(r"~\1~", text)
+
+    def render_inline_mention(match: re.Match) -> str:
+        name, email = match.group(1), match.group(2)
+        if slack_user_id_by_email:
+            try:
+                slack_user_id = slack_user_id_by_email(email)
+            except Exception:
+                slack_user_id = None
+            if slack_user_id:
+                return f"<@{slack_user_id}>"
+        return f"@{name}"
+
+    text = _RE_INLINE_MENTION.sub(render_inline_mention, text)
     text = _RE_MD_LINK.sub(r"<\2|\1>", text)
 
     for index, value in enumerate(bold_matches):
@@ -775,6 +798,79 @@ def slack_to_content_and_rich_content(
     return _normalize_single_newlines_to_markdown(markdown_content), None
 
 
+# Hosts Slack serves file permalinks from. A file object is attacker-controlled (anyone in an
+# externally-shared channel can upload), so its permalink only becomes a link when it points at
+# one of these — otherwise it would be an arbitrary outbound link rendered inside a discussion.
+_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
+
+# One Slack message can carry many files; render a bounded number so an upload burst can't
+# flood the mirrored comment.
+MAX_SLACK_FILE_PLACEHOLDERS = 10
+
+
+def _slack_file_permalink(url: object) -> str | None:
+    """The permalink to hang a placeholder off, or None when it isn't safely linkable."""
+    if not isinstance(url, str) or not url:
+        return None
+    # Whitespace or a closing paren ends the markdown link early, spilling the rest of the URL
+    # out as text and leaving the link pointing somewhere other than it appears to.
+    if ")" in url or any(char.isspace() for char in url):
+        return None
+    # urlparse reads a backslash as an ordinary character, while the WHATWG parser browsers use
+    # reads it as a path separator. That splits the host checked below from the host a reader
+    # lands on, so reject the character instead of depending on who normalizes it first.
+    if "\\" in url:
+        return None
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if parsed.scheme != "https":
+        return None
+    host = (parsed.hostname or "").lower()
+    if not any(host == suffix or host.endswith(f".{suffix}") for suffix in _SLACK_FILE_HOST_SUFFIXES):
+        return None
+    return url
+
+
+def _escape_slack_file_name(name: object) -> str:
+    """Escape a Slack-supplied filename for use as markdown link text."""
+    # Collapse every run of whitespace, not just the ends. A blank line inside the name would
+    # close the paragraph holding the link, dropping the rest of the name into one of its own
+    # where a bare URL renders as a live autolink.
+    text = " ".join(name.split()) if isinstance(name, str) else ""
+    if not text:
+        # A truncated file object still deserves a visible marker — "something was attached"
+        # is strictly better than the message appearing to be empty.
+        return "Attachment"
+    # Brackets would close the link text early. Escaping "[" also neutralizes a leading "!["
+    # for free, so a crafted filename can't turn the placeholder into an inline image.
+    return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
+def slack_files_to_placeholder_lines(files: list[Any] | None) -> list[str]:
+    """Render one markdown placeholder line per file attached to an inbound Slack message.
+
+    PostHog never downloads the file: the discussion shows a link back to it in Slack, which
+    needs nothing beyond the metadata Slack already puts in the message event. That keeps this
+    working on installs that never granted ``files:read``, where downloading is impossible.
+
+    ``files`` is the raw array off the Slack event, so every element is checked rather than
+    assumed to be a well-formed file object.
+    """
+    if not files:
+        return []
+
+    lines: list[str] = []
+    for file in files[:MAX_SLACK_FILE_PLACEHOLDERS]:
+        if not isinstance(file, dict):
+            continue
+        name = _escape_slack_file_name(file.get("name") or file.get("title"))
+        permalink = _slack_file_permalink(file.get("permalink"))
+        lines.append(f"📎 [{name}]({permalink})" if permalink else f"📎 {name}")
+    return lines
+
+
 def _escape_html(text: str) -> str:
     return html_mod.escape(text)
 
@@ -928,11 +1024,13 @@ def rich_content_to_slack_payload(
     fallback_content: str,
     include_images: bool = True,
     organization_id: str | UUID | None = None,
+    slack_user_id_by_email: Callable[[str], str | None] | None = None,
 ) -> tuple[str, list[JSON] | None]:
     """
     Convert outbound app message to Slack payload fields.
 
-    ``organization_id`` scopes mention resolution — see content_to_slack_mrkdwn.
+    ``organization_id`` and ``slack_user_id_by_email`` scope mention resolution — see
+    content_to_slack_mrkdwn.
 
     Returns:
     - text (always present, used as fallback for notifications/older clients)
@@ -942,6 +1040,6 @@ def rich_content_to_slack_payload(
         blocks = rich_content_to_slack_blocks(rich_content, include_images=include_images)
         markdown_text = rich_content_to_markdown(rich_content, include_images=include_images)
         source_content = markdown_text or fallback_content
-        return content_to_slack_mrkdwn(source_content, organization_id), blocks
+        return content_to_slack_mrkdwn(source_content, organization_id, slack_user_id_by_email), blocks
 
-    return content_to_slack_mrkdwn(fallback_content, organization_id), None
+    return content_to_slack_mrkdwn(fallback_content, organization_id, slack_user_id_by_email), None

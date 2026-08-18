@@ -6,6 +6,26 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/**
+ * A 409 from the approvals gate: the change was policy-gated and a change request was created,
+ * or one is already pending. Approval 409 bodies always carry `change_request_id`
+ * (see products/approvals/backend/decorators.py).
+ */
+export function isApprovalRequiredError(error: { status?: number; data?: any } | null | undefined): boolean {
+    return error?.status === 409 && Boolean(error?.data?.change_request_id)
+}
+
+/**
+ * A transient gateway failure (502/503/504) rather than anything the caller did wrong. These
+ * often arrive with an empty body (so `detail` is null) and usually succeed on retry, so a
+ * listener that has already shown a toast should stop here instead of rethrowing into
+ * unhandled-rejection tracking. A plain 500 is excluded on purpose: it signals an application
+ * bug, so it should keep surfacing its `detail` and reach error tracking.
+ */
+export function isTransientServerError(error: unknown): boolean {
+    return error instanceof ApiError && (error.status === 502 || error.status === 503 || error.status === 504)
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
@@ -72,5 +92,50 @@ export class ApiError extends Error {
             return `in ${humanFriendlyDuration(secondsLeft, { maxUnits: 2 })}`
         }
         return 'later'
+    }
+}
+
+/**
+ * Why a request never reached the server. `offline` and `navigating` describe the state of the
+ * client rather than a fault in the request path, so they are dropped before they reach error
+ * tracking (see `dropUnactionableNetworkExceptions`). `network` is the residue that is worth
+ * looking at: an ad blocker, a misconfigured reverse proxy, DNS, a CDN, or our own edge.
+ */
+export type NetworkFailureReason = 'offline' | 'navigating' | 'network'
+
+/**
+ * One fixed message per reason. Two constraints meet here. The browser's own wording varies by
+ * engine ("Failed to fetch", "Load failed", "NetworkError when attempting to fetch resource."),
+ * and the automatic unhandled-rejection capture carries no custom properties, so the message is
+ * the only place the reason can travel to `before_send` and to error tracking grouping rules.
+ */
+export const NETWORK_ERROR_MESSAGES = {
+    offline: 'Network request failed: device is offline',
+    navigating: 'Network request failed: page was closing',
+    network: 'Network request failed',
+} as const satisfies Record<NetworkFailureReason, string>
+
+/** The reasons that are never a defect, so filing them as error tracking issues only adds noise. */
+export const UNACTIONABLE_NETWORK_ERROR_MESSAGES: ReadonlySet<string> = new Set([
+    NETWORK_ERROR_MESSAGES.offline,
+    NETWORK_ERROR_MESSAGES.navigating,
+])
+
+/**
+ * A request the browser never completed, so there is no HTTP status to react to. `status` is left
+ * undefined on purpose: recovery paths across the app read `status === undefined` as "transient,
+ * may be retried" (for example `inviteSignupLogic` and `sourcesDataLogic`), and a placeholder like
+ * 0 would make them treat a connectivity blip as a client error.
+ */
+export class NetworkError extends ApiError {
+    constructor(
+        public reason: NetworkFailureReason,
+        cause?: unknown
+    ) {
+        super(NETWORK_ERROR_MESSAGES[reason])
+        // Sets the `type` posthog-js reports in `$exception_list`, which is what
+        // `dropUnactionableNetworkExceptions` and error tracking grouping rules match on.
+        this.name = 'NetworkError'
+        this.cause = cause
     }
 }

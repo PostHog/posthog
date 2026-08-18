@@ -64,10 +64,20 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Read shape for list/retrieve/create-response. `cimd_url` is nullable here for
+ * tokens issued before URL binding; the write serializers below require a value.
+ */
 export interface CIMDVerificationTokenApi {
     readonly id: string
-    /** @maxLength 40 */
-    label: string
+    /** Human-readable name to identify this token later, e.g. 'Production CIMD partner'. */
+    readonly label: string
+    /**
+     * HTTPS URL of the CIMD metadata document this token verifies at. Null on tokens issued before URL binding; those no longer verify until bound via PATCH or reissued.
+     * @maxLength 2048
+     * @nullable
+     */
+    readonly cimd_url: string | null
     /** @nullable */
     readonly mask_value: string | null
     readonly created_by: UserBasicApi
@@ -86,6 +96,23 @@ export interface PaginatedCIMDVerificationTokenListApi {
 }
 
 /**
+ * Write shape for `create`. `cimd_url` is required and non-null: only tokens
+ * issued before URL binding existed are nullable, not new ones.
+ */
+export interface CIMDVerificationTokenCreateApi {
+    /**
+     * Human-readable name to identify this token later, e.g. 'Production CIMD partner'.
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * HTTPS URL of the CIMD metadata document this token will be published in. The token only verifies at this URL, so a copy hosted anywhere else is rejected. Host case, an explicit :443 and a trailing slash are normalized away; the path is case-sensitive.
+     * @maxLength 2048
+     */
+    cimd_url: string
+}
+
+/**
  * Create-response variant that includes the plaintext token.
  *
  * Only emitted from the create endpoint - storage-side we only persist the
@@ -93,8 +120,14 @@ export interface PaginatedCIMDVerificationTokenListApi {
  */
 export interface CIMDVerificationTokenWithValueApi {
     readonly id: string
-    /** @maxLength 40 */
-    label: string
+    /** Human-readable name to identify this token later, e.g. 'Production CIMD partner'. */
+    readonly label: string
+    /**
+     * HTTPS URL of the CIMD metadata document this token verifies at. Null on tokens issued before URL binding; those no longer verify until bound via PATCH or reissued.
+     * @maxLength 2048
+     * @nullable
+     */
+    readonly cimd_url: string | null
     /** @nullable */
     readonly mask_value: string | null
     readonly created_by: UserBasicApi
@@ -103,6 +136,19 @@ export interface CIMDVerificationTokenWithValueApi {
     readonly last_used_at: string | null
     /** Plaintext token, only returned on creation */
     readonly value: string
+}
+
+/**
+ * Write shape for `partial_update` (PATCH). Exposes only `cimd_url`, and only ever
+ * performs a null -> value transition: `validate` rejects any instance whose `cimd_url`
+ * is already set, so an existing binding can never be re-pointed through this endpoint.
+ */
+export interface PatchedCIMDVerificationTokenUpdateApi {
+    /**
+     * HTTPS URL of the CIMD metadata document to bind this token to. Only settable once, on a token with no existing binding; an already-bound token must be reissued instead.
+     * @maxLength 2048
+     */
+    cimd_url?: string
 }
 
 export interface OrganizationDomainApi {
@@ -179,6 +225,8 @@ export interface IdentityProviderConfigApi {
     readonly updated_at: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml: boolean
+    /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
+    readonly saml_relay_state: string
     /**
      * SAML IdP entity ID (issuer).
      * @maxLength 512
@@ -246,6 +294,8 @@ export interface PatchedIdentityProviderConfigApi {
     readonly updated_at?: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml?: boolean
+    /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
+    readonly saml_relay_state?: string
     /**
      * SAML IdP entity ID (issuer).
      * @maxLength 512
@@ -1006,6 +1056,14 @@ export const CountPerActorMathTypeApi = {
     P99CountPerActor: 'p99_count_per_actor',
 } as const
 
+export type GroupMathTypeApi = (typeof GroupMathTypeApi)[keyof typeof GroupMathTypeApi]
+
+export const GroupMathTypeApi = {
+    UniqueGroup: 'unique_group',
+    FirstTimeForGroup: 'first_time_for_group',
+    FirstMatchingEventForGroup: 'first_matching_event_for_group',
+} as const
+
 export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
 
 export const ExperimentMetricMathTypeApi = {
@@ -1325,9 +1383,9 @@ export interface MarketingAnalyticsEventConversionGoalApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1378,9 +1436,9 @@ export interface MarketingAnalyticsActionConversionGoalApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1432,9 +1490,9 @@ export interface MarketingAnalyticsWarehouseConversionGoalApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -3797,6 +3855,42 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface LeakedKeyReportApi {
+    /**
+     * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
+     * @maxLength 200
+     */
+    token: string
+}
+
+/**
+ * * `personal_api_key` - personal_api_key
+ * * `project_secret_api_key` - project_secret_api_key
+ * * `oauth_access_token` - oauth_access_token
+ * * `oauth_refresh_token` - oauth_refresh_token
+ */
+export type LeakedKeyReportResponseTypeEnumApi =
+    (typeof LeakedKeyReportResponseTypeEnumApi)[keyof typeof LeakedKeyReportResponseTypeEnumApi]
+
+export const LeakedKeyReportResponseTypeEnumApi = {
+    PersonalApiKey: 'personal_api_key',
+    ProjectSecretApiKey: 'project_secret_api_key',
+    OauthAccessToken: 'oauth_access_token',
+    OauthRefreshToken: 'oauth_refresh_token',
+} as const
+
+export interface LeakedKeyReportResponseApi {
+    /** Whether a matching PostHog key or token was found and revoked. */
+    found: boolean
+    /** The type of key that was found and revoked, or null if no match was found.
+     *
+     * * `personal_api_key` - personal_api_key
+     * * `project_secret_api_key` - project_secret_api_key
+     * * `oauth_access_token` - oauth_access_token
+     * * `oauth_refresh_token` - oauth_refresh_token */
+    type: LeakedKeyReportResponseTypeEnumApi | null
 }
 
 /**

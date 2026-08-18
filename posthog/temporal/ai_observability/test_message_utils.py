@@ -327,6 +327,214 @@ class TestExtractTextFromMessages:
         assert "user: Extract brands." in result
         assert "Google Ads" in result
 
+    @pytest.mark.parametrize(
+        "message",
+        [
+            pytest.param({"parts": ["wheel", "tire"]}, id="string_parts"),
+            pytest.param({"parts": [{"name": "wheel", "qty": 2}]}, id="dict_parts"),
+            pytest.param({"parts": [{"type": "text", "content": "wheel"}]}, id="otel_shaped_parts"),
+        ],
+    )
+    def test_structured_output_with_parts_key_is_json_stringified(self, message):
+        # A structured-output schema can have its own `parts` array. Parts flattening
+        # is keyed on a string `role` (as the trace UI's otel.yaml recipe is) so these
+        # still reach the JSON-stringify fallback instead of rendering as empty.
+        result = extract_text_from_messages(message)
+        assert result == json.dumps(message, default=str)
+
+    def test_otel_parts_text_message(self):
+        messages = [{"role": "user", "parts": [{"type": "text", "content": "How long is the warranty?"}]}]
+        assert extract_text_from_messages(messages) == "user: How long is the warranty?"
+
+    def test_otel_parts_text_selected_by_type_not_position(self):
+        messages = [
+            {
+                "role": "assistant",
+                "parts": [
+                    {"type": "reasoning", "content": "thinking it through"},
+                    {"type": "reasoning", "content": "more thinking"},
+                    {"type": "text", "content": "The warranty lasts three years."},
+                ],
+            }
+        ]
+        result = extract_text_from_messages(messages)
+        assert result.splitlines()[0] == "assistant: The warranty lasts three years."
+        assert "thinking: thinking it through" in result
+        assert "thinking: more thinking" in result
+
+    def test_otel_parts_multiple_text_parts_join(self):
+        messages = [
+            {"role": "user", "parts": [{"type": "text", "content": "First."}, {"type": "text", "content": "Second."}]}
+        ]
+        assert extract_text_from_messages(messages) == "user: First. Second."
+
+    @pytest.mark.parametrize(
+        "response_part",
+        [
+            pytest.param({"type": "tool_call_response", "id": "call_1", "response": "-10C"}, id="schema_response_key"),
+            pytest.param({"type": "tool_call_response", "id": "call_1", "result": "-10C"}, id="example_result_key"),
+            pytest.param(
+                {"type": "tool_call_response", "id": "call_1", "response": "-10C", "result": "stale"},
+                id="response_wins_over_result",
+            ),
+            pytest.param(
+                {"type": "tool_call_response", "id": "call_1", "response": None, "result": "-10C"},
+                id="null_response_falls_back_to_result",
+            ),
+        ],
+    )
+    def test_otel_parts_agentic_conversation_correlates_calls_and_results(self, response_part):
+        messages = [
+            {"role": "user", "parts": [{"type": "text", "content": "Weather in Montreal?"}]},
+            {
+                "role": "assistant",
+                "parts": [
+                    {"type": "reasoning", "content": "need the weather tool"},
+                    {
+                        "type": "tool_call",
+                        "id": "call_1",
+                        "name": "get_weather",
+                        "arguments": '{"location": "Montreal"}',
+                    },
+                ],
+            },
+            {"role": "tool", "parts": [response_part]},
+            {"role": "assistant", "parts": [{"type": "text", "content": "It is -10C."}]},
+        ]
+        result = extract_text_from_messages(messages)
+        assert "user: Weather in Montreal?" in result
+        assert '[tool_call call_1: get_weather({"location": "Montreal"})]' in result
+        assert "tool[call_1]: -10C" in result
+        assert "assistant: It is -10C." in result
+        assert "thinking: need the weather tool" in result
+        assert "stale" not in result
+
+    @pytest.mark.parametrize(
+        "response_part",
+        [
+            pytest.param(
+                {"type": "tool_call_response", "id": "call_1", "response": "", "result": "stale"},
+                id="empty_string_response_wins_over_result",
+            ),
+            pytest.param(
+                {"type": "tool_call_response", "id": "call_1", "result": None},
+                id="null_result_renders_empty_not_null",
+            ),
+        ],
+    )
+    def test_otel_parts_tool_call_response_null_and_empty_values(self, response_part):
+        messages = [{"role": "tool", "parts": [response_part]}]
+        assert extract_text_from_messages(messages) == "tool[call_1]:"
+
+    @pytest.mark.parametrize("field", ["response", "result"])
+    def test_otel_parts_dict_tool_call_response_is_stringified(self, field):
+        messages = [
+            {"role": "tool", "parts": [{"type": "tool_call_response", "id": "call_1", field: {"temperature": 25}}]}
+        ]
+        assert extract_text_from_messages(messages) == 'tool[call_1]: {"temperature": 25}'
+
+    def test_otel_parts_message_with_flat_content_is_untouched(self):
+        messages = [{"role": "user", "content": "flat wins", "parts": [{"type": "text", "content": "ignored"}]}]
+        assert extract_text_from_messages(messages) == "user: flat wins"
+
+    def test_otel_parts_only_reasoning_renders_thinking_without_empty_slot(self):
+        messages = [
+            {"role": "user", "parts": [{"type": "text", "content": "hi"}]},
+            {"role": "assistant", "parts": [{"type": "reasoning", "content": "hmm"}]},
+        ]
+        assert extract_text_from_messages(messages) == "user: hi\nthinking: hmm"
+
+    def test_otel_parts_server_tool_conversation_correlates_calls_and_results(self):
+        messages = [
+            {"role": "user", "parts": [{"type": "text", "content": "Weather in Montreal?"}]},
+            {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "server_tool_call",
+                        "id": "st_1",
+                        "name": "web_search",
+                        "server_tool_call": {"type": "web_search", "query": "Montreal weather"},
+                    }
+                ],
+            },
+            {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "server_tool_call_response",
+                        "id": "st_1",
+                        "server_tool_call_response": {"type": "web_search", "status": "completed"},
+                    }
+                ],
+            },
+            {"role": "assistant", "parts": [{"type": "text", "content": "It is -10C."}]},
+        ]
+        result = extract_text_from_messages(messages)
+        assert '[tool_call st_1: web_search({"type": "web_search", "query": "Montreal weather"})]' in result
+        assert 'tool[st_1]: {"type": "web_search", "status": "completed"}' in result
+        assert "assistant: It is -10C." in result
+
+    @pytest.mark.parametrize(
+        ("part", "marker"),
+        [
+            pytest.param(
+                {"type": "blob", "modality": "image", "mime_type": "image/png", "content": "aGVsbG8="},
+                "[image]",
+                id="image_blob_renders_marker_not_base64",
+            ),
+            pytest.param(
+                {"type": "uri", "modality": "image", "uri": "https://example.com/cat.jpg"},
+                "[image: https://example.com/cat.jpg]",
+                id="image_uri",
+            ),
+            pytest.param(
+                {"type": "uri", "modality": "document", "uri": "https://example.com/doc.pdf"},
+                "[document: https://example.com/doc.pdf]",
+                id="document_uri",
+            ),
+            pytest.param({"type": "file", "file_id": "file_123"}, "[file: file_123]", id="file_reference"),
+            pytest.param({"type": "blob", "content": "aGVsbG8="}, "[media]", id="blob_without_modality"),
+        ],
+    )
+    def test_otel_parts_media_render_markers(self, part, marker):
+        messages = [{"role": "user", "parts": [{"type": "text", "content": "Look at this."}, part]}]
+        assert extract_text_from_messages(messages) == f"user: Look at this.\nuser: {marker}"
+
+    @pytest.mark.parametrize(
+        ("compaction_part", "expected"),
+        [
+            pytest.param(
+                {"type": "compaction", "id": "c1", "content": "Earlier turns covered pricing."},
+                "user: Earlier turns covered pricing.",
+                id="summary_present",
+            ),
+            pytest.param({"type": "compaction", "id": "c1"}, "user: [conversation compacted]", id="summary_absent"),
+        ],
+    )
+    def test_otel_parts_compaction_renders_summary(self, compaction_part, expected):
+        messages = [{"role": "user", "parts": [compaction_part]}]
+        assert extract_text_from_messages(messages) == expected
+
+    @pytest.mark.parametrize(
+        "parts",
+        [
+            pytest.param(["not-a-dict"], id="non_dict_part"),
+            pytest.param([{"type": "text"}], id="text_part_without_content"),
+            pytest.param([{"type": "tool_call"}], id="tool_call_without_name"),
+            pytest.param([{"no_type": True}], id="part_without_type"),
+            pytest.param([{"type": "tool_approval_response", "approved": True}], id="unknown_part_type"),
+        ],
+    )
+    def test_malformed_or_unknown_parts_do_not_crash(self, parts):
+        messages = [{"role": "user", "parts": parts}, {"role": "assistant", "content": "ok"}]
+        result = extract_text_from_messages(messages)
+        assert "assistant: ok" in result
+
+    def test_single_dict_parts_message(self):
+        message = {"role": "user", "parts": [{"type": "text", "content": "Hello"}]}
+        assert extract_text_from_messages(message) == "user: Hello"
+
     def test_empty_dict_is_still_skipped(self):
         # The JSON-stringify fallback must not regress the empty-dict skip path
         # used by `test_completely_empty_message_is_skipped` — `{}` carries no

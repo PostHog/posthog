@@ -114,6 +114,9 @@ export function LogsFilterVolumeSparkline({
                         maximumIndicator={false}
                         referenceLines={referenceLines}
                         renderTooltipValue={metric === 'bytes' ? formatBytes : undefined}
+                        // Up to 11 rows (top services plus "Others") overflows the tooltip's max
+                        // height, so the pointer has to be able to reach it to scroll.
+                        interactiveTooltip
                     />
                 )}
             </div>

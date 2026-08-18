@@ -14,7 +14,7 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
-    MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
+    DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
@@ -23,17 +23,29 @@ from products.tasks.backend.constants import (
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
     vm_sandbox_default_custom_image,
+    vm_sandbox_origin_in_rollout,
+    vm_sandbox_origin_rollout_percentages,
 )
-from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.exceptions import SandboxNetworkPolicyError, TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
+from products.tasks.backend.logic.services.agentsh import (
+    _get_debug_only_domains,
+    _get_debug_only_ports,
+    enforced_egress_domains,
+)
+from products.tasks.backend.logic.services.network_policy import (
+    EffectiveNetworkPolicy,
+    NetworkPolicyValidationError,
+    compile_network_policy,
+)
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
 )
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
+from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -51,7 +63,7 @@ class GetTaskProcessingContextInput:
     create_pr: bool = True
 
 
-@dataclass
+@dataclass(frozen=False)
 class TaskProcessingContext:
     """
     Serializable context object passed to all activities in the task processing workflow.
@@ -77,13 +89,16 @@ class TaskProcessingContext:
     _branch: str | None = None
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
+    modal_domain_allowlist: list[str] | None = None
+    agentsh_domain_allowlist: list[str] | None = None
+    network_policy_fingerprint: str | None = None
     json_schema: dict | None = None
     ci_prompt: str | None = None
     # Captured at workflow start so snapshot creation is deterministic across
     # activity retries. This means "create any Modal resume snapshot"; filesystem
     # snapshots are guarded by the legacy setting, directory snapshots by feature flag.
     use_modal_resume_snapshots: bool = True
-    use_modal_directory_resume_snapshots: bool = False
+    use_modal_directory_resume_snapshots: bool = True  # Temporal payload compatibility
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
@@ -96,6 +111,8 @@ class TaskProcessingContext:
     # (request == limit). Captured at workflow start so it's stable across activity retries.
     burstable_sandbox_resources_enabled: bool = True
     overlap_clone_boot_enabled: bool = False
+    # Captured at workflow start so the warmup decision stays stable across retries.
+    desktop_workspace_warm_enabled: bool = False
     # Captured at workflow start so the agent-proxy stream lifetime stays deterministic across retries.
     agent_proxy_keep_stream_open: bool = False
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
@@ -207,11 +224,27 @@ class TaskProcessingContext:
 
     def inactivity_timeout(self) -> timedelta:
         """Idle time before the workflow times the run out; longer for user-driven runs."""
-        is_user_origin = not self.origin_product or self.origin_product in (
+        return resolve_inactivity_timeout(
+            is_user_origin=self._is_user_origin(), origin_product=self.origin_product, state=self.state
+        )
+
+    def _is_user_origin(self) -> bool:
+        return not self.origin_product or self.origin_product in (
             Task.OriginProduct.USER_CREATED.value,
             Task.OriginProduct.IMAGE_BUILDER.value,
         )
-        return resolve_inactivity_timeout(is_user_origin=is_user_origin, state=self.state)
+
+    def max_run_duration(self) -> timedelta | None:
+        """Hard wall-clock cap on total run time, or None when the run is exempt.
+
+        Unlike the inactivity timeout, this is not reset by heartbeats, so it stops a
+        wedged-but-heartbeating agent that would otherwise run forever. User-driven
+        sessions can legitimately run for hours, so they are uncapped. Autonomous runs
+        get the cap as a safety net unless the setting disables it deployment-wide.
+        """
+        if self.mode == "interactive" or self._is_user_origin():
+            return None
+        return resolve_max_run_duration()
 
     def sandbox_resource_overrides(self) -> dict[str, float | int]:
         """Per-task SandboxConfig overrides (compute + TTL), clamped to server-owned bounds.
@@ -430,7 +463,7 @@ class VmSandboxDecision:
     use_vm_sandbox: bool
     # Modal image name from the flag payload that VM runs fall back to when no custom
     # image was picked. None whenever the payload was not consulted (state override,
-    # flag error, restricted egress) or defines no default — image-builder runs must
+    # flag error, network interlock) or defines no default — image-builder runs must
     # keep layering on the plain VM base, never on a prebaked default.
     default_custom_image: str | None = None
 
@@ -442,10 +475,13 @@ def _resolve_modal_vm_sandbox(
     run_id: str,
     origin_product: str | None,
     allowed_domains: list[str] | None,
+    use_modal_network_allowlist: bool = False,
     custom_image_available: bool = False,
     state: dict | None = None,
 ) -> VmSandboxDecision:
-    if allowed_domains is not None:
+    if allowed_domains is not None and not use_modal_network_allowlist:
+        # Restricted VMs require Modal's provider policy, so routing cannot consult overrides
+        # or rollout flags until that independent policy flag is enabled.
         log_with_activity_context(
             "modal_vm_sandbox_skipped_restricted_egress",
             run_id=run_id,
@@ -468,6 +504,7 @@ def _resolve_modal_vm_sandbox(
     #     org-targeted payload variants decide which default VM image an org gets.
     allowed_origins: set[str] = set()
     default_base_origins: set[str] = set()
+    origin_rollout_percentages: dict[str, float] = {}
     default_custom_image: str | None = None
     if state_override is None:
         try:
@@ -477,9 +514,11 @@ def _resolve_modal_vm_sandbox(
             return VmSandboxDecision(use_vm_sandbox=False)
         allowed_origins = vm_sandbox_allowed_origin_products(payload)
         default_base_origins = vm_sandbox_default_base_origin_products(payload)
+        origin_rollout_percentages = vm_sandbox_origin_rollout_percentages(payload)
         default_custom_image = vm_sandbox_default_custom_image(payload)
 
-    origin_allows_default_base = origin_product in default_base_origins
+    origin_in_percentage_rollout = vm_sandbox_origin_in_rollout(origin_product, run_id, origin_rollout_percentages)
+    origin_allows_default_base = origin_product in default_base_origins or origin_in_percentage_rollout
 
     # Custom images are VM-only, so VM historically required one. image_builder always
     # runs on VM (it builds images on that base); origins in the default-base allowlist
@@ -508,10 +547,12 @@ def _resolve_modal_vm_sandbox(
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
-        flag_enabled=bool(allowed_origins or default_base_origins),
+        flag_enabled=bool(allowed_origins or default_base_origins or origin_rollout_percentages),
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
         default_base_origin_products=sorted(default_base_origins),
+        origin_product_rollout_percentages=origin_rollout_percentages,
+        origin_in_percentage_rollout=origin_in_percentage_rollout,
         default_custom_image=default_custom_image,
         custom_image_available=custom_image_available,
         use_modal_vm_sandbox=result,
@@ -578,6 +619,35 @@ def _is_overlap_clone_boot_enabled(
     return enabled
 
 
+def _is_desktop_workspace_warm_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("desktop_workspace_warm_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "desktop_workspace_warm_flag_checked",
+        run_id=run_id,
+        desktop_workspace_warm_enabled=enabled,
+    )
+    return enabled
+
+
 def _is_modal_network_allowlist_enabled(
     *,
     distinct_id: str,
@@ -617,33 +687,15 @@ def _is_modal_network_allowlist_enabled(
     return enabled
 
 
-def _is_modal_directory_resume_snapshots_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-) -> bool:
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("modal_directory_resume_snapshots_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    log_with_activity_context(
-        "modal_directory_resume_snapshots_flag_checked",
-        run_id=run_id,
-        use_modal_directory_resume_snapshots=enabled,
+def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNetworkPolicy:
+    debug_domains = _get_debug_only_domains() if settings.DEBUG else []
+    debug_ports = _get_debug_only_ports() if settings.DEBUG else []
+    return compile_network_policy(
+        allowed_domains,
+        infrastructure_domains=enforced_egress_domains(),
+        debug_domains=debug_domains,
+        debug_ports=debug_ports,
     )
-    return enabled
 
 
 def _loop_pr_follow_up_enabled(task: Task, state: dict) -> bool:
@@ -858,12 +910,47 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
+    use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
+    )
+
+    effective_network_policy: EffectiveNetworkPolicy | None = None
+    if allowed_domains is not None:
+        try:
+            effective_network_policy = _compile_effective_network_policy(allowed_domains)
+        except NetworkPolicyValidationError as error:
+            log_with_activity_context(
+                "sandbox_network_policy_invalid",
+                run_id=run_id,
+                sandbox_environment_id=sandbox_environment_id,
+                invalid_domain_positions=[item.index + 1 for item in error.invalid_domains],
+            )
+            if use_modal_network_allowlist:
+                raise SandboxNetworkPolicyError(
+                    "This sandbox environment contains an invalid allowed domain. Update its network settings and run the task again.",
+                    {
+                        "run_id": run_id,
+                        "sandbox_environment_id": sandbox_environment_id,
+                        "invalid_domain_positions": [item.index + 1 for item in error.invalid_domains],
+                    },
+                    cause=error,
+                ) from error
+
     vm_sandbox_decision = _resolve_modal_vm_sandbox(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
         origin_product=task.origin_product,
         allowed_domains=allowed_domains,
+        use_modal_network_allowlist=use_modal_network_allowlist,
         custom_image_available=environment_custom_image_name is not None,
         state=state,
     )
@@ -891,17 +978,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # this image is missing or unloadable.
         custom_image_name = vm_sandbox_decision.default_custom_image
         emit_agent_log(run_id, "debug", f"Using the organization's default custom base image: {custom_image_name}")
-    use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
-    )
     burstable_sandbox_resources_enabled = _is_burstable_sandbox_resources_enabled(
         run_id=run_id,
         state=state,
@@ -922,7 +998,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
     )
-    use_modal_directory_resume_snapshots = _is_modal_directory_resume_snapshots_enabled(
+    desktop_workspace_warm_enabled = _is_desktop_workspace_warm_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
@@ -930,7 +1006,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(
         run_id,
         "debug",
-        f"use_modal_directory_resume_snapshots: {use_modal_directory_resume_snapshots} for this task run",
+        f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run",
     )
     agent_proxy_keep_stream_open = _is_agent_proxy_keep_stream_open_enabled(
         distinct_id=distinct_id,
@@ -987,16 +1063,26 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,
         allowed_domains=allowed_domains,
+        modal_domain_allowlist=(
+            list(effective_network_policy.modal_domains) if effective_network_policy is not None else None
+        ),
+        agentsh_domain_allowlist=(
+            list(effective_network_policy.agentsh_domains) if effective_network_policy is not None else None
+        ),
+        network_policy_fingerprint=(
+            effective_network_policy.fingerprint if effective_network_policy is not None else None
+        ),
         json_schema=task.json_schema,
         ci_prompt=task.ci_prompt,
-        use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS or use_modal_directory_resume_snapshots,
-        use_modal_directory_resume_snapshots=use_modal_directory_resume_snapshots,
+        use_modal_resume_snapshots=True,
+        use_modal_directory_resume_snapshots=True,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
+        desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,
         agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,

@@ -1,3 +1,4 @@
+import { isApprovalRequiredError } from 'lib/api-error'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
@@ -46,8 +47,8 @@ export function confirmFlagActiveToggleInProject({
  * the created change request. Returns whether the error was an approval-required response.
  */
 export function handleFlagApprovalRequired(e: any, flagId: number, actionDescription: string): boolean {
-    if (e?.status === 409 && e?.data?.change_request_id) {
-        showApprovalRequiredToast(e.data.change_request_id, actionDescription)
+    if (isApprovalRequiredError(e)) {
+        showApprovalRequiredToast(e.data.change_request_id, actionDescription, e.data.code)
         dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: flagId })
         return true
     }

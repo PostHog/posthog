@@ -170,6 +170,11 @@ export const buildKeaFormDefaultFromSourceDetails = (
         if (field.type === 'select') {
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
 
+            if (field.multiple) {
+                obj[field.name] = field.defaultValue ? [field.defaultValue] : []
+                return
+            }
+
             if (hasOptionFields) {
                 obj[field.name] = {}
                 obj[field.name]['selection'] = field.defaultValue
@@ -823,6 +828,7 @@ export interface sourceWizardLogicActions {
             | 'Cloudability'
             | 'Cloudbeds'
             | 'Cloudflare'
+            | 'Cloudinary'
             | 'Cloudsmith'
             | 'Cloudzero'
             | 'Clover'
@@ -889,9 +895,11 @@ export interface sourceWizardLogicActions {
             | 'Debugbear'
             | 'Decagon'
             | 'Deel'
+            | 'DeelFlows'
             | 'Deepgram'
             | 'Deepsource'
             | 'DenoDeploy'
+            | 'Depot'
             | 'Deputy'
             | 'Descope'
             | 'Develocity'
@@ -909,6 +917,7 @@ export interface sourceWizardLogicActions {
             | 'Docusign'
             | 'DodoPayments'
             | 'DoIt'
+            | 'Dokploy'
             | 'Dolibarr'
             | 'Donorbox'
             | 'Doorloop'
@@ -994,6 +1003,7 @@ export interface sourceWizardLogicActions {
             | 'Formbricks'
             | 'Fortnox'
             | 'Fourthwall'
+            | 'Framer'
             | 'Fred'
             | 'FreeAgent'
             | 'Freightview'
@@ -1122,6 +1132,7 @@ export interface sourceWizardLogicActions {
             | 'Honeycomb'
             | 'Hookdeck'
             | 'HoorayHR'
+            | 'Hootsuite'
             | 'Hostaway'
             | 'HousecallPro'
             | 'Hubplanner'
@@ -1137,6 +1148,7 @@ export interface sourceWizardLogicActions {
             | 'Imagga'
             | 'ImfData'
             | 'Impact'
+            | 'ImpactPartner'
             | 'Imperva'
             | 'IncidentIo'
             | 'Infisical'
@@ -1315,6 +1327,7 @@ export interface sourceWizardLogicActions {
             | 'Motherduck'
             | 'Motion'
             | 'Moxie'
+            | 'MSG91'
             | 'MSSQL'
             | 'Mux'
             | 'Mycase'
@@ -1444,7 +1457,8 @@ export interface sourceWizardLogicActions {
             | 'Piwik'
             | 'Plaid'
             | 'Plain'
-            | 'PlanetScale'
+            | 'PlanetScaleMySQL'
+            | 'PlanetScalePostgres'
             | 'Planhat'
             | 'PlanningCenter'
             | 'PlatformSh'
@@ -1493,6 +1507,7 @@ export interface sourceWizardLogicActions {
             | 'Railz'
             | 'Raisely'
             | 'Raken'
+            | 'RakutenAdvertising'
             | 'Ramp'
             | 'Rapid7Insightvm'
             | 'Raygun'
@@ -1545,6 +1560,7 @@ export interface sourceWizardLogicActions {
             | 'SalesforceMarketingCloud'
             | 'SalesLoft'
             | 'Salestrics'
+            | 'SamCart'
             | 'Sanity'
             | 'SapConcur'
             | 'SapErp'
@@ -1555,6 +1571,7 @@ export interface sourceWizardLogicActions {
             | 'ScaleAI'
             | 'Scaleway'
             | 'Scalr'
+            | 'Schematic'
             | 'SearchAds360'
             | 'SecEdgar'
             | 'Secoda'
@@ -1746,6 +1763,7 @@ export interface sourceWizardLogicActions {
             | 'UnComtrade'
             | 'Unleash'
             | 'Unstructured'
+            | 'Uploadcare'
             | 'UpPromote'
             | 'Upstash'
             | 'Uptick'
@@ -1784,11 +1802,13 @@ export interface sourceWizardLogicActions {
             | 'WeightsAndBiases'
             | 'WhatsappBusinessManagement'
             | 'WhenIWork'
+            | 'WHMCS'
             | 'WhoGho'
             | 'Whop'
             | 'WikipediaPageviews'
             | 'Windmill'
             | 'WindsorAi'
+            | 'WisprFlow'
             | 'Wix'
             | 'Wiz'
             | 'Wompi'
@@ -1830,6 +1850,7 @@ export interface sourceWizardLogicActions {
             | 'Zenloop'
             | 'Zep'
             | 'Zero'
+            | 'Zitadel'
             | 'Zluri'
             | 'ZohoAnalytics'
             | 'ZohoBigin'
@@ -3291,6 +3312,45 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
+            // Webhook-sync tables produce no rows until the webhook is registered with the
+            // provider, and the required-tables flow never shows the webhook step (step 4) —
+            // register the webhook after creation and only report completion once it succeeds.
+            const registerRequiredWebhookAndComplete = async (sourceId: string): Promise<void> => {
+                let webhookResult: WebhookCreateResult
+                try {
+                    webhookResult = await api.externalDataSources.createWebhook(sourceId)
+                } catch (e: any) {
+                    posthog.captureException(e)
+                    webhookResult = {
+                        success: false,
+                        webhook_url: '',
+                        error: e.data?.message ?? e.message,
+                    }
+                }
+                actions.setWebhookResult(webhookResult)
+                if (!webhookResultHasNoPendingInputs(webhookResult)) {
+                    lemonToast.error(
+                        `We created the source but couldn't set up its webhook${
+                            webhookResult.error ? `: ${webhookResult.error}` : ''
+                        }. Connect again to retry, or finish webhook setup in the source settings.`
+                    )
+                    return
+                }
+                props.onComplete!()
+            }
+
+            // A required-tables run whose webhook registration failed left the source created —
+            // retry the webhook instead of creating a duplicate source.
+            if (values.requiredTables && props.onComplete && values.sourceId) {
+                if (values.hasWebhookSchemas) {
+                    await registerRequiredWebhookAndComplete(values.sourceId)
+                } else {
+                    props.onComplete()
+                }
+                actions.setIsLoading(false)
+                return
+            }
+
             try {
                 const { id } = await api.externalDataSources.create({
                     ...values.source,
@@ -3318,7 +3378,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 // When requiredTables is set (e.g. signals setup), skip step 4 and complete directly
                 if (values.requiredTables && props.onComplete) {
-                    props.onComplete()
+                    if (values.hasWebhookSchemas) {
+                        await registerRequiredWebhookAndComplete(id)
+                    } else {
+                        props.onComplete()
+                    }
                 } else if (values.hasWebhookSchemas) {
                     // Go to webhook setup step (4)
                     actions.onNext()
@@ -3471,15 +3535,41 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 // If required tables are specified (e.g. signals setup), skip the schema selection step
                 // entirely and create the source with only those tables, using their default sync settings
                 if (values.requiredTables) {
-                    const requiredSchemas = schemas.filter((schema) => values.requiredTables!.includes(schema.table))
-                    if (requiredSchemas.length !== values.requiredTables.length) {
-                        const missingTables = values.requiredTables.filter(
-                            (table: string) => !requiredSchemas.some((schema) => schema.table === table)
+                    // Multi-repo sources qualify their schema names (`owner/repo.endpoint`), so a
+                    // required table matches by suffix as well as exactly, and can resolve to one
+                    // row per repo. Mirrors ensureRequiredTableSyncing in signalSourcesLogic.
+                    const matchesRequiredTable = (tableName: string, requiredTable: string): boolean =>
+                        tableName === requiredTable || tableName.endsWith(`.${requiredTable}`)
+                    // The payload below forces should_sync on, so a permission-errored row would
+                    // queue a guaranteed-403 sync. Treat it as unavailable instead.
+                    const requiredSchemas = schemas.filter(
+                        (schema) =>
+                            !schema.permission_error &&
+                            values.requiredTables!.some((table: string) => matchesRequiredTable(schema.table, table))
+                    )
+                    const missingTables = values.requiredTables.filter(
+                        (table: string) => !requiredSchemas.some((schema) => matchesRequiredTable(schema.table, table))
+                    )
+                    if (missingTables.length > 0) {
+                        const permissionError = schemas.find(
+                            (schema) =>
+                                schema.permission_error &&
+                                missingTables.some((table: string) => matchesRequiredTable(schema.table, table))
+                        )?.permission_error
+                        lemonToast.error(
+                            permissionError
+                                ? `Source credentials cannot read the tables this needs (${missingTables.join(', ')}): ${permissionError}. Grant the missing scope in your source provider and reconnect.`
+                                : `Required tables not found in source: ${missingTables.join(', ')}`
                         )
-                        lemonToast.error(`Required tables not found in source: ${missingTables.join(', ')}`)
                         actions.setIsLoading(false)
                         return
                     }
+                    for (const schema of requiredSchemas) {
+                        schema.should_sync = true
+                    }
+                    // createSource reads hasWebhookSchemas off databaseSchema to decide whether the
+                    // new source still needs its webhook registered.
+                    actions.setDatabaseSchemas(requiredSchemas)
 
                     actions.updateSource({
                         payload: {
@@ -3851,8 +3941,14 @@ export const getErrorsForFields = (
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
 
             if (!hasOptionFields) {
-                if (field.required && !valueObj[field.name]) {
-                    errorsObj[field.name] = `Please select a ${field.label.toLowerCase()}`
+                // An empty array is truthy, so a multiple select needs its own emptiness
+                // check or `required` passes with nothing selected.
+                const selected = valueObj[field.name]
+                const selectionMissing = Array.isArray(selected) ? selected.length === 0 : !selected
+                if (field.required && selectionMissing) {
+                    errorsObj[field.name] = Array.isArray(selected)
+                        ? `Please select at least one of your ${field.label.toLowerCase()}`
+                        : `${field.label} is required`
                 }
             } else {
                 errorsObj[field.name] = {}
@@ -3880,7 +3976,7 @@ export const getErrorsForFields = (
         if ('required' in field && field.required && valueMissing) {
             errorsObj[field.name] = Array.isArray(fieldValue)
                 ? `Please enter at least one of your ${field.label.toLowerCase()}`
-                : `Please enter a ${field.label.toLowerCase()}`
+                : `${field.label} is required`
         }
     }
 

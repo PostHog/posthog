@@ -15,6 +15,7 @@ from posthog.schema import FilterLogicalOperator, RecordingsQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
@@ -59,7 +60,7 @@ def _make_scanner(**overrides: Any) -> ReplayScanner:
         "name": "estimate-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -103,29 +104,70 @@ def test_estimate_samples_only_positive_events_subqueries(
     assert (sql.count(f"SAMPLE {_ESTIMATE_EVENTS_SAMPLE_FACTOR}") > 0) == expect_sampled
 
 
+_EVENT_FILTERED_AND_QUERY = RecordingsQuery(
+    events=[{"id": "$pageview", "type": "events", "name": "$pageview"}],
+    properties=[{"type": "person", "key": "email", "operator": "icontains", "value": "@"}],
+    operand=FilterLogicalOperator.AND_,
+)
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "operand, expected_matched",
+    "execute_outcomes, expected_matched, expected_sampled, expected_budgets",
     [
-        (FilterLogicalOperator.AND_, 50),  # sampled leg gates every match, so the count is corrected up
-        (FilterLogicalOperator.OR_, 5),  # unsampled branches could match alone, so no sampling and no correction
+        ([MagicMock(results=[[5, None]])], 5, False, [15]),
+        ([ClickHouseQueryTimeOut(), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
+        ([ClickHouseQueryMemoryLimitExceeded(), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
     ],
 )
-def test_estimate_corrects_count_only_when_sampling_is_sound(
-    operand: FilterLogicalOperator, expected_matched: int
+def test_estimate_falls_back_to_sampling_only_when_the_exact_count_times_out(
+    execute_outcomes: list[Any], expected_matched: int, expected_sampled: bool, expected_budgets: list[int]
 ) -> None:
     scanner = _make_scanner()
-    query = RecordingsQuery(
-        events=[{"id": "$pageview", "type": "events", "name": "$pageview"}],
-        properties=[{"type": "person", "key": "email", "operator": "icontains", "value": "@"}],
-        operand=operand,
-    )
     with patch(
         "products.replay_vision.backend.queries.scanner_volume_estimate.execute_hogql_query",
-        return_value=MagicMock(results=[[5, None]]),
-    ):
-        estimate = estimate_scanner_session_volume(team=scanner.team, query=query)
+        side_effect=execute_outcomes,
+    ) as mock_execute:
+        estimate = estimate_scanner_session_volume(team=scanner.team, query=_EVENT_FILTERED_AND_QUERY)
     assert estimate.matched_sessions == expected_matched
+    assert estimate.sampled == expected_sampled
+    settings = [call.kwargs["settings"] for call in mock_execute.call_args_list]
+    assert [s.max_execution_time for s in settings] == expected_budgets
+    assert all(s.timeout_overflow_mode == "throw" for s in settings)
+    query_types = [call.kwargs["query_type"] for call in mock_execute.call_args_list]
+    assert query_types == (
+        ["ReplayVisionScannerEstimateExactQuery", "ReplayVisionScannerEstimateSampledQuery"]
+        if expected_sampled
+        else ["ReplayVisionScannerEstimateExactQuery"]
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "recordings_query, error",
+    [
+        (
+            RecordingsQuery(
+                events=[{"id": "$pageview", "type": "events", "name": "$pageview"}],
+                properties=[{"type": "person", "key": "email", "operator": "icontains", "value": "@"}],
+                operand=FilterLogicalOperator.OR_,
+            ),
+            ClickHouseQueryTimeOut(),
+        ),
+        (RecordingsQuery(), ClickHouseQueryTimeOut()),
+    ],
+)
+def test_estimate_propagates_errors_when_a_retry_would_not_help(
+    recordings_query: RecordingsQuery, error: Exception
+) -> None:
+    scanner = _make_scanner()
+    with patch(
+        "products.replay_vision.backend.queries.scanner_volume_estimate.execute_hogql_query",
+        side_effect=error,
+    ) as mock_execute:
+        with pytest.raises(type(error)):
+            estimate_scanner_session_volume(team=scanner.team, query=recordings_query)
+    assert mock_execute.call_count == 1
 
 
 @pytest.mark.parametrize(

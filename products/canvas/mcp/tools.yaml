@@ -41,10 +41,56 @@ tools:
         description: >
             Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it
             source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the
-            intended target — list them with canvas-list first.
+            intended target — list them with canvas-list first. The response's `url` is the canvas's only valid link —
+            share it verbatim when pointing the user at the canvas; never construct a canvas URL yourself.
         param_overrides:
             channel_id:
-                description: Id of the channel to create the canvas in (resolve it with channel-list).
+                description:
+                    "Id of the channel to create the canvas in — the channel the task was created in, from the task's context.
+                    Use channel-list only to resolve a channel the user named; never pick a channel from the listing
+                    yourself (the personal #me channel is not a default)."
+    canvas-draft-create:
+        operation: canvases_draft_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Stage a canvas draft build
+        description: >
+            Build the COMPLETE source project of a canvas as a DRAFT, without changing the live canvas. The project is
+            validated and built server-side exactly like a publish, but the canvas head and live build do NOT move, so
+            viewers keep seeing the current version. For a canvas that already has a live version this is the DEFAULT
+            way to save a change — the user previews and promotes it; use canvas-publish-create only for a first version
+            or when the user explicitly asked to make the change live. Returns the draft's `version_id`, its queued
+            build, and `capability_widening` — how the draft's declared capabilities grow the live version's (insights,
+            capture events, inline queries, network origins) — so added access is visible before shipping. Poll
+            canvas-builds-retrieve until the draft's build is terminal, preview the draft with canvas-source-retrieve
+            passing the returned `version_id`, then make it live with canvas-promote-create. Declare runtime
+            capabilities in `project.capabilities`.
+        param_overrides:
+            id:
+                description: ID of the canvas to stage a draft for.
+    canvas-drafts-retrieve:
+        operation: canvases_drafts_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List canvas drafts
+        description: >
+            List a canvas's staged drafts (from canvas-draft-create), newest first, each with its latest build status
+            (queued/building/ready/failed). Drafts are separate from the published version history and are never the
+            live version until promoted. Use this to find a pending draft to preview (canvas-source-retrieve with its
+            `version_id`) and promote (canvas-promote-create).
+        param_overrides:
+            id:
+                description: ID of the canvas whose drafts to list.
     canvas-edit-create:
         operation: canvases_edit_create
         enabled: true
@@ -60,7 +106,9 @@ tools:
             operation sets a file's complete content, or deletes it when `content` is null.
             `expected_current_version_id` is REQUIRED (from canvas-source-retrieve; null only for a never-published
             canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again.
-            The edited project is validated first; error diagnostics reject the whole edit atomically.
+            The edited project is validated first; error diagnostics reject the whole edit atomically. Edits go live
+            like a publish — for a canvas with a live version, default to staging the complete project as a draft with
+            canvas-draft-create instead, unless the user asked for an immediate live change.
         param_overrides:
             id:
                 description: ID of the canvas whose source to edit.
@@ -76,10 +124,31 @@ tools:
         title: List canvases
         description: >
             List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to
-            resolve which canvas a request refers to before reading or publishing source.
+            resolve which canvas a request refers to before reading or publishing source. Each row's `url` is that
+            canvas's only valid link — share it verbatim; never construct a canvas URL yourself.
         param_overrides:
             channel:
                 description: Only return canvases in this channel (channel id).
+    canvas-promote-create:
+        operation: canvases_promote_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Promote a canvas draft to live
+        description: >
+            Make a draft version (staged with canvas-draft-create) the canvas's live head. A draft whose build is
+            already ready goes live immediately with no rebuild; otherwise a fresh build is queued. Pass
+            `expected_current_version_id` — the live `current_version_id` from canvas-source-retrieve — so a concurrent
+            change is rejected with 409 version_conflict instead of overwritten. A 429 means the team's build capacity
+            is exhausted; wait and retry. Returns the now-live build. This is the only way a draft reaches the head:
+            revert does not act on drafts.
+        param_overrides:
+            id:
+                description: ID of the canvas whose draft to promote.
     canvas-publish-create:
         operation: canvases_publish_create
         enabled: true
@@ -91,7 +160,9 @@ tools:
             idempotent: false
         title: Publish canvas source project
         description: >
-            Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build. The
+            Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build.
+            Publishing goes live immediately: use it for a canvas's first version, or when the user explicitly asked to
+            make a change live — otherwise stage the change with canvas-draft-create for the user to promote. The
             project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass
             `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409
             version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish
@@ -101,6 +172,29 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose source to publish.
+    canvas-publish-current-version:
+        operation: canvases_publish_current_version_create
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Publish current canvas version
+        description: >
+            Queue a build for the canvas's current source version without changing its source or metadata. Any project
+            member can use this in a public space. Pass the current_version_id read from canvas-source-retrieve. A stale
+            value returns a 409 version_conflict.
+    canvas-report-error-create:
+        operation: canvases_report_error_create
+        enabled: false
+    canvas-request-agent-create:
+        operation: canvases_request_agent_create
+        enabled: false
+    canvas-request-fix-create:
+        operation: canvases_request_fix_create
+        enabled: false
     canvas-source-retrieve:
         operation: canvases_source_retrieve
         enabled: true
@@ -138,6 +232,12 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas the project is for.
+    canvases-actions-invoke:
+        operation: canvases_actions_invoke
+        enabled: false
+    canvases-actions-retrieve:
+        operation: canvases_actions_retrieve
+        enabled: false
     canvases-build-action-create:
         operation: canvases_build_action_create
         enabled: false
@@ -152,6 +252,12 @@ tools:
         enabled: false
     canvases-revert-create:
         operation: canvases_revert_create
+        enabled: false
+    canvases-state-retrieve:
+        operation: canvases_state_retrieve
+        enabled: false
+    canvases-state-set:
+        operation: canvases_state_set
         enabled: false
     canvases-versions-retrieve:
         operation: canvases_versions_retrieve

@@ -1,9 +1,11 @@
 from posthog.test.base import APIBaseTest
 
+from django.utils import timezone
+
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import IdentityProviderConfig, Organization, OrganizationMembership
+from posthog.models import IdentityProviderConfig, Organization, OrganizationDomain, OrganizationMembership
 
 
 class TestIdentityProviderConfigAPI(APIBaseTest):
@@ -43,6 +45,7 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         config = IdentityProviderConfig.objects.get(id=response.json()["id"])
         self.assertEqual(config.organization, self.organization)
         self.assertEqual(config.saml_entity_id, "entity")
+        self.assertEqual(response.json()["saml_relay_state"], str(config.saml_relay_state))
 
     def test_member_cannot_create_config(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -163,3 +166,40 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
             {"id_jag_issuer_url": "http://169.254.169.254/latest/meta-data"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # Deletion
+
+    def test_cannot_delete_a_config_a_domain_still_uses(self):
+        # Deleting a config drops every SCIM provisioning record hanging off it, and with them the
+        # IdP's immutable-id mapping. That has to take an explicit unlink first.
+        self._make_admin()
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="linked.example.com",
+            verified_at=timezone.now(),
+            identity_provider_config=config,
+        )
+
+        response = self.client.delete(f"/api/organizations/@current/identity_provider_configs/{config.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "linked_to_domain")
+        self.assertTrue(IdentityProviderConfig.objects.filter(id=config.id).exists())
+
+    def test_can_delete_a_config_once_no_domain_uses_it(self):
+        self._make_admin()
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        domain = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="unlinked.example.com",
+            verified_at=timezone.now(),
+            identity_provider_config=config,
+        )
+        domain.identity_provider_config = None
+        domain.save()
+
+        response = self.client.delete(f"/api/organizations/@current/identity_provider_configs/{config.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(IdentityProviderConfig.objects.filter(id=config.id).exists())

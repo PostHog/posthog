@@ -30,6 +30,7 @@ import {
     getDefaultSimulationRange,
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
 
 import {
     AlertConfig,
@@ -863,7 +864,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: snoozeUntil,
+                    snoozed_until: resolveSnoozeUntil(snoozeUntil),
                 })
                 hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()

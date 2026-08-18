@@ -3,7 +3,7 @@
     "properties": {
         "all_team_tasks": {
             "default": false,
-            "description": "Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.",
+            "description": "Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.",
             "type": "boolean"
         },
         "archived": {
@@ -36,6 +36,11 @@
             "description": "The initial index from which to return the results.",
             "minimum": 0,
             "type": "number"
+        },
+        "ordering": {
+            "description": "Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.\n\n* `-created_at` - -created_at\n* `-last_activity_at` - -last_activity_at",
+            "enum": ["-created_at", "-last_activity_at"],
+            "type": "string"
         },
         "organization": {
             "description": "Filter by repository organization",
