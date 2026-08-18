@@ -51,10 +51,8 @@ class PullRequestDTO:
     additions: int
     deletions: int
     changed_files: int
-    audience_key: str
     merge_commit_sha: str = ""
     merged_at: datetime | None = None
-    digest_run_id: UUID | None = None
     posted_comment_id: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
