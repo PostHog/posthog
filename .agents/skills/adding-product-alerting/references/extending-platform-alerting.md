@@ -113,7 +113,7 @@ Read `frontend/src/AGENTS.md` before changing the wizard.
 
 Do not expose internal helpers merely for convenience. A facade export is a compatibility commitment.
 
-## 4. Prove backward compatibility
+## 4. Prove whole-system behavior
 
 Verify both the shared layer and reference adopters:
 
@@ -126,9 +126,10 @@ Verify both the shared layer and reference adopters:
 - OpenAPI generation and frontend typecheck for API contract changes.
 - The alert-state semgrep rule when lifecycle mutation paths change.
 
-For shared event, destination, or authorization changes, add tests for every affected management surface. Cover the new
-product-owned API and each older product that still uses a generic API. Do not rely only on event-name or regex unit
-tests: exercise creation and visibility through the real API path.
+For every shared change, identify which lifecycle, delivery, destination, scheduling, authorization, frontend, and API
+contracts it affects. Add targeted tests for each affected adopter and management surface. Cover the new product-owned
+API and each product that still uses a generic API. Do not rely only on event-name or regex unit tests: exercise the
+real request path and the resulting visibility or delivery behavior.
 
 Invoke the matching mandatory skills before editing their areas:
 

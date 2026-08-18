@@ -45,20 +45,26 @@ Both paths must preserve these rules:
 8. **Frontend data is normalized at the product boundary.** Shared editor components render normalized definitions, destinations, advanced options, schedules, and history. Product API calls, payloads, and evaluation-specific fields stay in the product adapter.
 9. **Defaults remain backward compatible.** New platform options must preserve existing adopters until they explicitly opt in.
 
-## Cross-product compatibility
+## Review shared changes as one alert system
 
-Before adding a shared alert guard, event pattern, destination query, or authorization rule, map every product that
-uses the affected records. Search exact event IDs, template IDs, model types, generic APIs, UIs, and regex or prefix
-matches. A new product can own its destination lifecycle, but an existing product may still intentionally use a generic
-HogFunction path.
+When a change touches shared alerting, review every contract that can consume it, not only the product that motivated
+the change. Start with the reference adopters and inspect the affected dimensions:
+
+- **Lifecycle:** product adapters, control-plane actions, persisted state, and notification edges.
+- **Delivery and destinations:** event producers and consumers, acknowledgement and rollback behavior, templates, and
+  product and generic management APIs.
+- **Scheduling:** create and update paths, due eligibility, retries, cadence, quiet hours, and timezone behavior.
+- **Authorization:** product, project, and organization boundaries at destination creation, management, and dispatch.
+- **Frontend and API contracts:** generated clients, pending-destination retries, existing-destination visibility, and
+  every UI that uses the shared data.
+
+For event, destination, query, or authorization changes, map all matching products and clients by exact event IDs,
+template IDs, model types, generic APIs, UIs, and regex or prefix matches. A new product can own its destination
+lifecycle while another product still intentionally uses a generic HogFunction path.
 
 Do not restrict generic create, list, retrieve, update, or delete access until every matching product has an equivalent
-product-owned API for the lifecycle operations its UI needs. Preserve a narrow compatibility exception for each legacy
-path until it migrates. Add public-interface tests for both the new ownership boundary and every existing generic path
-that remains supported.
-
-For organization-scoped alerts, verify authorization at destination creation, generic reads and mutations, and event
-dispatch. Project-level HogFunction access must not expose or redirect organization-owned destinations.
+product-owned API for the lifecycle operations its UI needs. Preserve compatibility for any supported path until it
+migrates. Add public-interface tests for the new ownership boundary and every existing path that remains supported.
 
 ## Current limits
 
