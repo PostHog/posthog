@@ -10,6 +10,7 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rbac.subject_access_control import SubjectAccessControl
 from posthog.rbac.user_access_control import (
     RESOURCE_INHERITANCE_MAP,
     AccessSource,
@@ -2241,6 +2242,56 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
         assert actual == expected
         expected_ids = {None: None, "source": str(self.source.id), "table": str(self.sourced_table.id)}
         assert access.source_resource_id == expected_ids[expected_id_of]
+
+    def test_inherited_access_for_a_subject(self):
+        # The inherited level is "what would this subject have without their override": the walk
+        # runs over the subject's rules with their own row on the object left out, and a member
+        # keeps the bypasses enforcement would still give them
+        role = Role.objects.create(name="Data", organization=self.organization)
+        table = self.sourced_table
+        self._create_access_control(resource="warehouse_table", resource_id=str(table.id), access_level="viewer")
+        self._create_access_control(
+            resource="warehouse_table",
+            resource_id=str(table.id),
+            access_level="none",
+            organization_member=self.membership,
+        )
+        self._create_access_control(
+            resource="warehouse_table", resource_id=str(table.id), access_level="none", role=role
+        )
+        self._clear_uac_caches()
+
+        default_access = SubjectAccessControl(self.user, self.team).inherited_access_for_object(table)
+        assert default_access is not None
+        assert (default_access.access_level, default_access.source) == ("editor", "system_default")
+
+        member_access = SubjectAccessControl(self.user, self.team, member=self.membership).inherited_access_for_object(
+            table
+        )
+        assert member_access is not None
+        assert (member_access.access_level, member_access.source, member_access.source_subject) == (
+            "viewer",
+            "object",
+            "default",
+        )
+
+        role_access = SubjectAccessControl(self.user, self.team, role_id=str(role.id)).inherited_access_for_object(
+            table
+        )
+        assert role_access is not None
+        assert (role_access.access_level, role_access.source, role_access.source_subject) == (
+            "viewer",
+            "object",
+            "default",
+        )
+
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        admin_access = SubjectAccessControl(self.user, self.team, member=self.membership).inherited_access_for_object(
+            table
+        )
+        assert admin_access is not None
+        assert (admin_access.access_level, admin_access.source) == ("manager", "org_admin")
 
     def test_precheck_outcomes_report_their_source(self):
         resolved, access = self.user_access_control._object_access_level_precheck("warehouse_table", is_creator=True)
