@@ -860,6 +860,40 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_sets_primary_key_columns(self, _mock_workflow_exists):
+        # A keyless incremental table fails its sync until someone picks a primary key, and a source
+        # can land hundreds of them at once. Undeclared fields are dropped in validation, so without
+        # primary_key_columns on this serializer the batch returns 200 having changed nothing.
+        source = self._create_external_data_source()
+        schemas = [
+            ExternalDataSchema.objects.create(
+                name=name,
+                team_id=self.team.pk,
+                source=source,
+                should_sync=True,
+                sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+                sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "datetime"},
+            )
+            for name in ("Customers", "Invoices")
+        ]
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+            data={"schemas": [{"id": str(schema.id), "primary_key_columns": ["id"]} for schema in schemas]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [schema["primary_key_columns"] for schema in response.json()] == [["id"], ["id"]]
+
+        for schema in schemas:
+            schema.refresh_from_db()
+            assert schema.sync_type_config.get("primary_key_columns") == ["id"]
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
         return_value=True,
     )
     def test_bulk_update_schemas_runs_deferred_temporal_updates(self, _mock_workflow_exists):
