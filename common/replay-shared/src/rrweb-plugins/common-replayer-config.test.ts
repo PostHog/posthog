@@ -1,4 +1,4 @@
-import { COMMON_REPLAYER_CONFIG } from './index'
+import { COMMON_REPLAYER_CONFIG, highSpeedAnimationStyleRules } from './index'
 
 // posthog-js/* ships ESM that the test transform can't load directly; these values are
 // only used by sibling plugins, not by the config object under test.
@@ -18,5 +18,20 @@ describe('COMMON_REPLAYER_CONFIG', () => {
         // recorded content remove its own sandbox and run with full app-origin access.
         // PostHog renders canvas via CanvasReplayerPlugin instead, so this must stay off.
         expect(COMMON_REPLAYER_CONFIG.UNSAFE_replayCanvas).toBe(false)
+    })
+
+    describe('highSpeedAnimationStyleRules', () => {
+        it.each([0.5, 1, 1.9])('adds no rule below the high-speed threshold (%p)', (speed) => {
+            expect(highSpeedAnimationStyleRules(speed)).toEqual([])
+        })
+
+        it.each([2, 4, 8])('snaps animations to their end state at or above the threshold (%p)', (speed) => {
+            const rules = highSpeedAnimationStyleRules(speed)
+            expect(rules).toHaveLength(1)
+            // `animation: none` froze content at its pre-animation state (e.g. opacity: 0), so the
+            // rule must snap to the end state instead of suppressing animations outright.
+            expect(rules[0]).not.toContain('animation: none')
+            expect(rules[0]).toContain('animation-fill-mode: forwards')
+        })
     })
 })

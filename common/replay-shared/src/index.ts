@@ -55,6 +55,7 @@ export {
     AudioMuteReplayerPlugin,
     CorsPlugin,
     COMMON_REPLAYER_CONFIG,
+    highSpeedAnimationStyleRules,
     HLSPlayerPlugin,
     createHLSPlayerPlugin,
     WindowTitlePlugin,

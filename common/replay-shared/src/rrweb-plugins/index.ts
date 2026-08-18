@@ -77,6 +77,21 @@ export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     UNSAFE_replayCanvas: false,
 }
 
+// rrweb stops speeding up CSS animations and transitions at this playback speed, so they play
+// at real time and leave visual artifacts. Snap them to their end state at or above this speed.
+const HIGH_SPEED_THRESHOLD = 2
+
+// Snap animations and transitions to their end state. `animation: none` left content stuck at
+// its pre-animation state (e.g. opacity: 0) on sites that reveal content with keyframes.
+const HIGH_SPEED_ANIMATION_STYLE_RULE =
+    '*, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; animation-fill-mode: forwards !important; transition-duration: 0s !important; transition-delay: 0s !important; }'
+
+// Both the live player and the headless exporter build a Replayer, so they share this rule to
+// stop the two configs drifting apart.
+export function highSpeedAnimationStyleRules(speed: number): string[] {
+    return speed >= HIGH_SPEED_THRESHOLD ? [HIGH_SPEED_ANIMATION_STYLE_RULE] : []
+}
+
 export { AudioMuteReplayerPlugin } from './audio-mute-plugin'
 export { WindowTitlePlugin } from './window-title-plugin'
 

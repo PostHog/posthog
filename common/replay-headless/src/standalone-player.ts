@@ -24,7 +24,7 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
 
     const footerHeight = config.showMetadataFooter ? 32 : 0
     const scaler = new ViewportScaler(contentEl, footerHeight)
-    scaler.attachToReplayer(replayer)
+    scaler.attachToReplayer(replayer, setup.initialResolution)
 
     const controller = new PlaybackController(
         replayer,

@@ -31,11 +31,16 @@ export class ViewportScaler {
         this.contentEl.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`
     }
 
-    attachToReplayer(replayer: Replayer): void {
+    attachToReplayer(replayer: Replayer, knownResolution?: { width: number; height: number }): void {
         const iframeWidth = Number.parseFloat(replayer.iframe.width)
         const iframeHeight = Number.parseFloat(replayer.iframe.height)
         if (iframeWidth > 0 && iframeHeight > 0) {
             this.apply(iframeWidth, iframeHeight)
+        } else if (knownResolution && knownResolution.width > 0 && knownResolution.height > 0) {
+            // The rrweb replayer only reports dimensions through its `resize` event, which never
+            // fires for a recording whose first full snapshot arrived late. Fall back to the
+            // recording's known resolution so the frame still scales instead of rendering at 1:1.
+            this.apply(knownResolution.width, knownResolution.height)
         }
 
         replayer.on('resize', (dimension: { width: number; height: number }) => {

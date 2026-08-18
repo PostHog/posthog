@@ -6,6 +6,7 @@ import {
     CanvasReplayerPlugin,
     CorsPlugin,
     COMMON_REPLAYER_CONFIG,
+    highSpeedAnimationStyleRules,
     HLSPlayerPlugin,
     noOpTelemetry,
     processAllSnapshots,
@@ -29,12 +30,24 @@ export function getMetaHref(event: eventWithTime): string | undefined {
     return undefined
 }
 
+/** Extract the recorded viewport size from an rrweb Meta event, if present. */
+function getMetaResolution(event: eventWithTime): { width: number; height: number } | undefined {
+    if (event.type === EventType.Meta) {
+        const data = event.data as { width?: number; height?: number }
+        if (data?.width && data?.height) {
+            return { width: data.width, height: data.height }
+        }
+    }
+    return undefined
+}
+
 export interface ReplayerSetup {
     replayer: Replayer
     events: eventWithTime[]
     segments: RecordingSegment[]
     firstTimestamp: number
     initialURL: string
+    initialResolution?: { width: number; height: number }
 }
 
 function buildViewportLookup(events: ViewportEvent[]): (timestamp: number) => ViewportResolution | undefined {
@@ -112,9 +125,7 @@ export async function createReplayer(
         ...COMMON_REPLAYER_CONFIG,
         insertStyleRules: [
             ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
-            ...(config.playbackSpeed >= 2
-                ? ['*, *::before, *::after { animation: none !important; transition: none !important; }']
-                : []),
+            ...highSpeedAnimationStyleRules(config.playbackSpeed),
         ],
         mouseTail: config.mouseTail,
         useVirtualDom: false,
@@ -123,13 +134,18 @@ export async function createReplayer(
     })
 
     let initialURL = ''
+    let initialResolution: { width: number; height: number } | undefined
     for (const e of events) {
-        const href = getMetaHref(e)
-        if (href) {
-            initialURL = href
+        if (!initialURL) {
+            initialURL = getMetaHref(e) ?? ''
+        }
+        if (!initialResolution) {
+            initialResolution = getMetaResolution(e)
+        }
+        if (initialURL && initialResolution) {
             break
         }
     }
 
-    return { replayer, events, segments, firstTimestamp, initialURL }
+    return { replayer, events, segments, firstTimestamp, initialURL, initialResolution }
 }

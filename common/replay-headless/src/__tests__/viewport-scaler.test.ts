@@ -113,6 +113,28 @@ describe('ViewportScaler', () => {
             expect(el.style.width).toBeUndefined()
         })
 
+        it('falls back to the known resolution when the iframe has no dimensions', () => {
+            // A recording whose first full snapshot arrives late gives no iframe dimensions and
+            // fires no resize event, so without this fallback the frame renders unscaled at 1:1.
+            const el = mockContentEl()
+            const scaler = new ViewportScaler(el, 0)
+            const replayer = mockReplayer('0', '0')
+
+            scaler.attachToReplayer(replayer as any, { width: 1280, height: 720 })
+
+            expect(el.style.width).toBe('1280px')
+        })
+
+        it('prefers iframe dimensions over the known resolution', () => {
+            const el = mockContentEl()
+            const scaler = new ViewportScaler(el, 0)
+            const replayer = mockReplayer('1280', '720')
+
+            scaler.attachToReplayer(replayer as any, { width: 640, height: 480 })
+
+            expect(el.style.width).toBe('1280px')
+        })
+
         it('rescales on resize events', () => {
             const el = mockContentEl()
             const scaler = new ViewportScaler(el, 0)
