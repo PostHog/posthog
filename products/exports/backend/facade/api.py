@@ -132,12 +132,18 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
 
 
 def _validate_adhoc_export_context(export_context: dict) -> None:
-    """The ad-hoc render pipeline (viewport sizing, the exporter page's Query dispatch)
-    assumes an InsightVizNode-wrapped source; anything else renders a JSON dump instead
-    of a chart, so reject it here with a real error instead."""
+    """The ad-hoc render pipeline (viewport sizing, the exporter page's Query dispatch) draws a
+    chart for an InsightVizNode-wrapped source, or for a DataVisualizationNode over HogQL. Anything
+    else renders a JSON dump instead of a chart, so reject it here with a real error instead."""
     source = export_context.get("source")
-    if not isinstance(source, dict) or source.get("kind") != "InsightVizNode":
-        raise ValueError("export_context.source must be an InsightVizNode-wrapped query")
+    if isinstance(source, dict):
+        kind = source.get("kind")
+        if kind == "InsightVizNode":
+            return
+        inner = source.get("source")
+        if kind == "DataVisualizationNode" and isinstance(inner, dict) and inner.get("kind") == "HogQLQuery":
+            return
+    raise ValueError("export_context.source must be an InsightVizNode- or DataVisualizationNode-wrapped query")
 
 
 def get_delivery_image_url(*, team_id: int, asset_id: int, expiry_delta: timedelta) -> str | None:
