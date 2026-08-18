@@ -815,6 +815,18 @@ class TaskCreateSerializer(TaskWriteSerializer):
         help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
     )
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        # Mirror image of the signal_report_task_relationship check: a report-less signal_report
+        # task still mints under the Signals OAuth app with the interactive run scope, but skips
+        # the per-report cap entirely. Require the report so the cap and interactive budget always
+        # see the run. Create-only, since origin_product is not writable on update.
+        if attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT and not attrs.get(
+            "signal_report"
+        ):
+            raise serializers.ValidationError({"signal_report": "Requires signal_report when set."})
+        return attrs
+
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     output = serializers.JSONField(
