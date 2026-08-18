@@ -121,10 +121,12 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     # its page has observations without waiting for new sessions to land and settle. Strictly behind
     # the fast walk's range (bounded by the pre-advance watermark), so the two can't overlap.
     priming_candidates: list[CandidateSession] = []
-    if scanner.primed_at is None:
-        priming_candidates = _priming_pass(scanner, query)
-        # Marked on the first non-throttled tick whatever the outcome: priming is one-shot, and an
-        # empty or failed pass just means the regular sweep takes it from here.
+    priming_limit = min(PRIMING_SCAN_SESSIONS, limit - len(candidates) - len(deep_candidates))
+    if scanner.primed_at is None and priming_limit > 0:
+        priming_candidates = _priming_pass(scanner, query, priming_limit)
+        # Marked on the first tick that had headroom to try, whatever the outcome: priming is
+        # one-shot, and an empty or failed pass just means the regular sweep takes it from here.
+        # A tick whose batches spent the whole in-flight budget defers priming to a later tick.
         ReplayScanner.objects.filter(pk=scanner.pk, primed_at__isnull=True).update(primed_at=timezone.now())
 
     # Sessions that repeatedly exhausted the rasterizer's whole retry envelope (the Class B
@@ -182,7 +184,7 @@ def _throttled(scanner: ReplayScanner) -> bool:
     return (now - SETTLE_INTERVAL) - scanner.last_swept_at < SCANNER_SCHEDULE_INTERVAL * factor
 
 
-def _priming_pass(scanner: ReplayScanner, query: RecordingsQuery) -> list[CandidateSession]:
+def _priming_pass(scanner: ReplayScanner, query: RecordingsQuery, limit: int) -> list[CandidateSession]:
     """A few of the freshest already-settled recordings from before the fast walk's range.
 
     Ignores the scanner's sampling rate (priming exists to produce examples now) but keeps its
@@ -204,7 +206,7 @@ def _priming_pass(scanner: ReplayScanner, query: RecordingsQuery) -> list[Candid
             sampling_rate=1.0,
             sampling_salt=str(scanner.id),
             sampling_mode=scanner.sampling_mode,
-            candidate_limit=PRIMING_SCAN_SESSIONS,
+            candidate_limit=limit,
             max_execution_time_seconds=PRIMING_MAX_EXECUTION_SECONDS,
             scanner_id=str(scanner.id),
         ).run()

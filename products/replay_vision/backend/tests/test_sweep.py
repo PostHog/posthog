@@ -631,6 +631,31 @@ class TestFindScannerCandidatesActivity:
         assert result.priming_candidates == []
         MockWindowed.assert_not_called()
 
+    def test_priming_defers_when_the_fast_batch_spends_the_whole_headroom(self) -> None:
+        # Priming shares the tick's in-flight budget; without headroom it must wait for a later tick
+        # (and stay armed), never dispatch past the caps.
+        scanner = _make_scanner(primed_at=None)
+        fast = [
+            CandidateSession(session_id=f"sess-{i}", session_end=dt.datetime(2026, 5, 1, 10, i, tzinfo=dt.UTC))
+            for i in range(2)
+        ]
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockFast,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.WindowedCandidateQuery"
+            ) as MockWindowed,
+        ):
+            MockFast.return_value.run.return_value = fast
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=2)
+            )
+        assert result.priming_candidates == []
+        MockWindowed.assert_not_called()
+        scanner.refresh_from_db()
+        assert scanner.primed_at is None
+
     def test_priming_skipped_but_marked_when_watermark_covers_the_window(self) -> None:
         # A scanner that sat unswept for over the priming lookback has nothing behind the fast walk to
         # prime from; the pass must still be marked done so it never re-arms.
