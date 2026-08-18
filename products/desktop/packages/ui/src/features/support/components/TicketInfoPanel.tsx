@@ -1,6 +1,7 @@
 import {
   ArrowSquareOutIcon,
   CaretDownIcon,
+  PlusIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import type { Schemas } from "@posthog/api-client";
@@ -17,13 +18,14 @@ import {
 import {
   Badge,
   Button,
+  Chip,
+  ChipClose,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
-  InputGroup,
-  InputGroupInput,
+  Input,
   Text,
 } from "@posthog/quill";
 import { readPrUrls } from "@posthog/shared";
@@ -206,46 +208,62 @@ function TicketTags({
   tags: string[];
   onChange: (tags: string[]) => void;
 }) {
+  const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
 
-  const add = () => {
+  const commit = () => {
     const tag = draft.trim();
     if (tag && !tags.includes(tag)) {
       onChange([...tags, tag]);
     }
     setDraft("");
+    setAdding(false);
   };
 
   return (
     <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
       {tags.map((tag) => (
-        <Badge key={tag} variant="default">
-          {tag}
-          <button
-            type="button"
+        <Chip key={tag}>
+          <span className="max-w-40 truncate">{tag}</span>
+          <ChipClose
             aria-label={`Remove ${tag}`}
             onClick={() => onChange(tags.filter((t) => t !== tag))}
-            className="cursor-default text-muted-foreground hover:text-foreground"
           >
-            <XIcon size={9} weight="bold" />
-          </button>
-        </Badge>
+            <XIcon size={12} weight="bold" />
+          </ChipClose>
+        </Chip>
       ))}
-      <InputGroup className="h-6 w-24">
-        <InputGroupInput
+
+      {adding ? (
+        <Input
+          autoFocus
           value={draft}
-          placeholder="Add tag"
-          className="text-[12px]"
+          placeholder="Tag name"
+          className="h-6 w-32 text-[12px]"
           onChange={(event) => setDraft(event.target.value)}
-          onBlur={add}
+          onBlur={commit}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
-              add();
+              commit();
+            }
+            if (event.key === "Escape") {
+              setDraft("");
+              setAdding(false);
             }
           }}
         />
-      </InputGroup>
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label="Add tag"
+          onClick={() => setAdding(true)}
+        >
+          <PlusIcon size={11} weight="bold" />
+          {tags.length === 0 ? "Add tag" : null}
+        </Button>
+      )}
     </div>
   );
 }
