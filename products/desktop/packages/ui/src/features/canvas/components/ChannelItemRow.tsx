@@ -37,7 +37,13 @@ import {
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
-import { type DragEvent, type ReactNode, useCallback, useState } from "react";
+import {
+  type DragEvent,
+  type ReactNode,
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 
 /**
  * What a row can do. One object per channel rather than closures per item, so
@@ -189,29 +195,35 @@ export function ChannelItemRow({
   // A canvas gets the same menu with the items it actually has: pin, and delete
   // instead of archive. Filing and command-centre cells are task-shaped, and the
   // menu drops them rather than showing them dead.
-  const menu: TaskRowMenuProps =
-    item.kind === "canvas"
-      ? {
-          kind: "canvas",
-          id: item.id,
-          title: item.title,
-          isPinned: item.pinned,
-          onTogglePin: () => actions.togglePin(item),
-          // Confirm first, like the canvas menus in the artifacts grid and the
-          // canvas header: the canvas and its history go for everyone.
-          onDelete: () => setConfirmDeleteOpen(true),
-        }
-      : {
-          kind: "task",
-          id: item.id,
-          title: item.title,
-          isPinned: item.pinned,
-          channelId,
-          onAddToCommandCenter,
-          onRename,
-          onTogglePin: () => actions.togglePin(item),
-          onArchive: () => actions.archive(item),
-        };
+  //
+  // Memoized because it travels to the shared preview card as the trigger's
+  // payload, which is written to the card's store whenever its identity changes.
+  const menu: TaskRowMenuProps = useMemo(
+    () =>
+      item.kind === "canvas"
+        ? {
+            kind: "canvas",
+            id: item.id,
+            title: item.title,
+            isPinned: item.pinned,
+            onTogglePin: () => actions.togglePin(item),
+            // Confirm first, like the canvas menus in the artifacts grid and
+            // the canvas header: the canvas and its history go for everyone.
+            onDelete: () => setConfirmDeleteOpen(true),
+          }
+        : {
+            kind: "task",
+            id: item.id,
+            title: item.title,
+            isPinned: item.pinned,
+            channelId,
+            onAddToCommandCenter,
+            onRename,
+            onTogglePin: () => actions.togglePin(item),
+            onArchive: () => actions.archive(item),
+          },
+    [item, channelId, actions, onAddToCommandCenter, onRename],
+  );
 
   if (isEditing) {
     return (

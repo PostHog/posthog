@@ -12,6 +12,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import { IntegrationType } from '~/types'
 
+import { alertCadenceMinutes } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { alertNotificationLogic } from 'products/alerts/frontend/logic/alertNotificationLogic'
 import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 import { InlineAlertNotifications } from 'products/alerts/frontend/views/InlineAlertNotifications'
@@ -159,7 +160,10 @@ function NotificationsStory(): JSX.Element {
             title: 'Slack: #product-alerts',
             tags: [{ label: 'Active', type: 'success' }],
             viewAction: { kind: 'button', label: 'View', url: '#destination' },
-            onDelete: () => setExistingDestinations([]),
+            onDelete: () =>
+                setExistingDestinations((destinations) =>
+                    destinations.map((destination) => ({ ...destination, deleting: true }))
+                ),
         },
     ])
     const [pendingDestinations, setPendingDestinations] = useState<PendingAlertNotificationDestinationView[]>([
@@ -345,9 +349,9 @@ function QuietHoursStory(): JSX.Element {
         <div className="max-w-2xl border rounded bg-surface-primary p-4">
             <QuietHoursFields
                 scheduleRestriction={scheduleRestriction}
+                cadenceMinutes={alertCadenceMinutes(AlertCalculationInterval.HOURLY)}
                 onChange={setScheduleRestriction}
                 teamTimezone="America/Toronto"
-                calculationInterval={AlertCalculationInterval.HOURLY}
             />
         </div>
     )
@@ -359,7 +363,7 @@ const HISTORY_POINTS: AlertEvaluationHistoryPoint[] = [
     { label: '11:30', value: 71, firedAtTime: true },
     { label: '11:45', value: 64, firedAtTime: true },
     { label: '12:00', value: 53, firedAtTime: false },
-    { label: '12:15', value: 38, firedAtTime: false },
+    { label: '12:15', value: 68, firedAtTime: false, wouldFireUnderCurrentConfiguration: true },
     { label: '12:30', value: 76, firedAtTime: true },
 ]
 
@@ -376,6 +380,7 @@ function EvaluationHistoryStory(): JSX.Element {
                 evaluationsTotal={47}
                 evaluationNoun="evaluation"
                 tableAvailable
+                formatValue={(value) => `$${value.toFixed(2)}`}
             />
         </div>
     )
