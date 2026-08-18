@@ -644,6 +644,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "connect until the database is available again. Upgrade your provider's plan or wait "
                 "for the quota to reset, then re-enable the sync."
             ),
+            # A database proxy (observed on Prisma Accelerate) refuses the connection because the
+            # account hit a plan limit, reporting "Your account has restrictions: planLimitReached".
+            # The restriction is account-level state only the customer can lift (upgrade the plan or
+            # contact the provider), so every retry re-hits the same refusal. Match the stable
+            # camelCase reason code, which carries no host or account detail.
+            "planLimitReached": (
+                "Your database provider has restricted the account because a plan limit was reached "
+                '("planLimitReached"), so PostHog can\'t connect. This usually comes from a database '
+                "proxy such as Prisma. Upgrade the plan or contact your provider to lift the "
+                "restriction, then re-enable the sync."
+            ),
             # The provider has put the cluster into read-only mode, so it rejects our read (the
             # server-side cursor runs its SELECT inside a read/write transaction). PlanetScale's
             # pg_readonly reports "invalid statement because cluster is read-only"; the cluster only
