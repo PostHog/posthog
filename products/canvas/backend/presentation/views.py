@@ -1209,7 +1209,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         operation_id="canvases_home_create",
         request=None,
         responses={
-            200: CanvasSerializer,
+            200: OpenApiResponse(response=CanvasSerializer, description="The caller's existing home canvas."),
+            201: OpenApiResponse(
+                response=CanvasSerializer, description="A home canvas was provisioned for the caller."
+            ),
             403: OpenApiResponse(description="Home is a viewer surface; sandbox tokens cannot provision it."),
         },
     )
