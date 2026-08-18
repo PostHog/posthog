@@ -22,7 +22,13 @@ from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
-from products.alerts.backend.destination_configs import DESTINATION_TEMPLATE_IDS, AlertDestinationConfig
+from products.alerts.backend.destination_configs import (
+    DESTINATION_TEMPLATE_IDS,
+    AlertDestinationConfig,
+    AlertDestinationData,
+    DestinationType,
+    read_alert_destination_data,
+)
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -262,6 +268,65 @@ def list_active_alert_destinations(
             )
         )
     return destinations
+
+
+@dataclass(frozen=True, kw_only=True)
+class AlertDestinationGroup:
+    """One destination as the user configured it, plus the HogFunctions standing in for it."""
+
+    hog_function_ids: tuple[str, ...]
+    data: AlertDestinationData
+
+
+def list_alert_destination_groups(
+    *,
+    team_id: int,
+    alert_id: str,
+    allowed_event_ids: Collection[str],
+    allowed_destination_types: Collection[DestinationType],
+) -> list[AlertDestinationGroup]:
+    """The alert's destinations, one entry each rather than one per HogFunction.
+
+    Creating a destination fans out into one HogFunction per event kind, so regroup them by
+    the config they share. Matches the ownership filter `soft_delete_alert_destinations`
+    uses, so anything listed here can also be deleted.
+    """
+    rows = (
+        HogFunction.objects.filter(
+            _allowed_event_filter(allowed_event_ids),
+            team_id=team_id,
+            deleted=False,
+            template_id__in=[
+                DESTINATION_TEMPLATE_IDS[destination_type] for destination_type in allowed_destination_types
+            ],
+            filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
+        )
+        .order_by("created_at", "id")
+        .values_list("id", "template_id", "inputs")
+    )
+
+    ids_by_key: dict[tuple, list[str]] = {}
+    data_by_key: dict[tuple, AlertDestinationData] = {}
+    for hog_function_id, template_id, inputs in rows:
+        # template_id is nullable on the model, so narrow it even though the filter above
+        # only matches the destination templates.
+        destination_type_value = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id) if template_id else None
+        if destination_type_value is None:
+            continue
+        destination_type = DestinationType(destination_type_value)
+        data = read_alert_destination_data(destination_type=destination_type, inputs=inputs or {})
+        config: dict[str, Any] = {key: value for key, value in data.items() if key != "type"}
+        # A row with no readable config can't be matched against its siblings, so give it a
+        # key of its own instead of merging unrelated destinations together.
+        config_key = tuple(sorted(config.items())) if config else (("id", str(hog_function_id)),)
+        key = (destination_type.value, config_key)
+        ids_by_key.setdefault(key, []).append(str(hog_function_id))
+        data_by_key.setdefault(key, data)
+
+    return [
+        AlertDestinationGroup(hog_function_ids=tuple(sorted(hog_function_ids)), data=data_by_key[key])
+        for key, hog_function_ids in ids_by_key.items()
+    ]
 
 
 def _allowed_event_filter(allowed_event_ids: Collection[str]) -> Q:

@@ -1033,6 +1033,183 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "hog_function_ids"
 
+    # --- List destinations ---
+
+    def _create_destination(self, alert_id: str, payload: dict) -> list[str]:
+        response = self.client.post(self._destinations_url(alert_id), payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()["hog_function_ids"]
+
+    def _make_foreign_hog_function(self, *, team: Team, alert_id: str, url: str) -> HogFunction:
+        return HogFunction.objects.create(
+            team=team,
+            name="Other team destination",
+            type="destination",
+            template_id="template-webhook",
+            enabled=True,
+            inputs_schema=[{"key": "url", "type": "string"}],
+            inputs={"url": {"value": url}},
+            hog="return event",
+            filters={
+                "events": [{"id": "$logs_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": alert_id}],
+            },
+        )
+
+    def test_list_destinations_returns_slack_config(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        self._create_destination(
+            created["id"],
+            {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "alerts"},
+        )
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destinations = response.json()
+        assert len(destinations) == 1
+        assert destinations[0]["type"] == "slack"
+        assert destinations[0]["slack_workspace_id"] == 42
+        assert destinations[0]["slack_channel_id"] == "C123"
+        # Creation writes slack_channel_name into the HogFunction name, not its inputs.
+        assert "slack_channel_name" not in destinations[0]
+
+    def test_list_destinations_returns_webhook_url(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destinations = response.json()
+        assert len(destinations) == 1
+        assert destinations[0]["type"] == "webhook"
+        assert destinations[0]["webhook_url"] == "https://example.com/hook"
+
+    def test_list_destinations_returns_teams_webhook_url(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        teams_url = "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
+        self._create_destination(created["id"], {"type": "teams", "webhook_url": teams_url})
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destinations = response.json()
+        assert len(destinations) == 1
+        assert destinations[0]["type"] == "teams"
+        assert destinations[0]["webhook_url"] == teams_url
+
+    def test_list_destinations_groups_each_destinations_hog_functions_into_one_entry(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        slack_ids = self._create_destination(
+            created["id"], {"type": "slack", "slack_workspace_id": 7, "slack_channel_id": "C999"}
+        )
+        webhook_ids = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        )
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destinations = response.json()
+        # Two destinations, four HogFunctions each, not eight single-function entries.
+        assert len(destinations) == 2
+        by_type = {destination["type"]: destination for destination in destinations}
+        assert sorted(by_type["slack"]["hog_function_ids"]) == sorted(slack_ids)
+        assert sorted(by_type["webhook"]["hog_function_ids"]) == sorted(webhook_ids)
+
+    def test_list_destinations_separates_two_slack_channels(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        self._create_destination(created["id"], {"type": "slack", "slack_workspace_id": 7, "slack_channel_id": "C1"})
+        self._create_destination(created["id"], {"type": "slack", "slack_workspace_id": 7, "slack_channel_id": "C2"})
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destinations = response.json()
+        assert sorted(destination["slack_channel_id"] for destination in destinations) == ["C1", "C2"]
+
+    def test_list_destinations_returns_empty_list_without_destinations(self):
+        created = self._create_via_api()
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == []
+
+    def test_list_destinations_excludes_soft_deleted_destinations(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+        delete_response = self.client.post(
+            self._destinations_delete_url(created["id"]), {"hog_function_ids": ids}, format="json"
+        )
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == []
+
+    def test_list_destinations_excludes_other_alerts_destinations(self):
+        self._sync_destination_templates()
+        created_a = self._create_via_api()
+        created_b = self._create_via_api(name="Another alert")
+        self._create_destination(created_a["id"], {"type": "webhook", "webhook_url": "https://example.com/a"})
+        self._create_destination(created_b["id"], {"type": "webhook", "webhook_url": "https://example.com/b"})
+
+        response = self.client.get(self._destinations_url(created_b["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [destination["webhook_url"] for destination in response.json()] == ["https://example.com/b"]
+
+    def test_list_destinations_excludes_other_teams_hog_functions(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/ours"})
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        self._make_foreign_hog_function(team=other_team, alert_id=created["id"], url="https://example.com/theirs")
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [destination["webhook_url"] for destination in response.json()] == ["https://example.com/ours"]
+
+    def test_list_destinations_on_other_teams_alert_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_alert = LogsAlertConfiguration.objects.create(
+            team=other_team, name="Other", threshold_count=10, filters={"severityLevels": ["error"]}
+        )
+
+        response = self.client.get(self._destinations_url(str(other_alert.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("slack", {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123"}),
+            ("webhook", {"type": "webhook", "webhook_url": "https://example.com/hook"}),
+            ("teams", {"type": "teams", "webhook_url": "https://example.com/teams"}),
+        ]
+    )
+    def test_list_destinations_round_trips_created_config(self, _name: str, payload: dict) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], payload)
+
+        response = self.client.get(self._destinations_url(created["id"]))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destinations = response.json()
+        assert len(destinations) == 1
+        assert sorted(destinations[0].pop("hog_function_ids")) == sorted(ids)
+        assert destinations[0] == payload
+
     # --- Reset ---
 
     def _reset_url(self, alert_id: str) -> str:
@@ -2178,6 +2355,28 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         key = self.create_personal_api_key_with_scopes(scopes)
         url = f"{self.base_url}{uuid4()}/destinations/"
         response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- list_destinations action (GET detail, requires logs:read) ---
+    # Shares the `destinations` URL with create_destination, so these also prove the
+    # per-method scope split holds in both directions.
+
+    def test_list_destinations_allowed_with_logs_read_scope(self):
+        key = self.create_personal_api_key_with_scopes(["logs:read"])
+        url = f"{self.base_url}{uuid4()}/destinations/"
+        response = self.client.get(url, **self._auth(key))
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    @parameterized.expand(
+        [
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_list_destinations_rejected_without_logs_read_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}{uuid4()}/destinations/"
+        response = self.client.get(url, **self._auth(key))
         assert response.status_code == 403, response.json()
 
     # --- delete_destination action (POST detail, requires logs:write) ---

@@ -227,3 +227,33 @@ def build_alert_destination_config(
             "inputs": inputs,
         },
     )
+
+
+def _input_value(inputs: dict[str, Any], key: str) -> Any:
+    entry = inputs.get(key)
+    return entry.get("value") if isinstance(entry, dict) else None
+
+
+def read_alert_destination_data(*, destination_type: DestinationType, inputs: dict[str, Any]) -> AlertDestinationData:
+    """Recover the destination config a HogFunction was built from.
+
+    Inverse of build_alert_destination_config, so the two have to change together.
+    slack_channel_name is not recovered: it only shapes the HogFunction name and is never
+    written into inputs.
+    """
+    data: AlertDestinationData = {"type": destination_type}
+
+    if destination_type == DestinationType.SLACK:
+        slack_workspace_id = _input_value(inputs, "slack_workspace")
+        slack_channel_id = _input_value(inputs, "channel")
+        if isinstance(slack_workspace_id, int):
+            data["slack_workspace_id"] = slack_workspace_id
+        if isinstance(slack_channel_id, str):
+            data["slack_channel_id"] = slack_channel_id
+        return data
+
+    # Plain webhooks post to `url`; Discord and Teams both use `webhookUrl`.
+    webhook_url = _input_value(inputs, "url" if destination_type == DestinationType.WEBHOOK else "webhookUrl")
+    if isinstance(webhook_url, str):
+        data["webhook_url"] = webhook_url
+    return data

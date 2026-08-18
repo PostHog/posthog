@@ -25,7 +25,9 @@ from products.alerts.backend.destination_configs import (
     validate_destination_data,
 )
 from products.alerts.backend.destinations import (
+    AlertDestinationGroup,
     create_alert_destination_hog_functions,
+    list_alert_destination_groups,
     soft_delete_alert_destinations,
     soft_delete_alert_destinations_for_alerts,
     soft_delete_all_alert_destinations,
@@ -160,6 +162,7 @@ def snooze_alert_from_slack(
 __all__ = [
     "DESTINATION_TEMPLATE_IDS",
     "AlertDestinationData",
+    "AlertDestinationGroup",
     "AlertDestinationValidationError",
     "AlertScheduleRestriction",
     "DestinationType",
@@ -169,6 +172,7 @@ __all__ = [
     "create_alert_destination_hog_functions",
     "get_alert_team_id",
     "insight_ids_with_alerts",
+    "list_alert_destination_groups",
     "snooze_alert_from_slack",
     "soft_delete_alert_destinations",
     "soft_delete_alert_destinations_for_alerts",

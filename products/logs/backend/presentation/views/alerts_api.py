@@ -37,6 +37,7 @@ from products.alerts.backend.facade.api import (
     DestinationType,
     build_alert_destination_config,
     create_alert_destination_hog_functions,
+    list_alert_destination_groups,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_and_normalize_schedule_restriction,
@@ -763,6 +764,21 @@ class LogsAlertDestinationResponseSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(child=serializers.UUIDField())
 
 
+class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
+    """A configured destination, with the fields it was created with so the two round-trip.
+
+    slack_channel_name has no counterpart here: creation puts it in the HogFunction name
+    rather than its inputs, so there is nothing to read back.
+    """
+
+    type = serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES, help_text="Notification destination type.")
+    slack_workspace_id = serializers.IntegerField(
+        required=False, help_text="Integration ID for the Slack workspace. Present when type=slack."
+    )
+    slack_channel_id = serializers.CharField(required=False, help_text="Slack channel ID. Present when type=slack.")
+    webhook_url = serializers.URLField(required=False, help_text="Endpoint posted to. Present for webhook and teams.")
+
+
 def _build_reason(
     prev_state: AlertState,
     outcome: AlertCheckOutcome,
@@ -865,6 +881,15 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     posthog_feature_flag = "logs-alerting"
     permission_classes = [PostHogFeatureFlagPermission]
 
+    # create_destination (POST) and list_destinations (GET) share the `destinations` URL via
+    # @create_destination.mapping.get, so they also share one set of @action initkwargs and
+    # cannot each declare their own required_scopes. Resolve per-method here instead.
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        if view.action in ("create_destination", "list_destinations"):
+            # HEAD is auto-routed to the GET handler, so it reads too.
+            return ["logs:read"] if request.method in ("GET", "HEAD") else ["logs:write"]
+        return None
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
             query_serializer = LogsAlertListQuerySerializer(data=self.request.query_params)
@@ -951,7 +976,11 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={201: LogsAlertDestinationResponseSerializer},
         description="Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.",
     )
-    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["logs:write"])
+    # NOTE: `required_scopes` is intentionally not set on @action here. list_destinations is
+    # registered below via @create_destination.mapping.get and shares this URL pattern's
+    # initkwargs, so setting required_scopes here would apply logs:write to the read too.
+    # Scopes are resolved per-method in dangerously_get_required_scopes instead.
+    @action(detail=True, methods=["POST"], url_path="destinations")
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -980,6 +1009,31 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         response = LogsAlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
         return Response(response.data, status=201)
+
+    @extend_schema(
+        request=None,
+        responses={200: LogsAlertDestinationConfigSerializer(many=True)},
+        description=(
+            "List the notification destinations configured for this alert. Creating a destination "
+            "fans out into one HogFunction per alert event kind (firing, resolved, ...); this returns "
+            "one entry per destination, carrying the whole group's HogFunction IDs and the config it "
+            "was created with."
+        ),
+    )
+    @create_destination.mapping.get
+    def list_destinations(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        groups = list_alert_destination_groups(
+            team_id=self.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+            allowed_destination_types=LOGS_DESTINATION_TYPES,
+        )
+        serializer = LogsAlertDestinationConfigSerializer(
+            [{"hog_function_ids": list(group.hog_function_ids), **group.data} for group in groups],
+            many=True,
+        )
+        return Response(serializer.data)
 
     @extend_schema(
         request=LogsAlertDeleteDestinationSerializer,
