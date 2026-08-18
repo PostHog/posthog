@@ -161,8 +161,8 @@ class SandboxConfig(BaseModel):
     cpu_request_cores: float = BURSTABLE_REQUEST_CPU_CORES
     memory_request_mb: int = BURSTABLE_REQUEST_MEMORY_MB
     vm_runtime: bool = False
-    # gVisor only — Modal rejects this under vm_runtime.
     outbound_domain_allowlist: list[str] | None = None
+    network_policy_fingerprint: str | None = None
     # gVisor only. An empty domain allowlist means unrestricted network in
     # Modal, so callers that require no egress must state it explicitly.
     block_network: bool = False

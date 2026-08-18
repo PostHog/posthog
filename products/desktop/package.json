@@ -10,9 +10,7 @@
   "scripts": {
     "preinstall": "node scripts/enforce-pnpm.mjs",
     "postinstall": "bash scripts/ensure-phrocs.sh --update",
-    "setup": "bash apps/code/bin/setup",
     "bootstrap:cloud-task": "pnpm install --frozen-lockfile --prefer-offline --ignore-scripts && pnpm build:deps",
-    "prepare": "husky",
     "dev": "pnpm build:deps && bash scripts/ensure-phrocs.sh && bin/phrocs --config mprocs.yaml",
     "dev:mprocs": "pnpm build:deps && mprocs",
     "dev:agent": "pnpm --filter agent dev",
@@ -54,13 +52,12 @@
     "@biomejs/biome": "2.2.4",
     "@posthog/cli": "^0.8.2",
     "fflate": "^0.8.2",
-    "husky": "^9.1.7",
     "knip": "^5.66.3",
-    "lint-staged": "^15.5.2",
     "mprocs": "^0.7.1",
     "turbo": "^2.9.16"
   },
   "lint-staged": {
+    "*.{mjs,json,jsonc,css}": "biome check --write --unsafe --files-ignore-unknown=true --no-errors-on-unmatched",
     "*.{ts,tsx,js,jsx}": [
       "biome check --write --unsafe --files-ignore-unknown=true --no-errors-on-unmatched",
       "bash -c 'pnpm typecheck'"

@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.data_catalog_metrics import record_catalog_read, record_catalog_read_failure
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.lazy_join_tags import (
     DATA_WAREHOUSE,
@@ -928,6 +929,7 @@ class Database(BaseModel):
         context: HogQLContext,
         include_only: set[str] | None = None,
         include_hidden_posthog_tables: bool = False,
+        include_fields: bool = True,
     ) -> dict[str, DatabaseSchemaTable]:
         from django.db.models import Prefetch  # noqa: PLC0415
 
@@ -968,13 +970,15 @@ class Database(BaseModel):
             if include_only and table_name not in include_only:
                 continue
 
-            field_input: dict[str, Any] = {}
-            table = self.get_table(table_name)
-            if isinstance(table, Table):
-                field_input = _schema_field_input(table)
+            fields_dict: dict[str, DatabaseSchemaField] = {}
+            if include_fields:
+                field_input: dict[str, Any] = {}
+                table = self.get_table(table_name)
+                if isinstance(table, Table):
+                    field_input = _schema_field_input(table)
 
-            fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
-            fields_dict = {field.name: field for field in fields}
+                fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
+                fields_dict = {field.name: field for field in fields}
             tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
 
         # System tables
@@ -983,13 +987,15 @@ class Database(BaseModel):
             if include_only and table_key not in include_only:
                 continue
 
-            system_field_input: dict[str, Any] = {}
-            table = self.get_table(table_key)
-            if isinstance(table, Table):
-                system_field_input = _schema_field_input(table)
+            fields_dict = {}
+            if include_fields:
+                system_field_input: dict[str, Any] = {}
+                table = self.get_table(table_key)
+                if isinstance(table, Table):
+                    system_field_input = _schema_field_input(table)
 
-            fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
-            fields_dict = {field.name: field for field in fields}
+                fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
+                fields_dict = {field.name: field for field in fields}
             tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
 
         # Data Warehouse Tables and Views - Fetch all related data in one go
@@ -1081,15 +1087,17 @@ class Database(BaseModel):
                     continue
 
                 try:
-                    field_input = {}
-                    table = self.get_table(table_key)
-                    if isinstance(table, Table):
-                        field_input = table.fields
+                    fields_dict = {}
+                    if include_fields:
+                        field_input = {}
+                        table = self.get_table(table_key)
+                        if isinstance(table, Table):
+                            field_input = table.fields
 
-                    fields = serialize_fields(
-                        field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
-                    )
-                    fields_dict = {field.name: field for field in fields}
+                        fields = serialize_fields(
+                            field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
+                        )
+                        fields_dict = {field.name: field for field in fields}
 
                     # The table is also queryable by its raw underscore name, which is registered
                     # separately from the dotted `table_key`. Surface it so search matches either form.
@@ -1162,9 +1170,12 @@ class Database(BaseModel):
                         # Not built for this connection (unusable columns, or access-denied).
                         continue
 
-                    fields = serialize_fields(table.fields, context, table_key.split("."), table_type="external")
+                    dual_fields_dict: dict[str, DatabaseSchemaField] = {}
+                    if include_fields:
+                        fields = serialize_fields(table.fields, context, table_key.split("."), table_type="external")
+                        dual_fields_dict = {field.name: field for field in fields}
                     tables[table_key] = DatabaseSchemaDataWarehouseTable(
-                        fields={field.name: field for field in fields},
+                        fields=dual_fields_dict,
                         id=str(schema_row.id),
                         name=table_key,
                         schema=DatabaseSchemaSchema(
@@ -1199,8 +1210,10 @@ class Database(BaseModel):
             except QueryError:
                 continue
 
-            fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
-            fields_dict = {field.name: field for field in fields}
+            fields_dict = {}
+            if include_fields:
+                fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
+                fields_dict = {field.name: field for field in fields}
 
             if isinstance(view, RevenueAnalyticsBaseView):
                 tables[view_name] = DatabaseSchemaManagedViewTable(
@@ -1308,6 +1321,7 @@ class Database(BaseModel):
             DataWarehouseTable,
             ExternalDataSource,
         )
+        from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode  # noqa: PLC0415
 
         with timings.measure("team", emit_span=True):
             if team_id is None and team is None:
@@ -1358,6 +1372,7 @@ class Database(BaseModel):
             from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
 
             direct_connection_metadata: dict[str, Any] | None = None
+            is_managed_warehouse_connection = False
             # Dual-mode: a synced source queried live builds virtual tables from schema metadata.
             virtual_source: ExternalDataSource | None = None
             if connection_id is not None:
@@ -1376,6 +1391,13 @@ class Database(BaseModel):
                     direct_source.access_method == ExternalDataSource.AccessMethod.DIRECT
                     or is_direct_capable(direct_source)
                 ):
+                    if direct_source.has_managed_warehouse_prefix:
+                        managed_warehouse_sql_mode = direct_source.managed_warehouse_sql_mode
+                        if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
+                            raise QueryError(
+                                "This managed warehouse connection isn't available. Select another connection and try again."
+                            )
+                        is_managed_warehouse_connection = managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN
                     direct_connection_metadata = direct_source.connection_metadata
                     # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
                     if direct_source.access_method != ExternalDataSource.AccessMethod.DIRECT:
@@ -1588,11 +1610,13 @@ class Database(BaseModel):
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
             is_data_catalog_enabled=data_catalog_enabled,
+            # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
             # - shared-link users (publishing is the explicit access grant).
             # System tables stay gated for both.
             bypass_warehouse_access_control=bypass_warehouse_access_control
+            or is_managed_warehouse_connection
             or isinstance(user, SyntheticUser | SharedLinkUser),
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
@@ -2672,6 +2696,7 @@ def _settled_catalog_certifications(
         if team is None or team_id is None or not is_data_catalog_enabled(team) or not _can_read_catalog(context):
             return {}, {}
 
+        record_catalog_read("schema_serialization")
         by_table_id: dict[str, DatabaseSchemaTableCertification] = {}
         by_saved_query_id: dict[str, DatabaseSchemaTableCertification] = {}
         certifications = (
@@ -2695,6 +2720,7 @@ def _settled_catalog_certifications(
                 by_saved_query_id[str(certification.saved_query_id)] = serialized
         return by_table_id, by_saved_query_id
     except Exception:
+        record_catalog_read_failure("schema_serialization")
         logger.exception("serialize_database: failed to load catalog certifications", team_id=team_id)
         return {}, {}
 

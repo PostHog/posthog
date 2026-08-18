@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
+    _is_admin_shutdown_error,
     _is_connect_timeout_error,
     _is_dns_resolution_transient_error,
     _is_server_not_ready_error,
@@ -33,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PendingBatch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+    CLAIMABLE_BATCHES,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     RUNS_RECONCILED_TOTAL,
 )
@@ -756,6 +758,135 @@ class TestConnectTimeoutErrorClassification:
         mock_capture.assert_not_called()
 
 
+class TestAdminShutdownErrorClassification:
+    def test_classifies_admin_shutdown(self) -> None:
+        assert (
+            _is_admin_shutdown_error(
+                psycopg.errors.AdminShutdown("terminating connection due to administrator command")
+            )
+            is True
+        )
+
+    def test_ignores_other_operational_errors(self) -> None:
+        # A generic OperationalError carrying similar wording is not the same as psycopg's
+        # dedicated AdminShutdown class (SQLSTATE 57P01) and must not be misclassified.
+        assert (
+            _is_admin_shutdown_error(psycopg.OperationalError("terminating connection due to administrator command"))
+            is False
+        )
+
+    @pytest.mark.asyncio
+    async def test_recovery_loop_does_not_report_admin_shutdown_error(self):
+        # Reproduces the reported issue: the queue DB terminates the recovery connection
+        # via an administrator command (failover, maintenance restart) while the periodic
+        # reconcile sweep is running. The sweep already retries every interval, so this
+        # self-healing disconnect must not be sent to error tracking.
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            recovery_interval_seconds=0.01,
+            reconcile_interval_seconds=0,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+        consumer._recovery_conn = _make_healthy_conn()
+
+        second_reconcile_started = asyncio.Event()
+        call_count = 0
+
+        async def flaky_reconcile() -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise psycopg.errors.AdminShutdown("terminating connection due to administrator command")
+            second_reconcile_started.set()
+
+        with (
+            patch.object(consumer, "_recovery_sweep_with_timeout", new_callable=AsyncMock),
+            patch.object(consumer, "_reconcile_failed_runs", side_effect=flaky_reconcile),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            loop_task = asyncio.create_task(consumer._recovery_loop())
+            await asyncio.wait_for(second_reconcile_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(loop_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_poll_failure_does_not_report_admin_shutdown_error(self):
+        # Same self-healing admin-initiated disconnect as above, but hit directly by the
+        # main poll loop's own OperationalError branch — reproduces the reported issue's
+        # exact stack (get_unprocessed_and_lock raising mid-query).
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        second_poll_started = asyncio.Event()
+        fetch_calls = 0
+
+        async def flaky_fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            nonlocal fetch_calls
+            fetch_calls += 1
+            if fetch_calls == 1:
+                raise psycopg.errors.AdminShutdown("terminating connection due to administrator command")
+            second_poll_started.set()
+            return []
+
+        with (
+            patch.object(
+                consumer, "_connect", new_callable=AsyncMock, side_effect=lambda **kwargs: _make_healthy_conn()
+            ),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_unprocessed_and_lock",
+                side_effect=flaky_fetch,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            await asyncio.wait_for(second_poll_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_recovery_sweep_does_not_report_admin_shutdown_error(self):
+        # Same self-healing admin-initiated disconnect, but hit by the periodic recovery
+        # sweep's own OperationalError branch rather than the reconcile sweep.
+        consumer = _make_consumer(recovery_interval_seconds=0.01)
+        swept = asyncio.Event()
+
+        async def raise_admin_shutdown(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            swept.set()
+            raise psycopg.errors.AdminShutdown("terminating connection due to administrator command")
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                side_effect=raise_admin_shutdown,
+            ),
+            patch.object(consumer, "_reconcile_failed_runs", new_callable=AsyncMock),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            loop_task = asyncio.create_task(consumer._recovery_loop())
+            await asyncio.wait_for(swept.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(loop_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
+
+
 class TestStartupLiveness:
     @pytest.mark.asyncio
     async def test_heartbeat_reports_liveness_while_startup_sweep_runs(self):
@@ -1449,6 +1580,11 @@ class TestReconcileFailedRuns:
                 return_value=42.0,
             ),
             patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
+                new_callable=AsyncMock,
+                return_value=7,
+            ),
+            patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
                 new_callable=AsyncMock,
             ) as mock_failed_runs,
@@ -1475,9 +1611,15 @@ class TestReconcileFailedRuns:
                 new_callable=AsyncMock,
                 return_value=1234.5,
             ) as mock_probe,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
+                new_callable=AsyncMock,
+                return_value=321,
+            ) as mock_depth,
         ):
             await consumer._reconcile_failed_runs()
         assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 1234.5
+        assert CLAIMABLE_BATCHES._value.get() == 321
 
         mock_probe.return_value = None  # empty queue -> gauge resets to 0
         with patch(
@@ -1485,9 +1627,15 @@ class TestReconcileFailedRuns:
             new_callable=AsyncMock,
             return_value=[],
         ):
-            with patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
-                mock_probe,
+            with (
+                patch(
+                    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                    mock_probe,
+                ),
+                patch(
+                    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
+                    mock_depth,
+                ),
             ):
                 await consumer._reconcile_failed_runs()
         assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 0.0

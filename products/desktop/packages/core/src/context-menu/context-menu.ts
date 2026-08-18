@@ -1,3 +1,4 @@
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import {
   formatBulkArchiveWarning,
   sessionsLabel,
@@ -133,10 +134,8 @@ export class ContextMenuService {
             {
               type: "submenu",
               label: "File to…",
-              items: channels.map((c) => ({
-                // Channel names are stored bare; every surface that shows one
-                // adds the hash.
-                label: `#${c.name}`,
+              items: this.starredFirst(channels).map((c) => ({
+                label: channelDisplayLabel(c.name, c.channelType),
                 action: {
                   type: "file-to-channel" as const,
                   channelId: c.id,
@@ -226,10 +225,8 @@ export class ContextMenuService {
             {
               type: "submenu" as const,
               label: "File to…",
-              items: channels.map((c) => ({
-                // Channel names are stored bare; every surface that shows one
-                // adds the hash.
-                label: `#${c.name}`,
+              items: this.starredFirst(channels).map((c) => ({
+                label: channelDisplayLabel(c.name, c.channelType),
                 action: {
                   type: "file-to-channel" as const,
                   channelId: c.id,
@@ -393,6 +390,16 @@ export class ContextMenuService {
 
   private separator(): SeparatorDef {
     return { type: "separator" };
+  }
+
+  /**
+   * "File to…" targets in the order the sidebar lists them: starred first. The
+   * sort is stable, so each group keeps the order the caller sent.
+   */
+  private starredFirst<C extends { starred?: boolean }>(channels: C[]): C[] {
+    return [...channels].sort(
+      (a, b) => Number(b.starred ?? false) - Number(a.starred ?? false),
+    );
   }
 
   private disabled(label: string): MenuItemDef<never> {

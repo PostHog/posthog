@@ -19,6 +19,9 @@ function uniqueEnabledSources(sourceConfigs: SignalSourceConfig[] | null): Signa
             !source.enabled ||
             (source.source_product === SignalSourceProduct.SignalsScout &&
                 source.source_type === SignalSourceType.CrossSourceIssue) ||
+            // Retired: the row can outlive the feature until the cleanup migration runs.
+            (source.source_product === SignalSourceProduct.SessionReplay &&
+                source.source_type === SignalSourceType.SessionAnalysisCluster) ||
             seenProducts.has(source.source_product)
         ) {
             return false

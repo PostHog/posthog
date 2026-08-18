@@ -45,6 +45,24 @@ pub struct SymbolSetUpload {
     pub content_hash: Option<String>,
 }
 
+/// Coalesce uploads that share a chunk_id, keeping the first occurrence. Bulk start rejects a
+/// batch with a repeated id, before it filters out the chunks the server already has.
+pub fn dedup_uploads_by_chunk_id(uploads: Vec<SymbolSetUpload>) -> Vec<SymbolSetUpload> {
+    let mut seen = std::collections::HashSet::new();
+    let mut deduped = Vec::with_capacity(uploads.len());
+    for upload in uploads {
+        if seen.insert(upload.chunk_id.clone()) {
+            deduped.push(upload);
+        } else {
+            warn!(
+                "Duplicate chunk id {} across symbol sets; keeping the first",
+                upload.chunk_id
+            );
+        }
+    }
+    deduped
+}
+
 /// Per-run tally of what an upload actually did. Without it a run that skipped
 /// every chunk is indistinguishable from one that uploaded every chunk, since
 /// both just exit zero.

@@ -326,14 +326,21 @@ CLICKHOUSE_TYPE_TO_HOGQL_LABEL = {
     "Int16": "integer",
     "Int32": "integer",
     "Int64": "integer",
+    "Int128": "integer",
+    "UInt8": "integer",
+    "UInt16": "integer",
+    "UInt32": "integer",
     "UInt64": "integer",
+    "UInt128": "integer",
     "Float32": "float",
     "Float64": "float",
     "Bool": "boolean",
     "Date": "date",
+    "Date32": "date",
     "DateTime": "datetime",
     "DateTime64": "datetime",
     "String": "string",
+    "UUID": "string",
     "Decimal": "numeric",
 }
 
@@ -578,6 +585,86 @@ def clickhouse_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> d
     return {
         column_name: clickhouse_column_to_dwh_column(column_name, clickhouse_type, nullable)
         for column_name, clickhouse_type, nullable in columns
+    }
+
+
+# DuckDB base type name (lowercased, parenthesized args stripped) -> ClickHouse type.
+# Anything absent maps to String, which round-trips every remaining DuckDB type
+# (JSON, INTERVAL, BLOB, ENUM, nested LIST/STRUCT/MAP/UNION renderings).
+DUCKDB_TO_CLICKHOUSE_TYPE: dict[str, str] = {
+    "tinyint": "Int8",
+    "smallint": "Int16",
+    "integer": "Int32",
+    "int": "Int32",
+    "bigint": "Int64",
+    "hugeint": "Int128",
+    "utinyint": "UInt8",
+    "usmallint": "UInt16",
+    "uinteger": "UInt32",
+    "ubigint": "UInt64",
+    "uhugeint": "UInt128",
+    "float": "Float32",
+    "real": "Float32",
+    "double": "Float64",
+    "decimal": "Decimal",
+    "numeric": "Decimal",
+    "boolean": "Bool",
+    "date": "Date32",
+    "timestamp": "DateTime64(6)",
+    "datetime": "DateTime64(6)",
+    "timestamp with time zone": "DateTime64(6, 'UTC')",
+    "timestamptz": "DateTime64(6, 'UTC')",
+    "timestamp_s": "DateTime64(0)",
+    "timestamp_ms": "DateTime64(3)",
+    "timestamp_ns": "DateTime64(9)",
+    "uuid": "UUID",
+}
+
+
+def normalize_duckdb_type(duckdb_type: str) -> str:
+    """Lowercased base type name: `DECIMAL(10,2)` -> `decimal`, `INTEGER[]` -> `integer[]`."""
+    base = duckdb_type.strip().lower()
+    if "(" in base and base.endswith(")"):
+        open_index = base.index("(")
+        close_index = base.rindex(")")
+        base = (base[:open_index] + base[close_index + 1 :]).strip()
+    return base
+
+
+def duckdb_to_clickhouse_type(duckdb_type: str) -> str:
+    normalized_type = normalize_duckdb_type(duckdb_type)
+    clickhouse_type = DUCKDB_TO_CLICKHOUSE_TYPE.get(normalized_type)
+    if clickhouse_type is not None:
+        return clickhouse_type
+    # Arrays keep their `[]` suffix through normalization, so check before the scalar
+    # prefix fallbacks below or `DECIMAL(18,3)[]` would come out as a scalar Decimal.
+    if normalized_type.endswith("]"):
+        return "String"
+    if normalized_type.startswith(("decimal", "numeric")):
+        return "Decimal"
+    if normalized_type.startswith("timestamp"):
+        return "DateTime64(6)"
+    # JSON/INTERVAL/BLOB/ENUM and nested LIST/STRUCT/MAP/UNION render as String.
+    return "String"
+
+
+def motherduck_column_to_dwh_column(_column_name: str, duckdb_type: str, nullable: bool) -> dict[str, Any]:
+    clickhouse_type = duckdb_to_clickhouse_type(duckdb_type)
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def motherduck_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: motherduck_column_to_dwh_column(column_name, duckdb_type, nullable)
+        for column_name, duckdb_type, nullable in columns
     }
 
 
