@@ -123,7 +123,6 @@ export interface TaskChannel {
   repositories?: string[];
   created_at: string;
   created_by?: UserBasic | null;
-  /** Identifies the channel as the personal or general system space; null for an ordinary one. */
   system_role?: "personal" | "general" | null;
 }
 

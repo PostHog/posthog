@@ -1270,7 +1270,7 @@ def create_and_run_task(
         enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     if channel is None and not internal and origin_product not in TEAM_READABLE_ORIGIN_PRODUCTS:
-        channel = _ensure_personal_channel(team.id, user_id)[0]
+        channel = _ensure_personal_channel(team.id, user_id)
     task = Task.create_and_run(
         team=team,
         title=title,
@@ -1393,7 +1393,7 @@ def create_task_without_run(
     """
     if channel is None:
         channel = (
-            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)[0]
+            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
         )
     task = Task.create_without_run(
         team=team,
@@ -4832,7 +4832,7 @@ def create_task(
         and not validated_data.get("internal", False)
         and validated_data["origin_product"] not in TEAM_READABLE_ORIGIN_PRODUCTS
     ):
-        validated_data["channel"] = _ensure_personal_channel(team_id, user_id)[0]
+        validated_data["channel"] = _ensure_personal_channel(team_id, user_id)
     validated_data["client_provenance"] = client_provenance
     warm_branch_provided = "branch" in validated_data
     warm_branch = validated_data.pop("branch", None)
@@ -6246,37 +6246,52 @@ def _team_channels(team_id: int) -> QuerySet[Channel]:
     return Channel.objects.for_team(team_id)
 
 
-def _ensure_personal_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
-    # select_related so _channel_to_dto doesn't lazy-load created_by per call.
+def _ensure_system_channel(
+    team_id: int,
+    user_id: int,
+    *,
+    role: str,
+    owner_lookup: dict[str, Any],
+    legacy_lookup: dict[str, Any],
+    create_defaults: dict[str, Any],
+) -> Channel:
+    """Get-or-create one of the two system-provisioned channels, keyed by ``system_role``
+    within ``owner_lookup`` (the requester for personal, the whole team for general).
+
+    Rows created before ``system_role`` existed match ``legacy_lookup`` instead; those are
+    adopted and stamped lazily rather than backfilled, so both shapes resolve to one row.
+    ``legacy_lookup`` must be covered by a unique constraint, which is what makes the
+    IntegrityError fallback safe under concurrent first lists.
+    """
     channels = _team_channels(team_id).select_related("created_by")
-    channel = channels.filter(created_by_id=user_id, system_role=Channel.SystemRole.PERSONAL, deleted=False).first()
-    if channel is not None:
-        return channel, False
-
-    # Legacy personal channels predate system_role and were identified by channel_type
-    # alone; stamp the role lazily here instead of backfilling every row up front.
-    channel = channels.filter(created_by_id=user_id, channel_type=Channel.ChannelType.PERSONAL, deleted=False).first()
-    if channel is not None:
-        channel.system_role = Channel.SystemRole.PERSONAL
+    channel = channels.filter(system_role=role, deleted=False, **owner_lookup).first()
+    if channel is None:
+        channel = channels.filter(**legacy_lookup).first()
+    if channel is None:
+        try:
+            channel, created = channels.get_or_create(
+                team_id=team_id, **legacy_lookup, defaults={**create_defaults, "system_role": role}
+            )
+        except IntegrityError:
+            channel, created = channels.get(team_id=team_id, **legacy_lookup), False
+        # Only shared feeds get the "created this space" announcement, as in resolve_channel.
+        if created and channel.channel_type == Channel.ChannelType.PUBLIC:
+            _emit_channel_created(channel, user_id)
+    if channel.system_role != role:
+        channel.system_role = role
         channel.save(update_fields=["system_role"])
-        return channel, False
+    return channel
 
-    lookup = {
-        "team_id": team_id,
-        "created_by_id": user_id,
-        "channel_type": Channel.ChannelType.PERSONAL,
-        "deleted": False,
-    }
-    try:
-        channel, created = channels.get_or_create(
-            **lookup, defaults={"name": Channel.PERSONAL_CHANNEL_NAME, "system_role": Channel.SystemRole.PERSONAL}
-        )
-    except IntegrityError:
-        channel, created = channels.get(**lookup), False
-        if channel.system_role != Channel.SystemRole.PERSONAL:
-            channel.system_role = Channel.SystemRole.PERSONAL
-            channel.save(update_fields=["system_role"])
-    return channel, created
+
+def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
+    return _ensure_system_channel(
+        team_id,
+        user_id,
+        role=Channel.SystemRole.PERSONAL,
+        owner_lookup={"created_by_id": user_id},
+        legacy_lookup={"created_by_id": user_id, "channel_type": Channel.ChannelType.PERSONAL, "deleted": False},
+        create_defaults={"name": Channel.PERSONAL_CHANNEL_NAME},
+    )
 
 
 def ensure_personal_channel_id(team_id: int, user_id: int) -> UUID:
@@ -6284,46 +6299,22 @@ def ensure_personal_channel_id(team_id: int, user_id: int) -> UUID:
 
     For callers outside a request (Temporal activities) that need somewhere to file a task.
     """
-    return _ensure_personal_channel(team_id, user_id)[0].id
+    return _ensure_personal_channel(team_id, user_id).id
 
 
-def _ensure_general_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
-    """Get-or-create the team's default public "#general" channel, adopting a
-    channel a user already named "general" rather than creating a duplicate —
-    same resolve-or-create shape as ``resolve_channel``."""
-    channels = _team_channels(team_id).select_related("created_by")
-    channel = channels.filter(system_role=Channel.SystemRole.GENERAL, deleted=False).first()
-    if channel is not None:
-        return channel, False
-
-    # Legacy general channels predate system_role and were identified by name alone;
-    # adopt the existing row instead of creating a duplicate under the (team, name) constraint.
-    name_lookup = {"name": Channel.GENERAL_CHANNEL_NAME, "channel_type": Channel.ChannelType.PUBLIC, "deleted": False}
-    channel = channels.filter(**name_lookup).first()
-    if channel is not None:
-        channel.system_role = Channel.SystemRole.GENERAL
-        channel.save(update_fields=["system_role"])
-        return channel, False
-
-    try:
-        channel, created = channels.get_or_create(
-            team_id=team_id,
-            **name_lookup,
-            defaults={"created_by_id": user_id, "system_role": Channel.SystemRole.GENERAL},
-        )
-    except IntegrityError:
-        # Race: another request created (or adopted) it between our checks above and now.
-        # Re-fetch by role first (the other request may have just stamped a legacy row).
-        channel = channels.filter(system_role=Channel.SystemRole.GENERAL, deleted=False).first()
-        if channel is None:
-            channel = channels.get(team_id=team_id, **name_lookup)
-            if channel.system_role != Channel.SystemRole.GENERAL:
-                channel.system_role = Channel.SystemRole.GENERAL
-                channel.save(update_fields=["system_role"])
-        created = False
-    if created:
-        _emit_channel_created(channel, user_id)
-    return channel, created
+def _ensure_general_channel(team_id: int, user_id: int) -> Channel:
+    return _ensure_system_channel(
+        team_id,
+        user_id,
+        role=Channel.SystemRole.GENERAL,
+        owner_lookup={},
+        legacy_lookup={
+            "name": Channel.GENERAL_CHANNEL_NAME,
+            "channel_type": Channel.ChannelType.PUBLIC,
+            "deleted": False,
+        },
+        create_defaults={"created_by_id": user_id},
+    )
 
 
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
@@ -6332,18 +6323,13 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
     the requester's stars."""
     channels: list[Channel] = []
     if user_id is not None:
-        personal_channel, _ = _ensure_personal_channel(team_id, user_id)
-        channels.append(personal_channel)
+        channels.append(_ensure_personal_channel(team_id, user_id))
         _ensure_general_channel(team_id, user_id)
-
-    public_channels = list(
+    channels.extend(
         Channel.objects.filter(team_id=team_id, channel_type=Channel.ChannelType.PUBLIC, deleted=False)
         .select_related("created_by")
-        .order_by("name")
+        .order_by(Case(When(system_role=Channel.SystemRole.GENERAL, then=0), default=1), "name")
     )
-    public_channels.sort(key=lambda channel: (channel.system_role != Channel.SystemRole.GENERAL, channel.name))
-    channels.extend(public_channels)
-
     starred_ids: set = (
         set(ChannelStar.objects.filter(team_id=team_id, user_id=user_id).values_list("channel_id", flat=True))
         if user_id is not None
@@ -6425,9 +6411,8 @@ def update_channel(
             return "not_found"
         if name is not None:
             return "personal"
-    if channel.system_role == Channel.SystemRole.GENERAL:
-        if name is not None:
-            return "general"
+    if channel.system_role == Channel.SystemRole.GENERAL and name is not None:
+        return "general"
     update_fields: list[str] = []
     if name is not None:
         normalized = normalize_channel_name(name)

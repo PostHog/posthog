@@ -1,20 +1,17 @@
 /** What the backend calls a user's private channel. */
 export const PERSONAL_CHANNEL_NAME = "me";
 
-/** What the backend calls the team's default public channel, Slack-style. */
+/** What the backend calls the team's default public channel. */
 export const GENERAL_CHANNEL_NAME = "general";
 
-/** Enough of a channel's identity fields to tell a system space from an ordinary one. */
 export interface ChannelIdentity {
   system_role?: "personal" | "general" | null;
   channel_type: "public" | "personal";
   name: string;
 }
 
-// `system_role` is the backend's source of truth for identity. A server that predates
-// the field, or a row provisioned before it shipped, leaves it null/undefined — fall
-// back to the pre-system_role checks (channel_type for personal, name for general) so
-// older servers and not-yet-backfilled rows still resolve correctly.
+// A server that predates `system_role`, or a row not yet stamped with it, sends
+// null; fall back to the pre-role checks so those still resolve.
 export function isPersonalChannel(channel: ChannelIdentity): boolean {
   return channel.system_role != null
     ? channel.system_role === "personal"
