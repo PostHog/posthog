@@ -76,6 +76,7 @@ _DUCKGRES_CANCEL_MARGIN = dt.timedelta(minutes=1)
 _DUCKGRES_CANCEL_MAX_ATTEMPTS = 10
 _DUCKGRES_CANCEL_RETRY_SECONDS = 0.5
 _DUCKGRES_CANCEL_TIMEOUT_SECONDS = 5.0
+_DUCKGRES_REGISTER_WORKER_OPTIONS = "-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi"
 # Duckgres cancel fires one minute before this deadline. One attempt: a
 # StartToClose timeout has an unknown catalog outcome, so a retry could race
 # the original CALL.
@@ -547,7 +548,7 @@ def _should_publish_prepared_generation(inputs: DuckLakeRegisterDataImportsActiv
 def _connect_to_duckgres_for_team(team_id: int) -> Iterator[psycopg.Connection]:
     if is_dev_mode():
         conninfo = make_duckgres_conninfo(team_id, application_name="ducklake-register")
-        with psycopg.connect(conninfo, autocommit=True) as conn:
+        with psycopg.connect(conninfo, autocommit=True, options=_DUCKGRES_REGISTER_WORKER_OPTIONS) as conn:
             yield conn
         return
 
@@ -555,7 +556,11 @@ def _connect_to_duckgres_for_team(team_id: int) -> Iterator[psycopg.Connection]:
     server = get_duckgres_server_for_organization(organization_id)
     if server is None:
         raise ApplicationError(f"No DuckgresServer configured for team {team_id}", non_retryable=True)
-    with connect_to_duckgres(server, application_name="ducklake-register") as conn:
+    with connect_to_duckgres(
+        server,
+        application_name="ducklake-register",
+        options=_DUCKGRES_REGISTER_WORKER_OPTIONS,
+    ) as conn:
         yield conn
 
 

@@ -239,7 +239,11 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     applied = copy_and_register_ducklake_data_imports_activity(inputs)
 
     assert applied is True
-    connect.assert_called_once_with("postgresql://duckgres", autocommit=True)
+    connect.assert_called_once_with(
+        "postgresql://duckgres",
+        autocommit=True,
+        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi",
+    )
     assert s3.copy_calls == [
         (
             [
@@ -312,6 +316,40 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     workload_metrics.files.record.assert_called_once_with(2.0)
     workload_metrics.rows.record.assert_called_once_with(2.0)
     workload_metrics.bytes.record.assert_called_once_with(300.0)
+
+
+def test_production_register_connection_requests_right_sized_duckgres_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = MagicMock()
+    server.host = "duckgres.example.com"
+    server.port = 5432
+    server.database = "ducklake"
+    server.username = "posthog"
+    server.password = "example-password"
+    monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
+    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda _team_id: "org-id")
+    monkeypatch.setattr(registration_module, "get_duckgres_server_for_organization", lambda _org_id: server)
+
+    conn = MagicMock()
+    connect = MagicMock()
+    connect.return_value.__enter__.return_value = conn
+    connect.return_value.__exit__.return_value = False
+    monkeypatch.setattr(registration_module.psycopg, "connect", connect)
+
+    with registration_module._connect_to_duckgres_for_team(1) as connected:
+        assert connected is conn
+
+    connect.assert_called_once_with(
+        host="duckgres.example.com",
+        port=5432,
+        dbname="ducklake",
+        user="posthog",
+        password="example-password",
+        autocommit=True,
+        application_name="ducklake-register",
+        options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi",
+    )
 
 
 def test_duckgres_cancel_watchdog_cancels_the_active_query(monkeypatch):
