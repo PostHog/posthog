@@ -26,6 +26,7 @@ from products.signals.backend.report_canvas import (
 class ReportCanvasWorkflowInput:
     team_id: int
     report_id: str
+    notify_reviewers: bool = True
 
 
 @temporalio.activity.defn
@@ -50,6 +51,7 @@ async def poll_report_canvas_generation_activity(
         team_id=input.team_id,
         report_id=input.report_id,
         generation=generation,
+        notify_reviewers=input.notify_reviewers,
     )
 
 
@@ -107,12 +109,16 @@ class SignalReportCanvasWorkflow:
         return False
 
 
-async def start_report_canvas_workflow(*, team_id: int, report_id: str) -> bool:
+async def start_report_canvas_workflow(*, team_id: int, report_id: str, notify_reviewers: bool = True) -> bool:
     client = await async_connect()
     try:
         await client.start_workflow(
             SignalReportCanvasWorkflow.run,
-            ReportCanvasWorkflowInput(team_id=team_id, report_id=report_id),
+            ReportCanvasWorkflowInput(
+                team_id=team_id,
+                report_id=report_id,
+                notify_reviewers=notify_reviewers,
+            ),
             id=SignalReportCanvasWorkflow.workflow_id_for(team_id, report_id),
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

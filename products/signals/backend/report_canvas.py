@@ -260,7 +260,7 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
 
 @with_team_scope()
 def finalize_report_canvas_generation(
-    *, team_id: int, report_id: str, generation: ReportCanvasGeneration
+    *, team_id: int, report_id: str, generation: ReportCanvasGeneration, notify_reviewers: bool = True
 ) -> bool | None:
     if generation.skipped:
         return True
@@ -283,7 +283,7 @@ def finalize_report_canvas_generation(
     if succeeded:
         session.generated_fingerprint = generation.fingerprint
     session.save(update_fields=["generation_status", "failure_reason", "generated_fingerprint", "updated_at"])
-    if succeeded:
+    if succeeded and notify_reviewers:
         report = SignalReport.objects.get(id=report_id, team_id=team_id)
         tasks_facade.record_task_activity_for_users(
             team_id=team_id,

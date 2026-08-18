@@ -2,6 +2,15 @@
 
 Ready reports and reports awaiting input can create a shared canvas session in the public `general` space. This path is gated by the `signals-report-canvases` organization feature flag.
 
+To preview a small backfill, pass explicit report IDs. Generation starts only when `--execute` is present:
+
+```bash
+python manage.py backfill_report_canvases <report-id> [<report-id> ...] --team-id <team-id>
+python manage.py backfill_report_canvases <report-id> [<report-id> ...] --team-id <team-id> --execute
+```
+
+Only reports in `ready` or `pending_input` are eligible. The organization feature flag must be enabled outside local development. Backfills do not notify suggested reviewers unless `--notify-reviewers` is also passed.
+
 Each report owns one `SignalReportCanvas` link. The link points to:
 
 - one visible discussion task, used as the stable shared session;
