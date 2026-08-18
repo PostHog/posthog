@@ -18,11 +18,13 @@ describe("modelOptionFilters", () => {
       name: "DeepSeek V4 Flash",
     },
     { flag: "glm", id: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
+    { flag: "glm53", id: "zai-org/glm-5.3", name: "GLM-5.3" },
     { flag: "kimi", id: "moonshotai/kimi-k3", name: "Kimi K3" },
   ];
   const enabledFlags: ModelRolloutFlags = {
     deepseek: true,
     glm: true,
+    glm53: true,
     kimi: true,
   };
 
