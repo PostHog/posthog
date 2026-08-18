@@ -722,7 +722,11 @@ class InviteSignupViewset(generics.CreateAPIView):
             # Return the invited address so that screen can name it and offer to log out and continue
             # as that address. The invite UUID already authorizes reading target_email (the anonymous
             # prevalidate path below returns it), so this discloses nothing new to the link holder.
-            if invite.target_email and "invalid_recipient" in e.get_codes():
+            codes = e.get_codes()
+            is_mismatch = (
+                "invalid_recipient" in codes if isinstance(codes, list | dict) else codes == "invalid_recipient"
+            )
+            if invite.target_email and is_mismatch:
                 detail = e.detail[0] if isinstance(e.detail, list) else e.detail
                 return response.Response(
                     {
