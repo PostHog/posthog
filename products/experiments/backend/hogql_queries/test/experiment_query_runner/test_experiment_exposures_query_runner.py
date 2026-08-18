@@ -42,6 +42,27 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             end_date=datetime(2024, 1, 7),
         )
 
+    def test_handles_null_multivariate_in_flag_filters(self):
+        # Boolean flags serialize filters with "multivariate": null — present but None,
+        # which .get("multivariate", {}) does not guard against.
+        flag_dict = model_to_dict(self.feature_flag)
+        flag_dict["filters"] = {**flag_dict["filters"], "multivariate": None}
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=flag_dict,
+            holdout=None,
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=self.experiment.end_date.isoformat(),
+            exposure_criteria=None,
+        )
+
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
+
+        self.assertEqual(runner.variants, [])
+
     @freeze_time("2024-01-07T12:00:00Z")
     def test_exposure_query_resolves_soft_deleted_feature_flag_key(self):
         # Exposure events are captured under the flag's original key.
