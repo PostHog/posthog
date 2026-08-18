@@ -700,6 +700,12 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="UTC anchor time for scheduled syncs.",
     )
+    primary_key_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="Column names for primary key deduplication.",
+    )
     cdc_table_mode = serializers.ChoiceField(
         required=False,
         allow_null=True,
