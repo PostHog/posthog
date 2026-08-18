@@ -306,6 +306,10 @@ class ExperimentSummaryDataService:
             query = link.saved_metric.query
             if not query:
                 continue
+            # The display name lives on the saved metric model, not in its query dict —
+            # without it the summary falls back to raw event names.
+            if link.saved_metric.name:
+                query = {**query, "name": link.saved_metric.name}
             metric_type = (link.metadata or {}).get("type", "primary")
             if metric_type == "primary":
                 primary_metrics.append(query)
