@@ -309,6 +309,9 @@ tools:
     comments-destroy:
         operation: comments_destroy
         enabled: false
+    comments-emojis-retrieve:
+        operation: comments_emojis_retrieve
+        enabled: false
     comments-list:
         operation: comments_list
         enabled: true
