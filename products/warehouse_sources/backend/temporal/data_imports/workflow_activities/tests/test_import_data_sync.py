@@ -292,6 +292,38 @@ async def test_http_404_routes_through_handler_without_source_opt_in():
 
 
 @pytest.mark.asyncio
+async def test_http_400_routes_through_handler_without_source_opt_in():
+    # A 400 means the API can't parse the request — every retry replays the identical rejection, so
+    # it must stop by status code rather than retrying to the activity max and minting error-tracking
+    # noise on each attempt (a malformed Google Play Console vitals query did exactly that).
+    error = HTTPError(
+        "400 error for https://api.example.com/query: INVALID_ARGUMENT",
+        response=mock.MagicMock(status_code=400),
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_http_401_is_reraised_for_activity_retry():
     # A 401 can mean an access token expired mid-run — the REST engine's own auth layer re-mints
     # the token on the next attempt, so this must stay retryable rather than being swept into the

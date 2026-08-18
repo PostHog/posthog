@@ -8,6 +8,10 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # release-quality metrics teams care about are the daily ones).
 AGGREGATION_PERIOD = "DAILY"
 
+# A DAILY timeline must anchor its day boundaries to a time zone, and Play only accepts
+# America/Los_Angeles for daily aggregation. A DateTime without a zone is rejected with 400.
+METRIC_SET_TIME_ZONE = "America/Los_Angeles"
+
 # Days of history requested on a first sync. The Reporting API keeps roughly a year of daily
 # vitals; error reports are retained for a much shorter window, so they start closer to today.
 METRIC_SET_HISTORY_DAYS = 180

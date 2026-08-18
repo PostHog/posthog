@@ -556,12 +556,12 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
-    # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
-    # endpoint/resource doesn't exist — every retry replays the identical request against the same
-    # dead URL. Unlike 401 (a token needing refresh, which the REST engine's own retry re-mints) or
-    # 429/5xx (already RESTClientRetryableError), there's no self-recovering path for a 404, so
-    # classify it here rather than depending on each REST-based source listing it.
-    if isinstance(error, HTTPError) and error.response is not None and error.response.status_code == 404:
+    # A 400 (a malformed request the API can't parse) or 404 (the configured endpoint/resource
+    # doesn't exist) means every retry replays the identical request for the same rejection. Unlike
+    # 401 (a token needing refresh, which the REST engine's own retry re-mints) or 429/5xx (already
+    # RESTClientRetryableError), there's no self-recovering path for either, so classify them here
+    # rather than depending on each REST-based source listing them.
+    if isinstance(error, HTTPError) and error.response is not None and error.response.status_code in (400, 404):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )

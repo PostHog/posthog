@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     ERROR_HISTORY_DAYS,
     LIST_ENDPOINTS,
     METRIC_SET_HISTORY_DAYS,
+    METRIC_SET_TIME_ZONE,
     METRIC_SET_WINDOW_DAYS,
     METRIC_SETS,
     PRIMARY_KEYS,
@@ -86,8 +87,14 @@ def _today() -> dt.date:
     return dt.date.today()
 
 
-def _date_message(value: dt.date) -> dict[str, int]:
-    return {"year": value.year, "month": value.month, "day": value.day}
+def _date_message(value: dt.date) -> dict[str, Any]:
+    # A DAILY timeline DateTime needs its zone, or Play rejects the whole query with 400.
+    return {
+        "year": value.year,
+        "month": value.month,
+        "day": value.day,
+        "timeZone": {"id": METRIC_SET_TIME_ZONE},
+    }
 
 
 def _date_from_message(message: Any) -> dt.date | None:
@@ -284,13 +291,19 @@ class GooglePlayConsoleClient:
             response = self._send(method, url, params, body)
 
         if not response.ok:
+            body = response.text[:500]
             self._logger.warning(
                 "Google Play Console API error",
                 status_code=response.status_code,
                 url=url,
-                body=response.text[:500],
+                body=body,
             )
-            response.raise_for_status()
+            # Carry Google's error body (e.g. the INVALID_ARGUMENT reason) on the exception, not just
+            # the URL that raise_for_status() would report, so error tracking shows why it failed.
+            raise requests.HTTPError(
+                f"{response.status_code} error for {url}: {body}",
+                response=response,
+            )
 
         payload = response.json()
         return payload if isinstance(payload, dict) else {}

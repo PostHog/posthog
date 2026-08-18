@@ -243,14 +243,18 @@ def test_raises_a_permanent_error_when_the_key_cannot_sign() -> None:
         client.request("GET", "apps:search")
 
 
-def test_non_2xx_api_responses_raise_for_status() -> None:
+def test_non_2xx_api_responses_raise_with_the_error_body() -> None:
     session = mock.MagicMock()
     session.post.return_value = _token_response()
-    session.request.return_value = _response(403, text="forbidden")
+    session.request.return_value = _response(400, text="INVALID_ARGUMENT: Invalid field timeline_spec")
     client = _client(session)
 
-    with pytest.raises(requests.HTTPError):
+    with pytest.raises(requests.HTTPError) as raised:
         client.request("GET", "apps/com.example/anomalies")
+
+    # The reason travels on the exception, not just the URL, so error tracking shows why it failed.
+    assert "INVALID_ARGUMENT" in str(raised.value)
+    assert raised.value.response is not None and raised.value.response.status_code == 400
 
 
 def test_list_apps_follows_pagination() -> None:
@@ -402,10 +406,11 @@ def test_metric_set_windows_the_timeline_and_stops_at_the_freshness_date() -> No
     assert len(query_bodies) == 1
     timeline = query_bodies[0]["timelineSpec"] if query_bodies[0] else {}
     assert timeline["aggregationPeriod"] == "DAILY"
-    assert timeline["startTime"] == {"year": 2024, "month": 3, "day": 1}
+    # A DAILY timeline is rejected without the metric set's zone on each DateTime bound.
+    assert timeline["startTime"] == {"year": 2024, "month": 3, "day": 1, "timeZone": {"id": "America/Los_Angeles"}}
     # `_freshness` reports latestEndTime 2024-03-10, already Play's exclusive bound, so it is
     # requested as-is rather than being pushed a further day out.
-    assert timeline["endTime"] == {"year": 2024, "month": 3, "day": 10}
+    assert timeline["endTime"] == {"year": 2024, "month": 3, "day": 10, "timeZone": {"id": "America/Los_Angeles"}}
     assert cast("dict[str, Any]", query_bodies[0])["dimensions"] == ["versionCode"]
     assert manager.saved == [GooglePlayConsoleResumeConfig(app="com.example.app", date="2024-03-10")]
 
@@ -476,7 +481,8 @@ def test_metric_set_resume_skips_finished_apps_and_restarts_at_the_saved_window(
 
     def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
         if path.endswith(":query"):
-            queried.append((path, body["timelineSpec"]["startTime"] if body else {}))
+            start = body["timelineSpec"]["startTime"] if body else {}
+            queried.append((path, {"year": start["year"], "month": start["month"], "day": start["day"]}))
             return {"rows": []}
         return _freshness(dt.date(2024, 3, 6))
 
