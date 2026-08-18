@@ -869,8 +869,8 @@ export class PostgresPersonRepository
 
             // holders is one probe on the (team_id, uuid) index; the reachability check is one
             // probe per holder on the (team_id, person_id) index. Duplicate groups can hold
-            // several unreachable rows, so claimable takes exactly one (the oldest); repair
-            // tooling resolves the rest. The claim resets properties from this event rather
+            // several unreachable rows, so claimable takes exactly one (the oldest, min id);
+            // repair tooling resolves the rest. The claim resets properties from this event rather
             // than reviving the stranded row's - deliberate, matching the tombstone revival
             // path, so data a deletion may have targeted is not resurrected.
             // The mapping insert has no ON CONFLICT: a collision must abort the whole
@@ -886,16 +886,21 @@ export class PostgresPersonRepository
                     WHERE p.team_id = $5 AND p.uuid = $8 AND p.is_deleted = false
                 ),
                 claimable AS (
+                    -- The oldest unreachable holder is selected with a scalar min(), not
+                    -- ORDER BY id LIMIT 1: the pkey is (team_id, id), so an ordered LIMIT
+                    -- lets the planner satisfy the sort by walking the team's id range and
+                    -- filtering, which on a large team scans millions of rows when the match
+                    -- is rare or absent. Equality on a scalar subquery leaves only a pkey
+                    -- point probe in the plan space.
                     -- is_deleted is re-verified here (not only in holders) because under READ
                     -- COMMITTED, FOR UPDATE follows a concurrent update to the row's new version
                     -- and rechecks only this WHERE; without it, a row tombstoned between snapshot
-                    -- and lock would be claimed without clearing its is_deleted flag.
+                    -- and lock would be claimed without clearing its is_deleted flag. A row
+                    -- tombstoned mid-race empties this CTE, falling through to a fresh insert.
                     SELECT p.id FROM posthog_person p
                     WHERE p.team_id = $5
+                      AND p.id = (SELECT min(h.id) FROM holders h WHERE NOT h.reachable)
                       AND p.is_deleted = false
-                      AND p.id IN (SELECT h.id FROM holders h WHERE NOT h.reachable)
-                    ORDER BY p.id
-                    LIMIT 1
                     FOR UPDATE
                 ),
                 claimed AS (
