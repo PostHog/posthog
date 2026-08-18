@@ -817,6 +817,7 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/startups/verify_yc_link",
             json=data,
             headers=self.get_auth_headers(organization),
+            timeout=30,
         )
 
         handle_billing_service_error(res)

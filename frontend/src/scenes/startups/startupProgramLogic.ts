@@ -163,15 +163,6 @@ export interface startupProgramLogicActions {
     setStartupProgramManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
-    setYcVerification: (verification: YCVerificationResponse | null) => {
-        verification: YCVerificationResponse | null
-    }
-    setYcVerificationLoading: (loading: boolean) => {
-        loading: boolean
-    }
-    verifyYcLink: (url: string) => {
-        url: string
-    }
     setStartupProgramValue: (
         key: FieldName,
         value: any
@@ -181,6 +172,12 @@ export interface startupProgramLogicActions {
     }
     setStartupProgramValues: (values: DeepPartial<StartupProgramFormValues>) => {
         values: DeepPartial<StartupProgramFormValues>
+    }
+    setYcVerification: (verification: YCVerificationResponse | null) => {
+        verification: YCVerificationResponse | null
+    }
+    setYcVerificationLoading: (loading: boolean) => {
+        loading: boolean
     }
     submitStartupProgram: () => {
         value: boolean
@@ -200,6 +197,9 @@ export interface startupProgramLogicActions {
     }
     touchStartupProgramField: (key: string) => {
         key: string
+    }
+    verifyYcLink: (url: string) => {
+        url: string
     }
 }
 

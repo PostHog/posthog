@@ -21,6 +21,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team
 from posthog.models.organization import OrganizationMembership
+from posthog.rate_limit import StartupsYCVerifyUserThrottle
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
@@ -525,6 +526,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         url_path="startups/verify_yc_link",
         permission_classes=[permissions.IsAuthenticated],
+        throttle_classes=[StartupsYCVerifyUserThrottle],
     )
     def verify_yc_link(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Check a YC founder verification link with the billing service without submitting an application.
