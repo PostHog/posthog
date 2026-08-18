@@ -8,7 +8,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { visionObservationsList, visionScannersInlineScanCreate, visionScannersObserveCreate } from '../generated/api'
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
 import { ObservationSeekbarMark, observationSeekbarMarks } from '../utils/observation'
-import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
+import {
+    OBSERVE_POLL_GRACE_MS,
+    SUMMARY_POLL_GRACE_MS,
+    scheduleObservationPoll,
+    shouldPollObservations,
+} from './observationPolling'
 import { requestObservationRetry } from './observationRetry'
 import { SUMMARIZE_RECORDING_CONFIG, summarizeOutcomeMessage } from './summarizeRecording'
 import { refreshVisionQuota } from './visionQuotaLogic'
@@ -22,6 +27,7 @@ export interface ObservationsDockLogicProps {
 export interface observationsDockLogicValues {
     scanners: ReplayScannerApi[] // visionScannersListLogic
     scannersLoading: boolean // visionScannersListLogic
+    awaitingSummary: boolean
     dockOpen: boolean
     filteredScanners: ReplayScannerApi[]
     hasObservationsInFlight: boolean
@@ -74,6 +80,9 @@ export interface observationsDockLogicActions {
     setScannerSearch: (search: string) => {
         search: string
     }
+    stopAwaitingSummary: () => {
+        value: true
+    }
     summarize: () => {
         value: true
     }
@@ -125,6 +134,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         setDockOpen: (open: boolean) => ({ open }),
         setScannerPickerOpen: (open: boolean) => ({ open }),
         setScannerSearch: (search: string) => ({ search }),
+        stopAwaitingSummary: true,
         summarize: true,
         summarizeSuccess: true,
         summarizeFailure: true,
@@ -159,6 +169,18 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 summarize: () => true,
                 summarizeSuccess: () => false,
                 summarizeFailure: () => false,
+            },
+        ],
+        // Bridges the gap between the inline scan answering 202 and the workflow inserting the summary
+        // row, so the dock shows a pending state instead of falling through to "No summary yet".
+        awaitingSummary: [
+            false,
+            {
+                summarizeSuccess: () => true,
+                summarizeFailure: () => false,
+                stopAwaitingSummary: () => false,
+                loadObservationsSuccess: (state: boolean, { observations }: { observations: ReplayObservationApi[] }) =>
+                    observations.some((o) => o.scanner_snapshot?.scanner_type === 'summarizer') ? false : state,
             },
         ],
         dockOpen: [
@@ -198,7 +220,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             0,
             {
                 observeSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
-                summarizeSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
+                summarizeSuccess: () => Date.now() + SUMMARY_POLL_GRACE_MS,
                 // The replacement row is inserted by the workflow moments after the retry 202 lands.
                 retryObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
             },
@@ -226,11 +248,12 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
 
     listeners(({ actions, props, values, cache }) => {
         const reschedulePoll = (): void => {
-            scheduleObservationPoll(
-                cache.disposables,
-                shouldPollObservations(values.hasObservationsInFlight, values.pollUntil),
-                actions.loadObservations
-            )
+            const shouldPoll = shouldPollObservations(values.hasObservationsInFlight, values.pollUntil)
+            scheduleObservationPoll(cache.disposables, shouldPoll, actions.loadObservations)
+            // The summary never appeared within the poll window; drop the pending state so the dock stops waiting.
+            if (!shouldPoll && values.awaitingSummary) {
+                actions.stopAwaitingSummary()
+            }
         }
         // Show the row that is coming, and re-read the quota the scan spent. Only call this when a scan
         // actually started, or the poll window opens for work that will never land. The dock is opened

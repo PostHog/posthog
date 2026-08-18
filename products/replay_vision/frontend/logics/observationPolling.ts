@@ -29,6 +29,10 @@ export function scheduleObservationPoll(
 // Observe only starts the workflow — poll through this grace window so the new card appears before its row lands.
 export const OBSERVE_POLL_GRACE_MS = 30_000
 
+// A summarize workflow can take minutes to insert its first row, so poll far longer than the observe
+// window before giving up on the pending summary.
+export const SUMMARY_POLL_GRACE_MS = 300_000
+
 export function shouldPollObservations(hasInFlight: boolean, pollUntil: number): boolean {
     return hasInFlight || Date.now() < pollUntil
 }

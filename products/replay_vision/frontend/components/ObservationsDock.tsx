@@ -84,7 +84,7 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
 
 function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { observations, observationsLoading, dockOpen, retryingObservationIds } = useValues(logic)
+    const { observations, observationsLoading, awaitingSummary, dockOpen, retryingObservationIds } = useValues(logic)
     const { setDockOpen, retryObservation } = useActions(logic)
     // sessionRecordingPlayerLogic is keyed by playerKey+sessionRecordingId; seek the exact mounted
     // player by its bound props rather than a propless default instance.
@@ -103,7 +103,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
 
     // Scanner observations live in the sidebar's Observations tab; the dock only surfaces summaries
     const summaries = observations.filter((o) => o.scanner_snapshot?.scanner_type === 'summarizer')
-    const hasContent = summaries.length > 0 || observationsLoading
+    const hasContent = summaries.length > 0 || observationsLoading || awaitingSummary
     const expandedHeight = Math.max(
         MIN_EXPANDED_HEIGHT,
         Math.min(MAX_EXPANDED_HEIGHT, desiredSize ?? DEFAULT_EXPANDED_HEIGHT)
@@ -135,7 +135,11 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
             </div>
             {dockOpen && (
                 <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
-                    {observationsLoading && summaries.length === 0 ? (
+                    {summaries.length === 0 && awaitingSummary ? (
+                        <div className="flex items-center gap-2 text-muted py-4" data-attr="vision-summary-pending">
+                            <Spinner /> Summarizing this recording…
+                        </div>
+                    ) : summaries.length === 0 && observationsLoading ? (
                         <div className="flex items-center gap-2 text-muted py-4">
                             <Spinner /> Loading summaries…
                         </div>

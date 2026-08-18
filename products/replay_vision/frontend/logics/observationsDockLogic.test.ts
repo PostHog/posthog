@@ -6,6 +6,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
+import { OBSERVE_POLL_GRACE_MS } from './observationPolling'
 import { observationsDockLogic } from './observationsDockLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
 
@@ -111,6 +112,38 @@ describe('observationsDockLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
 
         expect(inlineScanCalls).toBe(1)
+    })
+
+    it('waits on the long poll window while a started summary has no row yet', async () => {
+        // The inline scan answers 202 before the workflow inserts the row. If the dock dropped its
+        // in-flight state here it would fall through to "No summary yet" and look like the request failed.
+        inlineScanOutcome = 'started'
+        await expectLogic(logic).toDispatchActions(['loadObservationsSuccess'])
+
+        logic.actions.summarize()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        releaseInlineScan()
+
+        await expectLogic(logic).toDispatchActions(['summarizeSuccess'])
+        await expectLogic(logic).toMatchValues({ awaitingSummary: true })
+        // A late row must still be caught, so the window is far longer than the observe grace.
+        expect(logic.values.pollUntil).toBeGreaterThan(Date.now() + OBSERVE_POLL_GRACE_MS)
+    })
+
+    it('clears the pending state once a summary row lands', async () => {
+        logic.actions.summarizeSuccess()
+        await expectLogic(logic).toMatchValues({ awaitingSummary: true })
+
+        logic.actions.loadObservationsSuccess([
+            {
+                id: 'obs-1',
+                scanner_id: 'scanner-x',
+                session_id: 'sess-1',
+                status: 'pending',
+                scanner_snapshot: { scanner_type: 'summarizer' },
+            } as unknown as ReplayObservationApi,
+        ])
+        await expectLogic(logic).toMatchValues({ awaitingSummary: false })
     })
 
     it('warns rather than promising a result when an already-summarized row is unreadable', async () => {
