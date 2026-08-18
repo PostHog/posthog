@@ -172,6 +172,36 @@ def report_user_password_reset(user: User) -> None:
     )
 
 
+def report_login_code_verification_resent(user: User) -> None:
+    """
+    Reports that a user asked for a fresh emailed login code. Repeated resends are the signal that
+    a code is not reaching the mailbox, so this makes stuck code screens measurable.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="login verification code resent",
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_login_code_verification_recovered(user: User) -> None:
+    """
+    Reports that a user finished login through the self-serve recovery route, skipping the emailed
+    code. This is the self-serve replacement for the staff Redis bypass, so it must stay visible.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="login verification code recovery used",
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
 def report_team_member_invited(
     inviting_user: User,
     invite_id: str,

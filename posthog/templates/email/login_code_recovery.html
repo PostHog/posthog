@@ -1,0 +1,9 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block section %}
+<p>Hey, {{ user_name }},</p>
+
+<p>Someone finished logging in to {{ user_email }} without the emailed verification code, using the "can't get the code" recovery option. Signing in this way needs your password.</p>
+
+<p>If that was you, there's nothing to do. If it wasn't, someone may have your password. Reset it right away and let us know.</p>
+
+{% endblock %}

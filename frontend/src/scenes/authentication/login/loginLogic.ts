@@ -188,6 +188,10 @@ export interface loginLogicValues {
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     precheckResponse: PrecheckResponseType
     precheckResponseLoading: boolean
+    recoverResponse: {
+        success: boolean
+    } | null
+    recoverResponseLoading: boolean
     resendResponse: {
         message: string
         success: boolean
@@ -235,6 +239,25 @@ export interface loginLogicActions {
             email: string
             autoAttempt?: boolean
         }
+    }
+    recoverFromCodeVerification: (_: any) => any
+    recoverFromCodeVerificationFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    recoverFromCodeVerificationSuccess: (
+        recoverResponse: {
+            success: boolean
+        } | null,
+        payload?: any
+    ) => {
+        recoverResponse: {
+            success: boolean
+        } | null
+        payload?: any
     }
     resendCodeBasedVerification: (_: any) => any
     resendCodeBasedVerificationFailure: (
@@ -422,7 +445,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         precheckResponse: [
             { status: 'pending' } as PrecheckResponseType,
             {
@@ -477,6 +500,28 @@ export const loginLogic = kea<loginLogicType>([
                             lemonToast.error(detail || 'Please wait before requesting another email')
                         } else {
                             lemonToast.error(detail || 'Failed to resend email')
+                        }
+                        return null
+                    }
+                },
+            },
+        ],
+        recoverResponse: [
+            null as { success: boolean } | null,
+            {
+                recoverFromCodeVerification: async (_, breakpoint) => {
+                    breakpoint()
+                    try {
+                        return await api.create<any>('api/login/code-based-verification/recover')
+                    } catch (e) {
+                        const { code, detail } = e as Record<string, any>
+                        // A gone pending session can only fail the code form, so send the person back
+                        // to the password form to start a fresh login.
+                        if (code === 'no_pending_verification') {
+                            actions.exitCodeVerification()
+                            actions.setGeneralError(code, 'Your login session expired. Log in again to get a new code.')
+                        } else {
+                            lemonToast.error(detail || 'Could not finish logging you in. Please try again.')
                         }
                         return null
                     }
@@ -638,6 +683,13 @@ export const loginLogic = kea<loginLogicType>([
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
+        },
+        recoverFromCodeVerificationSuccess: ({ recoverResponse }) => {
+            if (recoverResponse?.success) {
+                handleLoginRedirect()
+                // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
+                window.location.reload()
+            }
         },
         exitCodeVerification: () => {
             actions.resetCodeVerification()

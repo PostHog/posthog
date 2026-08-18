@@ -11,6 +11,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { usePrevious } from 'lib/hooks/usePrevious'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
@@ -33,7 +34,8 @@ import { SessionRiskBanner } from './SessionRiskBanner'
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
 export function LoginForm(): JSX.Element {
-    const { precheck, exitCodeVerification, resendCodeBasedVerification } = useActions(loginLogic)
+    const { precheck, exitCodeVerification, resendCodeBasedVerification, recoverFromCodeVerification } =
+        useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -44,6 +46,7 @@ export function LoginForm(): JSX.Element {
         signupUrl,
         resendResponseLoading,
         resendResponse,
+        recoverResponseLoading,
         codeVerificationRequired,
         isCodeVerificationSubmitting,
         isPasswordLoginUnavailable,
@@ -186,6 +189,26 @@ export function LoginForm(): JSX.Element {
                             >
                                 Back to login
                             </Link>
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                loading={recoverResponseLoading}
+                                disabledReason={recoverResponseLoading ? 'Finishing login…' : undefined}
+                                onClick={() =>
+                                    LemonDialog.open({
+                                        title: "Can't get the code?",
+                                        description:
+                                            'If the code never reaches your inbox, we can finish logging you in without it. We will email a heads-up and sign out your other sessions.',
+                                        primaryButton: {
+                                            children: 'Finish logging in',
+                                            onClick: () => recoverFromCodeVerification(null),
+                                        },
+                                        secondaryButton: { children: 'Cancel' },
+                                    })
+                                }
+                            >
+                                Can't get the code?
+                            </LemonButton>
                         </div>
                     </Form>
                 ) : (

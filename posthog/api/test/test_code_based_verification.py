@@ -170,6 +170,117 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
             self.assertEqual(response.json()["code"], "too_many_attempts")
 
 
+RECOVER_URL = "/api/login/code-based-verification/recover/"
+
+
+class TestCodeBasedVerificationInstrumentation(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def _trigger(self, mock_send) -> str:
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "code_based_verification_required")
+        return mock_send.call_args[0][1]
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_resend_reports_an_event(self):
+        # Repeated resends are the only signal that a code isn't arriving, so the event must fire.
+        with (
+            freeze_time("2024-01-01T10:00:00") as frozen,
+            enable_code_sending() as mock_send,
+            patch("posthog.api.authentication.report_login_code_verification_resent") as mock_event,
+        ):
+            self._trigger(mock_send)
+            frozen.move_to("2024-01-01T10:01:01")  # past the 1/min resend throttle
+            self.assertEqual(self.client.post(RESEND_URL).status_code, status.HTTP_200_OK)
+            mock_event.assert_called_once()
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_admin_bypass_reports_an_event(self):
+        # The staff Redis bypass used to only write a key and bump a counter, so its use was invisible.
+        from posthog.helpers.two_factor_session import (
+            add_code_based_verification_bypass,
+            remove_code_based_verification_bypass,
+        )
+
+        try:
+            with (
+                enable_code_sending(),
+                patch("posthog.helpers.two_factor_session.posthoganalytics.capture") as mock_capture,
+            ):
+                add_code_based_verification_bypass(self.CONFIG_EMAIL)
+                response = self.client.post(
+                    "/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+                )
+                # The bypass skips the code entirely, so login completes.
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                events = [call.kwargs.get("event") for call in mock_capture.call_args_list]
+                self.assertIn("code_based_verification_bypassed_via_admin_list", events)
+        finally:
+            remove_code_based_verification_bypass(self.CONFIG_EMAIL)
+
+
+class TestCodeBasedVerificationRecoveryAPI(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def _trigger(self, mock_send) -> str:
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "code_based_verification_required")
+        return mock_send.call_args[0][1]
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_recover_finishes_login_without_the_code(self):
+        # The dead-mailbox escape hatch: a password-proven user finishes login without ever seeing the
+        # emailed code, and lands remembered so the next login skips the code screen.
+        with (
+            enable_code_sending() as mock_send,
+            patch("posthog.api.authentication.send_login_code_recovery_email") as mock_email,
+            patch("posthog.api.authentication.report_login_code_verification_recovered") as mock_event,
+            patch("posthog.api.authentication.revoke_other_sessions_for_request") as mock_revoke,
+        ):
+            self._trigger(mock_send)
+
+            response = self.client.post(RECOVER_URL)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json(), {"success": True})
+            self.assertTrue(any(name.startswith("remember-cookie_") for name in response.cookies))
+
+            mock_email.delay.assert_called_once_with(self.user.pk)
+            mock_event.assert_called_once()
+            mock_revoke.assert_called_once()
+
+            # Logged in, and the remembered device skips the code on the next login.
+            self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_200_OK)
+            self.client.post("/logout")
+            self.assertEqual(
+                self.client.post(
+                    "/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+                ).status_code,
+                status.HTTP_200_OK,
+            )
+
+    def test_recover_without_a_pending_session_is_refused(self):
+        response = self.client.post(RECOVER_URL)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "no_pending_verification")
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_recover_is_refused_when_a_real_second_factor_exists(self):
+        # Recovery only clears the emailed code. An account with a confirmed authenticator must finish
+        # login with that factor, so the emailed-code escape hatch cannot bypass real 2FA.
+        with enable_code_sending() as mock_send:
+            self._trigger(mock_send)
+            # `default_device` only recognizes a confirmed device named "default" — the name the app
+            # assigns when a user sets up their authenticator.
+            TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
+
+            response = self.client.post(RECOVER_URL)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "recovery_not_available")
+            self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+
 class TestCodeBasedVerificationSerializer(SimpleTestCase):
     @parameterized.expand(
         [

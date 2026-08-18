@@ -941,6 +941,24 @@ class CodeBasedVerificationResendThrottle(UserOrEmailRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class CodeBasedVerificationRecoveryThrottle(UserOrEmailRateThrottle):
+    """Rate limiting for the self-serve emailed-code recovery route. Keyed on the pending login's
+    user id so a single stuck account cannot hammer the recovery path."""
+
+    scope = "code_based_verification_recovery"
+    rate = "3/day"
+
+    def get_cache_key(self, request, view):
+        from posthog.helpers.two_factor_session import code_based_verifier
+
+        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
+        if user_id:
+            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
+
+
 class TwoFactorThrottle(UserOrEmailRateThrottle):
     """
     Rate limiting for TOTP/backup code verification during 2FA login.

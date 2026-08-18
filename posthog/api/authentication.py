@@ -52,7 +52,12 @@ from posthog.api.email_verification import EmailVerifier, is_email_verification_
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_password_reset
+from posthog.event_usage import (
+    report_login_code_verification_recovered,
+    report_login_code_verification_resent,
+    report_user_logged_in,
+    report_user_password_reset,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
@@ -65,6 +70,7 @@ from posthog.helpers.two_factor_session import (
     code_based_verifier,
     has_passkeys,
     set_two_factor_verified_in_session,
+    user_has_real_second_factor,
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
@@ -73,15 +79,17 @@ from posthog.models.activity_logging import signal_handlers  # imported for its 
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
 from posthog.rate_limit import (
+    CodeBasedVerificationRecoveryThrottle,
     CodeBasedVerificationResendThrottle,
     CodeBasedVerificationThrottle,
     LoginPrecheckThrottle,
     TwoFactorThrottle,
     UserPasswordResetThrottle,
 )
-from posthog.session.activity import revoke_other_sessions
+from posthog.session.activity import revoke_other_sessions, revoke_other_sessions_for_request
 from posthog.tasks.email import (
     login_from_new_device_notification,
+    send_login_code_recovery_email,
     send_password_reset,
     send_two_factor_auth_backup_code_used_email,
 )
@@ -1003,6 +1011,34 @@ class CodeBasedVerificationSerializer(serializers.Serializer):
         return cleaned
 
 
+def _set_code_verification_remember_cookie(response: Response, user: User) -> None:
+    """Set the 30-day remember-device cookie for the emailed-code factor, matching TOTP 2FA."""
+    cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
+    cookie_value = get_remember_device_cookie(user=user, otp_device_id="code_based_verification")
+    response.set_cookie(
+        cookie_key,
+        cookie_value,
+        max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,  # 30 days
+        domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
+        path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
+        secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
+        httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
+        samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
+    )
+
+
+def _cache_login_device_from_request(request: Request, user: User) -> None:
+    """Record the login device in the fingerprint cache so a known device skips future verification."""
+    short_user_agent = get_short_user_agent(request)
+    ip_address = get_ip_address(request)
+    country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")
+    check_and_cache_login_device(user.id, country, short_user_agent)
+
+
+class CodeBasedVerificationRecoverResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="True when login completed through the recovery route.")
+
+
 class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     """Verify the emailed login code against the pending login session and complete login."""
 
@@ -1062,28 +1098,10 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         mfa_logger.info("Code-based verification successful", user_id=user.pk)
         LOGIN_CODE_VERIFICATION_COUNTER.labels(result="success").inc()
 
-        # Always set remember device cookie (30 days), same as TOTP 2FA
-        cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
-        cookie_value = get_remember_device_cookie(user=user, otp_device_id="code_based_verification")
+        # Always set remember device cookie (30 days), same as TOTP 2FA.
         response = Response({"success": True})
-        response.set_cookie(
-            cookie_key,
-            cookie_value,
-            max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,  # 30 days
-            domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
-            path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
-            secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
-            httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
-            samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
-        )
-
-        # Also add device to fingerprint cache
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        geoip = get_geoip_properties(ip_address)
-        country = geoip.get("$geoip_country_name", "Unknown")
-
-        check_and_cache_login_device(user.id, country, short_user_agent)
+        _set_code_verification_remember_cookie(response, user)
+        _cache_login_device_from_request(request, user)
 
         return response
 
@@ -1106,7 +1124,65 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
                 code="code_based_verification_email_failed",
             )
 
+        # A resend is the user saying the code did not arrive — capture it so stuck code screens
+        # become measurable rather than only bumping a Prometheus counter.
+        report_login_code_verification_resent(user)
+
         return Response({"success": True, "message": "Verification code sent"})
+
+    @extend_schema(request=None, responses={200: CodeBasedVerificationRecoverResponseSerializer})
+    @action(detail=False, methods=["post"], throttle_classes=[CodeBasedVerificationRecoveryThrottle])
+    def recover(self, request: Request) -> Response:
+        """Finish login without the emailed code when the mailbox cannot receive it.
+
+        Only for accounts whose sole second factor is the emailed code (no TOTP, no passkey for 2FA):
+        a dead login mailbox otherwise means a full lockout that only staff can clear. A pending
+        verification session is required, so the password was already proven for this login. The user
+        is logged in, notified by email, and every other session is revoked.
+        """
+        no_pending_error = serializers.ValidationError(
+            {"detail": "No pending verification. Please log in again."},
+            code="no_pending_verification",
+        )
+        if not code_based_verifier.has_pending_code_based_verification(request):
+            raise no_pending_error
+
+        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
+        try:
+            user = User.objects.get(pk=user_id, is_active=True)
+        except User.DoesNotExist:
+            code_based_verifier.clear_pending(request)
+            raise no_pending_error
+
+        # Never bypass a real second factor. Recovery only clears the emailed code, so an account with
+        # a TOTP device or passkey 2FA must finish login with that factor.
+        if user_has_real_second_factor(user):
+            raise serializers.ValidationError(
+                {"detail": "This account uses an authenticator app or passkey. Use that to finish logging in."},
+                code="recovery_not_available",
+            )
+
+        code_based_verifier.clear_pending(request)
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        set_two_factor_verified_in_session(request)
+        report_user_logged_in(user, social_provider="")
+        report_login_code_verification_recovered(user)
+        mfa_logger.warning("Code-based verification recovered via self-serve route", user_id=user.pk)
+        LOGIN_CODE_VERIFICATION_COUNTER.labels(result="recovered").inc()
+
+        # Best-effort compromise alert. The address may be dead, but a partially working forward still
+        # reaches the real owner.
+        send_login_code_recovery_email.delay(user.pk)
+
+        # Account-recovery action: drop every other session, keeping the one driving the recovery.
+        revoke_other_sessions_for_request(request, user)
+
+        # Remember this device for 30 days so recovery is one-time friction, matching a code success.
+        response = Response({"success": True})
+        _set_code_verification_remember_cookie(response, user)
+        _cache_login_device_from_request(request, user)
+
+        return response
 
 
 class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):

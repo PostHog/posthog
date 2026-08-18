@@ -932,7 +932,6 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
         return
@@ -979,7 +978,6 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
-
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -1357,6 +1355,25 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
         campaign_key=f"2fa_backup_code_used_{user.uuid}-{timezone.now().timestamp()}",
         template_name="2fa_backup_code_used",
         subject="A backup code was used for your account",
+        template_context={
+            "user_name": user.first_name,
+            "user_email": user.email,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_login_code_recovery_email(user_id: int) -> None:
+    """Notify a user that login finished through the self-serve emailed-code recovery route."""
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"login_code_recovery_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="login_code_recovery",
+        subject="You logged in without the verification code",
         template_context={
             "user_name": user.first_name,
             "user_email": user.email,

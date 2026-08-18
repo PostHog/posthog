@@ -98,6 +98,13 @@ def clear_code_based_verification_global_disable() -> None:
     get_client().delete(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY)
 
 
+def user_has_real_second_factor(user: User) -> bool:
+    """True when the user has a second factor other than the emailed code — a confirmed TOTP device
+    or a passkey enabled for 2FA. The emailed code is the fallback for users with neither, so this is
+    the guard that keeps the emailed-code recovery route from bypassing a real factor."""
+    return bool(default_device(user)) or (has_passkeys(user) and user.passkeys_enabled_for_2fa)
+
+
 def has_passkeys(user: User) -> bool:
     """
     Returns True if the user has any verified passkeys, False otherwise.
@@ -122,7 +129,7 @@ mfa_logger = structlog.get_logger("posthog.auth.mfa")
 LOGIN_CODE_VERIFICATION_COUNTER = Counter(
     "login_code_verification_total",
     "Transitions in the code-based login-verification flow.",
-    labelnames=["result"],  # sent | resent | send_failed | success | invalid | locked_out
+    labelnames=["result"],  # sent | resent | send_failed | success | invalid | locked_out | recovered
 )
 
 
@@ -345,6 +352,19 @@ class CodeBasedVerificationCheckResult:
 
 
 class CodeBasedVerifier:
+    def _capture_admin_bypass_event(self, user: User) -> None:
+        try:
+            posthoganalytics.capture(
+                distinct_id=str(user.distinct_id),
+                event="code_based_verification_bypassed_via_admin_list",
+            )
+        except Exception as e:
+            mfa_logger.warning(
+                "Failed to capture code-based verification admin bypass event",
+                user_id=user.pk,
+                error=str(e),
+            )
+
     def _capture_suppression_bypass_event(self, user: User, reason: str, cached: bool) -> None:
         try:
             posthoganalytics.capture(
@@ -387,6 +407,7 @@ class CodeBasedVerifier:
 
         if is_code_based_verification_bypass(user.email):
             mfa_logger.info("Code-based verification bypassed via admin bypass list", user_id=user.pk)
+            self._capture_admin_bypass_event(user)
             return CodeBasedVerificationCheckResult(should_send=False)
 
         suppression_result = check_esp_suppression(user.email)

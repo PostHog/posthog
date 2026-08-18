@@ -208,6 +208,29 @@ describe('loginLogic', () => {
             expect(logic.values.codeVerificationRequired).toBe(false)
             expect(logic.values.generalError).toBe(null)
         })
+
+        it('returns to the password form when recovery reports the pending session is gone', async () => {
+            useMocks({
+                post: {
+                    '/api/login/code-based-verification/recover': () => [
+                        400,
+                        { code: 'no_pending_verification', detail: 'server detail' },
+                    ],
+                },
+            })
+            logic.actions.setCodeVerificationRequired()
+            logic.actions.recoverFromCodeVerification(null)
+            await expectLogic(logic).toDispatchActions([
+                'exitCodeVerification',
+                'recoverFromCodeVerificationSuccess',
+            ])
+
+            expect(logic.values.codeVerificationRequired).toBe(false)
+            expect(logic.values.generalError).toEqual({
+                code: 'no_pending_verification',
+                detail: 'Your login session expired. Log in again to get a new code.',
+            })
+        })
     })
 
     describe('opaque login failure', () => {
