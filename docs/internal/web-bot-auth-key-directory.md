@@ -5,7 +5,7 @@ The directory publishes the public keys for `PostHogSessionReplayBot` and signs 
 
 ## Configuration
 
-Set `WEB_BOT_AUTH_PRIVATE_KEYS` to a comma-separated list of unencrypted Ed25519 private keys in PKCS8 PEM format.
+Set `WEB_BOT_AUTH_PRIVATE_KEY` to a comma-separated list of unencrypted Ed25519 private keys in PKCS8 PEM format.
 Encode PEM line breaks as literal `\n` sequences when the secret store requires a single-line value.
 During key rotation, include the old and new keys until consumers have accepted the new key.
 
