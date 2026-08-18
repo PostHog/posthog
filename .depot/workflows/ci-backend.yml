@@ -1034,8 +1034,15 @@ jobs:
                   # django.setup(), signal registries, repo-wide AST scans), so diff-based
                   # test selection can't pick them and the Django matrix skips them on
                   # products-only diffs and drafts. They need no service containers.
+                  # Branches that predate the directory still carry the guards at their
+                  # old paths, so fall back to those rather than failing on a missing arg.
                   - name: Run repo invariants (whole-repo pytest guards)
-                    run: pytest -p no:cacheprovider posthog/test/repo_invariants
+                    run: |
+                        if [ -d posthog/test/repo_invariants ]; then
+                            pytest -p no:cacheprovider posthog/test/repo_invariants
+                        else
+                            pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
+                        fi
             # Block deleting historical migration files (see safe-django-migrations.md).
             # GITHUB_ACTIONS=false suppresses the command's PR annotations on the shadow.
             - name: Check deleted migrations
