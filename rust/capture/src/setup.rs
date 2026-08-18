@@ -453,19 +453,24 @@ fn ai_byte_limit_per_second(config: &Config) -> u64 {
     config.ai_byte_limit_per_second
 }
 
-/// The AI endpoint accepts events up to this size, so a window budget below it
-/// perma-limits a token that sends full-size events.
-const MAX_AI_EVENT_BYTES: u64 = 8_388_608;
-
+/// Warns when a token sending full-size AI events would be limited on nearly
+/// every one of them, because the window budget cannot fit even a single event
+/// at the deployment's ceiling. Both sides come from config, so the check stays
+/// correct when either knob moves.
 fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
+    let max_event_bytes = config.ai_max_event_bytes;
+    if max_event_bytes == 0 {
+        return;
+    }
     let window_secs = config.global_rate_limit_window_interval_secs;
     let window_budget = ai_byte_limit_per_second(config).saturating_mul(window_secs);
-    if window_budget < MAX_AI_EVENT_BYTES {
+    if window_budget < max_event_bytes {
         warn!(
             ai_byte_limit_per_second = config.ai_byte_limit_per_second,
             window_secs,
             window_budget,
-            "AI_BYTE_LIMIT_PER_SECOND yields a window budget below the 8 MiB max AI event size; \
+            max_event_bytes,
+            "AI_BYTE_LIMIT_PER_SECOND yields a window budget below AI_MAX_EVENT_BYTES; \
              a token sending full-size events will be limited on nearly every event"
         );
     }

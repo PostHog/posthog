@@ -257,6 +257,18 @@ pub struct Config {
     #[envconfig(default = "26214400")] // 25MB in bytes
     pub ai_max_sum_of_parts_bytes: usize,
 
+    /// Largest single AI-lane event this deployment accepts, measured on the
+    /// serialized event body — the same bytes the AI byte budget charges. `0`
+    /// disables the ceiling.
+    ///
+    /// Set it below what the deployment's broker accepts, leaving room for the
+    /// `CapturedEvent` envelope and the JSON-escaping of `data`:
+    /// `KAFKA_PRODUCER_MESSAGE_MAX_BYTES` bounds the produced message, not the
+    /// event inside it. capture-analytics needs a smaller value than capture-ai
+    /// because its AI topic is on MSK.
+    #[envconfig(default = "8388608")] // 8MiB
+    pub ai_max_event_bytes: u64,
+
     // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
     // carrying a valid PostHog-Ai-Gateway-* signature are stamped verified and
     // exempted from the llm_events quota limiter. Unset disables verification
