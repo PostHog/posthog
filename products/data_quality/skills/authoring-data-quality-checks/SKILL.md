@@ -18,6 +18,10 @@ and **passes when it finds zero failing rows** — the same semantics as `dbt te
 never stored; only counts and the compiled query are, so to see the offending rows you re-run the
 stored query yourself.
 
+`row_count` is the exception. It passes when the observed count is within its configured min/max
+bounds, so its `failed_row_count` comes back null and its stored query returns that single count,
+not offending rows. Read the observed count to judge it rather than looking for matched rows.
+
 Reads go through SQL (`system.information_schema.data_quality_*`); writes and runs go through the
 data-quality MCP tools.
 
