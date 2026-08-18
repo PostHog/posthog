@@ -26,6 +26,7 @@ import {
     getHeatmapSettingsWithSorting,
     getSortingFromHeatmapSettings,
     HEATMAP_ROW_LABEL_SORT_KEY,
+    sortHeatmapColumns,
     sortHeatmapRows,
 } from './twoDimensionalHeatmapUtils'
 
@@ -233,6 +234,16 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
         [heatmapData.cellValues, heatmapData.yValues, sorting]
     )
 
+    const sortedXValues = useMemo(
+        () =>
+            sortHeatmapColumns(
+                heatmapData.xValues,
+                heatmapSettings.xAxisSortOrder,
+                getHeatmapNullLabel(heatmapSettings)
+            ),
+        [heatmapData.xValues, heatmapSettings.xAxisSortOrder, heatmapSettings]
+    )
+
     const gradientStops = resolveGradientStops(
         chartSettings.heatmap?.gradient,
         buildFallbackGradientStops(heatmapData.numericValues)
@@ -327,7 +338,7 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
                                     yAxisLabel
                                 )}
                             </th>
-                            {heatmapData.xValues.map((xValue, index) => (
+                            {sortedXValues.map((xValue, index) => (
                                 <th
                                     key={`${xValue}-${index}`}
                                     className="border border-border px-2 py-1 text-left"
@@ -372,7 +383,7 @@ export function TwoDimensionalHeatmap({ allowSorting = true }: { allowSorting?: 
                                 <th className="sticky left-0 z-10 bg-surface-primary border border-border px-2 py-1 text-left">
                                     {yValue}
                                 </th>
-                                {heatmapData.xValues.map((xValue) => {
+                                {sortedXValues.map((xValue) => {
                                     const cellValue = heatmapData.cellValues[yValue]?.[xValue] ?? null
                                     const cellColor =
                                         cellValue === null

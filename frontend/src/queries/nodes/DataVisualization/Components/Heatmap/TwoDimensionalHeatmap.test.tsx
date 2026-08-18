@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, HeatmapSortOrder, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -139,6 +139,43 @@ describe('TwoDimensionalHeatmap', () => {
 
         expect(await screen.findAllByText('(cell null)')).toHaveLength(2)
         expect(await screen.findAllByText('(header null)')).toHaveLength(2)
+    })
+
+    it('orders X-axis columns by the configured sort, not by result row order', async () => {
+        // Columns arrive scrambled in the results, mimicking ClickHouse row order.
+        const scrambledResponse = {
+            ...response,
+            results: [
+                ['10', 'Enterprise', 1],
+                ['2', 'Enterprise', 2],
+                ['1', 'Enterprise', 3],
+            ],
+        }
+
+        // The header buttons are the Y-axis label followed by one per X-axis column.
+        const readColumnLabels = (): string[] =>
+            screen
+                .getAllByRole('button')
+                .slice(1)
+                .map((header) => header.textContent ?? '')
+
+        const logic = setup('(header null)', '', scrambledResponse)
+
+        // Without a sort the columns keep the scrambled result order.
+        await screen.findByText('Enterprise')
+        expect(readColumnLabels()).toEqual(['10', '2', '1'])
+
+        await act(async () => {
+            logic.actions.updateChartSettings({
+                heatmap: {
+                    ...logic.values.chartSettings.heatmap,
+                    xAxisSortOrder: HeatmapSortOrder.Asc,
+                },
+            })
+        })
+
+        // Numeric labels sort numerically, not lexically.
+        expect(readColumnLabels()).toEqual(['1', '2', '10'])
     })
 
     it('does not render a dense grid when sparse results produce too many cells', async () => {

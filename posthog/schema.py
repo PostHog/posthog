@@ -5279,6 +5279,10 @@ class HeatmapSettings(BaseModel):
     valueColumn: str | None = None
     xAxisColumn: str | None = None
     xAxisLabel: str | None = None
+    xAxisSortOrder: HeatmapSortOrder | None = Field(
+        default=None,
+        description=("How to order the X-axis columns. When unset, columns keep the order the query returned them in."),
+    )
     yAxisColumn: str | None = None
     yAxisLabel: str | None = None
 

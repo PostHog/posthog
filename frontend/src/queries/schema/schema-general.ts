@@ -1275,6 +1275,8 @@ export interface HeatmapSettings {
     gradientScaleMode?: 'absolute' | 'relative'
     sortColumn?: string
     sortOrder?: HeatmapSortOrder
+    /** How to order the X-axis columns. When unset, columns keep the order the query returned them in. */
+    xAxisSortOrder?: HeatmapSortOrder
 }
 
 export interface PieChartSettings {

@@ -7,6 +7,7 @@ import {
     getSortingFromHeatmapSettings,
     HEATMAP_ROW_LABEL_SORT_KEY,
     HeatmapCellValues,
+    sortHeatmapColumns,
     sortHeatmapRows,
 } from './twoDimensionalHeatmapUtils'
 
@@ -61,6 +62,31 @@ describe('twoDimensionalHeatmapUtils', () => {
             'France',
             'United States',
         ])
+    })
+
+    it('keeps the query column order when no X-axis sort is set', () => {
+        const columns = ['Q4', 'Q1', 'Q3', 'Q2']
+
+        expect(sortHeatmapColumns(columns, undefined, 'null')).toEqual(columns)
+    })
+
+    it('sorts numeric X-axis columns numerically, not lexically', () => {
+        const columns = ['2', '10', '1']
+
+        expect(sortHeatmapColumns(columns, HeatmapSortOrder.Asc, 'null')).toEqual(['1', '2', '10'])
+    })
+
+    it('sorts X-axis columns descending', () => {
+        const columns = ['b', 'a', 'c']
+
+        expect(sortHeatmapColumns(columns, HeatmapSortOrder.Desc, 'null')).toEqual(['c', 'b', 'a'])
+    })
+
+    it('pins the null column last regardless of sort direction', () => {
+        const columns = ['20', 'null', '3']
+
+        expect(sortHeatmapColumns(columns, HeatmapSortOrder.Asc, 'null')).toEqual(['3', '20', 'null'])
+        expect(sortHeatmapColumns(columns, HeatmapSortOrder.Desc, 'null')).toEqual(['20', '3', 'null'])
     })
 
     it('hydrates sorting from persisted heatmap settings', () => {

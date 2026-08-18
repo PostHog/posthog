@@ -25,6 +25,30 @@ const compareHeatmapValues = (
     return (left - right) * order
 }
 
+export const sortHeatmapColumns = (
+    columnLabels: string[],
+    sortOrder: HeatmapSortOrder | undefined,
+    nullLabel: string
+): string[] => {
+    if (!sortOrder) {
+        return columnLabels
+    }
+
+    const direction = sortOrder === HeatmapSortOrder.Asc ? 1 : -1
+
+    return [...columnLabels].sort((left, right) => {
+        // Keep the null column pinned last, whichever direction the rest sorts in.
+        if (left === nullLabel) {
+            return right === nullLabel ? 0 : 1
+        }
+        if (right === nullLabel) {
+            return -1
+        }
+
+        return compareHeatmapLabels(left, right) * direction
+    })
+}
+
 export const sortHeatmapRows = (
     rowLabels: string[],
     cellValues: HeatmapCellValues,

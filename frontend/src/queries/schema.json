@@ -27646,6 +27646,10 @@
                 "xAxisLabel": {
                     "type": "string"
                 },
+                "xAxisSortOrder": {
+                    "$ref": "#/definitions/HeatmapSortOrder",
+                    "description": "How to order the X-axis columns. When unset, columns keep the order the query returned them in."
+                },
                 "yAxisColumn": {
                     "type": "string"
                 },
