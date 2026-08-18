@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("canvas", "0011_canvasstate"),
+        ("canvas", "0013_canvas_kind_store_index"),
     ]
 
     operations = [
