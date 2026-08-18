@@ -22,6 +22,17 @@ _METRIC_AMOUNT_FIELD: dict[str, str] = {
     BillingAlertConfiguration.Metric.PROJECTED_SPEND: "projected_total_amount_usd_with_limit_after_discount",
 }
 
+# Per-product amounts the evaluator reads when an alert is scoped to one product line.
+# These are before-discount, so the evaluator applies the customer discount to match the
+# after-discount organization totals above.
+_PRODUCT_METRIC_FIELDS: dict[str, tuple[str, ...]] = {
+    BillingAlertConfiguration.Metric.SPEND: ("current_amount_usd",),
+    BillingAlertConfiguration.Metric.PROJECTED_SPEND: (
+        "projected_amount_usd_with_limit",
+        "projected_amount_usd",
+    ),
+}
+
 
 @dataclass(frozen=True)
 class BillingAlertEvaluation:
@@ -101,6 +112,54 @@ def _customer(billing_response: dict[str, Any]) -> dict[str, Any]:
     return customer
 
 
+def _discounted(amount: Decimal, customer: dict[str, Any]) -> Decimal:
+    discount_percent = customer.get("discount_percent")
+    if not discount_percent:
+        return amount
+    factor = Decimal("1") - (_decimal(discount_percent, field="discount_percent") / Decimal("100"))
+    return amount * factor
+
+
+def _find_product(customer: dict[str, Any], product_key: str) -> dict[str, Any] | None:
+    products = customer.get("products")
+    if not isinstance(products, list):
+        return None
+    for product in products:
+        if isinstance(product, dict) and product.get("type") == product_key:
+            return product
+    return None
+
+
+@dataclass(frozen=True)
+class _ResolvedAmount:
+    current_value: Decimal | None
+    amount_field: str
+
+
+def _resolve_current_value(alert: BillingAlertConfiguration, customer: dict[str, Any]) -> _ResolvedAmount:
+    """Read the metric value the alert evaluates: an organization total or one product line."""
+    if not alert.product:
+        amount_field = _METRIC_AMOUNT_FIELD[alert.metric]
+        raw_amount = customer.get(amount_field)
+        current_value = _decimal(raw_amount, field=amount_field) if raw_amount is not None else None
+        return _ResolvedAmount(current_value=current_value, amount_field=amount_field)
+
+    fields = _PRODUCT_METRIC_FIELDS[alert.metric]
+    product = _find_product(customer, alert.product)
+    if product is None:
+        # The organization has no billing line for this product, so it has not spent on it yet.
+        # A concrete zero lets a low threshold stay quiet until the product first bills.
+        return _ResolvedAmount(current_value=Decimal("0"), amount_field=fields[0])
+    for field in fields:
+        raw_amount = product.get(field)
+        if raw_amount is not None:
+            return _ResolvedAmount(
+                current_value=_discounted(_decimal(raw_amount, field=field), customer),
+                amount_field=field,
+            )
+    return _ResolvedAmount(current_value=None, amount_field=fields[0])
+
+
 def evaluate_billing_alert(
     alert: BillingAlertConfiguration,
     *,
@@ -125,14 +184,14 @@ def evaluate_billing_alert(
     period_start = _parse_period_boundary(billing_period.get("current_period_start")) or default_start
     period_end = _parse_period_boundary(billing_period.get("current_period_end")) or (default_start + timedelta(days=1))
 
-    amount_field = _METRIC_AMOUNT_FIELD[alert.metric]
-    raw_amount = customer.get(amount_field)
+    resolved = _resolve_current_value(alert, customer)
 
     payload: dict[str, Any] = {
         "expected_evaluation_date": expected_date.isoformat(),
         "metric": alert.metric,
+        "product": alert.product or None,
         "threshold_type": alert.threshold_type,
-        "amount_field": amount_field,
+        "amount_field": resolved.amount_field,
         "period_start": billing_period.get("current_period_start"),
         "period_end": billing_period.get("current_period_end"),
         "has_active_subscription": customer.get("has_active_subscription"),
@@ -154,13 +213,12 @@ def evaluate_billing_alert(
         }
         return BillingAlertEvaluation(reason=reason, **values)
 
-    if raw_amount is None:
+    current_value = resolved.current_value
+    if current_value is None:
         return result(
             reason="Billing status did not include a spend total for this billing period yet.",
             is_inconclusive=True,
         )
-
-    current_value = _decimal(raw_amount, field=amount_field)
 
     if current_value < alert.minimum_value:
         return result(

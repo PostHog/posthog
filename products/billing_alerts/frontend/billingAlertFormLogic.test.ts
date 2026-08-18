@@ -21,6 +21,7 @@ describe('billing alert form server errors', () => {
                 name: 'Period spend cap',
                 description: '',
                 enabled: true,
+                product: 'llm_observability',
                 metric: 'projected_spend',
                 thresholdValue: 100,
                 minimumValue: 0,
@@ -37,6 +38,7 @@ describe('billing alert form server errors', () => {
         )
 
         expect(payload.enabled).toBe(true)
+        expect(payload.product).toBe('llm_observability')
         expect(payload.metric).toBe('projected_spend')
         expect(payload.threshold_type).toBe('absolute_value')
         expect(payload.destination_changes).toEqual({

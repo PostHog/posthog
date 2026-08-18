@@ -6,6 +6,7 @@ import { LemonButton, LemonInput, LemonSelect, LemonTextArea } from '@posthog/le
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { AlertAdvancedOptions } from 'products/alerts/frontend/components/AlertAdvancedOptions'
 import { AlertDefinitionRow, AlertNextEvaluationStatus } from 'products/alerts/frontend/components/AlertDefinition'
@@ -39,6 +40,11 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
     const { pendingDestinations } = useValues(billingAlertNotificationLogic)
     const { closeEditor, checkNow } = useActions(billingAlertsLogic)
     const { checkingAlertId } = useValues(billingAlertsLogic)
+    const { billing } = useValues(billingLogic)
+    const productOptions = [
+        { value: '', label: 'Whole organization' },
+        ...(billing?.products ?? []).map((product) => ({ value: product.type, label: product.name })),
+    ]
     const enabledAdvancedOptionsCount =
         Number(alertForm.minimumValue > ADVANCED_OPTION_DEFAULTS.minimumValue) +
         Number(alertForm.evaluationDelayHours !== ADVANCED_OPTION_DEFAULTS.evaluationDelayHours) +
@@ -102,6 +108,15 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                         description="You can choose when the daily check runs, but the underlying billing data updates once a day and usually settles around 8-10am UTC."
                     >
                         <div className="space-y-4" data-attr="billing-alert-definition">
+                            <AlertDefinitionRow label="Scope">
+                                <LemonSelect
+                                    value={alertForm.product}
+                                    onChange={(product) => setAlertFormValue('product', product)}
+                                    options={productOptions}
+                                    size="small"
+                                    data-attr="billing-alert-product"
+                                />
+                            </AlertDefinitionRow>
                             <AlertDefinitionRow label="Alert on">
                                 <LemonSelect
                                     value={alertForm.metric}

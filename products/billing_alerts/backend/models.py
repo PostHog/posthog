@@ -70,6 +70,9 @@ class BillingAlertConfiguration(UUIDModel):
     description = models.TextField(blank=True)
     enabled = models.BooleanField(default=True)
 
+    # Billing product key to scope the alert to a single product line (matches the billing
+    # product `type`, e.g. "product_analytics"). Empty means the organization spend total.
+    product = models.CharField(max_length=64, blank=True, default="")
     metric = models.CharField(max_length=20, choices=Metric.choices, default=Metric.SPEND)
     currency = models.CharField(max_length=3, choices=(("USD", "USD"),), default="USD")
     configuration_revision = models.PositiveIntegerField(default=1)
@@ -248,6 +251,8 @@ class BillingAlertEvent(UUIDModel):
     period_start = models.DateTimeField(null=True, blank=True)
     period_end = models.DateTimeField(null=True, blank=True)
 
+    # Billing product key evaluated by this event, empty for the organization spend total.
+    product = models.CharField(max_length=64, blank=True, default="")
     metric = models.CharField(max_length=20, choices=BillingAlertConfiguration.Metric.choices)
     current_value = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
     baseline_value = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)

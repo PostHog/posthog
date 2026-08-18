@@ -286,6 +286,7 @@ def _new_event(
         kind=kind,
         source=source,
         attempt_number=claim.attempt_count,
+        product=alert.product,
         metric=alert.metric,
         state_before=alert.state,
         state_after=state_after,

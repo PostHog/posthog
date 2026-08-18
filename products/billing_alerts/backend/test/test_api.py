@@ -120,6 +120,14 @@ class TestBillingAlertAPI(APIBaseTest):
         alert = BillingAlertConfiguration.objects.get(id=response.json()["id"])
         assert alert.metric == BillingAlertConfiguration.Metric.PROJECTED_SPEND
 
+    def test_create_scopes_alert_to_a_product(self) -> None:
+        response = self.client.post(self.url, self._payload(product="llm_observability"), format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["product"] == "llm_observability"
+        alert = BillingAlertConfiguration.objects.get(id=response.json()["id"])
+        assert alert.product == "llm_observability"
+
     def test_create_snoozed_alert_applies_snooze_transition(self) -> None:
         snoozed_until = timezone.now() + timedelta(hours=2)
 

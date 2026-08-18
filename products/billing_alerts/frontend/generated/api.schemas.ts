@@ -131,6 +131,11 @@ export interface BillingAlertConfigurationApi {
     description?: string
     /** Whether scheduled checks should evaluate this alert. */
     enabled?: boolean
+    /**
+     * Billing product key to scope the alert to one product line, or blank for the organization total.
+     * @maxLength 64
+     */
+    product?: string
     /** Billing-period total to evaluate: current spend so far, or projected period-end spend.
      *
      * * `spend` - Spend
@@ -264,6 +269,11 @@ export interface PatchedBillingAlertConfigurationApi {
     description?: string
     /** Whether scheduled checks should evaluate this alert. */
     enabled?: boolean
+    /**
+     * Billing product key to scope the alert to one product line, or blank for the organization total.
+     * @maxLength 64
+     */
+    product?: string
     /** Billing-period total to evaluate: current spend so far, or projected period-end spend.
      *
      * * `spend` - Spend
@@ -426,6 +436,8 @@ export interface BillingAlertEventApi {
      * @nullable
      */
     readonly period_end: string | null
+    /** Billing product evaluated by this event, empty for the organization total. */
+    readonly product: string
     /** Billing metric evaluated by this event.
      *
      * * `spend` - Spend

@@ -24,6 +24,8 @@ export interface BillingAlertFormValues {
     name: string
     description: string
     enabled: boolean
+    /** Billing product key to scope the alert to, or '' for the whole organization. */
+    product: string
     metric: BillingAlertMetricEnumApi
     /** null while the input is cleared, so an empty threshold fails validation instead of saving as 0. */
     thresholdValue: number | null
@@ -40,6 +42,7 @@ const API_FIELD_TO_FORM_FIELD: Record<string, keyof BillingAlertFormValues> = {
     name: 'name',
     description: 'description',
     enabled: 'enabled',
+    product: 'product',
     metric: 'metric',
     threshold_value: 'thresholdValue',
     minimum_value: 'minimumValue',
@@ -102,6 +105,7 @@ function formDefaults(alert: BillingAlertConfigurationApi | null): BillingAlertF
         name: alert?.name ?? '',
         description: alert?.description ?? '',
         enabled: alert?.enabled ?? true,
+        product: alert?.product ?? '',
         metric: alert?.metric ?? 'spend',
         thresholdValue: numberValue(alert?.threshold_value, 100),
         minimumValue: numberValue(alert?.minimum_value, ADVANCED_OPTION_DEFAULTS.minimumValue),
@@ -118,6 +122,7 @@ export function billingAlertWritePayload(
         name: form.name.trim(),
         description: form.description.trim(),
         enabled: form.enabled,
+        product: form.product,
         metric: form.metric,
         threshold_type: 'absolute_value',
         // Validation rejects a null threshold before submit, so fall back to 0 only for typing.

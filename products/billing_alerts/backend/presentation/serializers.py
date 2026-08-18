@@ -76,6 +76,7 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
             "configuration_revision",
             "period_start",
             "period_end",
+            "product",
             "metric",
             "current_value",
             "baseline_value",
@@ -100,6 +101,7 @@ class BillingAlertEventSerializer(serializers.ModelSerializer):
             "created_at": {"help_text": "When this event was recorded."},
             "period_start": {"help_text": "Start of the evaluated billing period."},
             "period_end": {"help_text": "End of the evaluated billing period."},
+            "product": {"help_text": "Billing product evaluated by this event, empty for the organization total."},
             "metric": {"help_text": "Billing metric evaluated by this event."},
             "current_value": {"help_text": "Metric value for the evaluated billing date."},
             "baseline_value": {"help_text": "Average metric value across the baseline window."},
@@ -193,6 +195,12 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     name = serializers.CharField(max_length=160, help_text="Display name for this billing alert.")
     description = serializers.CharField(required=False, allow_blank=True, help_text="Optional internal description.")
     enabled = serializers.BooleanField(required=False, help_text="Whether scheduled checks should evaluate this alert.")
+    product = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        help_text="Billing product key to scope the alert to one product line, or blank for the organization total.",
+    )
     metric = serializers.ChoiceField(
         choices=BillingAlertConfiguration.Metric.choices,
         required=False,
@@ -266,6 +274,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "enabled",
+            "product",
             "metric",
             "currency",
             "configuration_revision",
@@ -388,6 +397,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         destination_changes = validated_data.pop("destination_changes", None)
         snoozed_until = validated_data.get("snoozed_until", _NOT_PROVIDED)
         evaluation_fields = {
+            "product",
             "threshold_type",
             "threshold_percentage",
             "threshold_value",

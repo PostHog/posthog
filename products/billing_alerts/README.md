@@ -1,6 +1,8 @@
 # Billing alerts
 
-Billing alerts are organization-scoped and use `execution_team_id` only as the Team that owns HogFunction execution.
+Billing alerts belong to an organization and use `execution_team_id` only as the Team that owns HogFunction execution.
+An alert evaluates the organization spend total by default, or one product line when `product` holds a billing product key (matching the billing product `type`, e.g. `product_analytics`).
+A product-scoped alert reads that product's amount from the billing status response and treats a product with no billing line as zero spend, so a low threshold stays quiet until the product first bills.
 
 `backend:contract-check` is intentionally off for now. Core still imports the product's Temporal registration surface for worker and schedule setup, so product lint treats this as a legacy interface leak. Keep the narrow `tach.toml` interface in place, and enable the contract check once Temporal registration moves behind a fully isolated product boundary.
 

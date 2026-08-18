@@ -65,6 +65,30 @@ def _billing_response(
     return {"customer": customer}
 
 
+def _product_billing_response(
+    products: list[dict[str, Any]],
+    *,
+    discount_percent: int | None = None,
+    period_start: str = "2026-06-01T00:00:00Z",
+    period_end: str = "2026-07-01T00:00:00Z",
+) -> dict[str, Any]:
+    customer: dict[str, Any] = {
+        "has_active_subscription": True,
+        "billing_period": {
+            "current_period_start": period_start,
+            "current_period_end": period_end,
+            "interval": "month",
+        },
+        # Organization totals present but ignored when the alert is scoped to a product.
+        "current_total_amount_usd_after_discount": "999",
+        "projected_total_amount_usd_with_limit_after_discount": "999",
+        "products": products,
+    }
+    if discount_percent is not None:
+        customer["discount_percent"] = discount_percent
+    return {"customer": customer}
+
+
 class TestBillingAlertEvaluator(BaseTest):
     def _alert(self, **overrides) -> BillingAlertConfiguration:
         defaults = {
@@ -101,6 +125,52 @@ class TestBillingAlertEvaluator(BaseTest):
         assert evaluation.current_value == Decimal("150")
         assert evaluation.threshold_breached is True
         assert evaluation.payload["amount_field"] == "projected_total_amount_usd_with_limit_after_discount"
+
+    def test_product_scoped_alert_reads_that_product_after_discount(self) -> None:
+        alert = self._alert(product="llm_observability", threshold_value=Decimal("40"))
+        response = _product_billing_response(
+            [
+                {"type": "product_analytics", "current_amount_usd": "500"},
+                {"type": "llm_observability", "current_amount_usd": "100"},
+            ],
+            discount_percent=50,
+        )
+
+        evaluation = evaluate_billing_alert(alert, now=NOW, billing_response=response)
+
+        # 100 for the scoped product, halved by the discount, not the 999 organization total.
+        assert evaluation.current_value == Decimal("50")
+        assert evaluation.threshold_breached is True
+        assert evaluation.payload["product"] == "llm_observability"
+        assert evaluation.payload["amount_field"] == "current_amount_usd"
+
+    def test_product_never_billed_reads_as_zero_spend(self) -> None:
+        alert = self._alert(product="llm_observability", threshold_value=Decimal("1"))
+        response = _product_billing_response([{"type": "product_analytics", "current_amount_usd": "500"}])
+
+        evaluation = evaluate_billing_alert(alert, now=NOW, billing_response=response)
+
+        # No billing line for the product yet, so it reads as a concrete zero and stays quiet
+        # until the product first bills, rather than firing on the organization total.
+        assert evaluation.current_value == Decimal("0")
+        assert evaluation.threshold_breached is False
+        assert evaluation.is_inconclusive is False
+
+    def test_product_scoped_projected_metric_reads_projected_product_total(self) -> None:
+        alert = self._alert(
+            product="llm_observability",
+            metric=BillingAlertConfiguration.Metric.PROJECTED_SPEND,
+            threshold_value=Decimal("100"),
+        )
+        response = _product_billing_response(
+            [{"type": "llm_observability", "current_amount_usd": "40", "projected_amount_usd_with_limit": "150"}]
+        )
+
+        evaluation = evaluate_billing_alert(alert, now=NOW, billing_response=response)
+
+        assert evaluation.current_value == Decimal("150")
+        assert evaluation.threshold_breached is True
+        assert evaluation.payload["amount_field"] == "projected_amount_usd_with_limit"
 
     def test_value_below_threshold_does_not_breach(self) -> None:
         alert = self._alert()

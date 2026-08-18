@@ -18,6 +18,8 @@ export const BillingAlertsCreateParams = /* @__PURE__ */ zod.object({
 
 export const billingAlertsCreateBodyNameMax = 160
 
+export const billingAlertsCreateBodyProductMax = 64
+
 export const billingAlertsCreateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
 export const billingAlertsCreateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
 export const billingAlertsCreateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
@@ -36,6 +38,11 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(billingAlertsCreateBodyNameMax).describe('Display name for this billing alert.'),
     description: zod.string().optional().describe('Optional internal description.'),
     enabled: zod.boolean().optional().describe('Whether scheduled checks should evaluate this alert.'),
+    product: zod
+        .string()
+        .max(billingAlertsCreateBodyProductMax)
+        .optional()
+        .describe('Billing product key to scope the alert to one product line, or blank for the organization total.'),
     metric: zod
         .enum(['spend', 'projected_spend'])
         .describe('\* `spend` - Spend\n\* `projected_spend` - Projected spend')
@@ -137,6 +144,8 @@ export const BillingAlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const billingAlertsPartialUpdateBodyNameMax = 160
 
+export const billingAlertsPartialUpdateBodyProductMax = 64
+
 export const billingAlertsPartialUpdateBodyThresholdPercentageRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,2})?$')
 export const billingAlertsPartialUpdateBodyThresholdValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
 export const billingAlertsPartialUpdateBodyMinimumValueRegExp = new RegExp('^-?\\d{0,14}(?:\\.\\d{0,6})?$')
@@ -159,6 +168,11 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Display name for this billing alert.'),
     description: zod.string().optional().describe('Optional internal description.'),
     enabled: zod.boolean().optional().describe('Whether scheduled checks should evaluate this alert.'),
+    product: zod
+        .string()
+        .max(billingAlertsPartialUpdateBodyProductMax)
+        .optional()
+        .describe('Billing product key to scope the alert to one product line, or blank for the organization total.'),
     metric: zod
         .enum(['spend', 'projected_spend'])
         .describe('\* `spend` - Spend\n\* `projected_spend` - Projected spend')

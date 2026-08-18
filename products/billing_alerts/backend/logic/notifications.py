@@ -99,6 +99,7 @@ def _properties(event: BillingAlertEvent, now: datetime, *, consecutive_failures
         "alert_id": str(alert.id),
         "alert_name": alert.name,
         "alert_url": absolute_uri("/organization/billing/alerts"),
+        "product": event.product or None,
         "metric": event.metric,
         "threshold_type": alert.threshold_type,
         "threshold_percentage": str(event.threshold_percentage_snapshot)
