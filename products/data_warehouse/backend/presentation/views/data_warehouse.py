@@ -32,6 +32,8 @@ from posthog.utils import convert_property_value, flatten
 from products.batch_exports.backend.facade.models import BatchExportRun
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_quality.backend.presentation.serializers import DataQualityGateConfigSerializer
+from products.data_quality.backend.presentation.views import data_quality_gate_response
 from products.data_warehouse.backend.facade.api import get_managed_warehouse_data_status, get_source_schema_statuses
 from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
 from products.data_warehouse.backend.presentation.managed_warehouse_data_status import (
@@ -888,6 +890,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # For now we only expose the first one (by creation order) to keep the UI simple.
         first_dashboard = config.overview_dashboards.order_by("id").first()
         return Response({"dashboard_id": first_dashboard.id if first_dashboard else None})
+
+    @extend_schema(
+        description="Read or update the team's data quality gate: whether a materialization whose "
+        "error-severity checks fail is published.",
+        request=DataQualityGateConfigSerializer,
+        responses={200: DataQualityGateConfigSerializer},
+    )
+    @action(methods=["GET", "PATCH"], detail=False, required_scopes=["warehouse_view:write"])
+    def data_quality_gate(self, request: Request, **kwargs) -> Response:
+        # Owned by the data_quality product; this viewset only lends it the warehouse surface.
+        return data_quality_gate_response(self.team, request)
 
     # --- Managed warehouse provisioning (proxied to duckgres, see managed_warehouse.py) ---
 

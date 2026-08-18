@@ -32,9 +32,9 @@ _DATA_CATALOG_INFORMATION_SCHEMA_TABLES = frozenset(
     }
 )
 
-# `system.information_schema` tables gated behind `data_quality` read access (see
+# `system.information_schema` tables gated behind warehouse read access (see
 # `_can_read_data_quality` in information_schema.py). They carry check definitions, run outcomes, and
-# per-subject health. A query touching any of these must partition the cache by `data_quality` access,
+# per-subject health. A query touching any of these must partition the cache by warehouse access,
 # or an allowed user's cached rows would be served to a denied user on a cache hit.
 _DATA_QUALITY_INFORMATION_SCHEMA_TABLES = frozenset(
     {
@@ -94,16 +94,13 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
 
-        # The data-quality information_schema tables are gated on `data_quality` read access, not
-        # `data_catalog`, so partition their cache key separately.
+        # The data-quality information_schema tables are gated on warehouse read access, and their
+        # rows are hidden per the caller's warehouse-object denials (the loaders drop a
+        # check/run/health row whose subject table or view the caller can't see). Without this, two
+        # users with different warehouse grants share a cache key and the denied one is served the
+        # allowed one's check configs and run counts on a hit. The specific denied object IDs fold
+        # into the key via AnalyticsQueryRunner._get_object_access_restrictions.
         if table_names & _DATA_QUALITY_INFORMATION_SCHEMA_TABLES:
-            scopes.add("data_quality")
-            # Their rows are also hidden per the caller's warehouse-object denials (the loaders drop a
-            # check/run/health row whose subject table or view the caller can't see), so partition on
-            # warehouse access too. Without this, two `data_quality` users with different warehouse
-            # grants share a cache key and the denied one is served the allowed one's check configs and
-            # run counts on a hit. The specific denied object IDs fold into the key via
-            # AnalyticsQueryRunner._get_object_access_restrictions.
             scopes.add("warehouse_table")
             scopes.add("warehouse_view")
 

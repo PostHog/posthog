@@ -48,7 +48,7 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         defaults = {
             "team": team,
             "subject_type": SubjectType.VIEW,
-            "subject_uuid": self.subject_uuid,
+            "saved_query_id": self.subject_uuid,
             "subject_name": "orders",
             "check_type": CheckType.NOT_NULL,
             "column_name": "customer_id",
@@ -160,9 +160,9 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_a_denied_subject_is_hidden_from_every_data_quality_table(self, _name: str, sql: str) -> None:
-        denied = self._check(subject_name="orders", subject_uuid=uuid4())
+        denied = self._check(subject_name="orders", saved_query_id=uuid4())
         self._run_for(denied)
-        allowed = self._check(subject_name="customers", subject_uuid=uuid4(), column_name="id")
+        allowed = self._check(subject_name="customers", saved_query_id=uuid4(), column_name="id")
         self._run_for(allowed)
 
         rows = self._query(sql, context=self._context(denied_tables={"orders"}))

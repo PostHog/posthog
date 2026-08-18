@@ -23,9 +23,15 @@ class CheckConfigField(serializers.JSONField):
 
 @extend_schema_serializer(component_name="DataQualityCheck")
 class DataQualityCheckSerializer(serializers.ModelSerializer):
+    """The subject is implied by the URL (the parent saved query or table), never part of the body."""
+
     subject_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in SubjectType],
+        read_only=True,
         help_text="Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).",
+    )
+    subject_uuid = serializers.SerializerMethodField(
+        help_text="Id of the table or view being checked -- the parent resource in the URL."
     )
     check_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in CheckType],
@@ -78,9 +84,6 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
             "enabled",
             "tags",
             "owner",
-            "run_on_materialization",
-            "schedule_interval_minutes",
-            "next_run_at",
             "last_run_at",
             "last_status",
             "fingerprint",
@@ -96,7 +99,6 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
             "id",
             "subject_name",
             "subject_status",
-            "next_run_at",
             "last_run_at",
             "last_status",
             "fingerprint",
@@ -110,26 +112,12 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
                 "help_text": "Optional identifier-safe handle, unique per project. Omit to address the check by id.",
             },
             "description": {"required": False, "help_text": "Why this check exists and what a failure means."},
-            "subject_uuid": {"help_text": "Id of the table or view being checked."},
             "subject_name": {"help_text": "Queryable name of the subject, refreshed on every run."},
             "column_name": {
                 "required": False,
                 "help_text": "Column the check applies to. Omit for table-scoped types like row_count.",
             },
             "enabled": {"required": False, "help_text": "Disabled checks are never run by any trigger."},
-            "run_on_materialization": {
-                "required": False,
-                "help_text": "Run after the view materializes. Never delays or fails the materialization itself.",
-            },
-            "schedule_interval_minutes": {
-                "required": False,
-                # Null clears an existing schedule; the due-checks scanner then stops picking it up.
-                "allow_null": True,
-                # The due-checks scanner ticks every 5 minutes, so a shorter cadence can't run any
-                # sooner and would only add scan load. Floor it to the scan interval.
-                "min_value": 5,
-                "help_text": "Independent cadence in minutes, minimum 5. Null or omitted means no schedule.",
-            },
             "fingerprint": {
                 "help_text": "sha256 of the subject, type, column, and config. Re-creating the same check upserts."
             },
@@ -147,10 +135,15 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
     def get_owner(self, obj: DataQualityCheck) -> str | None:
         return obj.owner.email if obj.owner else None
 
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_subject_uuid(self, obj: DataQualityCheck) -> str | None:
+        return str(obj.subject_uuid) if obj.subject_uuid else None
+
     # The assertion is the check's identity: it is what the fingerprint hashes and what the runner
     # compiles. Editing it in place would leave a fingerprint describing a different check, so
-    # subsequent identical creates would duplicate instead of upserting. Re-create instead.
-    IMMUTABLE_AFTER_CREATE = ("subject_type", "subject_uuid", "check_type", "column_name", "config")
+    # subsequent identical creates would duplicate instead of upserting. Re-create instead. The
+    # subject needs no entry: it comes from the URL, and moving a check means re-creating it there.
+    IMMUTABLE_AFTER_CREATE = ("check_type", "column_name", "config")
 
     def validate(self, attrs: dict) -> dict:
         if self.instance is not None:
@@ -169,11 +162,14 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
         def resolved(field: str) -> str:
             return attrs.get(field) or getattr(self.instance, field, None) or ""
 
+        # The subject comes from the URL: the viewset resolves the parent and passes it in context.
+        subject_type = self.context.get("subject_type") or getattr(self.instance, "subject_type", "")
+        subject_uuid = self.context.get("subject_uuid") or (self.instance.subject_uuid if self.instance else None)
         try:
             api.validate_check(
                 self.context["get_team"](),
-                resolved("subject_type"),
-                str(resolved("subject_uuid")),
+                str(subject_type),
+                str(subject_uuid),
                 resolved("check_type"),
                 resolved("column_name"),
                 attrs.get("config", getattr(self.instance, "config", None) or {}),
@@ -183,10 +179,7 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
         return attrs
 
     def update(self, instance: DataQualityCheck, validated_data: dict) -> DataQualityCheck:
-        # ModelSerializer's default update would set fields and save without recomputing next_run_at,
-        # so PATCHing schedule_interval_minutes onto an unscheduled check would leave next_run_at null
-        # and the due-check scanner would never pick it up. update_check is the one place that keeps
-        # the two in sync, so route every write through it.
+        # Routed through update_check so writes stay restricted to the mutable field allowlist.
         name = validated_data.get("name")
         if name and name != instance.name:
             api.ensure_name_available(instance.team_id, name, exclude_id=instance.id)
@@ -232,7 +225,7 @@ class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
     status = serializers.CharField(
         read_only=True, help_text="running, completed, failed, or empty (nothing matched the trigger)."
     )
-    trigger = serializers.CharField(read_only=True, help_text="manual, schedule, or materialization.")
+    trigger = serializers.CharField(read_only=True, help_text="manual, materialization, or source_sync.")
     subject_type = serializers.SerializerMethodField(
         help_text="'table' or 'view' when the run targets exactly one subject; null for a "
         "check-scoped or multi-subject run."
@@ -279,20 +272,14 @@ class SubjectHealthSerializer(serializers.Serializer):
     checks_failing = serializers.IntegerField(help_text="How many of those checks last reported a failure.")
 
 
-@extend_schema_serializer(component_name="DataQualitySubjectHealthRequest")
-class SubjectHealthQuerySerializer(serializers.Serializer):
-    subject_type = serializers.ChoiceField(
-        choices=[(t.value, t.value) for t in SubjectType], help_text="'table' or 'view'."
-    )
-    subject_uuid = serializers.UUIDField(help_text="Id of the table or view to roll up.")
+@extend_schema_serializer(component_name="DataQualityGateConfig")
+class DataQualityGateConfigSerializer(serializers.Serializer):
+    """The team-level materialization gate. Checks always run and warn; this only toggles blocking."""
 
-
-@extend_schema_serializer(component_name="DataQualityRunSubjectRequest")
-class RunForSubjectSerializer(serializers.Serializer):
-    subject_type = serializers.ChoiceField(
-        choices=[(t.value, t.value) for t in SubjectType], help_text="'table' or 'view'."
+    gate_materialization_on_checks = serializers.BooleanField(
+        help_text="When true, a materialization whose error-severity checks fail is not published; "
+        "the previous version keeps serving and downstream models are skipped."
     )
-    subject_uuid = serializers.UUIDField(help_text="Id of the table or view whose checks should run.")
 
 
 @extend_schema_serializer(component_name="DataQualityCheckType")

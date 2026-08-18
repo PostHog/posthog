@@ -9,7 +9,7 @@
  */
 export interface DataQualitySuiteRunApi {
     readonly id: string
-    /** manual, schedule, or materialization. */
+    /** manual, materialization, or source_sync. */
     readonly trigger: string
     /** running, completed, failed, or empty (nothing matched the trigger). */
     readonly status: string
@@ -201,6 +201,9 @@ export interface UserBasicApi {
  */
 export type DataQualityCheckApiConfig = { [key: string]: unknown }
 
+/**
+ * The subject is implied by the URL (the parent saved query or table), never part of the body.
+ */
 export interface DataQualityCheckApi {
     readonly id: string
     /**
@@ -215,9 +218,12 @@ export interface DataQualityCheckApi {
      *
      * * `table` - table
      * * `view` - view */
-    subject_type: SubjectTypeEnumApi
-    /** Id of the table or view being checked. */
-    subject_uuid: string
+    readonly subject_type: SubjectTypeEnumApi
+    /**
+     * Id of the table or view being checked -- the parent resource in the URL.
+     * @nullable
+     */
+    readonly subject_uuid: string | null
     /** Queryable name of the subject, refreshed on every run. */
     readonly subject_name: string
     /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
@@ -253,20 +259,6 @@ export interface DataQualityCheckApi {
      * @nullable
      */
     readonly owner: string | null
-    /** Run after the view materializes. Never delays or fails the materialization itself. */
-    run_on_materialization?: boolean
-    /**
-     * Independent cadence in minutes, minimum 5. Null or omitted means no schedule.
-     * @minimum 5
-     * @maximum 2147483647
-     * @nullable
-     */
-    schedule_interval_minutes?: number | null
-    /**
-     * When the due-checks scanner should next pick this check up.
-     * @nullable
-     */
-    readonly next_run_at: string | null
     /**
      * When the check last executed.
      * @nullable
@@ -316,6 +308,9 @@ export interface PaginatedDataQualityCheckListApi {
  */
 export type PatchedDataQualityCheckApiConfig = { [key: string]: unknown }
 
+/**
+ * The subject is implied by the URL (the parent saved query or table), never part of the body.
+ */
 export interface PatchedDataQualityCheckApi {
     readonly id?: string
     /**
@@ -330,9 +325,12 @@ export interface PatchedDataQualityCheckApi {
      *
      * * `table` - table
      * * `view` - view */
-    subject_type?: SubjectTypeEnumApi
-    /** Id of the table or view being checked. */
-    subject_uuid?: string
+    readonly subject_type?: SubjectTypeEnumApi
+    /**
+     * Id of the table or view being checked -- the parent resource in the URL.
+     * @nullable
+     */
+    readonly subject_uuid?: string | null
     /** Queryable name of the subject, refreshed on every run. */
     readonly subject_name?: string
     /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
@@ -368,20 +366,6 @@ export interface PatchedDataQualityCheckApi {
      * @nullable
      */
     readonly owner?: string | null
-    /** Run after the view materializes. Never delays or fails the materialization itself. */
-    run_on_materialization?: boolean
-    /**
-     * Independent cadence in minutes, minimum 5. Null or omitted means no schedule.
-     * @minimum 5
-     * @maximum 2147483647
-     * @nullable
-     */
-    schedule_interval_minutes?: number | null
-    /**
-     * When the due-checks scanner should next pick this check up.
-     * @nullable
-     */
-    readonly next_run_at?: string | null
     /**
      * When the check last executed.
      * @nullable
@@ -452,17 +436,7 @@ export interface DataQualitySubjectHealthApi {
     checks_failing: number
 }
 
-export interface DataQualityRunSubjectRequestApi {
-    /** 'table' or 'view'.
-     *
-     * * `table` - table
-     * * `view` - view */
-    subject_type: SubjectTypeEnumApi
-    /** Id of the table or view whose checks should run. */
-    subject_uuid: string
-}
-
-export type DataQualityCheckSuiteRunsListParams = {
+export type WarehouseSavedQueriesCheckSuiteRunsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -473,11 +447,7 @@ export type DataQualityCheckSuiteRunsListParams = {
     offset?: number
 }
 
-export type DataQualityChecksListParams = {
-    /**
-     * Filter the list to one check type.
-     */
-    check_type?: string
+export type WarehouseSavedQueriesChecksListParams = {
     /**
      * Number of results to return per page.
      */
@@ -486,35 +456,26 @@ export type DataQualityChecksListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-    /**
-     * Filter the list to 'table' or 'view' subjects.
-     */
-    subject_type?: string
-    /**
-     * Filter the list to one table or view.
-     */
-    subject_uuid?: string
 }
 
-export type DataQualityChecksHealthRetrieveParams = {
+export type WarehouseTablesCheckSuiteRunsListParams = {
     /**
-     * 'table' or 'view'.
-     *
-     * * `table` - table
-     * * `view` - view
-     * @minLength 1
+     * Number of results to return per page.
      */
-    subject_type: DataQualityChecksHealthRetrieveSubjectType
+    limit?: number
     /**
-     * Id of the table or view to roll up.
+     * The initial index from which to return the results.
      */
-    subject_uuid: string
+    offset?: number
 }
 
-export type DataQualityChecksHealthRetrieveSubjectType =
-    (typeof DataQualityChecksHealthRetrieveSubjectType)[keyof typeof DataQualityChecksHealthRetrieveSubjectType]
-
-export const DataQualityChecksHealthRetrieveSubjectType = {
-    Table: 'table',
-    View: 'view',
-} as const
+export type WarehouseTablesChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}

@@ -11,16 +11,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     DataQualityCheckApi,
     DataQualityCheckRunApi,
-    DataQualityCheckSuiteRunsListParams,
     DataQualityCheckTypeApi,
-    DataQualityChecksHealthRetrieveParams,
-    DataQualityChecksListParams,
-    DataQualityRunSubjectRequestApi,
     DataQualitySubjectHealthApi,
     DataQualitySuiteRunApi,
     PaginatedDataQualityCheckListApi,
     PaginatedDataQualitySuiteRunListApi,
     PatchedDataQualityCheckApi,
+    WarehouseSavedQueriesCheckSuiteRunsListParams,
+    WarehouseSavedQueriesChecksListParams,
+    WarehouseTablesCheckSuiteRunsListParams,
+    WarehouseTablesChecksListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -40,9 +40,10 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getDataQualityCheckSuiteRunsListUrl = (
+export const getWarehouseSavedQueriesCheckSuiteRunsListUrl = (
     projectId: string,
-    params?: DataQualityCheckSuiteRunsListParams
+    savedQueryId: string,
+    params?: WarehouseSavedQueriesCheckSuiteRunsListParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -55,61 +56,85 @@ export const getDataQualityCheckSuiteRunsListUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/data_quality/check_suite_runs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/data_quality/check_suite_runs/`
+        ? `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/check_suite_runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/check_suite_runs/`
 }
 
 /**
- * Read-only reports for batches of check executions.
+ * Read-only reports for this subject's check-suite executions.
  */
-export const dataQualityCheckSuiteRunsList = async (
+export const warehouseSavedQueriesCheckSuiteRunsList = async (
     projectId: string,
-    params?: DataQualityCheckSuiteRunsListParams,
+    savedQueryId: string,
+    params?: WarehouseSavedQueriesCheckSuiteRunsListParams,
     options?: RequestInit
 ): Promise<PaginatedDataQualitySuiteRunListApi> => {
-    return apiMutator<PaginatedDataQualitySuiteRunListApi>(getDataQualityCheckSuiteRunsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<PaginatedDataQualitySuiteRunListApi>(
+        getWarehouseSavedQueriesCheckSuiteRunsListUrl(projectId, savedQueryId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
-export const getDataQualityCheckSuiteRunsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_quality/check_suite_runs/${id}/`
+export const getWarehouseSavedQueriesCheckSuiteRunsRetrieveUrl = (
+    projectId: string,
+    savedQueryId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/check_suite_runs/${id}/`
 }
 
 /**
- * Read-only reports for batches of check executions.
+ * Read-only reports for this subject's check-suite executions.
  */
-export const dataQualityCheckSuiteRunsRetrieve = async (
+export const warehouseSavedQueriesCheckSuiteRunsRetrieve = async (
     projectId: string,
+    savedQueryId: string,
     id: string,
     options?: RequestInit
 ): Promise<DataQualitySuiteRunApi> => {
-    return apiMutator<DataQualitySuiteRunApi>(getDataQualityCheckSuiteRunsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<DataQualitySuiteRunApi>(
+        getWarehouseSavedQueriesCheckSuiteRunsRetrieveUrl(projectId, savedQueryId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
-export const getDataQualityCheckSuiteRunsCheckRunsListUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_quality/check_suite_runs/${id}/check_runs/`
+export const getWarehouseSavedQueriesCheckSuiteRunsCheckRunsListUrl = (
+    projectId: string,
+    savedQueryId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/check_suite_runs/${id}/check_runs/`
 }
 
 /**
  * Every check execution in this suite run.
  */
-export const dataQualityCheckSuiteRunsCheckRunsList = async (
+export const warehouseSavedQueriesCheckSuiteRunsCheckRunsList = async (
     projectId: string,
+    savedQueryId: string,
     id: string,
     options?: RequestInit
 ): Promise<DataQualityCheckRunApi[]> => {
-    return apiMutator<DataQualityCheckRunApi[]>(getDataQualityCheckSuiteRunsCheckRunsListUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<DataQualityCheckRunApi[]>(
+        getWarehouseSavedQueriesCheckSuiteRunsCheckRunsListUrl(projectId, savedQueryId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
-export const getDataQualityChecksListUrl = (projectId: string, params?: DataQualityChecksListParams) => {
+export const getWarehouseSavedQueriesChecksListUrl = (
+    projectId: string,
+    savedQueryId: string,
+    params?: WarehouseSavedQueriesChecksListParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -121,37 +146,42 @@ export const getDataQualityChecksListUrl = (projectId: string, params?: DataQual
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/data_quality/checks/?${stringifiedParams}`
-        : `/api/projects/${projectId}/data_quality/checks/`
+        ? `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/checks/`
 }
 
 /**
- * CRUD for data quality checks, plus the actions that run them and report on them.
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
  */
-export const dataQualityChecksList = async (
+export const warehouseSavedQueriesChecksList = async (
     projectId: string,
-    params?: DataQualityChecksListParams,
+    savedQueryId: string,
+    params?: WarehouseSavedQueriesChecksListParams,
     options?: RequestInit
 ): Promise<PaginatedDataQualityCheckListApi> => {
-    return apiMutator<PaginatedDataQualityCheckListApi>(getDataQualityChecksListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<PaginatedDataQualityCheckListApi>(
+        getWarehouseSavedQueriesChecksListUrl(projectId, savedQueryId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
-export const getDataQualityChecksCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_quality/checks/`
+export const getWarehouseSavedQueriesChecksCreateUrl = (projectId: string, savedQueryId: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/checks/`
 }
 
 /**
- * Create a check, or refine the one already carrying the same fingerprint. Re-creating a semantically identical check returns 200 and the existing row, never a duplicate.
+ * Create a check on this table or view, or refine the one already carrying the same fingerprint. Re-creating a semantically identical check returns 200 and the existing row, never a duplicate.
  */
-export const dataQualityChecksCreate = async (
+export const warehouseSavedQueriesChecksCreate = async (
     projectId: string,
+    savedQueryId: string,
     dataQualityCheckApi: NonReadonly<DataQualityCheckApi>,
     options?: RequestInit
 ): Promise<DataQualityCheckApi> => {
-    return apiMutator<DataQualityCheckApi>(getDataQualityChecksCreateUrl(projectId), {
+    return apiMutator<DataQualityCheckApi>(getWarehouseSavedQueriesChecksCreateUrl(projectId, savedQueryId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -159,38 +189,40 @@ export const dataQualityChecksCreate = async (
     })
 }
 
-export const getDataQualityChecksRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_quality/checks/${id}/`
+export const getWarehouseSavedQueriesChecksRetrieveUrl = (projectId: string, savedQueryId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/checks/${id}/`
 }
 
 /**
- * CRUD for data quality checks, plus the actions that run them and report on them.
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
  */
-export const dataQualityChecksRetrieve = async (
+export const warehouseSavedQueriesChecksRetrieve = async (
     projectId: string,
+    savedQueryId: string,
     id: string,
     options?: RequestInit
 ): Promise<DataQualityCheckApi> => {
-    return apiMutator<DataQualityCheckApi>(getDataQualityChecksRetrieveUrl(projectId, id), {
+    return apiMutator<DataQualityCheckApi>(getWarehouseSavedQueriesChecksRetrieveUrl(projectId, savedQueryId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getDataQualityChecksUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_quality/checks/${id}/`
+export const getWarehouseSavedQueriesChecksUpdateUrl = (projectId: string, savedQueryId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/checks/${id}/`
 }
 
 /**
- * CRUD for data quality checks, plus the actions that run them and report on them.
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
  */
-export const dataQualityChecksUpdate = async (
+export const warehouseSavedQueriesChecksUpdate = async (
     projectId: string,
+    savedQueryId: string,
     id: string,
     dataQualityCheckApi: NonReadonly<DataQualityCheckApi>,
     options?: RequestInit
 ): Promise<DataQualityCheckApi> => {
-    return apiMutator<DataQualityCheckApi>(getDataQualityChecksUpdateUrl(projectId, id), {
+    return apiMutator<DataQualityCheckApi>(getWarehouseSavedQueriesChecksUpdateUrl(projectId, savedQueryId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -198,97 +230,155 @@ export const dataQualityChecksUpdate = async (
     })
 }
 
-export const getDataQualityChecksPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_quality/checks/${id}/`
+export const getWarehouseSavedQueriesChecksPartialUpdateUrl = (projectId: string, savedQueryId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/checks/${id}/`
 }
 
 /**
- * CRUD for data quality checks, plus the actions that run them and report on them.
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
  */
-export const dataQualityChecksPartialUpdate = async (
+export const warehouseSavedQueriesChecksPartialUpdate = async (
     projectId: string,
+    savedQueryId: string,
     id: string,
     patchedDataQualityCheckApi?: NonReadonly<PatchedDataQualityCheckApi>,
     options?: RequestInit
 ): Promise<DataQualityCheckApi> => {
-    return apiMutator<DataQualityCheckApi>(getDataQualityChecksPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDataQualityCheckApi),
-    })
+    return apiMutator<DataQualityCheckApi>(
+        getWarehouseSavedQueriesChecksPartialUpdateUrl(projectId, savedQueryId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedDataQualityCheckApi),
+        }
+    )
 }
 
-export const getDataQualityChecksDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_quality/checks/${id}/`
+export const getWarehouseSavedQueriesChecksDestroyUrl = (projectId: string, savedQueryId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/checks/${id}/`
 }
 
 /**
- * CRUD for data quality checks, plus the actions that run them and report on them.
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
  */
-export const dataQualityChecksDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getDataQualityChecksDestroyUrl(projectId, id), {
+export const warehouseSavedQueriesChecksDestroy = async (
+    projectId: string,
+    savedQueryId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseSavedQueriesChecksDestroyUrl(projectId, savedQueryId, id), {
         ...options,
         method: 'DELETE',
     })
 }
 
-export const getDataQualityChecksRunCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_quality/checks/${id}/run/`
+export const getWarehouseSavedQueriesChecksRunCreateUrl = (projectId: string, savedQueryId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/checks/${id}/run/`
 }
 
 /**
  * Run this check now. Returns the suite run to poll for the report.
  */
-export const dataQualityChecksRunCreate = async (
+export const warehouseSavedQueriesChecksRunCreate = async (
     projectId: string,
+    savedQueryId: string,
     id: string,
     options?: RequestInit
 ): Promise<DataQualitySuiteRunApi> => {
-    return apiMutator<DataQualitySuiteRunApi>(getDataQualityChecksRunCreateUrl(projectId, id), {
+    return apiMutator<DataQualitySuiteRunApi>(getWarehouseSavedQueriesChecksRunCreateUrl(projectId, savedQueryId, id), {
         ...options,
         method: 'POST',
     })
 }
 
-export const getDataQualityChecksRunsListUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/data_quality/checks/${id}/runs/`
+export const getWarehouseSavedQueriesChecksRunsListUrl = (projectId: string, savedQueryId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/checks/${id}/runs/`
 }
 
 /**
  * Recent run history for this check, newest first.
  */
-export const dataQualityChecksRunsList = async (
+export const warehouseSavedQueriesChecksRunsList = async (
     projectId: string,
+    savedQueryId: string,
     id: string,
     options?: RequestInit
 ): Promise<DataQualityCheckRunApi[]> => {
-    return apiMutator<DataQualityCheckRunApi[]>(getDataQualityChecksRunsListUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<DataQualityCheckRunApi[]>(
+        getWarehouseSavedQueriesChecksRunsListUrl(projectId, savedQueryId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
-export const getDataQualityChecksCheckTypesListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_quality/checks/check_types/`
+export const getWarehouseSavedQueriesChecksCheckTypesListUrl = (projectId: string, savedQueryId: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/checks/check_types/`
 }
 
 /**
  * The check types this project can author, with the JSON schema of each type's config.
  */
-export const dataQualityChecksCheckTypesList = async (
+export const warehouseSavedQueriesChecksCheckTypesList = async (
     projectId: string,
+    savedQueryId: string,
     options?: RequestInit
 ): Promise<DataQualityCheckTypeApi[]> => {
-    return apiMutator<DataQualityCheckTypeApi[]>(getDataQualityChecksCheckTypesListUrl(projectId), {
+    return apiMutator<DataQualityCheckTypeApi[]>(
+        getWarehouseSavedQueriesChecksCheckTypesListUrl(projectId, savedQueryId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseSavedQueriesChecksHealthRetrieveUrl = (projectId: string, savedQueryId: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/checks/health/`
+}
+
+/**
+ * Health rollup for this table or view, from the denormalized status of its checks.
+ */
+export const warehouseSavedQueriesChecksHealthRetrieve = async (
+    projectId: string,
+    savedQueryId: string,
+    options?: RequestInit
+): Promise<DataQualitySubjectHealthApi> => {
+    return apiMutator<DataQualitySubjectHealthApi>(
+        getWarehouseSavedQueriesChecksHealthRetrieveUrl(projectId, savedQueryId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseSavedQueriesChecksRunAllCreateUrl = (projectId: string, savedQueryId: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${savedQueryId}/checks/run_all/`
+}
+
+/**
+ * Run every enabled check on this table or view. Returns the suite run to poll.
+ */
+export const warehouseSavedQueriesChecksRunAllCreate = async (
+    projectId: string,
+    savedQueryId: string,
+    options?: RequestInit
+): Promise<DataQualitySuiteRunApi> => {
+    return apiMutator<DataQualitySuiteRunApi>(getWarehouseSavedQueriesChecksRunAllCreateUrl(projectId, savedQueryId), {
         ...options,
-        method: 'GET',
+        method: 'POST',
     })
 }
 
-export const getDataQualityChecksHealthRetrieveUrl = (
+export const getWarehouseTablesCheckSuiteRunsListUrl = (
     projectId: string,
-    params: DataQualityChecksHealthRetrieveParams
+    tableId: string,
+    params?: WarehouseTablesCheckSuiteRunsListParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -301,40 +391,295 @@ export const getDataQualityChecksHealthRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/data_quality/checks/health/?${stringifiedParams}`
-        : `/api/projects/${projectId}/data_quality/checks/health/`
+        ? `/api/projects/${projectId}/warehouse_tables/${tableId}/check_suite_runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_tables/${tableId}/check_suite_runs/`
 }
 
 /**
- * Health rollup for one table or view, from the denormalized status of its checks.
+ * Read-only reports for this subject's check-suite executions.
  */
-export const dataQualityChecksHealthRetrieve = async (
+export const warehouseTablesCheckSuiteRunsList = async (
     projectId: string,
-    params: DataQualityChecksHealthRetrieveParams,
+    tableId: string,
+    params?: WarehouseTablesCheckSuiteRunsListParams,
     options?: RequestInit
-): Promise<DataQualitySubjectHealthApi> => {
-    return apiMutator<DataQualitySubjectHealthApi>(getDataQualityChecksHealthRetrieveUrl(projectId, params), {
+): Promise<PaginatedDataQualitySuiteRunListApi> => {
+    return apiMutator<PaginatedDataQualitySuiteRunListApi>(
+        getWarehouseTablesCheckSuiteRunsListUrl(projectId, tableId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseTablesCheckSuiteRunsRetrieveUrl = (projectId: string, tableId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${tableId}/check_suite_runs/${id}/`
+}
+
+/**
+ * Read-only reports for this subject's check-suite executions.
+ */
+export const warehouseTablesCheckSuiteRunsRetrieve = async (
+    projectId: string,
+    tableId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataQualitySuiteRunApi> => {
+    return apiMutator<DataQualitySuiteRunApi>(getWarehouseTablesCheckSuiteRunsRetrieveUrl(projectId, tableId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getDataQualityChecksRunForSubjectCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_quality/checks/run_for_subject/`
+export const getWarehouseTablesCheckSuiteRunsCheckRunsListUrl = (projectId: string, tableId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${tableId}/check_suite_runs/${id}/check_runs/`
 }
 
 /**
- * Run every enabled check on a table or view. Returns the suite run to poll for the report.
+ * Every check execution in this suite run.
  */
-export const dataQualityChecksRunForSubjectCreate = async (
+export const warehouseTablesCheckSuiteRunsCheckRunsList = async (
     projectId: string,
-    dataQualityRunSubjectRequestApi: DataQualityRunSubjectRequestApi,
+    tableId: string,
+    id: string,
     options?: RequestInit
-): Promise<DataQualitySuiteRunApi> => {
-    return apiMutator<DataQualitySuiteRunApi>(getDataQualityChecksRunForSubjectCreateUrl(projectId), {
+): Promise<DataQualityCheckRunApi[]> => {
+    return apiMutator<DataQualityCheckRunApi[]>(
+        getWarehouseTablesCheckSuiteRunsCheckRunsListUrl(projectId, tableId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseTablesChecksListUrl = (
+    projectId: string,
+    tableId: string,
+    params?: WarehouseTablesChecksListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_tables/${tableId}/checks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_tables/${tableId}/checks/`
+}
+
+/**
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
+ */
+export const warehouseTablesChecksList = async (
+    projectId: string,
+    tableId: string,
+    params?: WarehouseTablesChecksListParams,
+    options?: RequestInit
+): Promise<PaginatedDataQualityCheckListApi> => {
+    return apiMutator<PaginatedDataQualityCheckListApi>(getWarehouseTablesChecksListUrl(projectId, tableId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseTablesChecksCreateUrl = (projectId: string, tableId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${tableId}/checks/`
+}
+
+/**
+ * Create a check on this table or view, or refine the one already carrying the same fingerprint. Re-creating a semantically identical check returns 200 and the existing row, never a duplicate.
+ */
+export const warehouseTablesChecksCreate = async (
+    projectId: string,
+    tableId: string,
+    dataQualityCheckApi: NonReadonly<DataQualityCheckApi>,
+    options?: RequestInit
+): Promise<DataQualityCheckApi> => {
+    return apiMutator<DataQualityCheckApi>(getWarehouseTablesChecksCreateUrl(projectId, tableId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataQualityRunSubjectRequestApi),
+        body: JSON.stringify(dataQualityCheckApi),
+    })
+}
+
+export const getWarehouseTablesChecksRetrieveUrl = (projectId: string, tableId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${tableId}/checks/${id}/`
+}
+
+/**
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
+ */
+export const warehouseTablesChecksRetrieve = async (
+    projectId: string,
+    tableId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataQualityCheckApi> => {
+    return apiMutator<DataQualityCheckApi>(getWarehouseTablesChecksRetrieveUrl(projectId, tableId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseTablesChecksUpdateUrl = (projectId: string, tableId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${tableId}/checks/${id}/`
+}
+
+/**
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
+ */
+export const warehouseTablesChecksUpdate = async (
+    projectId: string,
+    tableId: string,
+    id: string,
+    dataQualityCheckApi: NonReadonly<DataQualityCheckApi>,
+    options?: RequestInit
+): Promise<DataQualityCheckApi> => {
+    return apiMutator<DataQualityCheckApi>(getWarehouseTablesChecksUpdateUrl(projectId, tableId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataQualityCheckApi),
+    })
+}
+
+export const getWarehouseTablesChecksPartialUpdateUrl = (projectId: string, tableId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${tableId}/checks/${id}/`
+}
+
+/**
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
+ */
+export const warehouseTablesChecksPartialUpdate = async (
+    projectId: string,
+    tableId: string,
+    id: string,
+    patchedDataQualityCheckApi?: NonReadonly<PatchedDataQualityCheckApi>,
+    options?: RequestInit
+): Promise<DataQualityCheckApi> => {
+    return apiMutator<DataQualityCheckApi>(getWarehouseTablesChecksPartialUpdateUrl(projectId, tableId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDataQualityCheckApi),
+    })
+}
+
+export const getWarehouseTablesChecksDestroyUrl = (projectId: string, tableId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${tableId}/checks/${id}/`
+}
+
+/**
+ * CRUD for one subject's checks, plus the actions that run them and report on them.
+ */
+export const warehouseTablesChecksDestroy = async (
+    projectId: string,
+    tableId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseTablesChecksDestroyUrl(projectId, tableId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWarehouseTablesChecksRunCreateUrl = (projectId: string, tableId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${tableId}/checks/${id}/run/`
+}
+
+/**
+ * Run this check now. Returns the suite run to poll for the report.
+ */
+export const warehouseTablesChecksRunCreate = async (
+    projectId: string,
+    tableId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataQualitySuiteRunApi> => {
+    return apiMutator<DataQualitySuiteRunApi>(getWarehouseTablesChecksRunCreateUrl(projectId, tableId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWarehouseTablesChecksRunsListUrl = (projectId: string, tableId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${tableId}/checks/${id}/runs/`
+}
+
+/**
+ * Recent run history for this check, newest first.
+ */
+export const warehouseTablesChecksRunsList = async (
+    projectId: string,
+    tableId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataQualityCheckRunApi[]> => {
+    return apiMutator<DataQualityCheckRunApi[]>(getWarehouseTablesChecksRunsListUrl(projectId, tableId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseTablesChecksCheckTypesListUrl = (projectId: string, tableId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${tableId}/checks/check_types/`
+}
+
+/**
+ * The check types this project can author, with the JSON schema of each type's config.
+ */
+export const warehouseTablesChecksCheckTypesList = async (
+    projectId: string,
+    tableId: string,
+    options?: RequestInit
+): Promise<DataQualityCheckTypeApi[]> => {
+    return apiMutator<DataQualityCheckTypeApi[]>(getWarehouseTablesChecksCheckTypesListUrl(projectId, tableId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseTablesChecksHealthRetrieveUrl = (projectId: string, tableId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${tableId}/checks/health/`
+}
+
+/**
+ * Health rollup for this table or view, from the denormalized status of its checks.
+ */
+export const warehouseTablesChecksHealthRetrieve = async (
+    projectId: string,
+    tableId: string,
+    options?: RequestInit
+): Promise<DataQualitySubjectHealthApi> => {
+    return apiMutator<DataQualitySubjectHealthApi>(getWarehouseTablesChecksHealthRetrieveUrl(projectId, tableId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseTablesChecksRunAllCreateUrl = (projectId: string, tableId: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${tableId}/checks/run_all/`
+}
+
+/**
+ * Run every enabled check on this table or view. Returns the suite run to poll.
+ */
+export const warehouseTablesChecksRunAllCreate = async (
+    projectId: string,
+    tableId: string,
+    options?: RequestInit
+): Promise<DataQualitySuiteRunApi> => {
+    return apiMutator<DataQualitySuiteRunApi>(getWarehouseTablesChecksRunAllCreateUrl(projectId, tableId), {
+        ...options,
+        method: 'POST',
     })
 }

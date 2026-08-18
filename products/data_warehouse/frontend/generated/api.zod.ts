@@ -10,6 +10,20 @@
 import * as zod from 'zod'
 
 /**
+ * Read or update the team's data quality gate: whether a materialization whose error-severity checks fail is published.
+ */
+export const DataWarehouseDataQualityGatePartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        gate_materialization_on_checks: zod
+            .boolean()
+            .optional()
+            .describe(
+                'When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped.'
+            ),
+    })
+    .describe('The team-level materialization gate. Checks always run and warn; this only toggles blocking.')
+
+/**
  * Onboard this project onto the organization's existing managed warehouse.
  *
  * Requires a schema name and records the project's membership in the Duckgres control plane.

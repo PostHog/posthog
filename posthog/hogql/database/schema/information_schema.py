@@ -861,7 +861,7 @@ _DATA_QUALITY_CHECKS_COLUMNS: list[tuple[str, str]] = [
     ("id", _STRING),
     ("name", _NULLABLE_STRING),
     ("subject_type", _STRING),
-    ("subject_uuid", _STRING),
+    ("subject_uuid", _NULLABLE_STRING),
     ("subject_name", _STRING),
     ("subject_status", _STRING),
     ("column_name", _NULLABLE_STRING),
@@ -871,8 +871,6 @@ _DATA_QUALITY_CHECKS_COLUMNS: list[tuple[str, str]] = [
     ("enabled", _BOOLEAN),
     ("last_status", _NULLABLE_STRING),
     ("last_run_at", _NULLABLE_STRING),
-    ("schedule_interval_minutes", _NULLABLE_INTEGER),
-    ("run_on_materialization", _BOOLEAN),
     ("created_at", _STRING),
 ]
 
@@ -1040,17 +1038,20 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
 
 
 def _can_read_data_quality(context: "HogQLContext") -> bool:
-    """Whether the caller has data_quality read access, mirroring the REST viewset's resource gate.
+    """Whether the caller can read warehouse metadata, mirroring the REST viewsets' resource gate.
 
-    Check rows name columns and carry compiled queries, so they need an explicit resource check on
-    top of team scoping. Fails closed with no access-control context (service tokens, shared links).
+    Check rows are derived warehouse metadata -- they name columns and carry compiled queries -- so
+    reading them is warehouse read access (either resource resolves through warehouse_objects).
+    Fails closed with no access-control context (service tokens, shared links).
     """
     access_control = context.database.user_access_control if context.database is not None else None
     if access_control is None:
         access_control = context.user_access_control
     if access_control is None:
         return False
-    return access_control.check_access_level_for_resource("data_quality", "viewer")
+    return access_control.check_access_level_for_resource(
+        "warehouse_view", "viewer"
+    ) or access_control.check_access_level_for_resource("warehouse_table", "viewer")
 
 
 def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
@@ -1075,7 +1076,7 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
                 str(check.id),
                 check.name or None,
                 check.subject_type,
-                str(check.subject_uuid),
+                str(check.subject_uuid) if check.subject_uuid else None,
                 check.subject_name,
                 check.subject_status,
                 check.column_name or None,
@@ -1085,8 +1086,6 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
                 check.enabled,
                 check.last_status or None,
                 check.last_run_at.isoformat() if check.last_run_at else None,
-                check.schedule_interval_minutes,
-                check.run_on_materialization,
                 check.created_at.isoformat(),
             ]
             for check in queryset
@@ -1170,6 +1169,9 @@ def _data_quality_health(context: "HogQLContext", allowed: Optional[frozenset[st
         by_subject: dict[tuple[str, str], list[Any]] = defaultdict(list)
         for check in checks_qs:
             if _references_denied_table([check.subject_name], denied):
+                continue
+            # A hard-deleted subject has no id to key a rollup on, and its checks only skip.
+            if check.subject_uuid is None:
                 continue
             by_subject[(check.subject_type, str(check.subject_uuid))].append(check)
 
@@ -1884,7 +1886,9 @@ class InformationSchemaDataQualityChecksTable(LazyTable):
         "id": _string_field("id", description="Stable UUID of the check (pass to the run/update/delete tools)."),
         "name": _string_field("name", nullable=True, description="Optional handle; NULL when addressed by id."),
         "subject_type": _string_field("subject_type", description="'table' (synced source) or 'view' (saved query)."),
-        "subject_uuid": _string_field("subject_uuid", description="UUID of the checked table or view."),
+        "subject_uuid": _string_field(
+            "subject_uuid", nullable=True, description="UUID of the checked table or view; NULL once hard-deleted."
+        ),
         "subject_name": _string_field("subject_name", description="Queryable name of the checked table or view."),
         "subject_status": _string_field(
             "subject_status", description="'active', or 'orphaned' once the subject stops resolving."
@@ -1907,14 +1911,6 @@ class InformationSchemaDataQualityChecksTable(LazyTable):
             description="Newest outcome: passed, failed, errored, or skipped. NULL when never run.",
         ),
         "last_run_at": _string_field("last_run_at", nullable=True, description="ISO timestamp of the newest run."),
-        "schedule_interval_minutes": IntegerDatabaseField(
-            name="schedule_interval_minutes",
-            nullable=True,
-            description="Independent cadence in minutes; NULL when the check has no schedule of its own.",
-        ),
-        "run_on_materialization": BooleanDatabaseField(
-            name="run_on_materialization", description="Whether the check runs after its view materializes."
-        ),
         "created_at": _string_field("created_at", description="ISO timestamp when the check was created."),
     }
 

@@ -15,6 +15,8 @@ from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeve
 from products.data_quality.backend.logic import checks as checks_logic
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.presentation.serializers import DataQualitySuiteRunSerializer
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -25,22 +27,37 @@ FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_
 class TestDataQualityCheckAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.view = DataWarehouseSavedQuery.objects.create(team=self.team, name="orders", query={"kind": "HogQLQuery"})
-        self.url = f"/api/projects/{self.team.id}/data_quality/checks"
+        self.view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS customer_id"}
+        )
+        self.url = self._checks_url(self.view.id)
         flag = patch(FLAG, return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
 
-    def test_the_whole_surface_is_gated_on_the_feature_flag(self) -> None:
-        with patch(FLAG, return_value=False):
-            assert self.client.get(f"{self.url}/").status_code == status.HTTP_403_FORBIDDEN
-            assert self.client.post(f"{self.url}/", self._payload()).status_code == status.HTTP_403_FORBIDDEN
-            assert self.client.get(f"{self.url}/check_types/").status_code == status.HTTP_403_FORBIDDEN
+    def _checks_url(self, saved_query_id) -> str:
+        return f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_id}/checks"
+
+    def _suite_runs_url(self) -> str:
+        return f"/api/projects/{self.team.id}/warehouse_saved_queries/{self.view.id}/check_suite_runs"
+
+    def _gate_url(self) -> str:
+        return f"/api/projects/{self.team.id}/data_warehouse/data_quality_gate/"
+
+    def _table_checks_url(self) -> str:
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="_key", access_secret="_secret")
+        table = DataWarehouseTable.objects.create(
+            name="orders_source",
+            team=self.team,
+            columns={"customer_id": "String"},
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="http://localhost:19000/bucket/orders_source",
+        )
+        return f"/api/projects/{self.team.id}/warehouse_tables/{table.id}/checks"
 
     def _payload(self, **overrides) -> dict:
         return {
-            "subject_type": SubjectType.VIEW,
-            "subject_uuid": str(self.view.id),
             "check_type": CheckType.NOT_NULL,
             "column_name": "customer_id",
             **overrides,
@@ -51,12 +68,26 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return DataQualityCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
 
-    def test_create_returns_the_fingerprint_and_re_creating_upserts(self) -> None:
-        created = self.client.post(f"{self.url}/", self._payload())
-        assert created.status_code == status.HTTP_201_CREATED
+    def _make_view(self, name: str) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+
+    def test_the_whole_surface_is_gated_on_the_feature_flag(self) -> None:
+        with patch(FLAG, return_value=False):
+            assert self.client.get(f"{self.url}/").status_code == status.HTTP_403_FORBIDDEN
+            assert self.client.post(f"{self.url}/", self._payload()).status_code == status.HTTP_403_FORBIDDEN
+            assert self.client.get(f"{self.url}/check_types/").status_code == status.HTTP_403_FORBIDDEN
+            assert self.client.get(self._gate_url()).status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand([("view",), ("table",)])
+    def test_create_returns_the_fingerprint_and_re_creating_upserts(self, kind: str) -> None:
+        url = self.url if kind == "view" else self._table_checks_url()
+        created = self.client.post(f"{url}/", self._payload())
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
         assert created.json()["fingerprint"]
 
-        again = self.client.post(f"{self.url}/", self._payload(description="clarified"))
+        again = self.client.post(f"{url}/", self._payload(description="clarified"))
 
         assert again.status_code == status.HTTP_200_OK
         assert again.json()["id"] == created.json()["id"]
@@ -65,7 +96,6 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_subject", {"subject_uuid": "1cd4a1ef-0000-0000-0000-0000000000ff"}),
             ("unknown_check_type", {"check_type": "anomaly"}),
             ("config_key_not_in_schema", {"config": {"tolerance": 3}}),
             ("column_required_but_missing", {"column_name": ""}),
@@ -77,6 +107,12 @@ class TestDataQualityCheckAPI(APIBaseTest):
     )
     def test_invalid_definitions_are_rejected(self, _name, overrides: dict) -> None:
         response = self.client.post(f"{self.url}/", self._payload(**overrides))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert DataQualityCheck.objects.for_team(self.team.id).count() == 0
+
+    def test_creating_under_an_unknown_parent_is_rejected(self) -> None:
+        response = self.client.post(f"{self._checks_url(uuid4())}/", self._payload())
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert DataQualityCheck.objects.for_team(self.team.id).count() == 0
@@ -119,7 +155,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert again.status_code == status.HTTP_200_OK
         assert again.json()["id"] == created.json()["id"]
 
-    @parameterized.expand([("check_type",), ("column_name",), ("config",), ("subject_uuid",)])
+    @parameterized.expand([("check_type",), ("column_name",), ("config",)])
     def test_the_assertion_cannot_be_edited_in_place(self, field: str) -> None:
         # Editing it would leave the fingerprint describing a different check, so later identical
         # creates would duplicate instead of upserting.
@@ -128,7 +164,6 @@ class TestDataQualityCheckAPI(APIBaseTest):
             "check_type": CheckType.UNIQUE,
             "column_name": "total",
             "config": {"values": ["a"]},
-            "subject_uuid": str(uuid4()),
         }[field]
 
         response = self.client.patch(f"{self.url}/{check.id}/", {field: new_value})
@@ -136,26 +171,6 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         check.refresh_from_db()
         assert str(getattr(check, field)) != str(new_value)
-
-    @parameterized.expand(
-        [
-            ("enable_on_an_unscheduled_check", {}, 5, 5),
-            ("change_an_existing_cadence", {"schedule_interval_minutes": 15}, 5, 5),
-            ("clear_a_schedule", {"schedule_interval_minutes": 15}, None, None),
-        ]
-    )
-    def test_patching_the_schedule_recomputes_next_run_at(self, _name, create_overrides, patched, expected) -> None:
-        # Updates go through the serializer's default path, which would set the field without touching
-        # next_run_at -- so enabling a schedule would leave next_run_at null and the scanner would never
-        # pick the check up, and clearing one would leave a stale due time behind.
-        check = self._create_check(**create_overrides)
-
-        response = self.client.patch(f"{self.url}/{check.id}/", {"schedule_interval_minutes": patched})
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        check.refresh_from_db()
-        assert check.schedule_interval_minutes == expected
-        assert (check.next_run_at is not None) == (expected is not None)
 
     def test_a_racing_identical_create_returns_the_winning_row_not_a_500(self) -> None:
         # Two identical creates can both miss the fingerprint lookup and race to insert; the uniqueness
@@ -208,16 +223,19 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert check.deleted is True
         assert check.enabled is False
 
-    def test_list_filters_by_subject(self) -> None:
+    def test_list_is_scoped_to_the_parent_and_filters_by_check_type(self) -> None:
         self._create_check()
-        other_view = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="refunds", query={"kind": "HogQLQuery"}
-        )
-        self.client.post(f"{self.url}/", self._payload(subject_uuid=str(other_view.id)))
+        self._create_check(check_type=CheckType.UNIQUE)
+        other_view = self._make_view("refunds")
+        other = self.client.post(f"{self._checks_url(other_view.id)}/", self._payload())
+        assert other.status_code == status.HTTP_201_CREATED
 
-        filtered = self.client.get(f"{self.url}/?subject_uuid={self.view.id}")
+        listed = self.client.get(f"{self.url}/")
+        filtered = self.client.get(f"{self.url}/?check_type={CheckType.UNIQUE}")
 
-        assert [row["subject_uuid"] for row in filtered.json()["results"]] == [str(self.view.id)]
+        assert {row["subject_uuid"] for row in listed.json()["results"]} == {str(self.view.id)}
+        assert len(listed.json()["results"]) == 2
+        assert [row["check_type"] for row in filtered.json()["results"]] == [CheckType.UNIQUE]
 
     def test_check_types_exposes_a_config_schema_per_type(self) -> None:
         response = self.client.get(f"{self.url}/check_types/")
@@ -254,7 +272,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
             DataQualityCheck.objects.for_team(self.team.id).create(
                 team=self.team,
                 subject_type=SubjectType.VIEW,
-                subject_uuid=self.view.id,
+                saved_query_id=self.view.id,
                 subject_name="orders",
                 check_type=CheckType.NOT_NULL,
                 column_name=f"col_{index}",
@@ -263,7 +281,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
                 last_status=last_status,
             )
 
-        response = self.client.get(f"{self.url}/health/?subject_type={SubjectType.VIEW}&subject_uuid={self.view.id}")
+        response = self.client.get(f"{self.url}/health/")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["health"] == expected
@@ -275,7 +293,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         common = {
             "team": self.team,
             "subject_type": SubjectType.VIEW,
-            "subject_uuid": self.view.id,
+            "saved_query_id": self.view.id,
             "subject_name": "orders",
             "check_type": CheckType.NOT_NULL,
             "severity": CheckSeverity.ERROR,
@@ -291,7 +309,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
             **common,
         )
 
-        response = self.client.get(f"{self.url}/health/?subject_type={SubjectType.VIEW}&subject_uuid={self.view.id}")
+        response = self.client.get(f"{self.url}/health/")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["health"] == "healthy"
@@ -309,17 +327,41 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert suite_run.status == "running"
         assert response.json()["workflow_id"] == suite_run.workflow_id
 
-    def test_run_for_subject_records_the_subject_on_the_report(self) -> None:
+    def test_run_all_records_the_subject_on_the_report(self) -> None:
         self._create_check()
 
         with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):
-            response = self.client.post(
-                f"{self.url}/run_for_subject/",
-                {"subject_type": SubjectType.VIEW, "subject_uuid": str(self.view.id)},
-            )
+            response = self.client.post(f"{self.url}/run_all/")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["subject_uuid"] == str(self.view.id)
+
+    def test_suite_runs_list_the_parents_single_subject_suites(self) -> None:
+        # Multi-subject sweep suites carry no parent, so this surface must not serve them -- they
+        # stay reachable through information_schema, the cross-subject surface.
+        mine = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=self.view.id
+        )
+        sweep = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=mine,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=self.view.id,
+            subject_name="orders",
+            check_type=CheckType.NOT_NULL,
+            check_fingerprint=uuid4().hex,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+        )
+
+        base = self._suite_runs_url()
+        listed = self.client.get(f"{base}/")
+
+        assert {row["id"] for row in listed.json()["results"]} == {str(mine.id)}
+        assert self.client.get(f"{base}/{sweep.id}/").status_code == status.HTTP_404_NOT_FOUND
+        check_runs = self.client.get(f"{base}/{mine.id}/check_runs/")
+        assert [row["subject_name"] for row in check_runs.json()] == ["orders"]
 
     def _deny_the_view(self) -> None:
         # Deny the default member object-level access to the "orders" view, the way the HogQL
@@ -346,83 +388,30 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("create", lambda self: self.client.post(f"{self.url}/", self._payload())),
+            ("list", lambda self, check, suite: self.client.get(f"{self.url}/")),
+            ("retrieve", lambda self, check, suite: self.client.get(f"{self.url}/{check.id}/")),
+            ("create", lambda self, check, suite: self.client.post(f"{self.url}/", self._payload())),
+            ("run", lambda self, check, suite: self.client.post(f"{self.url}/{check.id}/run/")),
+            ("runs", lambda self, check, suite: self.client.get(f"{self.url}/{check.id}/runs/")),
+            ("run_all", lambda self, check, suite: self.client.post(f"{self.url}/run_all/")),
+            ("health", lambda self, check, suite: self.client.get(f"{self.url}/health/")),
+            ("suite_runs_list", lambda self, check, suite: self.client.get(f"{self._suite_runs_url()}/")),
             (
-                "run_for_subject",
-                lambda self: self.client.post(
-                    f"{self.url}/run_for_subject/",
-                    {"subject_type": SubjectType.VIEW, "subject_uuid": str(self.view.id)},
-                ),
-            ),
-            (
-                "health",
-                lambda self: self.client.get(
-                    f"{self.url}/health/?subject_type={SubjectType.VIEW}&subject_uuid={self.view.id}"
-                ),
+                "suite_run_check_runs",
+                lambda self, check, suite: self.client.get(f"{self._suite_runs_url()}/{suite.id}/check_runs/"),
             ),
         ]
     )
-    def test_a_denied_subject_blocks_the_paths_that_name_it(self, _name: str, call) -> None:
-        # Authoring, running, or reading health for a table the member cannot query would leak its
-        # shape and observed counts. These paths take the subject in the request, so they 403.
-        self._deny_the_view()
-
-        assert call(self).status_code == status.HTTP_403_FORBIDDEN
-
-    def test_denied_subject_checks_drop_out_of_list_and_detail(self) -> None:
-        # safely_get_queryset hides checks on a denied subject, so both the list and the by-id
-        # detail/run routes stop serving them -- the same subjects the information_schema loaders hide.
-        denied = DataQualityCheck.objects.for_team(self.team.id).create(
-            team=self.team,
-            subject_type=SubjectType.VIEW,
-            subject_uuid=self.view.id,
-            subject_name="orders",
-            check_type=CheckType.NOT_NULL,
-            column_name="customer_id",
-            fingerprint=uuid4().hex,
-        )
-        allowed_view = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
-        )
-        DataQualityCheck.objects.for_team(self.team.id).create(
-            team=self.team,
-            subject_type=SubjectType.VIEW,
-            subject_uuid=allowed_view.id,
-            subject_name="customers",
-            check_type=CheckType.NOT_NULL,
-            column_name="id",
-            fingerprint=uuid4().hex,
+    def test_a_denied_parent_subject_blocks_every_action(self, _name: str, call) -> None:
+        # Authoring, running, or reading anything under a table the member cannot query would leak
+        # its shape and observed counts. The subject is the parent in the URL, so every action 403s.
+        check = self._create_check()
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=self.view.id
         )
         self._deny_the_view()
 
-        listed = self.client.get(f"{self.url}/")
-
-        assert {row["subject_name"] for row in listed.json()["results"]} == {"customers"}
-        assert self.client.get(f"{self.url}/{denied.id}/").status_code == status.HTTP_404_NOT_FOUND
-        assert self.client.post(f"{self.url}/{denied.id}/run/").status_code == status.HTTP_404_NOT_FOUND
-
-    def test_suite_run_check_runs_drop_denied_subjects(self) -> None:
-        # A suite run is not subject-scoped, so its check_runs must still hide runs for a denied
-        # subject -- each carries the failed-row count and observed value.
-        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
-        for name, subject_uuid in (("orders", self.view.id), ("customers", uuid4())):
-            DataQualityCheckRun.objects.for_team(self.team.id).create(
-                team=self.team,
-                suite_run=suite_run,
-                subject_type=SubjectType.VIEW,
-                subject_uuid=subject_uuid,
-                subject_name=name,
-                check_type=CheckType.NOT_NULL,
-                check_fingerprint=uuid4().hex,
-                status=CheckRunStatus.FAILED,
-                failed_row_count=3,
-            )
-        self._deny_the_view()
-
-        url = f"/api/projects/{self.team.id}/data_quality/check_suite_runs/{suite_run.id}/check_runs/"
-        response = self.client.get(url)
-
-        assert {row["subject_name"] for row in response.json()} == {"customers"}
+        assert call(self, check, suite).status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [
@@ -431,19 +420,17 @@ class TestDataQualityCheckAPI(APIBaseTest):
         ]
     )
     def test_a_denied_referenced_subject_blocks_authoring(self, _name, check_type, column_name, config) -> None:
-        # The declared subject is not the only one a check reads: custom_sql selects arbitrary tables
+        # The parent is not the only subject a check reads: custom_sql selects arbitrary tables
         # and relationships names a second subject. Authoring one that reads the denied "orders" from an
         # allowed subject must 403 -- the worker runs it with team scope only, a count oracle otherwise.
-        allowed = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
-        )
+        allowed = self._make_view("customers")
         if config is None:
             config = {"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(self.view.id), "to_column": "id"}
         self._deny_the_view()
 
         response = self.client.post(
-            f"{self.url}/",
-            self._payload(subject_uuid=str(allowed.id), check_type=check_type, column_name=column_name, config=config),
+            f"{self._checks_url(allowed.id)}/",
+            self._payload(check_type=check_type, column_name=column_name, config=config),
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -451,29 +438,20 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("run", lambda self, check: self.client.post(f"{self.url}/{check.id}/run/")),
-            (
-                "run_for_subject",
-                lambda self, check: self.client.post(
-                    f"{self.url}/run_for_subject/",
-                    {"subject_type": check.subject_type, "subject_uuid": str(check.subject_uuid)},
-                ),
-            ),
-            ("runs", lambda self, check: self.client.get(f"{self.url}/{check.id}/runs/")),
+            ("run", lambda self, url, check: self.client.post(f"{url}/{check.id}/run/")),
+            ("run_all", lambda self, url, check: self.client.post(f"{url}/run_all/")),
+            ("runs", lambda self, url, check: self.client.get(f"{url}/{check.id}/runs/")),
         ]
     )
     def test_a_denied_referenced_subject_blocks_triggering_and_reading_history(self, _name, call) -> None:
-        # The declared subject stays allowed, so the check is visible -- but its custom_sql reads the
-        # denied "orders". Triggering it (run, run_for_subject) and reading its run history (runs, which
-        # exposes counts from scheduled executions) gate on every subject it references, not just the
-        # one named in the request.
-        allowed = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
-        )
+        # The parent subject stays allowed, so the check is visible -- but its custom_sql reads the
+        # denied "orders". Triggering it (run, run_all) and reading its run history (runs, which
+        # exposes counts from past executions) gate on every subject it references, not just the parent.
+        allowed = self._make_view("customers")
         check = DataQualityCheck.objects.for_team(self.team.id).create(
             team=self.team,
             subject_type=SubjectType.VIEW,
-            subject_uuid=allowed.id,
+            saved_query_id=allowed.id,
             subject_name="customers",
             check_type=CheckType.CUSTOM_SQL,
             config={"query": "SELECT 1 FROM orders"},
@@ -481,48 +459,24 @@ class TestDataQualityCheckAPI(APIBaseTest):
         )
         self._deny_the_view()
 
-        assert call(self, check).status_code == status.HTTP_403_FORBIDDEN
-
-    def test_denied_single_subject_suite_runs_drop_out_of_list_and_detail(self) -> None:
-        # A single-subject suite carries that subject_uuid alongside its passed/failed counts, a
-        # per-subject outcome the member must not read for a denied table, so list and detail hide it.
-        allowed = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
-        )
-        denied_suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
-            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=self.view.id
-        )
-        allowed_suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
-            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
-        )
-        self._deny_the_view()
-
-        base = f"/api/projects/{self.team.id}/data_quality/check_suite_runs"
-        listed = self.client.get(f"{base}/")
-
-        assert {row["id"] for row in listed.json()["results"]} == {str(allowed_suite.id)}
-        assert self.client.get(f"{base}/{denied_suite.id}/").status_code == status.HTTP_404_NOT_FOUND
-        assert self.client.get(f"{base}/{allowed_suite.id}/").status_code == status.HTTP_200_OK
+        assert call(self, self._checks_url(allowed.id), check).status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [
             ("create", lambda self, check: self.client.post(f"{self.url}/", self._payload(column_name="total"))),
             ("run", lambda self, check: self.client.post(f"{self.url}/{check.id}/run/")),
+            ("run_all", lambda self, check: self.client.post(f"{self.url}/run_all/")),
             ("runs", lambda self, check: self.client.get(f"{self.url}/{check.id}/runs/")),
             ("list", lambda self, check: self.client.get(f"{self.url}/")),
             ("retrieve", lambda self, check: self.client.get(f"{self.url}/{check.id}/")),
-            (
-                "health",
-                lambda self, check: self.client.get(
-                    f"{self.url}/health/?subject_type={SubjectType.VIEW}&subject_uuid={self.view.id}"
-                ),
-            ),
+            ("health", lambda self, check: self.client.get(f"{self.url}/health/")),
+            ("suite_runs_list", lambda self, check: self.client.get(f"{self._suite_runs_url()}/")),
         ]
     )
     def test_query_denied_members_cannot_author_execute_or_read_check_outcomes(self, _name: str, call) -> None:
         # A check executes HogQL and its result columns are a count oracle over warehouse rows, and
         # reading a check back or its health rollup exposes the same counts one step removed, so
-        # data_quality access alone must not be enough for any of them.
+        # warehouse access alone must not be enough for any of them.
         check = self._create_check()
         AccessControl.objects.create(team=self.team, resource="query", access_level="none")
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
@@ -543,6 +497,19 @@ class TestDataQualityCheckAPI(APIBaseTest):
         check = self._create_check()
         other_team = self.create_team_with_organization(self.organization)
 
-        response = self.client.get(f"/api/projects/{other_team.id}/data_quality/checks/{check.id}/")
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/warehouse_saved_queries/{self.view.id}/checks/{check.id}/"
+        )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_the_materialization_gate_round_trips(self) -> None:
+        url = self._gate_url()
+
+        assert self.client.get(url).json() == {"gate_materialization_on_checks": False}
+
+        patched = self.client.patch(url, {"gate_materialization_on_checks": True})
+
+        assert patched.status_code == status.HTTP_200_OK
+        assert patched.json() == {"gate_materialization_on_checks": True}
+        assert self.client.get(url).json() == {"gate_materialization_on_checks": True}

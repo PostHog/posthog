@@ -49,8 +49,6 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'data_catalog:write',
     'data_catalog_approval:read',
     'data_catalog_approval:write',
-    'data_quality:read',
-    'data_quality:write',
     'dashboard:read',
     'dashboard:write',
     'event_filter:read',

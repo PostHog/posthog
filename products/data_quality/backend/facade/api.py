@@ -18,6 +18,7 @@ from ..logic.checks import (
     validate_check,
 )
 from ..logic.compiler import compile_check, related_subject_ref
+from ..logic.config import get_gate_config, set_gate_materialization_on_checks
 from ..logic.contracts import CompiledCheck, SubjectRef
 from ..logic.errors import CheckConfigError, SubjectUnresolvableError
 from ..logic.health import CheckStatusRow, roll_up_health
@@ -42,6 +43,7 @@ __all__ = [
     "denied_subject_names",
     "ensure_name_available",
     "from_config_entry",
+    "get_gate_config",
     "is_subject_denied",
     "list_check_types",
     "quality_audit_mode",
@@ -49,6 +51,7 @@ __all__ = [
     "related_subject_ref",
     "resolve_subject",
     "roll_up_health",
+    "set_gate_materialization_on_checks",
     "soft_delete_check",
     "start_check_suite",
     "subject_health",

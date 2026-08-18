@@ -22,7 +22,7 @@ from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
 from ..facade.contracts import CHECK_SUITE_WORKFLOW_NAME
-from ..facade.enums import SubjectHealth, SubjectStatus, SuiteRunStatus, SuiteRunTrigger
+from ..facade.enums import SubjectHealth, SubjectStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
 from ..models import DataQualityCheck, DataQualitySuiteRun
 from .compiler import related_subject_ref
 from .errors import SubjectUnresolvableError
@@ -39,14 +39,19 @@ _UPSERTABLE_FIELDS = (
     "severity",
     "enabled",
     "tags",
-    "run_on_materialization",
-    "schedule_interval_minutes",
     "created_source",
     "ai_model",
     "confidence",
     "reasoning",
     "owner",
 )
+
+
+def _subject_fk(subject_type: str, subject_uuid: str | UUID) -> dict[str, Any]:
+    """The FK kwargs for whichever subject kind this is."""
+    if subject_type == SubjectType.TABLE:
+        return {"table_id": subject_uuid}
+    return {"saved_query_id": subject_uuid}
 
 
 def validate_check(
@@ -111,14 +116,13 @@ def upsert_check(
                     team=team,
                     created_by=user,
                     subject_type=subject_type,
-                    subject_uuid=subject_uuid,
                     subject_name=subject.name,
                     subject_status=SubjectStatus.ACTIVE,
                     check_type=check_type,
                     column_name=column_name,
                     config=config,
                     fingerprint=fingerprint,
-                    next_run_at=_initial_next_run_at(fields.get("schedule_interval_minutes")),
+                    **_subject_fk(subject_type, subject_uuid),
                     **fields,
                 )
             return check, True
@@ -139,22 +143,18 @@ def _find_by_fingerprint(
 ) -> DataQualityCheck | None:
     return (
         DataQualityCheck.objects.for_team(team_id)
-        .filter(subject_type=subject_type, subject_uuid=subject_uuid, fingerprint=fingerprint)
+        .filter(fingerprint=fingerprint, **_subject_fk(subject_type, subject_uuid))
         .first()
     )
 
 
 def update_check(check: DataQualityCheck, **fields: Any) -> DataQualityCheck:
-    """Apply presentation and scheduling changes. The assertion itself is immutable -- re-create instead."""
+    """Apply presentation changes. The assertion itself is immutable -- re-create instead."""
     changed = []
     for key, value in fields.items():
         if key in _UPSERTABLE_FIELDS or key == "deleted":
             setattr(check, key, value)
             changed.append(key)
-
-    if "schedule_interval_minutes" in changed:
-        check.next_run_at = _initial_next_run_at(check.schedule_interval_minutes)
-        changed.append("next_run_at")
 
     if changed:
         check.save(update_fields=[*changed, "updated_at"])
@@ -166,14 +166,11 @@ def soft_delete_check(check: DataQualityCheck) -> None:
     check.deleted = True
     check.deleted_at = datetime.now(UTC)
     check.enabled = False
-    check.next_run_at = None
-    check.save(update_fields=["deleted", "deleted_at", "enabled", "next_run_at", "updated_at"])
+    check.save(update_fields=["deleted", "deleted_at", "enabled", "updated_at"])
 
 
 def checks_for_subject(team_id: int, subject_type: str, subject_uuid: str | UUID) -> QuerySet[DataQualityCheck]:
-    return DataQualityCheck.objects.for_team(team_id).filter(
-        subject_type=subject_type, subject_uuid=subject_uuid, deleted=False
-    )
+    return DataQualityCheck.objects.for_team(team_id).filter(deleted=False, **_subject_fk(subject_type, subject_uuid))
 
 
 def subject_health(team_id: int, subject_type: str, subject_uuid: str | UUID) -> SubjectHealth:
@@ -218,8 +215,8 @@ def start_check_suite(
     inputs = RunCheckSuiteInputs(
         team_id=team.id,
         trigger=trigger,
-        subject_type=subject_type,
-        subject_uuids=subject_uuids,
+        saved_query_ids=subject_uuids if subject_type == SubjectType.VIEW else [],
+        table_ids=subject_uuids if subject_type == SubjectType.TABLE else [],
         check_ids=check_ids or [],
         suite_run_id=str(suite_run.id),
         created_by_id=user.id if user else None,
@@ -255,8 +252,3 @@ def ensure_name_available(team_id: int, name: str, exclude_id: UUID | str | None
         clashes = clashes.exclude(id=exclude_id)
     if clashes.exists():
         raise CheckNameConflict(f"A check named '{name}' already exists in this project.")
-
-
-def _initial_next_run_at(schedule_interval_minutes: int | None) -> datetime | None:
-    """Scheduled checks are due immediately; the scanner advances them onto the cadence grid."""
-    return datetime.now(UTC) if schedule_interval_minutes else None
