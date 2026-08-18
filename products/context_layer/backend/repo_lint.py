@@ -76,8 +76,8 @@ def _lint_markdown_directory(root: Path, directory: str) -> list[str]:
             continue
         if directory == "decisions" and not DECISION_FILE_RE.fullmatch(path.name):
             errors.append(f"{relative}: decision pages must be named <YYYY-MM-DD>-<slug>.md")
-        if directory == "channels" and "channel_id" not in _frontmatter_keys(path):
-            errors.append(f"{relative}: channel pages need `channel_id` in their frontmatter")
+        if directory == "channels" and not _frontmatter(path).get("channel_id"):
+            errors.append(f"{relative}: channel pages need a non-empty `channel_id` in their frontmatter")
     return errors
 
 
@@ -97,21 +97,21 @@ def _lint_scripts_directory(root: Path) -> list[str]:
     return errors
 
 
-def _frontmatter_keys(path: Path) -> set[str]:
+def _frontmatter(path: Path) -> dict[str, str]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeDecodeError):
-        return set()
+        return {}
     if not lines or lines[0].strip() != FRONTMATTER_DELIMITER:
-        return set()
-    keys: set[str] = set()
+        return {}
+    fields: dict[str, str] = {}
     for line in lines[1:]:
         if line.strip() == FRONTMATTER_DELIMITER:
-            return keys
-        key, separator, _ = line.partition(":")
+            return fields
+        key, separator, value = line.partition(":")
         if separator and key == key.strip() and key.strip():
-            keys.add(key.strip())
-    return set()
+            fields[key.strip()] = value.strip()
+    return {}
 
 
 def main(argv: list[str]) -> int:

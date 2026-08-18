@@ -44,6 +44,11 @@ def _channel_page_without_channel_id(root: Path) -> None:
     (root / "channels" / "general.md").write_text("---\nowner: someone\n---\n# general")
 
 
+def _channel_page_with_empty_channel_id(root: Path) -> None:
+    (root / "channels").mkdir(exist_ok=True)
+    (root / "channels" / "general.md").write_text("---\nchannel_id:   \n---\n# general")
+
+
 def _stray_symlink(root: Path) -> None:
     (root / "areas").mkdir(exist_ok=True)
     (root / "areas" / "alias.md").symlink_to("../AGENTS.md")
@@ -90,6 +95,7 @@ class TestRepoLint(SimpleTestCase):
             ("non_markdown_page", _non_markdown_page),
             ("misnamed_decision", _misnamed_decision),
             ("channel_page_without_channel_id", _channel_page_without_channel_id),
+            ("channel_page_with_empty_channel_id", _channel_page_with_empty_channel_id),
             ("stray_symlink", _stray_symlink),
             ("oversized_page", _oversized_page),
             ("scripts_symlink", _scripts_symlink),
