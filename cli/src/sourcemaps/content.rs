@@ -324,13 +324,16 @@ impl MinifiedSourceFile {
     }
 
     pub fn get_sourcemap_reference(&self) -> Result<Option<String>> {
-        let found = self.inner.content.lines().rev().find_map(|line| {
-            let line = line.trim();
-            ["//# sourceMappingURL=", "//@ sourceMappingURL="]
-                .iter()
-                .find_map(|prefix| line.strip_prefix(prefix))
-                .or_else(|| css_sourcemap_reference(line))
-        });
+        let found = if self.is_stylesheet() {
+            css_sourcemap_reference(&self.inner.content)
+        } else {
+            self.inner.content.lines().rev().find_map(|line| {
+                let line = line.trim();
+                ["//# sourceMappingURL=", "//@ sourceMappingURL="]
+                    .iter()
+                    .find_map(|prefix| line.strip_prefix(prefix))
+            })
+        };
 
         Ok(found
             .map(|reference| urlencoding::decode(reference).map(|decoded| decoded.into_owned()))
@@ -338,11 +341,20 @@ impl MinifiedSourceFile {
     }
 
     pub fn remove_sourcemap_reference(&mut self) -> bool {
-        let Some(range) = trailing_sourcemap_reference_range(&self.inner.content) else {
+        let range = if self.is_stylesheet() {
+            css_sourcemap_reference_removal_range(&self.inner.content)
+        } else {
+            trailing_sourcemap_reference_range(&self.inner.content)
+        };
+        let Some(range) = range else {
             return false;
         };
         self.inner.content.replace_range(range, "");
         true
+    }
+
+    fn is_stylesheet(&self) -> bool {
+        self.inner.path.extension().is_some_and(|ext| ext == "css")
     }
 
     fn get_comment_value(&self, patterns: &[&str]) -> Option<String> {
@@ -453,10 +465,28 @@ fn css_sourcemap_reference_range(line: &str) -> Option<std::ops::Range<usize>> {
     found
 }
 
-fn css_sourcemap_reference(line: &str) -> Option<&str> {
-    let range = css_sourcemap_reference_range(line)?;
+fn css_sourcemap_reference(content: &str) -> Option<&str> {
+    let range = css_sourcemap_reference_range(content)?;
     let reference_start = range.start + CSS_SOURCEMAP_REFERENCE_PREFIX.len();
-    Some(line[reference_start..range.end - 2].trim_end())
+    Some(content[reference_start..range.end - 2].trim_end())
+}
+
+fn css_sourcemap_reference_removal_range(content: &str) -> Option<std::ops::Range<usize>> {
+    let comment_range = css_sourcemap_reference_range(content)?;
+    let line_start = content[..comment_range.start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let line_end = content[comment_range.end..]
+        .find('\n')
+        .map_or(content.len(), |index| comment_range.end + index + 1);
+
+    if content[line_start..comment_range.start].trim().is_empty()
+        && content[comment_range.end..line_end].trim().is_empty()
+    {
+        Some(line_start..line_end)
+    } else {
+        Some(comment_range)
+    }
 }
 
 fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<usize>> {
@@ -468,27 +498,17 @@ fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<u
         line_start = line_end;
     }
 
-    let mut is_trailing_content = true;
     for (line_start, line_end, line) in lines.into_iter().rev() {
         let trimmed_line = line.trim();
         if trimmed_line.is_empty() || trimmed_line.starts_with("//# chunkId=") {
             continue;
         }
-        if is_trailing_content
-            && (trimmed_line.starts_with("//# sourceMappingURL=")
-                || trimmed_line.starts_with("//@ sourceMappingURL="))
+        if trimmed_line.starts_with("//# sourceMappingURL=")
+            || trimmed_line.starts_with("//@ sourceMappingURL=")
         {
             return Some(line_start..line_end);
         }
-        if let Some(comment_range) = css_sourcemap_reference_range(line) {
-            if line[..comment_range.start].trim().is_empty()
-                && line[comment_range.end..].trim().is_empty()
-            {
-                return Some(line_start..line_end);
-            }
-            return Some((line_start + comment_range.start)..(line_start + comment_range.end));
-        }
-        is_trailing_content = false;
+        return None;
     }
 
     None
@@ -531,10 +551,18 @@ mod tests {
         serde_json::from_value(value).expect("Failed to build SourceMapContent")
     }
 
-    fn minified_source(content: &str) -> MinifiedSourceFile {
+    fn source_file(path: &str, content: &str) -> MinifiedSourceFile {
         MinifiedSourceFile {
-            inner: SourceFile::new(PathBuf::from("chunk.js"), content.to_string()),
+            inner: SourceFile::new(PathBuf::from(path), content.to_string()),
         }
+    }
+
+    fn minified_source(content: &str) -> MinifiedSourceFile {
+        source_file("chunk.js", content)
+    }
+
+    fn stylesheet_source(content: &str) -> MinifiedSourceFile {
+        source_file("styles.css", content)
     }
 
     #[test]
@@ -708,7 +736,7 @@ mod tests {
     #[test]
     fn remove_sourcemap_reference_strips_css_comment() {
         let mut source =
-            minified_source(".app { color: black; }\n/*# sourceMappingURL=app.css.map*/\n");
+            stylesheet_source(".app { color: black; }\n/*# sourceMappingURL=app.css.map*/\n");
 
         assert_eq!(
             source.get_sourcemap_reference().unwrap(),
@@ -720,7 +748,7 @@ mod tests {
 
     #[test]
     fn remove_sourcemap_reference_strips_inline_css_comment() {
-        let mut source = minified_source(
+        let mut source = stylesheet_source(
             ".app{content:\"/* not a comment */\"}/*# sourceMappingURL=app.css.map */\n",
         );
 
@@ -738,6 +766,27 @@ mod tests {
     #[test]
     fn remove_sourcemap_reference_ignores_css_string_contents() {
         let original = ".example::after{content:\"/*# sourceMappingURL=app.css.map*/\"}\n";
+        let mut source = stylesheet_source(original);
+
+        assert_eq!(source.get_sourcemap_reference().unwrap(), None);
+        assert!(!source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, original);
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_ignores_continued_css_string_contents() {
+        let original =
+            ".example::after{content:\"before\\\n/*# sourceMappingURL=app.css.map*/\"}\n";
+        let mut source = stylesheet_source(original);
+
+        assert_eq!(source.get_sourcemap_reference().unwrap(), None);
+        assert!(!source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, original);
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_ignores_javascript_template_contents() {
+        let original = "const css = `body{}/*# sourceMappingURL=theme.css.map*/`;\n";
         let mut source = minified_source(original);
 
         assert_eq!(source.get_sourcemap_reference().unwrap(), None);
@@ -747,7 +796,8 @@ mod tests {
 
     #[test]
     fn remove_sourcemap_reference_preserves_adjacent_css_license() {
-        let mut source = minified_source(".a{}/*# sourceMappingURL=app.css.map*/ /* license */\n");
+        let mut source =
+            stylesheet_source(".a{}/*# sourceMappingURL=app.css.map*/ /* license */\n");
 
         assert_eq!(
             source.get_sourcemap_reference().unwrap(),
@@ -759,7 +809,7 @@ mod tests {
 
     #[test]
     fn remove_sourcemap_reference_strips_css_comment_before_license() {
-        let mut source = minified_source(
+        let mut source = stylesheet_source(
             ".app{color:black}\n/*# sourceMappingURL=app.css.map */\n/* license */\n",
         );
 
