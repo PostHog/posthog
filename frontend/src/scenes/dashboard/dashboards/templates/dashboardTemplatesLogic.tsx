@@ -187,12 +187,15 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
         allTemplates: [
             [] as DashboardTemplateType[],
             {
-                getAllTemplates: async (_, breakpoint) => {
+                getAllTemplates: async () => {
                     const logicProps = props as DashboardTemplatesLogicProps
                     const featuredOnly = logicProps.listQuery?.is_featured === true
                     // Curated featured list (empty dashboards) must ignore `templateFilter` synced from the URL via
                     // `urlToAction` when the Templates tab or another surface leaves `?templateFilter=` on /dashboard.
                     const useSearch = !featuredOnly && values.templateFilter.length > 2
+                    // Read the ordering before the await so the post-response sort never reads this store after
+                    // the user navigates away mid-request, which would throw "Can not find path … in the store".
+                    const ordering = values.templateNameOrdering
 
                     let listScope: DashboardTemplateScope | undefined
                     if (logicProps.scope !== 'default' && logicProps.scope !== undefined) {
@@ -215,15 +218,12 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                         scope: listScope,
                         search: useSearch ? values.templateFilter : undefined,
                         // Search results are relevance-ranked; omit ordering (see API `dangerously_get_queryset`).
-                        ordering: useSearch ? undefined : values.templateNameOrdering || undefined,
+                        ordering: useSearch ? undefined : ordering || undefined,
                         ...logicProps.listQuery,
                     }
                     const page = await api.dashboardTemplates.list(params)
-                    // The list can resolve after the user navigates away; breakpoint() throws if the logic
-                    // unmounted, so the reads below never hit a torn-down store.
-                    breakpoint()
                     if (!useSearch && listScope === undefined) {
-                        return sortTemplatesTeamScopeBeforeOfficial(page.results, values.templateNameOrdering)
+                        return sortTemplatesTeamScopeBeforeOfficial(page.results, ordering)
                     }
                     return page.results
                 },
