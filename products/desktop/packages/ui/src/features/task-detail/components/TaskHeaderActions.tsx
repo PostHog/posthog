@@ -163,8 +163,10 @@ export function TaskHeaderActions({ task }: { task: Task }) {
         <>
           {isCloudTask ? (
             <>
-              <StopCloudRunButton taskId={task.id} />
+              {/* Stopping the run comes after the handoff: it ends the session,
+                  and the last thing in a row reads as the last resort. */}
               <CloudGitInteractionHeader taskId={task.id} task={task} />
+              <StopCloudRunButton taskId={task.id} />
             </>
           ) : (
             <LocalHandoffButton taskId={task.id} task={task} />

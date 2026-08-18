@@ -48,21 +48,18 @@ const PR_BADGE_TONE_CLASSES: Record<PrVisualConfig["color"], string> = {
 };
 
 /**
- * How a badge wears its lifecycle colour, as props for a quill button.
- *
- * Draft is the exception, and takes quill's own primary: a draft is the one
- * state that is waiting on you rather than reporting what happened, and grey
- * said the opposite.
+ * How a badge wears its lifecycle state, as props for a quill button. A solid
+ * state takes quill's own primary; the rest take their tint.
  *
  * Exported because the dropdown trigger that sits beside the badge in a
  * `ButtonGroup` has to wear the same thing, or the group reads as two controls.
  */
-export function prBadgeToneProps(color: PrVisualConfig["color"]): {
+export function prBadgeToneProps(config: PrVisualConfig): {
   variant?: "primary";
   className?: string;
 } {
-  if (color === "gray") return { variant: "primary" };
-  return { className: PR_BADGE_TONE_CLASSES[color] };
+  if (config.solid) return { variant: "primary" };
+  return { className: PR_BADGE_TONE_CLASSES[config.color] };
 }
 
 // Divider ahead of the PR-count segment, tinted to the badge's own color.
@@ -91,7 +88,7 @@ export function PRBadgeLink({
   const config = getPrVisualConfig(prState, merged, draft);
   const PrIcon = getPrVisualIcon(config.icon);
   const prNumber = parsePrNumber(prUrl);
-  const tone = prBadgeToneProps(config.color);
+  const tone = prBadgeToneProps(config);
 
   const totalCount = otherCount + 1;
   const stackTitle =
@@ -137,7 +134,7 @@ export function PRBadgeLink({
           // The label the button's own children spell out. Named here because
           // the anchor is the rendered element, and its content arrives from
           // the button around it.
-          aria-label={`Open ${config.label}${prNumber ? ` #${prNumber}` : ""} on GitHub`}
+          aria-label={`Open ${config.label}${prNumber ? ` #${prNumber}` : ""} on GitHub${stackTitle ? `, ${totalCount} on this task` : ""}`}
           onClick={(e) => e.stopPropagation()}
         />
       }

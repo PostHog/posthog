@@ -151,13 +151,20 @@ export function ChannelBreadcrumb({
                   <BreadcrumbSegment
                     icon={<span className="mr-0.5">{leafIcon}</span>}
                     label={leafLabel}
+                    shrink
                     onClick={() => setEditingScope(currentEditScope)}
+                    className="pr-1"
                   />
                 </TooltipTrigger>
                 <TooltipContent>{leafLabel}</TooltipContent>
               </Tooltip>
             ) : (
-              <BreadcrumbSegment icon={leafIcon} label={leafLabel} muted />
+              <BreadcrumbSegment
+                icon={leafIcon}
+                label={leafLabel}
+                muted
+                shrink
+              />
             )}
             {leafTrailing && (
               <span className="flex shrink-0 items-center">{leafTrailing}</span>
@@ -185,12 +192,16 @@ function BreadcrumbSegment({
   label,
   strong,
   muted,
+  shrink,
   onClick,
   contextMenu = false,
+  className,
   ...rest
 }: {
   icon?: ReactNode;
   label: string;
+  /** The leaf gives up width first, since it carries the longest name. */
+  shrink?: boolean;
   /** The root segment carries the space name, which reads heavier. */
   strong?: boolean;
   /** The leaf is the current page, so it sits back from the linked segments. */
@@ -198,6 +209,7 @@ function BreadcrumbSegment({
   /** Navigates, or (on a renamable leaf) opens the inline editor. */
   onClick?: () => void;
   contextMenu?: boolean;
+  className?: string;
 }) {
   const interactive = Boolean(onClick);
 
@@ -211,6 +223,11 @@ function BreadcrumbSegment({
       onClick={onClick}
       className={cn(
         "no-drag min-w-0",
+        // `shrink` beats quill's own `shrink-0`. Only the leaf takes it: a
+        // segment that cannot shrink keeps its full width in a row that has
+        // run out, and paints its label over the marks after it. The fixed
+        // segments stay whole, so a long session name is what gives.
+        shrink && "shrink",
         // Live segments (a link, or a click-to-rename leaf) behave like
         // any other button: pointer cursor and hover fill. Inert ones read as
         // plain text — full opacity, ordinary cursor, and no hover (quill's
@@ -218,6 +235,7 @@ function BreadcrumbSegment({
         interactive || contextMenu
           ? "cursor-pointer!"
           : "pointer-events-none cursor-default! opacity-100!",
+        className,
       )}
     >
       {icon && (

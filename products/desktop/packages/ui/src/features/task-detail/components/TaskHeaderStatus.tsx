@@ -1,15 +1,12 @@
 import { PushPin } from "@phosphor-icons/react";
-import {
-  Button,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import type { WorkspaceMode } from "@posthog/shared";
+import { getErrorMessage } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useTaskStatusInput } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useBluebirdFlag } from "@posthog/ui/features/feature-flags/useBluebirdFlag";
 import {
+  RowTooltip,
   TaskStatusDot,
   TaskStatusTooltips,
 } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
@@ -24,7 +21,7 @@ import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { WorkspaceModeBadge } from "@posthog/ui/features/task-detail/components/WorkspaceModeBadge";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { type ReactElement, type ReactNode, useState } from "react";
+import { type ReactNode, useState } from "react";
 
 // What quill's `icon-sm` button renders a glyph at. The marks that aren't
 // buttons take it too, so a row of them doesn't change glyph size halfway.
@@ -58,55 +55,34 @@ function HeaderMarks({ children }: { children: ReactNode }) {
 }
 
 /**
- * A label-only tooltip, opening below because the header is the top of the
- * window. `disableHoverablePopup` and `pointer-events-none` for the reason the
- * space list's tooltips take them: a popup the pointer can hold open sits over
- * what it describes.
- */
-function MarkTooltip({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactElement;
-}) {
-  return (
-    <Tooltip disableHoverablePopup>
-      <TooltipTrigger render={children} />
-      <TooltipContent side="bottom" className="pointer-events-none select-none">
-        {label}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
-/**
  * A header mark you can press, drawn as the header's own icon button so unpin
  * and "open the thread" look like the copy-link button beside them rather than
  * like the list's avatars.
  */
 function HeaderButton({
   label,
-  disabled,
+  loading,
   onClick,
   children,
 }: {
   label: string;
-  disabled?: boolean;
+  /** Blocks a second press without taking the button out of reach. */
+  loading?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
   return (
-    <MarkTooltip label={label}>
+    // Below, because the header is the top of the window.
+    <RowTooltip label={label} side="bottom">
       <Button
         size="icon-sm"
         aria-label={label}
-        disabled={disabled}
+        loading={loading}
         onClick={onClick}
       >
         {children}
       </Button>
-    </MarkTooltip>
+    </RowTooltip>
   );
 }
 
@@ -116,7 +92,7 @@ function HeaderButton({
  *
  * It replaces the cloud / laptop / worktree glyph, which said where the run
  * lives and nothing about whether it wants anything from you. Where the run
- * lives moves to {@link TaskHeaderActions}, and in that vocabulary the cloud is
+ * lives moves to {@link TaskHeaderMarks}, and in that vocabulary the cloud is
  * silent: running there is what a session does by default, so only the local
  * exception earns a badge.
  */
@@ -148,9 +124,7 @@ export function TaskHeaderMark({
  * it back.
  *
  * Drawn whether or not the session is pinned, because a control that vanishes
- * once used can only be undone from somewhere else. Unpinned it is an outline
- * in the button's own colour, so it reads as an offer rather than a fact about
- * the session.
+ * once used can only be undone from somewhere else.
  */
 function HeaderPinButton({
   taskId,
@@ -164,24 +138,22 @@ function HeaderPinButton({
   return (
     <HeaderButton
       label={pinned ? "Unpin" : "Pin"}
-      disabled={toggling}
+      loading={toggling}
       onClick={() => {
         setToggling(true);
         togglePin(taskId)
           .then(() => toast.success(pinned ? "Unpinned" : "Pinned"))
           .catch((error: unknown) =>
             toast.error(pinned ? "Couldn't unpin" : "Couldn't pin", {
-              description:
-                error instanceof Error ? error.message : String(error),
+              description: getErrorMessage(error),
             }),
           )
           .finally(() => setToggling(false));
       }}
     >
-      {/* Pinned is the one colour here, and it's the list's choice: amber says
-          "you put this here" without joining the states that are asking for
-          something. Unpinned takes the button's own colour, so the offer looks
-          like the copy-link button next to it rather than a mark. */}
+      {/* Amber, the list's own choice for a pin: it says "you put this here"
+          without joining the states that are asking for something. Unpinned
+          takes the button's colour, so it reads as an offer. */}
       <PushPin
         size={ICON_SIZE}
         weight={pinned ? "fill" : "regular"}
@@ -202,22 +174,20 @@ function HeaderBadge({
 }: {
   badge: TaskBadge;
 }) {
-  function glyph(muted: boolean) {
-    return (
-      // An explicit `color` (an SVG fill) rather than a text-* class where the
-      // vocabulary sets a tone, the same way the list's badges are drawn.
-      <Icon
-        aria-hidden
-        size={ICON_SIZE}
-        weight={tone ? "fill" : "regular"}
-        color={tone ? TONE_ICON_VAR[tone] : undefined}
-        className={!tone && muted ? "text-muted-foreground" : undefined}
-      />
-    );
-  }
+  const glyph = (
+    // An explicit `color` (an SVG fill) rather than a text-* class where the
+    // vocabulary sets a tone, the same way the list's badges are drawn.
+    <Icon
+      aria-hidden
+      size={ICON_SIZE}
+      weight={tone ? "fill" : "regular"}
+      color={tone ? TONE_ICON_VAR[tone] : undefined}
+      className={!tone && !url ? "text-muted-foreground" : undefined}
+    />
+  );
   if (!url) {
     return (
-      <MarkTooltip label={label}>
+      <RowTooltip label={label} side="bottom">
         {/* Dimmer than the buttons beside it, and sized to their box so a row of
             marks doesn't step as badges come and go. A mark you can't press
             shouldn't look like one you can. */}
@@ -226,14 +196,14 @@ function HeaderBadge({
           role="img"
           className="flex size-6 shrink-0 items-center justify-center"
         >
-          {glyph(true)}
+          {glyph}
         </span>
-      </MarkTooltip>
+      </RowTooltip>
     );
   }
   return (
     <HeaderButton label={label} onClick={() => openExternalUrl(url)}>
-      {glyph(false)}
+      {glyph}
     </HeaderButton>
   );
 }
@@ -247,23 +217,20 @@ function HeaderBadge({
  * header is one line about one session sitting next to a live copy-link button,
  * and beside it a stack of overlapping avatars reads as decoration.
  *
- * Nothing at all when there is nothing to say, rather than an empty group whose
- * padding still moves the title's neighbours.
+ * The pin is always here, even on a session with nothing else to say: a control
+ * that disappears once used can only be undone from somewhere else.
  */
-export function TaskHeaderActions({ task }: { task: Task }) {
+export function TaskHeaderMarks({ task }: { task: Task }) {
   const status = useHeaderStatus(task);
   if (!status) return null;
   return (
     <HeaderMarks>
       <HeaderPinButton taskId={task.id} pinned={!!status.isPinned} />
-      {taskBadges(status)
-        // The PR is the one badge the header drops: the git control at the end
-        // of the same row already draws the PR, in colour, with its actions
-        // behind it. Two marks for one PR a hand's width apart is one too many.
-        .filter((badge) => badge.key !== "pr")
-        .map((badge) => (
-          <HeaderBadge key={badge.key} badge={badge} />
-        ))}
+      {/* No PR badge: the git control at the end of the same row already draws
+          the PR, in colour, with its actions behind it. */}
+      {taskBadges(status, { includePr: false }).map((badge) => (
+        <HeaderBadge key={badge.key} badge={badge} />
+      ))}
     </HeaderMarks>
   );
 }

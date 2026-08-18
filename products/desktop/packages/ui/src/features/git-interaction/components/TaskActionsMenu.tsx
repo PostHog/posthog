@@ -12,6 +12,7 @@ import { getPrVisualConfig } from "@posthog/core/git-interaction/prStatus";
 import { parseGithubUrl } from "@posthog/git/utils";
 import {
   ButtonGroup,
+  ButtonGroupSeparator,
   cn,
   DropdownMenuContent,
   DropdownMenuSeparator,
@@ -29,6 +30,7 @@ import {
 } from "@posthog/quill";
 import type { PrActionType } from "@posthog/shared";
 import { ChevronDown } from "lucide-react";
+import type { ReactNode } from "react";
 import { toast } from "../../../primitives/toast";
 import { useLocalRepoPath } from "../../workspace/useLocalRepoPath";
 import { getPrActionIcon, getPrVisualIcon } from "../prIcon";
@@ -295,7 +297,7 @@ function PrBadgeControl({
   onOtherPrSelect,
 }: PrBadgeControlProps) {
   const config = getPrVisualConfig(prState, merged, draft);
-  const tone = prBadgeToneProps(config.color);
+  const tone = prBadgeToneProps(config);
   const lifecycleItems = config.actions;
   const hasMenuItems = gitItems.length + lifecycleItems.length > 0;
   const hasDropdown = hasMenuItems || !!branchName || otherPrs.length > 0;
@@ -321,27 +323,18 @@ function PrBadgeControl({
         otherCount={otherPrs.length}
       />
       {hasDropdown && (
-        <QDropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <QButton
-                size="sm"
-                aria-label="Pull request actions"
-                disabled={isPrPending}
-                // The trigger wears the badge's own lifecycle colour: the group
-                // is one control, and a neutral half beside a green one reads
-                // as two.
-                variant={tone.variant}
-                className={cn("px-1.5", tone.className)}
-              />
-            }
+        <>
+          {/* quill's group only collapses corners, and both halves share one
+              fill, so without a seam the trigger disappears into the badge. */}
+          <ButtonGroupSeparator />
+          <ChevronMenu
+            label="Pull request actions"
+            disabled={isPrPending}
+            // The trigger wears the badge's own lifecycle colour: the group is
+            // one control, and a neutral half beside a green one reads as two.
+            variant={tone.variant}
+            className={tone.className}
           >
-            <ChevronDown size={12} />
-          </DropdownMenuTrigger>
-          {/* `w-auto`: quill pins a menu to its anchor's width, and the anchor
-              here is a chevron the width of a glyph, so every label was cut off
-              at the menu's 8rem floor. */}
-          <DropdownMenuContent align="end" className="w-auto">
             {gitItems.map((item) => (
               <GitDropdownItem
                 key={item.id}
@@ -413,8 +406,8 @@ function PrBadgeControl({
                 </QDropdownMenuItem>
               </>
             )}
-          </DropdownMenuContent>
-        </QDropdownMenu>
+          </ChevronMenu>
+        </>
       )}
     </ButtonGroup>
   );
@@ -489,31 +482,69 @@ function GitActionControl({
   return (
     <ButtonGroup>
       {wrappedPrimaryButton}
-      <QDropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <QButton
-              size="sm"
-              variant="outline"
-              className="px-1.5"
-              aria-label={`More ${primaryAction.label.toLowerCase()} actions`}
-              disabled={isBusy}
-            />
-          }
-        >
-          <ChevronDown size={12} />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-auto">
-          {actions.map((action) => (
-            <GitDropdownItem
-              key={action.id}
-              action={action}
-              onSelect={onSelect}
-            />
-          ))}
-        </DropdownMenuContent>
-      </QDropdownMenu>
+      <ChevronMenu
+        label={`More ${primaryAction.label.toLowerCase()} actions`}
+        disabled={isBusy}
+        variant="outline"
+      >
+        {actions.map((action) => (
+          <GitDropdownItem
+            key={action.id}
+            action={action}
+            onSelect={onSelect}
+          />
+        ))}
+      </ChevronMenu>
     </ButtonGroup>
+  );
+}
+
+/**
+ * The second half of a split control: a chevron that opens the rest of what the
+ * button beside it can do.
+ *
+ * `w-auto` because quill pins a menu to its anchor's width, and this anchor is
+ * a chevron the width of a glyph — every label came out cut off at the menu's
+ * 8rem floor.
+ */
+function ChevronMenu({
+  label,
+  disabled,
+  variant,
+  className,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  variant?: "outline" | "primary";
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <QDropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <QButton
+            size="sm"
+            aria-label={label}
+            variant={variant}
+            disabled={disabled}
+            // quill keeps a disabled button focusable, so it carries
+            // `aria-disabled` rather than `:disabled` and a tint's hover rules
+            // still fire. No pointer, no hover.
+            className={cn(
+              "px-1.5 aria-disabled:pointer-events-none",
+              className,
+            )}
+          />
+        }
+      >
+        <ChevronDown size={12} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-auto">
+        {children}
+      </DropdownMenuContent>
+    </QDropdownMenu>
   );
 }
 

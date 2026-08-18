@@ -29,7 +29,7 @@ vi.mock("@posthog/ui/shell/openExternal", () => ({
 }));
 vi.mock("@posthog/ui/primitives/toast", () => ({ toast: mocks.toast }));
 
-import { TaskHeaderActions, TaskHeaderMark } from "./TaskHeaderStatus";
+import { TaskHeaderMark, TaskHeaderMarks } from "./TaskHeaderStatus";
 
 const task = { id: "task-1" } as Task;
 
@@ -41,10 +41,10 @@ function renderMark() {
   );
 }
 
-function renderActions() {
+function renderMarks() {
   return render(
     <Theme>
-      <TaskHeaderActions task={task} />
+      <TaskHeaderMarks task={task} />
     </Theme>,
   );
 }
@@ -85,17 +85,18 @@ describe("TaskHeaderStatus", () => {
 
   it("moves where the session runs into a badge, so cloud stays silent", () => {
     mocks.status = { workspaceMode: "local" };
-    const { rerender } = renderActions();
+    const { rerender } = renderMarks();
 
-    // A fact about the session, not a control: it names itself and stops there,
-    // so the pin is the only thing in the row you can press.
+    // A fact about the session, not a control: it names itself and stops there.
     expect(screen.getByRole("img", { name: "Local" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(
+      screen.queryByRole("button", { name: "Local" }),
+    ).not.toBeInTheDocument();
 
     mocks.status = { workspaceMode: "cloud" };
     rerender(
       <Theme>
-        <TaskHeaderActions task={task} />
+        <TaskHeaderMarks task={task} />
       </Theme>,
     );
 
@@ -111,7 +112,7 @@ describe("TaskHeaderStatus", () => {
     "toggles the pin from the header when %s, and says so",
     async (_case, isPinned: boolean, label: string, confirmation: string) => {
       mocks.status = { workspaceMode: "cloud", isPinned };
-      renderActions();
+      renderMarks();
 
       await userEvent.click(screen.getByRole("button", { name: label }));
 
@@ -120,23 +121,49 @@ describe("TaskHeaderStatus", () => {
     },
   );
 
-  it("leaves the PR to the git control at the end of the row", () => {
-    mocks.status = {
-      workspaceMode: "cloud",
-      prUrl: "https://github.com/PostHog/posthog/pull/1",
-      prState: "open",
-    };
-    renderActions();
+  it.each([
+    [
+      "a resolved PR, which the git control draws",
+      {
+        prState: "open" as const,
+        prUrl: "https://github.com/PostHog/posthog/pull/1",
+      },
+      false,
+    ],
+    [
+      "a PR whose state hasn't landed, which nothing else draws yet",
+      { prUrl: "https://github.com/PostHog/posthog/pull/1" },
+      true,
+    ],
+  ] satisfies [string, TaskStatusInput, boolean][])(
+    "shows %s",
+    (_case, pr: TaskStatusInput, shown: boolean) => {
+      mocks.status = { workspaceMode: "cloud", ...pr };
+      renderMarks();
 
-    expect(
-      screen.queryByRole("button", { name: "PR ready for review" }),
-    ).not.toBeInTheDocument();
+      const badge = screen.queryByRole("button", { name: /pull request/i });
+      expect(!!badge).toBe(shown);
+    },
+  );
+
+  it("keeps the badges a PR used to hide", () => {
+    // The header drops the PR badge, and `taskBadges` only falls back to
+    // "Local" when nothing else spoke — so dropping it after the fact left a
+    // local session with a PR wearing no badge at all.
+    mocks.status = {
+      workspaceMode: "local",
+      prState: "open" as const,
+      prUrl: "https://github.com/PostHog/posthog/pull/1",
+    };
+    renderMarks();
+
+    expect(screen.getByRole("img", { name: "Local" })).toBeInTheDocument();
   });
 
   it("reports a pin that didn't take, rather than leaving the mark to lie", async () => {
     mocks.status = { workspaceMode: "cloud", isPinned: false };
     mocks.togglePin.mockRejectedValueOnce(new Error("offline"));
-    renderActions();
+    renderMarks();
 
     await userEvent.click(screen.getByRole("button", { name: "Pin" }));
 
@@ -152,7 +179,7 @@ describe("TaskHeaderStatus", () => {
       originProduct: "slack",
       slackThreadUrl: "https://example.slack.com/archives/C1/p1",
     };
-    renderActions();
+    renderMarks();
 
     await userEvent.click(
       screen.getByRole("button", { name: "Source: Slack" }),
