@@ -1367,9 +1367,11 @@ async def _process_signal_batch(
                     for sid, result in emitted_signals
                 ],
                 max_wait_time_seconds=3600,
-                # Fresh emissions: the store's confirmation is enough for the next batch's
-                # semantic search — don't spend ClickHouse queries on the happy path.
-                mode=WaitForClickHouseMode.OPTIMISTIC,
+                # The summary workflows spawned below read these rows from ClickHouse as their first
+                # step, so a batch that promoted a report must confirm visibility there; the store's
+                # Kafka-commit confirmation only precedes the insert. Batches that promote nothing
+                # only need the rows for the next batch's semantic search, where optimism is fine.
+                mode=(WaitForClickHouseMode.CH_CONFIRMED if promoted_reports else WaitForClickHouseMode.OPTIMISTIC),
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(minutes=2),
