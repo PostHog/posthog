@@ -154,6 +154,19 @@ describe('scoutGroups', () => {
         it('falls back to the description when no run has closed out', () => {
             expect(scoutSubtitle(makeConfig(), rollupFor([]), NOW)?.text).toEqual('Watches latency and throughput.')
         })
+
+        // Both anchor the settling-in window; only a fresh scout was actually created recently.
+        it.each([
+            ['a fresh scout', { created_at: '2026-06-26T22:00:00Z', status_changed_at: null }, 'Created '],
+            [
+                'a re-enabled scout',
+                { created_at: '2026-01-01T00:00:00Z', status_changed_at: '2026-06-26T22:00:00Z' },
+                'Turned on ',
+            ],
+        ])('says how %s entered the settling-in window', (_name, overrides, verb) => {
+            // `fromNow()` reads the wall clock, so only the verb is stable enough to pin.
+            expect(scoutSubtitle(makeConfig(overrides), rollupFor([]), NOW)?.text.startsWith(verb)).toBe(true)
+        })
     })
 
     describe('scoutCadenceLabel', () => {

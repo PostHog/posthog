@@ -28,8 +28,8 @@ import { ScoutRunHistorySection } from './ScoutRunHistorySection'
  * this page is for reading the scout, not adjusting it.
  */
 export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
-    const { scoutConfigs, rollups } = useValues(scoutFleetLogic)
-    const { startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
+    const { scoutConfigs, scoutConfigsLoading, rollups } = useValues(scoutFleetLogic)
+    const { startRunsPolling, stopRunsPolling, loadScoutConfigs } = useActions(scoutFleetLogic)
     const { entries } = useValues(scratchpadLogic)
     const { scoutNotes } = useValues(scoutNotesLogic({ skillName }))
 
@@ -65,13 +65,31 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     }, [skillName, config, rollup])
 
     if (scoutConfigs === null) {
-        // Configs unresolved (loading, not-yet-fetched on a fresh deep-link mount, or a failed
-        // load — never an empty fleet, which is `[]`). Hold the skeleton so "Scout not found"
-        // can't flash before we actually have the fleet to look in.
+        // Configs unresolved — never an empty fleet, which is `[]`. While the fetch is in flight
+        // (the fleet logic starts it on mount, so a fresh deep link is loading from its first
+        // render), hold a skeleton so "Scout not found" can't flash before we have the fleet to
+        // look in. Once it has failed, say so and offer a retry. The back link stays either way.
         return (
             <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-4 py-3">
-                <LemonSkeleton className="h-24 w-full rounded" />
-                <LemonSkeleton className="h-40 w-full rounded" />
+                <div className="flex">
+                    <BackToScouts />
+                </div>
+                {scoutConfigsLoading ? (
+                    <>
+                        <LemonSkeleton className="h-24 w-full rounded" />
+                        <LemonSkeleton className="h-40 w-full rounded" />
+                    </>
+                ) : (
+                    <div className="flex items-center gap-3 rounded border border-danger bg-danger-highlight px-4 py-3.5">
+                        <span className="flex-1 text-xs text-danger">
+                            Couldn't load this scout. The scout API may be unavailable or this project may not be
+                            enrolled yet.
+                        </span>
+                        <LemonButton type="secondary" size="small" status="danger" onClick={() => loadScoutConfigs()}>
+                            Retry
+                        </LemonButton>
+                    </div>
+                )}
             </div>
         )
     }

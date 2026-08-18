@@ -315,8 +315,13 @@ export function InboxScene(): JSX.Element {
                     resourceType={{ type: 'inbox' }}
                     // Creating a scout is the Scouts tab's primary action, so it sits in the scene
                     // header rather than inside the roster — one predictable place, and it stays
-                    // reachable when the roster is filtered down to nothing.
-                    actions={activeTab === 'scouts' ? <ScoutsRosterActions /> : undefined}
+                    // reachable when the roster is filtered down to nothing. Not while onboarding
+                    // has the tab locked (or is still deciding): the roster isn't reachable then.
+                    actions={
+                        activeTab === 'scouts' && onboardingMode !== 'takeover' && onboardingMode !== 'pending' ? (
+                            <ScoutsRosterActions />
+                        ) : undefined
+                    }
                 />
 
                 <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">

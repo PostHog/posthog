@@ -21,6 +21,9 @@ export function ScratchpadPanel(): JSX.Element {
         entries,
         entriesLoading,
         loadFailed,
+        searchResultsLoading,
+        searchFailed,
+        visibleEntries,
         totalCount,
         lastUpdatedAt,
         groups,
@@ -28,10 +31,15 @@ export function ScratchpadPanel(): JSX.Element {
         grouping,
         expandedNamespaces,
     } = useValues(scratchpadLogic)
-    const { setSearchText, setGrouping, toggleNamespace, loadEntries } = useActions(scratchpadLogic)
+    const { setSearchText, setGrouping, toggleNamespace, loadEntries, loadSearchResults } = useActions(scratchpadLogic)
 
-    const isInitialLoad = entriesLoading && entries === null
     const isSearching = searchText.trim().length > 0
+    // The window loads once on mount; a search loads its own result set on top of it. Either
+    // list shows a skeleton until its first response, and its own retry when that response fails.
+    const isInitialLoad = isSearching ? visibleEntries === null && !searchFailed : entriesLoading && entries === null
+    const listFailed = isSearching ? searchFailed : loadFailed
+    const retry = isSearching ? loadSearchResults : loadEntries
+    const retryLoading = isSearching ? searchResultsLoading : entriesLoading
 
     return (
         <div className="flex flex-col gap-4 px-4 py-3">
@@ -63,9 +71,9 @@ export function ScratchpadPanel(): JSX.Element {
                     <ScratchpadEntryCardSkeleton />
                     <ScratchpadEntryCardSkeleton />
                 </div>
-            ) : loadFailed && (!entries || entries.length === 0) ? (
-                <ScratchpadErrorState onRetry={() => loadEntries()} loading={entriesLoading} />
-            ) : !entries || entries.length === 0 ? (
+            ) : listFailed && (!visibleEntries || visibleEntries.length === 0) ? (
+                <ScratchpadErrorState onRetry={() => retry()} loading={retryLoading} />
+            ) : !visibleEntries || visibleEntries.length === 0 ? (
                 <ScratchpadEmptyState isSearching={isSearching} />
             ) : grouping === 'topic' ? (
                 <div className="flex flex-col gap-3">
@@ -101,7 +109,7 @@ export function ScratchpadPanel(): JSX.Element {
                 </div>
             ) : (
                 <div className="flex flex-col gap-2">
-                    {entries.map((entry) => (
+                    {visibleEntries.map((entry) => (
                         <ScratchpadEntryCard key={entry.key} entry={entry} />
                     ))}
                 </div>

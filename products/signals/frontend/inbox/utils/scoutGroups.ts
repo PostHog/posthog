@@ -53,13 +53,25 @@ function rollupProducedOutput(rollup: ScoutRollup | undefined): boolean {
     return rollup.emittedCount > 0 || rollup.authoredReportIds.size > 0 || rollup.editedReportIds.size > 0
 }
 
+/**
+ * When the scout's current cold-start grace began: creation, or the later re-enable if there was one.
+ * `status_changed_at` is null on a freshly created scout and stamped on every later status change,
+ * so it restarts the grace on a human re-enable, matching the sweep's own anchor.
+ */
+function coldStartAnchor(config: SignalScoutConfig): { at: string; reenabled: boolean } | null {
+    const changedAt = config.status_changed_at
+    if (changedAt && (!config.created_at || dayjs(changedAt).isAfter(dayjs(config.created_at)))) {
+        return { at: changedAt, reenabled: true }
+    }
+    return config.created_at ? { at: config.created_at, reenabled: false } : null
+}
+
 function isWithinColdStart(config: SignalScoutConfig, now: Date): boolean {
-    // `status_changed_at` restarts the grace on a human re-enable, matching the sweep's own anchor.
-    const anchor = config.status_changed_at ?? config.created_at
+    const anchor = coldStartAnchor(config)
     if (!anchor) {
         return false
     }
-    return dayjs(now).diff(dayjs(anchor), 'day', true) < SCOUT_COLD_START_DAYS
+    return dayjs(now).diff(dayjs(anchor.at), 'day', true) < SCOUT_COLD_START_DAYS
 }
 
 export function scoutGroup(config: SignalScoutConfig, rollup: ScoutRollup | undefined, now: Date): ScoutGroupKey {
@@ -178,9 +190,11 @@ export function scoutSubtitle(
     if (!config.emit) {
         return { text: 'Runs and investigates, but files nothing', tone: 'muted' }
     }
-    if (isWithinColdStart(config, now)) {
-        const anchor = config.status_changed_at ?? config.created_at
-        return { text: `Created ${dayjs(anchor).fromNow()}`, tone: 'muted' }
+    const anchor = coldStartAnchor(config)
+    if (anchor && isWithinColdStart(config, now)) {
+        // A re-enabled scout is months old; only a fresh one was "created" recently.
+        const verb = anchor.reenabled ? 'Turned on' : 'Created'
+        return { text: `${verb} ${dayjs(anchor.at).fromNow()}`, tone: 'muted' }
     }
     // What the last settled run actually checked. The scout writes this at close-out, so it reads
     // as work done rather than as an absence of output.
