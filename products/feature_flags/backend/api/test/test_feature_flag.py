@@ -1527,7 +1527,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
             response.json().get("detail"),
-            f"multivariate.variants: Variant rollout percentages must sum to 100, got {float(75 + third_variant_rollout)}.",
+            f"multivariate.variants: Variant rollout percentages must sum to 100, got {75 + third_variant_rollout}.",
         )
 
     def test_cant_update_multivariate_feature_flag_with_variant_rollout_not_100(self):
@@ -1574,7 +1574,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json().get("type"), "validation_error")
         self.assertEqual(
             response.json().get("detail"),
-            "multivariate.variants: Variant rollout percentages must sum to 100, got 90.0.",
+            "multivariate.variants: Variant rollout percentages must sum to 100, got 90.",
         )
 
         # Verify flag wasn't updated
