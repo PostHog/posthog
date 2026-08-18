@@ -162,6 +162,40 @@ describe('signalTeamConfigLogic', () => {
         expect(logic.values.draftMaxReportsPerDay).toBe(7)
     })
 
+    it('refreshes the config when the user returns to the tab, without wiping the draft', async () => {
+        let reportsToday = 3
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/config/': () => [
+                    200,
+                    {
+                        id: 'cfg-1',
+                        autostart_enabled: true,
+                        default_autostart_priority: 'P4',
+                        autostart_base_branches: {},
+                        max_reports_per_day: 10,
+                        reports_generated_today: reportsToday,
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        logic = signalTeamConfigLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.reportsGeneratedToday).toBe(3)
+
+        logic.actions.setDraftMaxReportsPerDay(7)
+        reportsToday = 9
+        // jsdom's visibilityState is 'visible', so this dispatch is a return-to-tab.
+        document.dispatchEvent(new Event('visibilitychange'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.reportsGeneratedToday).toBe(9)
+        // The reseed guard must hold for this reload path too, not just failure reloads.
+        expect(logic.values.draftMaxReportsPerDay).toBe(7)
+    })
+
     it('treats a cleared (NaN) daily limit input as unlimited', async () => {
         await mountWith({})
         logic.actions.setDraftMaxReportsPerDay(5)

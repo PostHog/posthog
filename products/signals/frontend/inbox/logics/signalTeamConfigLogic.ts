@@ -382,7 +382,22 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
             },
         }
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.loadTeamConfig()
+        // Refresh on return to the tab: reports keep generating in the background, so the
+        // daily-limit count and reached-banner would otherwise stay stale until a reload or save.
+        cache.disposables.add(
+            () => {
+                const handler = (): void => {
+                    if (document.visibilityState === 'visible' && !values.teamConfigLoading) {
+                        actions.loadTeamConfig()
+                    }
+                }
+                document.addEventListener('visibilitychange', handler)
+                return () => document.removeEventListener('visibilitychange', handler)
+            },
+            'refreshOnTabReturn',
+            { pauseOnPageHidden: false }
+        )
     }),
 ])
