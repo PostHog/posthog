@@ -2000,6 +2000,27 @@ def get_custom_property_source(
     return _to_custom_property_source_view(source, user_access_control) if source is not None else None
 
 
+def get_custom_property_source_binding_id(team_id: int, source_id: str) -> str | None:
+    """The id of the warehouse object a source reads — its saved query for a view binding, its external
+    data schema for a table binding — or None when the source doesn't resolve or reads neither. Kept to
+    two id columns (no definition join, no view building) because the sync throttle calls it per request
+    to key its limit on the warehouse object rather than the mapping."""
+    try:
+        row = (
+            CustomPropertySource.objects.for_team(team_id)
+            .filter(id=source_id)
+            .values_list("saved_query_id", "external_data_schema_id")
+            .first()
+        )
+    except (ValidationError, ValueError):  # a non-UUID id from the URL is simply unknown
+        return None
+    if row is None:
+        return None
+    saved_query_id, schema_id = row
+    binding_id = saved_query_id or schema_id
+    return str(binding_id) if binding_id is not None else None
+
+
 def create_custom_property_source(
     *,
     team_id: int,
