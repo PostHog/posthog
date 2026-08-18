@@ -24,7 +24,7 @@ name: Trunk impacted targets
 # secrets to code from untrusted forks ("pwn request"). The fork path
 # deliberately needs no secret, so `pull_request` is sufficient and safe.
 #
-# SECURITY: the two jobs below MUST stay separate, and `upload` MUST NOT check
+# SECURITY: `compute` and `upload` MUST stay separate. `upload` MUST NOT check
 # out or run anything from the PR. `compute` executes PR-controlled code (the
 # target script, and whatever the PR did to it), so it is kept free of secrets.
 # Splitting on a step boundary instead of a job boundary would not be enough:
@@ -248,3 +248,35 @@ jobs:
                       -X POST "$POSTHOG_TELEMETRY_HOST/i/v0/e/" \
                       -H "Content-Type: application/json" \
                       --data "$event" > /dev/null
+
+    comment:
+        name: Update Trunk lane in CI report
+        needs: [compute, upload]
+        if: github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Run only trusted base-branch code with the token that can edit PR comments.
+                  ref: ${{ github.event.pull_request.base.sha }}
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Post Trunk lane to CI report
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  IMPACTED_TARGETS: ${{ needs.compute.outputs.targets }}
+                  LANE_PROPERTIES: ${{ needs.compute.outputs.telemetry }}
+              run: |
+                  if [ -f .github/scripts/post-trunk-lane-section.mjs ]; then
+                      node .github/scripts/post-trunk-lane-section.mjs
+                  else
+                      echo "::warning::Skipping the Trunk lane section because the trusted base does not contain its poster."
+                  fi

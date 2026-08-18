@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 
 import { buildDocsPreviewSection } from './post-docs-preview-section.mjs'
 import { buildHobbySection } from './post-hobby-section.mjs'
+import { buildTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
 const commonHobby = {
     previewMode: true,
@@ -12,6 +13,28 @@ const commonHobby = {
 }
 
 describe('CI report section builders', () => {
+    for (const testCase of [
+        {
+            name: 'marks the universal lane red',
+            input: { impactedTargets: ['py:core', 'fe:core'], isUniversal: true },
+            expectedStatus: 'fail',
+        },
+        {
+            name: 'marks a backend Python lane yellow',
+            input: { impactedTargets: ['py:product:surveys'], isUniversal: false },
+            expectedStatus: 'warn',
+        },
+        {
+            name: 'marks other lanes green',
+            input: { impactedTargets: ['fe:core'], isUniversal: false },
+            expectedStatus: 'ok',
+        },
+    ]) {
+        it(testCase.name, () => {
+            assert.equal(buildTrunkLaneSection(testCase.input).status, testCase.expectedStatus)
+        })
+    }
+
     it('renders a docs preview link after a successful trigger', () => {
         const section = buildDocsPreviewSection({
             triggerStatus: 'success',
