@@ -88,6 +88,9 @@ export interface alertsLogicActions {
         }
         payload?: any
     }
+    removeAlertFromList: (alertId: string) => {
+        alertId: string
+    }
     setAlertDeleting: (
         alertId: string,
         isDeleting: boolean
@@ -137,6 +140,7 @@ export const alertsLogic = kea<alertsLogicType>([
         setAlertToggling: (alertId: string, isToggling: boolean) => ({ alertId, isToggling }),
         deleteAlert: (alert: AlertType) => ({ alert }),
         setAlertDeleting: (alertId: string, isDeleting: boolean) => ({ alertId, isDeleting }),
+        removeAlertFromList: (alertId: string) => ({ alertId }),
         toggleAlertEnabled: (alert: AlertType) => ({ alert }),
         updateAlertInList: (alert: AlertType) => ({ alert }),
     }),
@@ -149,6 +153,13 @@ export const alertsLogic = kea<alertsLogicType>([
                     ...state,
                     results: state.results.map((currentAlert) => (currentAlert.id === alert.id ? alert : currentAlert)),
                 }),
+                removeAlertFromList: (state, { alertId }) => {
+                    const results = state.results.filter((alert) => alert.id !== alertId)
+                    if (results.length === state.results.length) {
+                        return state
+                    }
+                    return { results, count: Math.max(0, state.count - 1) }
+                },
             },
         ],
         page: [
@@ -284,7 +295,7 @@ export const alertsLogic = kea<alertsLogicType>([
             actions.setAlertDeleting(alert.id, true)
             try {
                 await api.alerts.delete(alert.id)
-                actions.loadAlerts()
+                actions.removeAlertFromList(alert.id)
                 lemonToast.success(`${alert.name || 'Unnamed alert'} has been deleted`)
             } catch {
                 lemonToast.error("Couldn't delete the alert. Try again.")

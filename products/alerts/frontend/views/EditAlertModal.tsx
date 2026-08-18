@@ -5,6 +5,7 @@ import { useCallback, useMemo } from 'react'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { formatDate } from 'lib/utils/datetime'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -413,6 +414,14 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
         <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
             {alertLoading && !alert ? (
                 <AlertEditorLoading title="Edit alert" onBack={handleClose} />
+            ) : alertId && !alert ? (
+                <div className="flex min-h-[600px] flex-col items-center justify-center gap-2 p-6 text-center">
+                    <h2 className="m-0 text-lg font-semibold">Alert not found</h2>
+                    <p className="m-0 text-secondary">This alert may have been deleted.</p>
+                    <LemonButton type="secondary" onClick={handleClose}>
+                        Close
+                    </LemonButton>
+                </div>
             ) : (
                 <Form
                     logic={alertFormLogic}
