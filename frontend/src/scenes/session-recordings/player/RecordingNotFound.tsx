@@ -16,6 +16,7 @@ export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?:
             <NotFound
                 object="Recording"
                 className="shrink-0"
+                style={sessionRecordingId ? { marginBottom: 0 } : undefined}
                 caption={
                     <>
                         The requested recording could not be found. See the diagnosis below for likely reasons, or refer
