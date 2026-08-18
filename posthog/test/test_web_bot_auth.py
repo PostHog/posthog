@@ -3,6 +3,7 @@ import base64
 import hashlib
 
 import pytest
+from unittest.mock import patch
 
 from django.test import Client, override_settings
 
@@ -10,14 +11,13 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from posthoganalytics.contexts import get_capture_exception_code_variables_context
 
-from posthog.web_bot_auth import (
-    CONTENT_TYPE,
-    _private_keys,
-    jwk_thumbprint,
-    public_jwk,
-    signature_base,
-    signed_directory,
+from posthog.web_bot_auth import CONTENT_TYPE, jwk_thumbprint, public_jwk, signature_base, signed_directory
+from posthog.web_bot_auth_keys import (
+    WebBotAuthPrivateKeyConfigurationError,
+    load_web_bot_auth_private_key_configuration,
+    validate_web_bot_auth_private_keys_in_background,
 )
 
 PEM = (
@@ -161,16 +161,72 @@ def test_the_route_is_absent_where_no_key_is_configured():
 
 
 @pytest.mark.parametrize(
-    "configured_keys,expected_error",
+    "configured_keys,expected_error_message",
     [
-        pytest.param(["not a PEM"], ValueError, id="malformed-pem"),
-        pytest.param([NON_ED25519_PEM], TypeError, id="non-ed25519-key"),
-        pytest.param([PEM, "not a PEM"], ValueError, id="mixed-valid-and-invalid-keys"),
+        pytest.param([], "is present but contains no keys", id="empty"),
+        pytest.param(["not a PEM"], "entry 1 could not be loaded (ValueError)", id="malformed-pem"),
+        pytest.param([NON_ED25519_PEM], "entry 1 is not an Ed25519 private key", id="non-ed25519-key"),
+        pytest.param(
+            [PEM, "not a PEM"],
+            "entry 2 could not be loaded (ValueError)",
+            id="mixed-valid-and-invalid-keys",
+        ),
     ],
 )
-def test_invalid_key_configuration_is_rejected(configured_keys: list[str], expected_error: type[Exception]) -> None:
-    with override_settings(WEB_BOT_AUTH_PRIVATE_KEYS=configured_keys), pytest.raises(expected_error):
-        _private_keys()
+def test_invalid_key_configuration_is_rejected(configured_keys: list[str], expected_error_message: str) -> None:
+    configuration = load_web_bot_auth_private_key_configuration(
+        tuple(configured_keys),
+        require_at_least_one=True,
+    )
+
+    assert configuration.private_keys == ()
+    assert configuration.validation_error is not None
+    assert expected_error_message in str(configuration.validation_error)
+
+
+@override_settings(WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT=True, CLOUD_DEPLOYMENT="US")
+def test_flattened_private_key_configuration_is_supported() -> None:
+    with override_settings(WEB_BOT_AUTH_PRIVATE_KEYS=[PEM.replace("\n", "\\n")]):
+        response = Client().get("/.well-known/http-message-signatures-directory")
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize("configured_keys", [[], ["not a PEM"]], ids=["empty", "malformed-pem"])
+@override_settings(WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT=True, CLOUD_DEPLOYMENT="US")
+def test_the_route_is_unavailable_when_key_configuration_is_invalid(configured_keys: list[str]) -> None:
+    with override_settings(WEB_BOT_AUTH_PRIVATE_KEYS=configured_keys):
+        assert Client().get("/.well-known/http-message-signatures-directory").status_code == 503
+
+
+def test_startup_validation_reports_invalid_configuration() -> None:
+    code_variable_capture_settings: list[bool | None] = []
+
+    def record_capture_exception_context(*args: object, **kwargs: object) -> None:
+        code_variable_capture_settings.append(get_capture_exception_code_variables_context())
+
+    with (
+        patch(
+            "posthog.exceptions_capture.capture_exception",
+            side_effect=record_capture_exception_context,
+        ) as capture_exception,
+        patch("posthog.utils.safe_cache_add", return_value=True),
+    ):
+        validation_thread = validate_web_bot_auth_private_keys_in_background(("not a PEM",))
+        validation_thread.join(timeout=2)
+
+    assert validation_thread.daemon is True
+    assert validation_thread.is_alive() is False
+    capture_exception.assert_called_once()
+    captured_error = capture_exception.call_args.args[0]
+    assert isinstance(captured_error, WebBotAuthPrivateKeyConfigurationError)
+    assert captured_error.__traceback__ is None
+    assert code_variable_capture_settings == [False]
+    assert capture_exception.call_args.kwargs["additional_properties"] == {
+        "component": "web_bot_auth_key_directory",
+        "configured_key_count": 1,
+        "setting": "WEB_BOT_AUTH_PRIVATE_KEYS",
+    }
 
 
 @pytest.mark.parametrize("region", ["EU", "DEV", None])

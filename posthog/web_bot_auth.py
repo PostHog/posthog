@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from posthog.cloud_utils import is_cloud_us
 from posthog.dataclasses import frozen
+from posthog.web_bot_auth_keys import load_web_bot_auth_private_key_configuration
 
 CONTENT_TYPE = "application/http-message-signatures-directory+json"
 _TAG = "http-message-signatures-directory"
@@ -32,16 +33,6 @@ _AUTHORITY = "us.posthog.com"
 class SignatureBase:
     parameters: str
     value: str
-
-
-def _private_keys() -> list[Ed25519PrivateKey]:
-    keys: list[Ed25519PrivateKey] = []
-    for pem in settings.WEB_BOT_AUTH_PRIVATE_KEYS:
-        key = serialization.load_pem_private_key(pem.encode(), password=None)
-        if not isinstance(key, Ed25519PrivateKey):
-            raise TypeError("WEB_BOT_AUTH_PRIVATE_KEYS contains a key that is not Ed25519")
-        keys.append(key)
-    return keys
 
 
 def public_jwk(key: Ed25519PrivateKey) -> dict[str, str]:
@@ -109,11 +100,23 @@ def http_message_signatures_directory(request: HttpRequest) -> HttpResponse:
     if not is_cloud_us():
         return HttpResponseNotFound()
 
-    keys = _private_keys()
-    if not keys:
+    try:
+        configuration = load_web_bot_auth_private_key_configuration(
+            tuple(settings.WEB_BOT_AUTH_PRIVATE_KEYS),
+            require_at_least_one=settings.WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT,
+        )
+    except Exception:
+        return HttpResponse(status=503)
+    if configuration.validation_error is not None:
+        return HttpResponse(status=503)
+    if not configuration.private_keys:
         return HttpResponseNotFound()
 
-    body, headers = signed_directory(keys, int(time.time()), base64.b64encode(secrets.token_bytes(32)).decode())
+    body, headers = signed_directory(
+        configuration.private_keys,
+        int(time.time()),
+        base64.b64encode(secrets.token_bytes(32)).decode(),
+    )
     response = HttpResponse(body, content_type=CONTENT_TYPE)
     for name, value in headers.items():
         response[name] = value
