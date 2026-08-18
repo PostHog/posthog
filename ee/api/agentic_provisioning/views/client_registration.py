@@ -125,7 +125,6 @@ class ClientRegistrationView(ProvisioningAPIView):
         # unreachable, so a failed re-fetch is reported as one failed check rather than
         # suppressing every other diagnostic the caller came for.
         existing = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
-        app: OAuthApplication | None
         try:
             # A CIMD client that has never been used for provisioning carries no provisioning
             # config yet, and this is the call that gives it one, so the rest of the namespace
@@ -142,15 +141,16 @@ class ClientRegistrationView(ProvisioningAPIView):
             # A document we could not read or could not store leaves the row describing an
             # older one, so a client that is not already a partner stays one short of
             # registered until a document we can act on arrives.
-            app = existing
-        else:
-            _record(checks, "metadata_document", True, "Fetched and validated")
+            return self._require_partner(existing, checks, document_read=False)
+        _record(checks, "metadata_document", True, "Fetched and validated")
 
         return self._require_partner(app, checks)
 
-    def _require_partner(self, app: OAuthApplication, checks: list[dict[str, Any]]) -> OAuthApplication | None:
+    def _require_partner(
+        self, app: OAuthApplication, checks: list[dict[str, Any]], *, document_read: bool = True
+    ) -> OAuthApplication | None:
         if not app.is_provisioning_partner:
-            _record(checks, "provisioning_enabled", False, _not_a_partner_detail(app))
+            _record(checks, "provisioning_enabled", False, _not_a_partner_detail(app, document_read=document_read))
             return None
         if not app.provisioning.active:
             _record(checks, "provisioning_enabled", False, "Provisioning is deactivated for this client")
@@ -186,15 +186,25 @@ class ClientRegistrationView(ProvisioningAPIView):
         _record(checks, "client_assertion", True, "Verified, and its jti is now consumed")
 
 
-def _not_a_partner_detail(app: OAuthApplication) -> str:
+def _not_a_partner_detail(app: OAuthApplication, *, document_read: bool) -> str:
     """Why this client is not a provisioning partner, in terms of what its owner can change.
 
     A CIMD client registers by publishing the opt-in, so the detail has to name the key. The
     caller may not be the client's owner, but nothing here is a secret: the key is documented,
     and the document it goes in is public by construction.
+
+    ``document_read`` is False when this answer rests on a stored row rather than the document
+    the client publishes now, which is a different situation to report: the key may well be
+    there already, and telling its owner to add it would send them after a problem they fixed.
     """
     if app.provisioning.disabled:
         return "Provisioning is blocked for this client. Contact PostHog support if that is unexpected."
+    if app.is_cimd_client and not document_read:
+        return (
+            "This client is not registered for agentic provisioning, and its metadata document "
+            "could not be read to check for the opt-in. Fix the error in the metadata_document "
+            "check, then register again."
+        )
     if app.is_cimd_client:
         return (
             "This client is not enabled for agentic provisioning. Add "

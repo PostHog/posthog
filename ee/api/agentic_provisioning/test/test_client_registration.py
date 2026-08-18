@@ -305,6 +305,10 @@ class TestClientRegistration(ProvisioningTestBase):
         checks = {check["name"]: check for check in res.json()["checks"]}
         assert checks["metadata_document"]["ok"] is False
         assert "fragment not allowed" in checks["metadata_document"]["detail"]
+        # The opt-in may well be in the document we refused, so the answer points at the
+        # rejection rather than sending the client's owner after a key they already published.
+        assert '"com.posthog"' not in checks["provisioning_enabled"]["detail"]
+        assert "metadata_document" in checks["provisioning_enabled"]["detail"]
         app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
         assert app.is_provisioning_partner is False
         assert app.provisioning.can_create_accounts is False
