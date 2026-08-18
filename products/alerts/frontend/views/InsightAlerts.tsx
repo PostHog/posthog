@@ -9,7 +9,6 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -25,6 +24,7 @@ import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { alertsLogic } from '../logic/alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
+import { AlertNotFoundModal } from './EditAlertModal/AlertNotFoundModal'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
@@ -260,16 +260,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
             )}
 
             {alertId && !alertForEditModal && !alertLoading && (
-                <LemonModal onClose={() => push(urls.alerts())} isOpen simple title="">
-                    <div className="flex min-h-64 flex-col items-center justify-center gap-3 p-6 text-center">
-                        <HedgehogMagnifyingGlass className="h-28 w-28" />
-                        <h2 className="m-0 text-lg font-semibold">Alert not found</h2>
-                        <p className="m-0 text-secondary">This alert may have been deleted.</p>
-                        <LemonButton type="secondary" onClick={() => push(urls.alerts())}>
-                            Back to alerts
-                        </LemonButton>
-                    </div>
-                </LemonModal>
+                <AlertNotFoundModal isOpen onClose={() => push(urls.alerts())} />
             )}
 
             {isEmpty ? null : (
