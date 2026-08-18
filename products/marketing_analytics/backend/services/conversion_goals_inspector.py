@@ -25,6 +25,7 @@ from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
@@ -61,7 +62,7 @@ EXPLAIN_EVENT_SCAN_LIMIT = 5000
 
 @dataclass
 class ConversionGoalSummary:
-    id: str
+    conversion_goal_id: str
     name: str
     kind: GoalKind
     target_label: str
@@ -109,7 +110,7 @@ class GoalEventSample:
 
 @dataclass
 class GoalExplanation:
-    goal_id: str
+    conversion_goal_id: str
     goal_name: str
     kind: GoalKind
     period: DateRange
@@ -159,7 +160,7 @@ async def list_conversion_goals(team: Team, *, user: User | None = None) -> Conv
 def _failed_goal_summary(goal: dict[str, Any], exc: BaseException) -> ConversionGoalSummary:
     goal_id = str(goal.get("conversion_goal_id") or goal.get("id") or "")
     return ConversionGoalSummary(
-        id=goal_id,
+        conversion_goal_id=goal_id,
         name=goal.get("conversion_goal_name") or goal.get("name") or goal_id,
         kind=cast(GoalKind, goal.get("kind", "EventsNode")),
         target_label="(unavailable)",
@@ -193,7 +194,7 @@ async def explain_conversion_goal(
 
     if kind == "DataWarehouseNode":
         return GoalExplanation(
-            goal_id=goal_id,
+            conversion_goal_id=goal_id,
             goal_name=name,
             kind=kind,
             period=resolved_period,
@@ -265,7 +266,7 @@ async def explain_conversion_goal(
             )
 
     return GoalExplanation(
-        goal_id=goal_id,
+        conversion_goal_id=goal_id,
         goal_name=name,
         kind=kind,
         period=resolved_period,
@@ -310,6 +311,12 @@ async def _summarize_goal(
     user: User | None = None,
 ) -> ConversionGoalSummary:
     goal_id = str(goal.get("conversion_goal_id") or goal.get("id") or "")
+    # `conversion_goal_id` identifies the goal within the team's config; `id` is what
+    # the goal points AT — an action's primary key for ActionsNode. Conflating them
+    # made every ActionsNode goal with a `conversion_goal_id` (which the schema
+    # requires, so: all of them) resolve its action against the wrong value and report
+    # itself misconfigured.
+    target_id = str(goal.get("id") or "")
     name = goal.get("conversion_goal_name") or goal.get("name") or goal_id
     # `kind_raw: str` keeps the "unknown kind" fallback reachable — a GoalKind
     # would let mypy treat the branches below as exhaustive.
@@ -329,25 +336,22 @@ async def _summarize_goal(
 
     if kind_raw == "EventsNode":
         target_label = goal.get("event") or "(all events)"
-        total, integrated, without_utm, unmatched_with_utm = await _count_event_goal(team, goal, alias_map, user=user)
+        counts = await _count_event_goal(team, goal, alias_map, user=user)
         return _summary_with_split(
             goal_id,
             name,
             kind,
             target_label,
-            total,
-            integrated,
-            without_utm,
-            unmatched_with_utm,
+            counts,
             is_approximate=base_approximate,
             approximation_reason=base_reason,
         )
 
     if kind_raw == "ActionsNode":
-        action, action_error = await _resolve_action(team, goal_id)
+        action, action_error = await _resolve_action(team, target_id)
         if action is None:
             return ConversionGoalSummary(
-                id=goal_id,
+                conversion_goal_id=goal_id,
                 name=name,
                 kind=kind,
                 target_label=f"Action #{goal_id}",
@@ -358,21 +362,16 @@ async def _summarize_goal(
                 non_integrated_count=None,
                 integrated_pct=None,
                 is_misconfigured=True,
-                misconfig_reason=action_error or f"Action {goal_id} no longer exists",
+                misconfig_reason=action_error or f"Action {target_id} no longer exists",
             )
         target_label = f"Action: {action.name}"
-        total, integrated, without_utm, unmatched_with_utm = await _count_action_goal(
-            team, action, alias_map, user=user
-        )
+        counts = await _count_action_goal(team, action, alias_map, user=user)
         return _summary_with_split(
             goal_id,
             name,
             kind,
             target_label,
-            total,
-            integrated,
-            without_utm,
-            unmatched_with_utm,
+            counts,
             is_approximate=base_approximate,
             approximation_reason=base_reason,
         )
@@ -382,7 +381,7 @@ async def _summarize_goal(
         target_label = f"{table_name}"
         last_30d_count, dw_misconfig = await _count_dw_goal(team, goal, user=user)
         return ConversionGoalSummary(
-            id=goal_id,
+            conversion_goal_id=goal_id,
             name=name,
             kind=kind,
             target_label=target_label,
@@ -399,7 +398,7 @@ async def _summarize_goal(
         )
 
     return ConversionGoalSummary(
-        id=goal_id,
+        conversion_goal_id=goal_id,
         name=name,
         kind=kind,
         target_label="(unknown kind)",
@@ -414,30 +413,35 @@ async def _summarize_goal(
     )
 
 
+@frozen
+class UtmSplitCounts:
+    total: int
+    integrated: int
+    without_utm: int
+    unmatched_with_utm: int
+
+
 def _summary_with_split(
     goal_id: str,
     name: str,
     kind: GoalKind,
     target_label: str,
-    total: int,
-    integrated: int,
-    without_utm: int,
-    unmatched_with_utm: int,
+    counts: UtmSplitCounts,
     *,
     is_approximate: bool = False,
     approximation_reason: str | None = None,
 ) -> ConversionGoalSummary:
-    integrated_pct = round((integrated / total) * 100, 2) if total > 0 else 0.0
+    integrated_pct = round((counts.integrated / counts.total) * 100, 2) if counts.total > 0 else 0.0
     return ConversionGoalSummary(
-        id=goal_id,
+        conversion_goal_id=goal_id,
         name=name,
         kind=kind,
         target_label=target_label,
-        last_30d_count=total,
-        integrated_count=integrated,
-        events_without_utm_source=without_utm,
-        events_with_unmatched_utm_source=unmatched_with_utm,
-        non_integrated_count=without_utm + unmatched_with_utm,
+        last_30d_count=counts.total,
+        integrated_count=counts.integrated,
+        events_without_utm_source=counts.without_utm,
+        events_with_unmatched_utm_source=counts.unmatched_with_utm,
+        non_integrated_count=counts.without_utm + counts.unmatched_with_utm,
         integrated_pct=integrated_pct,
         is_misconfigured=False,
         misconfig_reason=None,
@@ -461,7 +465,7 @@ def _resolve_action(team: Team, goal_id: str) -> tuple[Action | None, str | None
 @database_sync_to_async
 def _count_event_goal(
     team: Team, goal: dict[str, Any], alias_map: dict[str, NativeIntegration], user: User | None = None
-) -> tuple[int, int, int, int]:
+) -> UtmSplitCounts:
     """For EventsNode: count last 30d events matching the goal, split by utm_source match.
 
     `goal["event"]` may be None, meaning "match any event" (rare but valid)."""
@@ -482,15 +486,13 @@ def _count_event_goal(
 @database_sync_to_async
 def _count_action_goal(
     team: Team, action: Action, alias_map: dict[str, NativeIntegration], user: User | None = None
-) -> tuple[int, int, int, int]:
+) -> UtmSplitCounts:
     """For ActionsNode: count last 30d events matching the action's full definition
-    (`action_to_expr`, same as the dashboard), split by utm_source.
-
-    Returns (total, integrated, without_utm, unmatched_with_utm)."""
+    (`action_to_expr`, same as the dashboard), split by utm_source."""
     # No steps → `action_to_expr` returns `true`; short-circuit so we don't count
     # the entire events table.
     if not action.steps:
-        return 0, 0, 0, 0
+        return UtmSplitCounts(total=0, integrated=0, without_utm=0, unmatched_with_utm=0)
     since = timezone.now() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
     return _execute_count_with_split(
         team, action_to_expr(action), {"since": ast.Constant(value=since)}, alias_map, user=user
@@ -503,8 +505,8 @@ def _execute_count_with_split(
     placeholders: dict[str, ast.Expr],
     alias_map: dict[str, NativeIntegration],
     user: User | None = None,
-) -> tuple[int, int, int, int]:
-    """Returns (total, integrated, without_utm, unmatched_with_utm).
+) -> UtmSplitCounts:
+    """Count matching events, split by utm_source integration status.
 
     The split is computed in ClickHouse via `countIf`, not `GROUP BY utm_source`
     plus a Python sum — a `GROUP BY` inherits the default query row limit and
@@ -539,9 +541,14 @@ def _execute_count_with_split(
         result = execute_hogql_query(hogql, team, placeholders=query_placeholders, user=user)
     rows = result.results or []
     if not rows:
-        return 0, 0, 0, 0
+        return UtmSplitCounts(total=0, integrated=0, without_utm=0, unmatched_with_utm=0)
     total, integrated, without_utm, unmatched_with_utm = rows[0]
-    return int(total or 0), int(integrated or 0), int(without_utm or 0), int(unmatched_with_utm or 0)
+    return UtmSplitCounts(
+        total=int(total or 0),
+        integrated=int(integrated or 0),
+        without_utm=int(without_utm or 0),
+        unmatched_with_utm=int(unmatched_with_utm or 0),
+    )
 
 
 @database_sync_to_async
@@ -565,13 +572,19 @@ def _count_dw_goal(team: Team, goal: dict[str, Any], user: User | None = None) -
     since = timezone.now() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
     table_chain: list[str | int] = list(str(table_name).split("."))
     timestamp_chain: list[str | int] = [str(timestamp_field)]
+    # Cast both sides, exactly as `_get_where_conditions` does for the real query.
+    # Warehouse timestamp columns very often land as String (CSV and several DLT
+    # sources do it), and ClickHouse refuses to compare String with DateTime64 —
+    # so an uncast health check reports a goal as broken that queries perfectly
+    # well on the dashboard. The cast is a no-op when the column is already a
+    # datetime, which is why the real path applies it unconditionally too.
     query = ast.SelectQuery(
         select=[ast.Call(name="count", args=[])],
         select_from=ast.JoinExpr(table=ast.Field(chain=table_chain)),
         where=ast.CompareOperation(
-            left=ast.Field(chain=timestamp_chain),
+            left=ast.Call(name="toDateTime", args=[ast.Field(chain=timestamp_chain)]),
             op=ast.CompareOperationOp.GtEq,
-            right=ast.Constant(value=since),
+            right=ast.Call(name="toDateTime", args=[ast.Constant(value=since)]),
         ),
     )
     try:

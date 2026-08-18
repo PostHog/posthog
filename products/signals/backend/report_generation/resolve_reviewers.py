@@ -47,6 +47,11 @@ STALE_BLAME_MULTIPLIER = 0.15
 # Caps activity-only fallbacks below blame candidates: they only win when every blame author is stale.
 ACTIVITY_ONLY_SCORE_CAP = 0.25
 ACTIVITY_BONUS_SATURATION_COMMITS = 10
+# Above this many recent contributors, an area is a crowd rather than an ownership signal.
+# Sized above a product-sized area and below a repo-sized one; a small team's whole repository
+# stays under it, which is intended. Must stay under MAX_CONTRIBUTORS_PER_AREA, which truncates
+# the list this counts.
+MAX_CONTRIBUTORS_FOR_OWNERSHIP = 30
 GitHubLoginFieldLookup = Literal[
     "extra_data__login",
     "config__github_user__login",
@@ -78,7 +83,9 @@ def enrich_reviewer_dicts_with_org_members(
     enriched: list[dict] = []
     for r in reviewer_dicts:
         login = r.get("github_login", "")
-        user = resolved_map.get(login.lower()) if login else None
+        # strip + lower matches the resolver's key normalization, so a legacy padded login
+        # (stored before the schema stripped on write) still resolves.
+        user = resolved_map.get(login.strip().lower()) if login else None
         enriched.append(
             {
                 **r,
@@ -138,7 +145,9 @@ def resolve_suggested_reviewers(
     Blame candidates (commit authors, weighted by finding position) are recency-shaped
     against cached area activity, and recently-active area contributors enter as capped
     fallbacks — see ``_score_candidates``. With no activity data available at all, scoring
-    degrades to blame-only.
+    degrades to blame-only. This path never proposes nobody while activity data exists:
+    an unrouted report goes unreviewed, so crowded-area contributors are proposed as the
+    final fallback (``allow_crowd_fallback``).
     """
     if not commit_hashes_with_reasons or not repository:
         return []
@@ -195,7 +204,9 @@ def resolve_suggested_reviewers(
     touched_paths = [path for info in author_results.values() if info is not None for path in info.file_paths]
     activity_by_login = _relevant_area_activity(team_id, repository, touched_paths)
 
-    return _rank_scored_candidates(login_weights, activity_by_login, login_commits, login_names)
+    return _rank_scored_candidates(
+        login_weights, activity_by_login, login_commits, login_names, allow_crowd_fallback=True
+    )
 
 
 def rank_assignee_candidates(
@@ -229,18 +240,10 @@ def _rank_scored_candidates(
     activity_by_login: dict[str, _AreaContributor],
     login_commits: dict[str, list[RelevantCommit]],
     login_names: dict[str, str | None],
+    *,
+    allow_crowd_fallback: bool = False,
 ) -> list[_ResolvedReviewer]:
-    scores = _score_candidates(login_weights, activity_by_login)
-
-    # Activity-only owners are a last resort: only surface them when no weighted (blame/agent)
-    # candidate is still active in the area, so we don't pad noise next to a live reviewer.
-    # Recency, not map membership, decides "active" — the cached area map can be stale.
-    def _weighted_candidate_still_active(login: str) -> bool:
-        activity = activity_by_login.get(login)
-        return activity is not None and activity.days_since_last_commit < ACTIVITY_WINDOW_DAYS
-
-    if any(_weighted_candidate_still_active(login) for login in login_weights):
-        scores = {login: score for login, score in scores.items() if login in login_weights}
+    scores = _score_candidates(login_weights, activity_by_login, allow_crowd_fallback=allow_crowd_fallback)
 
     def rank_key(item: tuple[str, float]) -> tuple[float, int, str]:
         login, score = item
@@ -288,6 +291,11 @@ class _AreaContributor:
     last_commit_sha: str
     last_commit_url: str
     area: str  # the area of the evidence (freshest) commit, for evidence wording
+    # True if *any* area this contributor was drawn from is focused enough to count as owned.
+    # Not tied to the evidence area: a crowded area still supplies recency, it proposes
+    # contributors only as the crowd fallback of last resort (see _score_candidates), and it
+    # must not cancel a claim earned in a focused one.
+    is_likely_owner_of_area: bool
 
 
 def _relevant_area_activity(
@@ -300,8 +308,9 @@ def _relevant_area_activity(
     Cache-only; a missing or stale map schedules an async rebuild and this report falls
     back to whatever is cached (possibly nothing). An area with no active contributors
     falls back up its chain (parent directory, then repo-wide) — someone active nearby
-    beats nobody. Returns an empty dict when nothing is known — callers must treat that
-    as "no signal", not "nobody is active".
+    beats nobody. Levels above ``MAX_CONTRIBUTORS_FOR_OWNERSHIP`` contributors still supply
+    recency, but imply no ownership. Returns an empty dict when nothing is known — callers
+    must treat that as "no signal", not "nobody is active".
     """
     areas = areas_for_paths(touched_paths)
     if not areas:
@@ -320,9 +329,10 @@ def _relevant_area_activity(
         if level is None or level in used_levels:
             continue
         used_levels.add(level)
+        is_likely_owner_of_area = len(activity_by_area[level]) <= MAX_CONTRIBUTORS_FOR_OWNERSHIP
         for contributor in activity_by_area[level]:
             existing = merged.get(contributor.login)
-            merged[contributor.login] = _merge_contributor(existing, contributor, level, now)
+            merged[contributor.login] = _merge_contributor(existing, contributor, level, now, is_likely_owner_of_area)
     return merged
 
 
@@ -341,6 +351,7 @@ def _merge_contributor(
     incoming: ContributorActivity,
     area: str,
     now: datetime,
+    is_likely_owner_of_area: bool,
 ) -> _AreaContributor:
     days_since = max(0.0, (now - incoming.last_commit_at).total_seconds() / 86400)
     if existing is None:
@@ -351,9 +362,11 @@ def _merge_contributor(
             last_commit_sha=incoming.last_commit_sha,
             last_commit_url=incoming.last_commit_url,
             area=area,
+            is_likely_owner_of_area=is_likely_owner_of_area,
         )
     # Evidence follows the freshest commit, so sha/url/area always agree with
-    # days_since_last_commit.
+    # days_since_last_commit. Ownership does not: it accumulates, so a fresher commit in a
+    # crowded level can't erase a claim earned in a focused one.
     keep_incoming_evidence = days_since < existing.days_since_last_commit
     return _AreaContributor(
         name=existing.name or incoming.name,
@@ -362,6 +375,7 @@ def _merge_contributor(
         last_commit_sha=incoming.last_commit_sha if keep_incoming_evidence else existing.last_commit_sha,
         last_commit_url=incoming.last_commit_url if keep_incoming_evidence else existing.last_commit_url,
         area=area if keep_incoming_evidence else existing.area,
+        is_likely_owner_of_area=existing.is_likely_owner_of_area or is_likely_owner_of_area,
     )
 
 
@@ -378,36 +392,71 @@ def _recency_multiplier(days_since_last_commit: float | None) -> float:
     return 1.0 - progress * (1.0 - RECENCY_DECAY_FLOOR)
 
 
+def _has_live_reviewer(
+    login_weights: Counter[str],
+    activity_by_login: dict[str, _AreaContributor],
+) -> bool:
+    """Whether a candidate with a blame or agent-proposed weight is still committing in the report's areas.
+
+    Recency decides, not membership in the cached map: it is served while a rebuild is
+    scheduled, so an entry can have aged past the window.
+    """
+    for login in login_weights:
+        activity = activity_by_login.get(login)
+        if activity is not None and activity.days_since_last_commit < ACTIVITY_WINDOW_DAYS:
+            return True
+    return False
+
+
 def _score_candidates(
     login_weights: Counter[str],
     activity_by_login: dict[str, _AreaContributor],
+    *,
+    allow_crowd_fallback: bool = False,
 ) -> dict[str, float]:
     """Blend blame weights with area recency; add capped activity-only fallbacks.
 
-    Invariants: a freshly-active area contributor always outranks a blame author who is
-    gone from the area (their base starts above the stale floor), and never outranks the
-    *top-weighted* blame author while that author is active in the window (the cap sits
-    below the decay floor). Lower-weighted active blame authors can still be outranked by
-    a very active area owner — deliberate: weight-1 blame is one marginal commit, not a
-    stronger claim than sustained area ownership. With no activity data at all, blame
-    weights pass through unchanged (legacy behavior).
+    Blame and agent-proposed weights decay toward the stale floor as their author's last
+    commit in the area recedes. Area contributors are proposed in their own right only as a
+    last resort: no live reviewer, and an area focused enough to imply ownership. Their base
+    starts above the stale floor, so they outrank authors who have left the area. With no
+    activity data at all, blame weights pass through unchanged (legacy behavior).
+
+    ``allow_crowd_fallback`` decides what happens when even that yields nobody (no blame
+    candidate at all, and every relevant area too crowded to imply ownership): the pipeline
+    reviewer path proposes the crowded areas' most active contributors, because an empty
+    suggestion list leaves the report unrouted; the agent re-ranking path keeps returning
+    nothing, so the agent's own judgment (including a deliberate "no clear candidate") wins.
     """
     if not activity_by_login:
         return {login: float(weight) for login, weight in login_weights.items()}
 
-    max_blame_weight = float(max(login_weights.values(), default=0)) or 1.0
     scores: dict[str, float] = {}
     for login, weight in login_weights.items():
         activity = activity_by_login.get(login)
         multiplier = _recency_multiplier(activity.days_since_last_commit if activity else None)
         scores[login] = float(weight) * multiplier
 
-    for login, activity in activity_by_login.items():
-        if login in scores:
-            continue
+    if _has_live_reviewer(login_weights, activity_by_login):
+        return scores
+
+    # If not, nobody the report points at is around to review, so fall back to area contributors.
+    def activity_only_score(activity: _AreaContributor) -> float:
+        max_blame_weight = float(max(login_weights.values(), default=0)) or 1.0
         saturation = min(activity.commit_count, ACTIVITY_BONUS_SATURATION_COMMITS) / ACTIVITY_BONUS_SATURATION_COMMITS
         base = STALE_BLAME_MULTIPLIER + (ACTIVITY_ONLY_SCORE_CAP - STALE_BLAME_MULTIPLIER) * saturation
-        scores[login] = max_blame_weight * base * _recency_multiplier(activity.days_since_last_commit)
+        return max_blame_weight * base * _recency_multiplier(activity.days_since_last_commit)
+
+    for login, activity in activity_by_login.items():
+        if login in scores or not activity.is_likely_owner_of_area:
+            continue
+        scores[login] = activity_only_score(activity)
+
+    if scores or not allow_crowd_fallback:
+        return scores
+
+    for login, activity in activity_by_login.items():
+        scores[login] = activity_only_score(activity)
     return scores
 
 

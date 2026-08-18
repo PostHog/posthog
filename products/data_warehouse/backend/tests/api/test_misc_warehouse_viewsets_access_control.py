@@ -22,7 +22,8 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
-from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 MANAGED_VIEWSET_KIND = "revenue_analytics"
 
@@ -93,6 +94,66 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
 
         response = self.client.get(self._path("total_rows_stats/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_managed_warehouse_status_excludes_blocked_and_direct_sources(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(self.viewer_user, resource="external_data_source", access_level="viewer")
+        allowed_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="allowed",
+            connection_id="allowed-connection",
+            source_type="Stripe",
+            status="Running",
+        )
+        blocked_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="blocked",
+            connection_id="blocked-connection",
+            source_type="Postgres",
+            status="Running",
+        )
+        managed_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="managed",
+            connection_id="managed-connection",
+            source_type="Postgres",
+            status="Running",
+            prefix="managed_warehouse",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            connection_metadata={"engine": "duckdb", "system_managed": True, "credential_kind": "org_root"},
+        )
+        allowed_schema = ExternalDataSchema.objects.create(team=self.team, source=allowed_source, name="charges")
+        ExternalDataSchema.objects.create(team=self.team, source=blocked_source, name="customers")
+        ExternalDataSchema.objects.create(team=self.team, source=managed_source, name="events")
+        self._create_access_control(
+            self.viewer_user,
+            resource="external_data_source",
+            resource_id=str(blocked_source.id),
+            access_level="none",
+        )
+        self.client.force_login(self.viewer_user)
+
+        summary_response = self.client.get(self._path("managed-warehouse-data-status/"))
+        detail_response = self.client.get(
+            self._path(f"managed-warehouse-source-schemas/?source_id={blocked_source.id}")
+        )
+        allowed_detail_response = self.client.get(
+            self._path(f"managed-warehouse-source-schemas/?source_id={allowed_source.id}")
+        )
+
+        self.assertEqual(summary_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [source["source_id"] for source in summary_response.json()["sources"]["sources"]],
+            [str(allowed_source.id)],
+        )
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.json()["schemas"], [])
+        self.assertEqual(allowed_detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [schema["schema_id"] for schema in allowed_detail_response.json()["schemas"]],
+            [str(allowed_schema.id)],
+        )
 
     def test_data_ops_dashboard_blocked_for_viewer(self):
         # data_ops_dashboard creates a Dashboard as a side effect, so require editor

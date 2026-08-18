@@ -112,6 +112,22 @@ class TestAutomationService(TestCase):
 
         self.assertFalse(TaskRun.objects.filter(task=automation.task).exists())
         mock_execute_workflow.assert_not_called()
+        automation.refresh_from_db()
+        self.assertIsNotNone(automation.last_error)
+
+    @patch("products.tasks.backend.automation_service.execute_task_processing_workflow_for_automation")
+    def test_run_task_automation_fails_closed_without_creator(self, mock_execute_workflow):
+        # created_by is SET_NULL on user deletion; with no user there is no entitlement and
+        # no way to mint the run's sandbox OAuth token, so the fire must stop, not skip the check.
+        automation = self.create_automation()
+        automation.task.created_by = None
+        automation.task.save(update_fields=["created_by", "updated_at"])
+
+        with self.assertRaises(PermissionDenied):
+            run_task_automation(str(automation.id))
+
+        self.assertFalse(TaskRun.objects.filter(task=automation.task).exists())
+        mock_execute_workflow.assert_not_called()
 
     def test_automation_last_run_properties_come_from_last_task_run(self):
         automation = self.create_automation()

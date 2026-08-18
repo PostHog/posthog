@@ -1,10 +1,11 @@
 import io
+import time
 import zipfile
 from typing import Any, ClassVar
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -13,11 +14,18 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.logic.services.living_artifacts import (
+    _SLACK_CODE_FENCE,
+    _SLACK_MESSAGE_BLOCK_LIMIT,
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
     DocumentConnectorUnavailable,
+    _chart_card_blocks,
+    _post_composed_answer_message,
+    _section_blocks,
+    _SlackImageCard,
     create_living_artifact,
     deliver_pending_slack_file_artifacts,
     edit_living_artifact,
@@ -54,6 +62,7 @@ class FakeDocumentConnectorAdapter:
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
+        export_asset_id: int | None = None,
     ) -> ArtifactCommit:
         document_id = (artifact.location or {}).get("document_id") if artifact is not None else artifact_id
         location = {
@@ -529,6 +538,87 @@ class TestLivingArtifacts(TestCase):
                 content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
+    def _create_scopeless_mapping(self, mock_integration_for_mapping) -> None:
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+        slack_integration = MagicMock()
+        slack_integration.missing_scopes.return_value = {"files:write"}
+        mock_integration_for_mapping.return_value = slack_integration
+
+    @override_settings(SITE_URL="http://localhost:8010")
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_slack_file_adapter_allows_chart_images_with_own_export_without_file_scope(
+        self, mock_integration_for_mapping, _mock_flag
+    ):
+        # Chart images deliver as image blocks pointing at a PostHog-hosted url — no upload,
+        # no files:write.
+        self._create_scopeless_mapping(mock_integration_for_mapping)
+        asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.PNG)
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Signups by week.png",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content_bytes=b"png-bytes",
+            content_type="image/png",
+            export_asset_id=asset.id,
+        )
+
+        self.assertEqual(artifact.adapter, TaskArtifact.Adapter.SLACK_FILE)
+        self.assertEqual(artifact.location["delivery_status"], "pending")
+        self.assertEqual(artifact.export_asset_id, asset.id)
+        # The delivery token bypasses the org's publicly-shared-resources setting and metadata
+        # is readable with only task:read, so it must never be stored — delivery mints it.
+        self.assertNotIn("image_url", artifact.metadata)
+
+    def _foreign_team_asset_id(self) -> int:
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        return ExportedAsset.objects.create(team=other_team, export_format=ExportedAsset.ExportFormat.PNG).id
+
+    def _non_image_asset_id(self) -> int:
+        return ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.CSV).id
+
+    @parameterized.expand(
+        [
+            ("no_export_asset", lambda _self: None),
+            ("unknown_export_asset", lambda _self: 987654),
+            ("export_asset_from_another_team", lambda self: self._foreign_team_asset_id()),
+            # An image block is the only thing delivery posts, so a non-image asset must not
+            # mint either — otherwise a leaked reference could pull down a CSV.
+            ("export_asset_that_is_not_an_image", lambda self: self._non_image_asset_id()),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_slack_file_adapter_rejects_images_without_a_resolvable_export(
+        self, _name, asset_id_factory, mock_integration_for_mapping, _mock_flag
+    ):
+        self._create_scopeless_mapping(mock_integration_for_mapping)
+
+        with self.assertRaisesRegex(ValueError, "files:write"):
+            create_living_artifact(
+                run=self.task_run,
+                name="screenshot.png",
+                artifact_type=TaskArtifact.ArtifactType.FILE,
+                adapter=TaskArtifact.Adapter.SLACK_FILE,
+                content_bytes=b"png-bytes",
+                content_type="image/png",
+                export_asset_id=asset_id_factory(self),
+            )
+
+        self.assertFalse(TaskArtifact.objects.for_team(self.team.id).exists())
+
     def _create_mapping_with_full_scopes(self) -> None:
         # Scopes granted (the DEV-install shape) so these tests prove the feature flag
         # gates canvas/file delivery even where the in-review scopes are available.
@@ -602,6 +692,60 @@ class TestLivingArtifacts(TestCase):
         mock_integration_for_mapping.assert_not_called()
         self.assertFalse(TaskArtifact.objects.for_team(self.team.id).exists())
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_caller_metadata_cannot_link_an_export_asset(self, mock_integration_for_mapping, _mock_flag):
+        # Anyone with task:write can pass metadata here, and the export link is what lets
+        # delivery mint an anonymous url for someone else's export. It lives in its own
+        # column, which caller metadata must never populate.
+        self._create_mapping_with_full_scopes()
+        mock_integration_for_mapping.return_value.missing_scopes.return_value = set()
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="chart.png",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content_bytes=b"png-bytes",
+            content_type="image/png",
+            metadata={"export_asset_id": 4321, "posthog_url": "http://localhost:8010/project/1/insights/abc"},
+        )
+
+        self.assertIsNone(artifact.export_asset_id)
+        self.assertEqual(artifact.metadata["posthog_url"], "http://localhost:8010/project/1/insights/abc")
+
+        # Nor by retrofitting one onto an artifact that already exists.
+        updated = edit_living_artifact(
+            artifact=artifact,
+            content_bytes=b"png-bytes-v2",
+            content_type="image/png",
+            metadata={"export_asset_id": 4321},
+        )
+        self.assertIsNone(updated.export_asset_id)
+
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_editing_a_chart_drops_its_export_link(self, mock_integration_for_mapping, _mock_flag):
+        # The export depicts the version it was rendered from, so a new version must not
+        # deliver the old picture.
+        self._create_mapping_with_full_scopes()
+        mock_integration_for_mapping.return_value.missing_scopes.return_value = set()
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="chart.png",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content_bytes=b"png-bytes",
+            content_type="image/png",
+            export_asset_id=321,
+        )
+        self.assertEqual(artifact.export_asset_id, 321)
+        self.assertNotIn("export_asset_id", artifact.metadata)
+
+        updated = edit_living_artifact(artifact=artifact, content_bytes=b"png-bytes-v2", content_type="image/png")
+
+        self.assertIsNone(updated.export_asset_id)
+
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=False)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_pending_file_delivery_skipped_when_flag_off(self, mock_integration_for_mapping, _mock_flag):
@@ -626,9 +770,146 @@ class TestLivingArtifacts(TestCase):
             current_version=1,
         )
 
-        delivered = deliver_pending_slack_file_artifacts(self.task_run, initial_comment="done")
+        delivery = deliver_pending_slack_file_artifacts(self.task_run)
 
-        self.assertEqual(delivered, 0)
+        self.assertFalse(delivery.answer_posted)
+        self.assertEqual(delivery.delivered_count, 0)
         mock_integration_for_mapping.assert_not_called()
         artifact.refresh_from_db()
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
+
+
+@override_settings(SITE_URL="http://localhost:8010")
+class TestChartCardBlockBuilders(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("url_within_limit", "http://localhost:8010/project/1/insights/abc", ["section", "image", "actions"]),
+            (
+                "url_over_slack_button_cap",
+                "http://localhost:8010/project/1/insights/new#q=" + "x" * 3000,
+                ["section", "image"],
+            ),
+            # Artifact metadata is caller-writable, so an off-origin url must not become a button
+            # the PostHog bot appears to vouch for.
+            ("url_off_posthog_origin", "https://phishing.example/project/1/insights/abc", ["section", "image"]),
+        ]
+    )
+    def test_button_only_added_for_trusted_url_within_slack_cap(self, _name, url, expected_block_types):
+        artifact = TaskArtifact(name="Chart", metadata={"posthog_url": url})
+        blocks = _chart_card_blocks(_SlackImageCard(artifact, {}, file_id="F123"))
+        self.assertEqual([b["type"] for b in blocks], expected_block_types)
+
+    def test_oversized_sections_split_below_block_char_cap(self):
+        blocks = _section_blocks(["a" * 6500, "short"])
+        self.assertEqual([len(b["text"]["text"]) for b in blocks], [3000, 3000, 500, 5])
+        self.assertEqual(blocks[-1]["text"]["text"], "short")
+
+    def test_oversized_sections_split_at_whitespace_so_mrkdwn_entities_survive(self):
+        # A hard character slice can cut a converted entity like `<url|text>` in half;
+        # the split must land on whitespace when any is available in the window.
+        words = "word " * 1300  # 6500 chars of 5-char words
+        blocks = _section_blocks([words.strip()])
+        self.assertGreater(len(blocks), 1)
+        for block in blocks:
+            text = block["text"]["text"]
+            self.assertLessEqual(len(text), 3000)
+            self.assertEqual(set(text.split(" ")), {"word"})
+
+    def test_oversized_fenced_section_is_closed_and_reopened_around_the_split(self):
+        # Tables convert to fenced blocks before this re-split, so a cut inside one would
+        # leave an unclosed fence in one block and a stray closer in the next.
+        table = "| cell | cell |\n" * 250
+        blocks = _section_blocks([f"{_SLACK_CODE_FENCE}\n{table}{_SLACK_CODE_FENCE}"])
+        self.assertGreater(len(blocks), 1)
+        for block in blocks:
+            text = block["text"]["text"]
+            self.assertLessEqual(len(text), 3000)
+            self.assertEqual(text.count(_SLACK_CODE_FENCE) % 2, 0)
+            self.assertTrue(text.startswith(_SLACK_CODE_FENCE))
+            self.assertTrue(text.endswith(_SLACK_CODE_FENCE))
+
+    def test_fenced_whitespace_free_content_terminates_and_stays_balanced(self):
+        # After a fence is closed and reopened, the only whitespace in the window can be
+        # the reopen prefix's own newline — cutting there consumes nothing of the content.
+        section = f"{_SLACK_CODE_FENCE}\n{'x' * 8000}\n{_SLACK_CODE_FENCE}"
+        blocks = _section_blocks([section])
+        self.assertGreater(len(blocks), 1)
+        for block in blocks:
+            text = block["text"]["text"]
+            self.assertLessEqual(len(text), 3000)
+            self.assertEqual(text.count(_SLACK_CODE_FENCE) % 2, 0)
+        self.assertIn(
+            "x" * 8000,
+            "".join(b["text"]["text"] for b in blocks)
+            .replace(f"\n{_SLACK_CODE_FENCE}", "")
+            .replace(f"{_SLACK_CODE_FENCE}\n", ""),
+        )
+
+    def test_card_without_a_minted_url_references_the_uploaded_file(self):
+        card = _SlackImageCard(TaskArtifact(name="Chart"), {}, file_id="F123")
+        blocks = _chart_card_blocks(card)
+        self.assertEqual(blocks[1], {"type": "image", "slack_file": {"id": "F123"}, "alt_text": "Chart"})
+
+    def test_card_with_a_minted_url_references_it_directly(self):
+        image_url = "http://localhost:8010/exporter/export-1.png?token=abc"
+        card = _SlackImageCard(TaskArtifact(name="Chart"), {}, image_url=image_url)
+        blocks = _chart_card_blocks(card)
+        self.assertEqual(blocks[1], {"type": "image", "image_url": image_url, "alt_text": "Chart"})
+
+    @parameterized.expand(
+        [
+            ("composed", 1),
+            # Two blocks per card, so this many cards overflows the cap and takes the per-card path.
+            ("per_card", _SLACK_MESSAGE_BLOCK_LIMIT // 2 + 1),
+        ]
+    )
+    def test_mention_shaped_artifact_name_is_escaped_in_message_text(self, _name, card_count):
+        # Artifact names are task-controlled and Slack parses a message's top-level text as
+        # mrkdwn, so an unescaped name could notify a channel as the PostHog bot.
+        slack = MagicMock()
+        slack.chat_postMessage.return_value = {"ok": True, "ts": "1111.2"}
+        cards = [
+            _SlackImageCard(TaskArtifact(name="<!channel> spike.png"), {}, file_id=f"F{index}")
+            for index in range(card_count)
+        ]
+
+        _post_composed_answer_message(
+            slack,
+            mapping=MagicMock(channel="C123", thread_ts="1111.1"),
+            image_cards=cards,
+            answer_sections=[],
+            mark_delivered=lambda card: None,
+            deadline=time.monotonic() + 30,
+        )
+
+        self.assertEqual(slack.chat_postMessage.call_count, 1 if card_count == 1 else card_count)
+        for call in slack.chat_postMessage.call_args_list:
+            self.assertEqual(call.kwargs["text"], "&lt;!channel&gt; spike")
+
+    @parameterized.expand(
+        [
+            ("composed", 1),
+            ("per_card", _SLACK_MESSAGE_BLOCK_LIMIT // 2 + 1),
+        ]
+    )
+    def test_deleted_prompt_skips_delivery_without_marking_cards_delivered(self, _name, card_count):
+        # A prompt deleted mid-delivery makes the reply funnel skip the post and return None.
+        # A skipped post must not read as delivered: the chart never reached the thread, and
+        # marking it delivered would drop it from every later relay pass.
+        slack = MagicMock()
+        slack.conversations_history.return_value = {"messages": []}  # the message is gone
+        delivered: list[_SlackImageCard] = []
+        cards = [_SlackImageCard(TaskArtifact(name="Chart"), {}, file_id=f"F{index}") for index in range(card_count)]
+
+        answer_posted = _post_composed_answer_message(
+            slack,
+            mapping=MagicMock(channel="C_DELETED", thread_ts="8888.1"),
+            image_cards=cards,
+            answer_sections=[],
+            mark_delivered=delivered.append,
+            deadline=time.monotonic() + 30,
+        )
+
+        self.assertEqual(delivered, [])
+        slack.chat_postMessage.assert_not_called()
+        self.assertFalse(answer_posted)

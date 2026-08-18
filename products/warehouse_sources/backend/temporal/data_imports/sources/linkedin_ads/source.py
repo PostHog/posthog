@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 from posthog.schema import (
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     UNVERSIONED_API_VERSION,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -66,6 +68,10 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
 
     supported_versions = (UNVERSIONED_API_VERSION, LINKEDIN_ADS_VERSION_202606, LINKEDIN_ADS_VERSION_202607)
     default_version = LINKEDIN_ADS_VERSION_202607
+    # LinkedIn supports each version for a minimum of one year, then starts rejecting it with a 426
+    # `NONEXISTENT_VERSION` (see `get_non_retryable_errors`). The legacy `v1` pin sends the header it
+    # always has (202508, August 2025 — `_API_HEADER_BY_VERSION`), which reached that one-year mark.
+    deprecated_versions = (VersionDeprecation(version=UNVERSIONED_API_VERSION, sunset_at=date(2026, 8, 1)),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -112,6 +118,10 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # user must re-authorize. Model-specific so we don't swallow unrelated `DoesNotExist`
             # errors from other models, which may be real bugs.
             "Integration matching query does not exist": "Your LinkedIn Ads connection is no longer available — it may have been disconnected. Please re-authorize the LinkedIn Ads integration.",
+            # LinkedIn rejects a deprecated/sunset version header with this stable code (see
+            # `deprecated_versions`). It happens on every call under that pin regardless of resource
+            # or account, so retrying can never succeed — only repinning to a supported version does.
+            "NONEXISTENT_VERSION": "PostHog is using a LinkedIn Ads API version that LinkedIn has sunset. This is being fixed on our side — no action is needed from you.",
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -264,8 +274,9 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
                     {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                     for column_name, column_type in ads_incremental_fields.get(endpoint, [])
                 ],
+                should_sync_default=schema.should_sync_default,
             )
-            for endpoint in linkedin_ads_schemas.keys()
+            for endpoint, schema in linkedin_ads_schemas.items()
         ]
 
         if names is not None:

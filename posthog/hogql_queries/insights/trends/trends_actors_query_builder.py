@@ -21,10 +21,12 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
     FirstTimeForUserEventsQueryAlternator,
@@ -38,6 +40,18 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models import Team
 
 from products.actions.backend.models.action import Action
+from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
+    first_pageview_aware_properties_to_expr,
+)
+
+
+@frozen
+class DateWhereExprs:
+    date_from_expr: ast.Expr
+    date_to_expr: ast.Expr
+
+    def as_exprs(self) -> list[ast.Expr]:
+        return [self.date_from_expr, self.date_to_expr]
 
 
 class TrendsActorsQueryBuilder:
@@ -215,11 +229,11 @@ class TrendsActorsQueryBuilder:
         ]
 
         if self.trends_aggregation_operations.is_first_time_ever_math():
-            date_from, date_to = self._date_where_expr()
+            date_where = self._date_where_expr()
             query_builder = FirstTimeForUserEventsQueryAlternator(
                 ast.SelectQuery(select=[]),
-                date_from,
-                date_to,
+                date_where.date_from_expr,
+                date_where.date_to_expr,
                 filters=self._events_where_expr(
                     with_date_range_expr=False, with_event_or_action_expr=False, with_breakdown_expr=False
                 ),
@@ -229,6 +243,7 @@ class TrendsActorsQueryBuilder:
                 event_or_action_filter=self._event_or_action_where_expr(),
                 ratio=self._ratio_expr(),
                 is_first_matching_event=self.trends_aggregation_operations.is_first_matching_event(),
+                math_group_type_index=self.trends_aggregation_operations.first_time_math_group_type_index(),
             )
             query_builder.append_select(actor_col)
             query_builder.extend_select(columns, aggregate=True)
@@ -310,7 +325,7 @@ class TrendsActorsQueryBuilder:
         exprs: list[ast.Expr] = [
             *self._entity_where_expr(),
             *self._prop_where_expr(),
-            *(self._date_where_expr() if with_date_range_expr else []),
+            *(self._date_where_expr().as_exprs() if with_date_range_expr else []),
             *self._day_of_week_where_expr(),
             *(self._breakdown_where_expr() if with_breakdown_expr else []),
             *self._filter_empty_actors_expr(),
@@ -384,11 +399,22 @@ class TrendsActorsQueryBuilder:
 
         # Properties
         if self.trends_query.properties is not None and self.trends_query.properties != []:
-            conditions.append(property_to_expr(self.trends_query.properties, self.team))
+            conditions.append(
+                first_pageview_aware_properties_to_expr(
+                    self.trends_query.properties,
+                    team=self.team,
+                    modifiers=self.modifiers,
+                    # Mirrors `_date_where_expr`: on the previous-period side the
+                    # session's first pageview has to be looked for in that
+                    # period, or the modal drops actors the graph point counted.
+                    date_range=self.trends_previous_date_range if self.is_compare_previous else self.trends_date_range,
+                    timings=self.timings,
+                )
+            )
 
         return conditions
 
-    def _date_where_expr(self) -> tuple[ast.Expr, ast.Expr]:
+    def _date_where_expr(self) -> DateWhereExprs:
         # types
         date_range: QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange
         if self.is_compare_previous:
@@ -404,25 +430,26 @@ class TrendsActorsQueryBuilder:
         actors_to_op: ast.CompareOperationOp = ast.CompareOperationOp.Lt
 
         if self.is_total_value:
-            assert self.time_frame is None, (
-                "A `day` is forbidden for trends actors queries with total value aggregation"
-            )
+            if self.time_frame is not None:
+                raise QueryError("A `day` is forbidden for trends actors queries with total value aggregation")
 
             actors_from = query_from
             actors_to = query_to
             actors_to_op = ast.CompareOperationOp.LtEq
         else:
-            assert self.time_frame is not None, (
-                "A `day` is required for trends actors queries without total value aggregation"
-            )
+            if self.time_frame is None:
+                raise QueryError("A `day` is required for trends actors queries without total value aggregation")
 
             # use previous day/week/... for time_frame
             if self.is_compare_previous:
-                if self.is_compare_to:
+                delta_mappings = None if self.is_compare_to else date_range.date_from_delta_mappings()  # type: ignore
+                if delta_mappings is None:
+                    # Either an explicit compare_to offset, or an "all time" range, which starts at the
+                    # earliest event and so has no relative delta to step back by. Both shift the frame
+                    # by the gap between the two periods' starts instead.
                     self.time_frame = query_from + (self.time_frame - self.trends_date_range.date_from())
                 else:
-                    relative_delta = relativedelta(**date_range.date_from_delta_mappings())  # type: ignore
-                    previous_time_frame = self.time_frame - relative_delta
+                    previous_time_frame = self.time_frame - relativedelta(**delta_mappings)
                     if self.is_hourly:
                         self.time_frame = previous_time_frame
                     else:
@@ -473,13 +500,13 @@ class TrendsActorsQueryBuilder:
             actors_from_expr = ast.Constant(value=actors_from)
             actors_to_expr = ast.Constant(value=actors_to)
 
-        return (
-            ast.CompareOperation(
+        return DateWhereExprs(
+            date_from_expr=ast.CompareOperation(
                 left=ast.Field(chain=["timestamp"]),
                 op=ast.CompareOperationOp.GtEq,
                 right=actors_from_expr,
             ),
-            ast.CompareOperation(
+            date_to_expr=ast.CompareOperation(
                 left=ast.Field(chain=["timestamp"]),
                 op=actors_to_op,
                 right=actors_to_expr,

@@ -52,4 +52,30 @@ describe('LemonTable', () => {
         )
         expect(renderedOrder()).toEqual(expectedOrder)
     })
+
+    it('keeps group headers aligned when the sticky first group has a single column', () => {
+        // The sticky-first-group header is rendered as a title cell plus a filler cell. With one child
+        // the filler's colSpan would be 0, which the DOM clamps to 1, adding a phantom column that
+        // shifts every following group title one column to the right.
+        render(
+            <LemonTable
+                rowKey="id"
+                dataSource={DATA}
+                firstColumnSticky
+                columns={[
+                    { children: [{ title: 'Name', key: 'name', dataIndex: 'name' as keyof Row }] },
+                    {
+                        title: 'Metrics',
+                        children: [
+                            { title: 'Value', key: 'value', dataIndex: 'value' as keyof Row },
+                            { title: 'Id', key: 'id', dataIndex: 'id' as keyof Row },
+                        ],
+                    },
+                ]}
+            />
+        )
+        const groupingRow = document.querySelector('tr.LemonTable__row--grouping')!
+        const spannedColumns = Array.from(groupingRow.querySelectorAll('th')).reduce((sum, th) => sum + th.colSpan, 0)
+        expect(spannedColumns).toBe(3)
+    })
 })

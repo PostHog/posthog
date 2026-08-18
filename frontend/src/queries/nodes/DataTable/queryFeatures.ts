@@ -1,6 +1,7 @@
 import { Node } from '~/queries/schema/schema-general'
 import {
     isAccountsQuery,
+    isAccountsTableQuery,
     isActorsQuery,
     isEndpointsUsageTableQuery,
     isEventsQuery,
@@ -12,6 +13,7 @@ import {
     isSessionAttributionExplorerQuery,
     isSessionsQuery,
     isTracesQuery,
+    isWebBotsTableQuery,
     isWebExternalClicksQuery,
     isWebGoalsQuery,
     isWebOverviewQuery,
@@ -113,6 +115,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     if (
         isWebOverviewQuery(query) ||
         isWebExternalClicksQuery(query) ||
+        isWebBotsTableQuery(query) ||
         isWebStatsTableQuery(query) ||
         isWebGoalsQuery(query)
     ) {
@@ -159,6 +162,10 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.selectAndOrderByColumns)
+    }
+
+    if (isAccountsTableQuery(query)) {
+        features.add(QueryFeature.displayResponseError)
     }
 
     return features

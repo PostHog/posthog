@@ -40,6 +40,11 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
 
 ScoutSlackOutputType = Literal["finding", "report"]
 
+# Bound on the note snapshot a note-only edit carries through the Celery payload. Slack shows at
+# most SLACK_SECTION_TEXT_MAX_LEN characters after conversion, so anything past this headroom is
+# never rendered; the report keeps the full note either way.
+MAX_SLACK_NOTE_SNAPSHOT_LEN = 6000
+
 # Posted as an in-thread reply under every scout Slack message, inviting @PostHog follow-ups.
 _SCOUT_SLACK_REPLY_TEXT = "💬 If you have questions, reply in this thread and mention *`@PostHog`*!"
 
@@ -178,14 +183,14 @@ def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict]
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "View finding in PostHog"},
+                    "text": {"type": "plain_text", "text": "View signal in PostHog"},
                     "url": finding_url,
                 }
             ],
         }
     )
 
-    first_line = emission.description.strip().splitlines()[0] if emission.description.strip() else "New finding"
+    first_line = emission.description.strip().splitlines()[0] if emission.description.strip() else "New signal"
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(first_line[:200])}"
     return blocks, fallback
 
@@ -231,10 +236,28 @@ def post_scout_emission_to_slack(
     )
 
 
+def _report_header(report: SignalReport) -> str:
+    title = " ".join((report.title or "").split()) or "New scout report"
+    return title if len(title) <= 150 else title[:147].rstrip() + "..."
+
+
+def _report_link_block(report: SignalReport) -> dict:
+    report_url = f"{settings.SITE_URL.rstrip('/')}/project/{report.team_id}/inbox/reports/{report.id}"
+    return {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "View report in PostHog"},
+                "url": report_url,
+            }
+        ],
+    }
+
+
 def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) -> tuple[list[dict], str]:
     scout_name = _prettify_scout_name(run.skill_name)
-    title = " ".join((report.title or "").split()) or "New scout report"
-    header = title if len(title) <= 150 else title[:147].rstrip() + "..."
+    header = _report_header(report)
     blocks: list[dict] = [
         {
             "type": "context",
@@ -248,20 +271,41 @@ def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) 
     if rendered_summary:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_summary}})
 
-    report_url = f"{settings.SITE_URL.rstrip('/')}/project/{report.team_id}/inbox/reports/{report.id}"
-    blocks.append(
+    blocks.append(_report_link_block(report))
+    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(header[:200])}"
+    return blocks, fallback
+
+
+def build_scout_report_note_slack_message(
+    report: SignalReport, run: SignalScoutRun, note: str
+) -> tuple[list[dict], str]:
+    """Render a note-only report edit as the note itself, framed as an update.
+
+    A note-only edit leaves the title and summary the report message shows unchanged, so re-sending
+    `build_scout_report_slack_message` would post a message identical to the one already in the
+    channel. The note is what's new, so that's what gets delivered."""
+    scout_name = _prettify_scout_name(run.skill_name)
+    header = _report_header(report)
+    blocks: list[dict] = [
         {
-            "type": "actions",
+            "type": "context",
             "elements": [
                 {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "View report in PostHog"},
-                    "url": report_url,
+                    "type": "mrkdwn",
+                    "text": f"*Scout · {escape_slack_mrkdwn(scout_name)}* added a note to an existing report",
                 }
             ],
-        }
-    )
-    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(title[:200])}"
+        },
+        {"type": "header", "text": {"type": "plain_text", "text": header}},
+    ]
+
+    note_text = strip_chart_references(note.strip())
+    rendered_note = truncate_slack_section(markdown_to_slack_mrkdwn(note_text))
+    if rendered_note:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_note}})
+
+    blocks.append(_report_link_block(report))
+    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)} added a note to: {escape_slack_mrkdwn(header[:200])}"
     return blocks, fallback
 
 
@@ -272,6 +316,7 @@ def post_scout_report_to_slack(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    edit_note: str | None = None,
 ) -> None:
     if report.team_id != run.team_id:
         raise ScoutSlackPermanentDeliveryError(
@@ -284,7 +329,11 @@ def post_scout_report_to_slack(
         project_id=report.team.project_id,
     )
     channel_id = _slack_channel_id(channel)
-    blocks, fallback = build_scout_report_slack_message(report, run)
+    blocks, fallback = (
+        build_scout_report_note_slack_message(report, run, edit_note)
+        if edit_note is not None
+        else build_scout_report_slack_message(report, run)
+    )
     client = SlackIntegration(integration).client
     try:
         response = client.chat_postMessage(

@@ -20,15 +20,15 @@ if typing.TYPE_CHECKING:
 from django.conf import settings
 
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import (
-    AwsS3Integration,
-    AwsS3RoleBasedIntegration,
+    AWSS3Integration,
+    AWSS3RoleBasedIntegration,
     Integration,
+    IntegrationError,
     S3CompatibleIntegration,
-    S3CredentialIntegrationError,
 )
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
@@ -43,10 +43,10 @@ from products.batch_exports.backend.service import (
     S3BatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
@@ -66,7 +66,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     get_json_stream_transformer,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (
@@ -93,7 +93,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     # The linked Integration was deleted or doesn't belong to the team
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
-    "S3CredentialIntegrationError",
+    "IntegrationError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -138,12 +138,12 @@ class S3IntegrationNotFoundError(Exception):
 
 async def _get_s3_integration(
     integration_id: int, team_id: int
-) -> AwsS3RoleBasedIntegration | AwsS3Integration | S3CompatibleIntegration:
+) -> AWSS3RoleBasedIntegration | AWSS3Integration | S3CompatibleIntegration:
     """Fetch an S3-family integration from the database.
 
     The kind is validated on create by the batch export serializer, so the wrong-kind branch is
     purely defensive against an integration whose kind was changed out from under the export.
-    `AwsS3Integration`/`S3CompatibleIntegration` themselves raise `S3CredentialIntegrationError` if
+    `AWSS3Integration`/`S3CompatibleIntegration` themselves raise `IntegrationError` if
     the credentials are malformed.
     """
     try:
@@ -153,13 +153,13 @@ async def _get_s3_integration(
 
     if integration.kind == Integration.IntegrationKind.AWS_S3:
         if "aws_role_arn" in integration.config:
-            return AwsS3RoleBasedIntegration(integration)
-        return AwsS3Integration(integration)
+            return AWSS3RoleBasedIntegration(integration)
+        return AWSS3Integration(integration)
 
     if integration.kind == Integration.IntegrationKind.S3_COMPATIBLE:
         return S3CompatibleIntegration(integration)
 
-    raise S3CredentialIntegrationError(
+    raise IntegrationError(
         f"Integration with ID '{integration_id}' for team '{team_id}' is not an S3 integration "
         f"(kind='{integration.kind}')"
     )
@@ -260,7 +260,6 @@ def s3_default_fields() -> list[BatchExportField]:
     """
     batch_export_fields = default_fields()
     batch_export_fields.append({"expression": "elements_chain", "alias": "elements_chain"})
-    batch_export_fields.append({"expression": "person_properties", "alias": "person_properties"})
     batch_export_fields.append({"expression": "person_id", "alias": "person_id"})
 
     # Again, in contrast to other destinations, and for historical reasons, we do not include these fields.
@@ -295,16 +294,14 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(
-            inputs.interval, inputs.data_interval_end, inputs.timezone
-        )
+        data_interval = get_data_interval(inputs.interval, inputs.data_interval_end, inputs.timezone)
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
@@ -321,8 +318,10 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
@@ -333,8 +332,8 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
             endpoint_url=inputs.endpoint_url or None,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             compression=inputs.compression,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
@@ -569,11 +568,11 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
         if inputs.integration_id is not None:
             integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
 
-            if isinstance(integration, AwsS3Integration):
+            if isinstance(integration, AWSS3Integration):
                 aws_access_key_id = integration.aws_access_key_id
                 aws_secret_access_key = integration.aws_secret_access_key
 
-            if isinstance(integration, AwsS3RoleBasedIntegration):
+            if isinstance(integration, AWSS3RoleBasedIntegration):
                 team = await Team.objects.aget(id=inputs.team_id)
                 external_id = f"posthog-{team.organization_id}"
 

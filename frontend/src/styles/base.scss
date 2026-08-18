@@ -331,10 +331,10 @@
     --color-product-surveys-light: rgb(243 84 84);
     --color-product-data-warehouse-light: rgb(133 103 255);
     --color-product-llm-analytics-light: rgb(182 42 217);
+    --color-product-llm-analytics-dark: rgb(212 106 240);
     --color-product-llm-clusters-light: rgb(147 51 234);
     --color-product-llm-datasets-light: rgb(124 58 237);
     --color-product-llm-evaluations-light: rgb(167 139 250);
-    --color-product-llm-prompts-light: rgb(196 181 253);
     --color-product-ai-gateway-light: rgb(99 102 241);
     --color-product-ai-gateway-dark: rgb(129 140 248);
     --color-product-mcp-analytics-light: rgb(205 48 180);
@@ -642,7 +642,11 @@
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
-    --z-chart-tooltip: calc(var(--z-modal) - 50);
+
+    // Matches --z-graph-tooltip: charts render inside modals too, so their hover tooltips must
+    // sit above --z-modal. Pinned tooltips dismiss on outside pointer-down, so they can't linger
+    // over a modal opened after pinning.
+    --z-chart-tooltip: var(--z-graph-tooltip);
 
     // 1161 and 1162 are reserved to be set from code
     // 1166 through 1169 are reserved to be set from code
@@ -1384,6 +1388,7 @@
         margin-bottom: 0.5rem !important;
         font-family: var(--font-sans);
         font-size: 1rem;
+        pointer-events: auto;
         cursor: unset;
         border: 1px solid var(--secondary-3000-button-border);
         border-radius: var(--radius);
@@ -1393,6 +1398,7 @@
 
     .Toastify__toast-container {
         padding: 0;
+        pointer-events: none;
     }
 
     .Toastify__toast-body {
@@ -2025,6 +2031,28 @@
     position: relative !important;
     border-radius: var(--radius);
     animation: setup-highlight-pulse 1s ease-in-out 3 !important;
+}
+
+// One cell is one period along the 135deg axis, so the loop is seamless.
+@keyframes VolumeSparkline__spikeStripes {
+    to {
+        background-position: 0 -12px;
+    }
+}
+
+// A class, not a Tailwind `animate-[…]` utility: the keyframe name's `__` would need
+// underscore-escaping there, and Tailwind's raw-source scanner and the JSX-evaluated
+// class attribute disagree on backslashes, so the utility's selector never matches.
+.VolumeSparkline__spikeStripes {
+    animation: VolumeSparkline__spikeStripes 1.5s linear infinite;
+
+    .storybook-test-runner & {
+        animation: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+    }
 }
 
 /* stylelint-disable-next-line keyframes-name-pattern */

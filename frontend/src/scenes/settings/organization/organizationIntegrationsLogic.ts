@@ -29,12 +29,14 @@ export interface organizationIntegrationsLogicValues {
             | 'gitlab'
             | 'google-ads'
             | 'google-analytics'
+            | 'google-calendar'
             | 'google-cloud-service-account'
             | 'google-cloud-storage'
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
@@ -53,6 +55,7 @@ export interface organizationIntegrationsLogicValues {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         )[]
     ) => IntegrationType[]
     organizationIntegrations: IntegrationType[] | null
@@ -98,12 +101,14 @@ export interface organizationIntegrationsLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -122,6 +127,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -149,12 +155,14 @@ export interface organizationIntegrationsLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -173,6 +181,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     }
@@ -201,12 +210,14 @@ export interface organizationIntegrationsLogicMeta {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -225,6 +236,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
             )[]
         ) => IntegrationType[]
     }

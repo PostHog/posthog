@@ -64,7 +64,7 @@ export interface wizardCloudRunLogicActions {
         taskId: string
     } // activeCloudRunLogic
     loadIntegrations: () => any // integrationsLogic
-    reportContextOnboardingCloudRunQueued: (props: { repository: string; runId: string; taskId: string }) => {
+    reportOnboardingCloudRunQueued: (props: { repository: string; runId: string; taskId: string }) => {
         repository: string
         runId: string
         taskId: string
@@ -138,7 +138,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
             activeCloudRunLogic,
             ['setActiveCloudRun', 'clearActiveCloudRun'],
             onboardingEventUsageLogic,
-            ['reportContextOnboardingCloudRunQueued'],
+            ['reportOnboardingCloudRunQueued'],
         ],
     })),
     actions({
@@ -243,7 +243,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
                 // time the team is loaded, so this is a plain numeric coercion in practice.
                 actions.setActiveCloudRun(task_id, run_id, new Date().toISOString(), Number(currentProjectId))
                 // Frontend side of the kickoff, pairing with the backend `task_run_created` (GROW-89).
-                actions.reportContextOnboardingCloudRunQueued({ taskId: task_id, runId: run_id, repository })
+                actions.reportOnboardingCloudRunQueued({ taskId: task_id, runId: run_id, repository })
                 actions.startCloudRunSuccess()
             } catch (e) {
                 const detail = e instanceof ApiError ? e.detail : null

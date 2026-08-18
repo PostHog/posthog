@@ -1,35 +1,56 @@
+from uuid import UUID
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError
 
 import psycopg
+from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.ducklake.client import DuckLakeQueryResult
-from posthog.ducklake.models import ManagedWarehousePublishedTable
-
+from products.managed_warehouse.backend.facade import api as managed_warehouse
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeQueryResult,
+    DucklingTables,
+    ManagedWarehousePublishedTableRecord,
+    ManagedWarehousePublishedTableStatus,
+)
+from products.managed_warehouse.backend.facade.testing import create_managed_warehouse_published_table_for_test
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 _LOGIC = "products.data_warehouse.backend.logic.managed_warehouse_publish"
+_MANAGED_WAREHOUSE_FACADE = "products.managed_warehouse.backend.facade.api"
 
 
 class TestManagedWarehousePublish(APIBaseTest):
     def _base(self) -> str:
         return f"/api/environments/{self.team.pk}/data_warehouse"
 
-    def _publication(self, **overrides: object) -> ManagedWarehousePublishedTable:
-        defaults: dict[str, object] = {
-            "team": self.team,
-            "source_schema_name": "main",
-            "source_table_name": "customer_arr",
-            "name": "customer_arr",
-        }
-        defaults.update(overrides)
-        return ManagedWarehousePublishedTable.objects.for_team(self.team.pk).create(**defaults)
+    def _model_schema(self) -> str:
+        return f"posthog_data_modeling_team_{self.team.pk}"
 
-    @patch(f"{_LOGIC}.resolve_events_persons_tables", return_value=("events", "persons"))
+    def _publication(
+        self,
+        *,
+        source_schema_name: str | None = None,
+        source_table_name: str = "customer_arr",
+        name: str = "customer_arr",
+        table_id: UUID | None = None,
+    ) -> ManagedWarehousePublishedTableRecord:
+        return create_managed_warehouse_published_table_for_test(
+            team_id=self.team.pk,
+            source_schema_name=source_schema_name or self._model_schema(),
+            source_table_name=source_table_name,
+            name=name,
+            table_id=table_id,
+        )
+
+    @patch(
+        f"{_LOGIC}.resolve_events_persons_tables",
+        return_value=DucklingTables(events_table="events", persons_table="persons"),
+    )
     @patch(f"{_LOGIC}.execute_ducklake_query")
     def test_modeled_tables_excludes_posthog_managed(
         self, mock_query: MagicMock, _mock_reserved_tables: MagicMock
@@ -38,24 +59,25 @@ class TestManagedWarehousePublish(APIBaseTest):
             columns=["table_schema", "table_name"],
             types=[],
             results=[
-                ["main", "customer_arr"],
+                [self._model_schema(), "customer_arr"],
+                [f"posthog_data_modeling_team_{self.team.pk + 1}", "sibling_model"],
                 ["posthog_data_imports_team_1", "stripe_invoice"],
                 ["shadow_1_models", "model_a"],
-                ["main", "_posthog_source_batch_duckgres_apply"],
+                [self._model_schema(), "_posthog_source_batch_duckgres_apply"],
                 ["system", "query_log"],
             ],
             sql="",
         )
         response = self.client.get(f"{self._base()}/managed-warehouse-modeled-tables/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["results"] == [{"schema_name": "main", "table_name": "customer_arr"}]
+        assert response.json()["results"] == [{"schema_name": self._model_schema(), "table_name": "customer_arr"}]
 
     @patch(f"{_LOGIC}.execute_ducklake_query")
-    @patch(f"{_LOGIC}.is_dev_mode", return_value=False)
-    @patch(f"{_LOGIC}.get_duckgres_server_by_team_org", return_value=None)
+    @patch(f"{_MANAGED_WAREHOUSE_FACADE}.is_dev_mode", return_value=False)
+    @patch(f"{_MANAGED_WAREHOUSE_FACADE}.has_provisioned_warehouse", return_value=False)
     def test_modeled_tables_returns_empty_without_a_provisioned_warehouse(
         self,
-        _mock_server: MagicMock,
+        _mock_provisioned: MagicMock,
         _mock_dev_mode: MagicMock,
         mock_query: MagicMock,
     ) -> None:
@@ -65,7 +87,10 @@ class TestManagedWarehousePublish(APIBaseTest):
         assert response.json() == {"results": []}
         mock_query.assert_not_called()
 
-    @patch(f"{_LOGIC}.resolve_events_persons_tables", return_value=("events", "persons"))
+    @patch(
+        f"{_LOGIC}.resolve_events_persons_tables",
+        return_value=DucklingTables(events_table="events", persons_table="persons"),
+    )
     @patch(f"{_LOGIC}.execute_ducklake_query", side_effect=psycopg.OperationalError("connection timed out"))
     def test_modeled_tables_reports_temporary_unavailability(
         self, _mock_query: MagicMock, _mock_reserved_tables: MagicMock
@@ -79,52 +104,55 @@ class TestManagedWarehousePublish(APIBaseTest):
     def test_publish_creates_publication_and_starts_workflow(self, mock_start: MagicMock) -> None:
         response = self.client.post(
             f"{self._base()}/managed-warehouse-publish-table/",
-            {"source_schema_name": "main", "source_table_name": "customer_arr"},
+            {"source_schema_name": self._model_schema(), "source_table_name": "customer_arr"},
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        publication = ManagedWarehousePublishedTable.objects.for_team(self.team.pk).get()
-        assert publication.name == "main_customer_arr"
-        assert publication.status == ManagedWarehousePublishedTable.Status.PENDING
+        publications = managed_warehouse.list_managed_warehouse_published_tables(self.team.pk)
+        assert len(publications) == 1
+        publication = publications[0]
+        assert publication.name == f"{self._model_schema()}_customer_arr"
+        assert publication.status == ManagedWarehousePublishedTableStatus.PENDING
         mock_start.assert_called_once_with(publication)
 
     @patch(f"{_LOGIC}.start_publish_workflow")
     def test_publish_rejects_duplicate_warehouse_table_name(self, mock_start: MagicMock) -> None:
         DataWarehouseTable.objects.create(
             team_id=self.team.pk,
-            name="main_customer_arr",
+            name=f"{self._model_schema()}_customer_arr",
             format=DataWarehouseTable.TableFormat.Parquet,
             url_pattern="s3://x",
         )
         response = self.client.post(
             f"{self._base()}/managed-warehouse-publish-table/",
-            {"source_schema_name": "main", "source_table_name": "customer_arr"},
+            {"source_schema_name": self._model_schema(), "source_table_name": "customer_arr"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_start.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("invalid_identifier", "main; drop table"),
+            ("sibling_project", "posthog_data_modeling_team_999999"),
+        ]
+    )
     @patch(f"{_LOGIC}.start_publish_workflow")
-    def test_publish_rejects_invalid_identifier(self, mock_start: MagicMock) -> None:
+    def test_publish_rejects_invalid_source(self, _name: str, source_schema_name: str, mock_start: MagicMock) -> None:
         response = self.client.post(
             f"{self._base()}/managed-warehouse-publish-table/",
-            {"source_schema_name": "main; drop table", "source_table_name": "x"},
+            {"source_schema_name": source_schema_name, "source_table_name": "x"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_start.assert_not_called()
 
     @patch(f"{_LOGIC}.start_publish_workflow")
     def test_publish_returns_bad_request_when_concurrent_create_wins(self, mock_start: MagicMock) -> None:
-        publication_manager = MagicMock()
-        publication_manager.filter.return_value.exists.return_value = False
-        publication_manager.create.side_effect = IntegrityError("duplicate key")
-
-        with patch.object(
-            ManagedWarehousePublishedTable.objects,
-            "for_team",
-            return_value=publication_manager,
+        with patch(
+            f"{_MANAGED_WAREHOUSE_FACADE}.create_managed_warehouse_published_table",
+            side_effect=IntegrityError("duplicate key"),
         ):
             response = self.client.post(
                 f"{self._base()}/managed-warehouse-publish-table/",
-                {"source_schema_name": "main", "source_table_name": "customer_arr"},
+                {"source_schema_name": self._model_schema(), "source_table_name": "customer_arr"},
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -174,9 +202,10 @@ class TestManagedWarehousePublish(APIBaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.delete(f"{self._base()}/managed-warehouse-published-table/?id={publication.id}")
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        publication.refresh_from_db()
+        refreshed_publication = managed_warehouse.get_managed_warehouse_published_table(self.team.pk, publication.id)
         table.refresh_from_db()
-        assert publication.deleted is True
+        assert refreshed_publication is not None
+        assert refreshed_publication.deleted is True
         assert table.deleted is True
         mock_prune.assert_called_once_with(publication)
 
@@ -186,5 +215,6 @@ class TestManagedWarehousePublish(APIBaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.delete(f"{self._base()}/managed-warehouse-published-table/?id={publication.id}")
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        publication.refresh_from_db()
-        assert publication.deleted is True
+        refreshed_publication = managed_warehouse.get_managed_warehouse_published_table(self.team.pk, publication.id)
+        assert refreshed_publication is not None
+        assert refreshed_publication.deleted is True

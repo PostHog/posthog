@@ -1,11 +1,15 @@
 import uuid
+import socket
 import asyncio
 import datetime as dt
 import dataclasses
 from typing import Any, NoReturn, Optional
 
+from django.db import InterfaceError, OperationalError
 from django.db.models import Prefetch
 
+from jsonpath_ng.exceptions import JSONPathError
+from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
@@ -23,6 +27,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     apply_incremental_lookback,
+    get_schema_if_exists,
     process_incremental_value,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -36,7 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
@@ -44,7 +49,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    AnySource,
+    ResumableSource,
+    SimpleSource,
+    error_message_matches,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
+    is_fanout_warehouse_reuse_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -57,6 +70,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -97,6 +112,62 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
     )
 
 
+def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
+    """Why a fan-out child can't read this parent from the warehouse, or None when it can."""
+    if parent is None:
+        return "missing"
+    if not parent.should_sync:
+        return "disabled"
+    if not (parent.is_incremental or parent.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH):
+        # An allow-list, not a deny-list: only merge and full-refresh parents hold one row per
+        # key. Append accumulates a row per sync, and CDC keeps change history, so the reader —
+        # which streams the table as-is, with no dedupe state — would fan the child out once
+        # per duplicate. New sync types have to opt in here deliberately.
+        return "unsupported_sync_type"
+    if not parent.initial_sync_complete:
+        return "no_initial_sync"
+    return None
+
+
+async def _warehouse_parent_reuse_available(
+    source: AnySource,
+    schema: ExternalDataSchema,
+    source_id: uuid.UUID,
+    team_id: int,
+    logger: FilteringBoundLogger,
+) -> bool:
+    """Whether this run reads its fan-out parents from the warehouse instead of the parent API.
+
+    Reuse is an optimization, never a requirement: any parent the child can't read falls the
+    whole run back to the legacy parent-API path, so enabling the flag can't break a schema
+    that syncs today. Sources consume the result via `SourceInputs.fanout_warehouse_reuse`;
+    this is the single feature-flag evaluation for the run.
+
+    A parent that is mid-sync doesn't force the fallback: `resolve_parent_table_ref` pins the
+    read to the parent's last completed snapshot (Delta time travel), so a concurrent rewrite
+    can't hand the child a torn table.
+    """
+    required_parents = source.get_required_parent_schemas(schema.name)
+    if not required_parents:
+        return False
+    if not await database_sync_to_async_pool(is_fanout_warehouse_reuse_enabled)(team_id):
+        return False
+
+    for parent_name in required_parents:
+        parent = await database_sync_to_async_pool(get_schema_if_exists)(parent_name, team_id, source_id)
+        unusable_reason = _parent_unusable_reason(parent)
+        if unusable_reason is not None:
+            await logger.ainfo(
+                "data_imports.fanout_parent_unusable",
+                schema=schema.name,
+                parent=parent_name,
+                reason=unusable_reason,
+            )
+            return False
+
+    return True
+
+
 @activity.defn
 async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> PipelineResult:
     bind_contextvars(team_id=inputs.team_id)
@@ -105,6 +176,21 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
     await asyncio.to_thread(report_heartbeat_timeout, inputs, logger)
 
+    # Async variant: teardown joins the sampler thread and talks to Redis, which must not block
+    # this activity's event loop (or its heartbeats).
+    async with aworkload_reporting(
+        team_id=inputs.team_id,
+        schema_id=str(inputs.schema_id),
+        run_id=str(inputs.run_id),
+        host=socket.gethostname(),
+        # Retries share the run_id; the attempt lets the newest reporter own the run key while a
+        # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
+        attempt=current_activity_attempt(),
+    ):
+        return await _import_data_with_reporting(inputs, logger)
+
+
+async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
     async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
@@ -118,6 +204,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                     status=model.status,
                     attempt=attempt,
                 )
+                # The consumer already finalized this run (that's how it became terminal), so the
+                # workflow must not overwrite the status or release the lock — see PipelineResult.
                 return PipelineResult(
                     should_trigger_cdp_producer=False,
                     consumer_manages_job_status=True,
@@ -160,7 +248,10 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
         await logger.adebug(f"reset_pipeline = {reset_pipeline}")
 
-        schema = await _get_external_data_schema(inputs.schema_id, inputs.team_id)
+        try:
+            schema = await _get_external_data_schema(inputs.schema_id, inputs.team_id)
+        except ExternalDataSchema.DoesNotExist as e:
+            await _handle_import_error(job_inputs, logger, e)
 
         processed_incremental_last_value = None
         processed_incremental_earliest_value = None
@@ -205,6 +296,20 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         if SourceRegistry.is_registered(source_type):
             new_source = SourceRegistry.get_source(source_type)
 
+            fanout_warehouse_reuse = await _warehouse_parent_reuse_available(
+                new_source, schema, inputs.source_id, inputs.team_id, logger
+            )
+            # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
+            # child took, and doubles as rollout-adoption telemetry. Only fan-out children
+            # (schemas with required parents) log it; every other schema stays quiet.
+            if new_source.get_required_parent_schemas(schema.name):
+                await logger.ainfo(
+                    "data_imports.fanout_parent_source",
+                    schema=schema.name,
+                    parent_source="warehouse" if fanout_warehouse_reuse else "api",
+                    source_type=source_type,
+                )
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
                 schema_id=str(schema.id),
@@ -228,6 +333,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 s3_folder_name=schema.resolved_s3_folder_name,
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
+                fanout_warehouse_reuse=fanout_warehouse_reuse,
             )
 
             try:
@@ -274,6 +380,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 except Exception:
                     await logger.awarning("Failed to pause per-schema schedule for CDC streaming schema")
 
+                # This activity finalized the job itself just above, so the workflow must not
+                # write a second terminal status — see PipelineResult for the ownership contract.
                 return PipelineResult(
                     should_trigger_cdp_producer=False,
                     consumer_manages_job_status=True,
@@ -300,11 +408,23 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class ImportJobModels:
+    job: ExternalDataJob
+    schema: ExternalDataSchema
+    source: ExternalDataSource
+    table: DataWarehouseTable | None
+
+
 @database_sync_to_async_pool
 def _get_models(
     job_id: str,
-) -> tuple[ExternalDataJob, ExternalDataSchema, ExternalDataSource, DataWarehouseTable | None]:
-    job = ExternalDataJob.objects.select_related("schema", "schema__table").get(id=job_id)
+) -> ImportJobModels:
+    # `schema__source` is prefetched so `job.folder_path()` (via `schema.source.source_type`, called
+    # repeatedly through the run by `DeltaTableRef._get_delta_table_uri`) never triggers a lazy
+    # relation load later on a pooled connection the transaction pooler may have dropped mid-sync,
+    # which raises a transient `OperationalError`/DNS failure.
+    job = ExternalDataJob.objects.select_related("schema", "schema__table", "schema__source").get(id=job_id)
     schema: ExternalDataSchema | None = job.schema
     source: ExternalDataSource | None = job.pipeline
     if schema is None:
@@ -313,7 +433,7 @@ def _get_models(
         raise Exception("No source attached to job")
 
     table: DataWarehouseTable | None = schema.table
-    return job, schema, source, table
+    return ImportJobModels(job=job, schema=schema, source=source, table=table)
 
 
 async def _handle_import_error(
@@ -336,18 +456,48 @@ async def _handle_import_error(
     the activity; only that marker type does. ``RESTClientRetryableError`` gets the same treatment
     by type, since it's already a ``NonReportableError`` subclass and every REST-based source hits
     that condition already. A transient object-store hiccup talking to our own data-warehouse
-    bucket is re-raised as ``NonReportableError`` the same way.
+    bucket is re-raised as ``NonReportableError`` the same way, as is a Django
+    ``OperationalError``/``InterfaceError`` (a connection-pool blip against our own app DB).
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
     error_msg = str(error)
 
+    # The schema this activity is running for can be deleted (or soft-deleted) between the job
+    # being created and this activity's mid-run re-fetch of it — every retry re-reads the same
+    # gone row, so it never turns into data regardless of source. Classify it here by type rather
+    # than depending on each source listing the message in get_non_retryable_errors.
+    if isinstance(error, ExternalDataSchema.DoesNotExist):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
     # The shared REST engine raises RESTClientNonRetryableError only for responses retrying can
     # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
     # contract by type so every REST-based source stops immediately, rather than depending on each
     # source listing the message in get_non_retryable_errors.
     if isinstance(error, RESTClientNonRetryableError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # The shared REST engine compiles data_selector/cursor_path/next_url_path/resolve-param fields
+    # as JSONPath at sync time (jsonpath_utils.compile_path), not at manifest-validation time. A
+    # malformed path is a fixed string, so parsing it fails identically on every retry regardless
+    # of source — classify it here by type (message text varies across jsonpath_ng's several parse-
+    # and lex-error shapes, so it can't be matched via get_non_retryable_errors).
+    if isinstance(error, JSONPathError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
+    # endpoint/resource doesn't exist — every retry replays the identical request against the same
+    # dead URL. Unlike 401 (a token needing refresh, which the REST engine's own retry re-mints) or
+    # 429/5xx (already RESTClientRetryableError), there's no self-recovering path for a 404, so
+    # classify it here rather than depending on each REST-based source listing it.
+    if isinstance(error, HTTPError) and error.response is not None and error.response.status_code == 404:
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
@@ -391,6 +541,20 @@ async def _handle_import_error(
         await logger.adebug("Transient object-store error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
+    # A Django OperationalError/InterfaceError here comes from a lookup against PostHog's own app
+    # DB (e.g. resolving a team or CustomPropertySource for the person-property staging hook) —
+    # every source that talks to a customer's own database (Postgres, MySQL, Redshift) does so over
+    # a raw driver connection, never Django's ORM, so this exception type can only mean a transient
+    # connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout under load), not a
+    # customer data or config problem. Same classification already used for app-DB blips in
+    # delta_table_ref.is_transient_maintenance_error. PostHogInternalDatabaseError is the same
+    # condition already reclassified by shared pipeline code (e.g. cdp_producer's should_run check)
+    # specifically so it wouldn't be mistaken for a customer-side failure here — honor that by type.
+    if isinstance(error, OperationalError | InterfaceError | PostHogInternalDatabaseError):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
     # Cross-source non-retryable errors (missing primary key on an incremental table, bad SSH tunnel
     # auth, a widened column type) are raised from shared pipeline code, not any one source. The
     # finalization activity already consults this shared dict; this in-activity handler decides whether
@@ -401,13 +565,13 @@ async def _handle_import_error(
     )
 
     non_retryable_errors = {**Any_Source_Errors, **source_cls.get_non_retryable_errors()}
-    if any(match in error_msg for match in non_retryable_errors):
+    if error_message_matches(error_msg, non_retryable_errors):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
     retryable_errors = source_cls.get_retryable_errors()
-    if any(match in error_msg for match in retryable_errors):
+    if error_message_matches(error_msg, retryable_errors):
         await logger.awarning(error_msg)
         await logger.adebug("Source-classified retryable error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
@@ -426,25 +590,22 @@ async def _run(
     resumable_source_manager: ResumableSourceManager | None,
 ) -> PipelineResult:
     try:
-        job, schema, source, table = await _get_models(job_inputs.run_id)
+        models = await _get_models(job_inputs.run_id)
 
-        use_v3 = job.pipeline_version == ExternalDataJob.PipelineVersion.V3
+        use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
 
         if use_v3:
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
-            logger.info("Running V3 pipeline (feature flag enabled)")
+            logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
             pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
                 source_response,
                 logger,
                 job_inputs.run_id,
                 reset_pipeline,
                 shutdown_monitor,
-                job,
-                schema,
-                source,
-                table,
                 resumable_source_manager,
+                models=models,
             )
         else:
             pipeline = PipelineNonDLT(
@@ -453,11 +614,8 @@ async def _run(
                 job_inputs.run_id,
                 reset_pipeline,
                 shutdown_monitor,
-                job,
-                schema,
-                source,
-                table,
                 resumable_source_manager,
+                models=models,
             )
 
         result = await pipeline.run()

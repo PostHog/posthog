@@ -214,6 +214,7 @@ export type MinimalAppMetric = {
     metric_kind: 'failure' | 'success' | 'other' | 'email' | 'sms' | 'push' | 'billing' | 'fetch'
     metric_name:
         | 'early_exit'
+        | 'canceled'
         | 'triggered'
         | 'trigger_failed'
         | 'succeeded'
@@ -236,24 +237,35 @@ export type MinimalAppMetric = {
         | 'email_failed'
         | 'email_opened'
         | 'email_link_clicked'
+        | 'email_link_clicked_by_link'
         | 'email_bounced'
         | 'email_bounced_hard'
         | 'email_bounced_transient'
         | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
         | 'email_suppressed'
+        | 'email_suspended'
         | 'email_blocked'
-        | 'email_spam'
         | 'email_unsubscribed'
         | 'email_untracked'
         | 'push_sent'
         | 'push_failed'
         | 'push_skipped'
+        | 'push_opened'
         | 'quota_limited'
         | 'conversion'
         | 'exited_workflow_changed'
         | 'redirected_workflow_changed'
     count: number
+    // Key parts for the mirrored version-scoped row: the flow and the `version` of the HogFlow row that
+    // actually executed the step. Not columns on `app_metrics2` — the monitoring service consumes these
+    // to key a row under the `hog_flow_version` app source, and never forwards them to Kafka. Absent
+    // means this metric only lands in the version-agnostic series.
+    //
+    // `id` is carried rather than reusing `app_source_id` because that field is substituted with
+    // `parentRunId` for batch-triggered runs, so per-run views group by the run. A per-version rollup
+    // has to key on the flow itself, or a broadcast's metrics never aggregate across its runs.
+    app_source_version?: { id: string; version: number }
 }
 
 export type AppMetricType = MinimalAppMetric & {
@@ -293,18 +305,27 @@ export type CyclotronJobInvocation = {
     queueMetadata?: Record<string, any> | null
     // Where the invocation came from (kafka or postgres)
     queueSource?: CyclotronJobQueueSource
+    // Cancellation was requested (CyclotronV2Manager.cancelJobs) while this invocation
+    // was in flight. The consumer must terminate it as canceled instead of executing.
+    cancelRequestedAt?: DateTime
 }
 
 // The result of an execution
 export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = CyclotronJobInvocation> = {
     invocation: T
     finished: boolean
+    /** The invocation deliberately finished without running because its trigger did not match. */
+    skipped?: boolean
+    // The run was canceled rather than succeeding or failing. Only meaningful with
+    // finished=true and no error: the job row and the lifecycle row both flip to
+    // 'canceled'.
+    canceled?: boolean
     error?: any
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
-    emailAssets: MessageAssetRow[]
+    messageAssets: MessageAssetRow[]
     execResult?: unknown
 }
 
@@ -344,16 +365,28 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
-    // Set by the subscription matcher when a person merge repointed this job's distinct_id and re-keyed
-    // personId onto the survivor. Tells the worker to resolve the person by personId, not the distinct_id
-    // (whose ~1min PersonsManager cache entry still points at the pre-merge person) — otherwise a
-    // merge-woken step reads stale person props (e.g. an email step gets no recipient and drops the send).
+    // Stamped at enqueue for account-audience batch children: event.distinct_id is the account's
+    // group key, not a person distinct_id. The worker must trust this over the live trigger config,
+    // which can be edited to a person audience while these children are still queued.
+    accountAudience?: boolean
+    // Set by the subscription matcher when it wrote this job's personId anchor: either a merge repointed
+    // the distinct_id onto a survivor, or the distinct_id acquired its first person. Tells the worker to
+    // resolve the person by personId, not the distinct_id (whose ~1min PersonsManager cache entry still
+    // points at the pre-merge person, or at no person at all) — otherwise the woken step reads stale
+    // person props (e.g. an email step gets no recipient and drops the send).
     personIdRepointed?: boolean
     // High-water mark of the repoint version last applied to this job's personId. Repoints aren't
     // Kafka-keyed, so a delayed lower-version move can arrive in a later batch than a higher one already
     // applied; the matcher rejects any repoint whose version isn't strictly greater, so an out-of-order
     // older move can't rewind the wait onto an obsolete person.
     personIdRepointVersion?: number
+    // Version this run's conversions attribute to: the one that sent the last message, or the one
+    // the run started under if it hasn't sent yet. Never the currently published version — a
+    // conversion arriving after a republish belongs to the version whose message the person
+    // actually received, not whatever happens to be live when they convert.
+    // Absent on runs parked before this was introduced — those attribute to no version at all
+    // rather than to a wrong one.
+    flowVersion?: number
     actionStepCount: number
     currentAction?: {
         id: string
@@ -574,11 +607,17 @@ export type MessageAssetRow = {
     parent_run_id: string
     invocation_id: string
     action_id: string
-    kind: 'email'
+    kind: 'email' | 'push'
     distinct_id: string
     person_id: string
+    // Where the message went: the address for email. Push has no address, so this carries the
+    // recipient's distinct_id instead. The delivering channels are deliberately not stored here,
+    // because the captured preview is a snapshot of what the recipient saw and they never saw those.
     recipient: string
+    // The message's headline: an email subject line, or a push notification title.
     subject: string
+    // Only delivered messages are captured, so this is 'sent' today. It stays a union because open
+    // tracking will write a higher-version row with its own status and collapse onto this one.
     status: 'sent'
     sent_at: string // ISO microsecond DateTime64
     version: string // microsecond-precision UInt64, serialized as string to dodge JS's 53-bit cap

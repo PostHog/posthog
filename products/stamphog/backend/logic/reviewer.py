@@ -20,7 +20,9 @@ checkout with the default-branch versions, and the engine reads them from there.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 # Final-verdict strings the engine emits (review_pr.Pipeline.final_verdict) mapped
 # onto the contract's ReviewVerdict values. Anything unrecognized escalates —
@@ -48,7 +50,12 @@ _LEGACY_VERDICT_MAP = {
 }
 
 
-@dataclass
+# Mirrors the engine's VERDICT_SCHEMA cap (tools/pr-approval-agent/reviewer.py) and the
+# stamphog_reviewrun column width.
+CHANGE_SUMMARY_MAX_CHARS = 200
+
+
+@frozen
 class ReviewerInvocation:
     """Everything needed to run the reviewer inside the sandbox.
 
@@ -64,7 +71,7 @@ class ReviewerInvocation:
     context_json: str
 
 
-@dataclass
+@frozen
 class ReviewerVerdict:
     """Parsed result of one reviewer run."""
 
@@ -79,6 +86,10 @@ class ReviewerVerdict:
     # The engine-rendered comment body (reasoning + judgment bullets + gate
     # mechanics), posted verbatim when present.
     review_body: str = ""
+    # One-sentence plain-language description of what the change does, written
+    # in the sandbox where the diff is available. Feeds the daily digest. Blank
+    # when the engine predates the field, which the digest tolerates.
+    change_summary: str = ""
     # The engine version the output reports, for analytics segmentation.
     stamphog_version: str = ""
 
@@ -98,6 +109,7 @@ def build_reviewer_invocation(
     repo: str,
     engine_dir: str,
     context_path: str,
+    self_driving_review: bool = False,
 ) -> ReviewerInvocation:
     """Assemble the context payload + command that reviews this PR in the sandbox.
 
@@ -109,6 +121,9 @@ def build_reviewer_invocation(
     ``author_pr_numbers`` are the author's merged-PR numbers the server fetched
     (the engine needs them for the git-blame familiarity signal, which it
     otherwise gets from a `gh` call it can't make in the sandbox).
+    ``self_driving_review`` lets the engine review a bot-authored draft, the one exception
+    to its bot-author refusal. It defaults closed here and in the engine, the Action runtime
+    never sets it, and only a run stamped with inbox provenance turns it on.
     """
     context = {
         "repo": repo,
@@ -122,6 +137,7 @@ def build_reviewer_invocation(
         "check_runs": check_runs,
         "pr_reactions": pr_reactions,
         "author_pr_numbers": list(author_pr_numbers),
+        "self_driving_review": self_driving_review,
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]
     return ReviewerInvocation(
@@ -159,6 +175,9 @@ def _parse_rich(obj: dict) -> ReviewerVerdict:
 
     reviewer = obj.get("reviewer") or {}
     reasoning = str(reviewer.get("reasoning", "")).strip()
+    # Clipped rather than rejected: the engine caps this at CHANGE_SUMMARY_MAX_CHARS, but the
+    # value crosses a trust boundary, so the server does not rely on the sandbox honoring it.
+    change_summary = str(reviewer.get("change_summary", "")).strip()[:CHANGE_SUMMARY_MAX_CHARS]
     issues = reviewer.get("issues") or []
     showstoppers = [str(i) for i in issues] if isinstance(issues, list) else [str(issues)]
 
@@ -181,6 +200,7 @@ def _parse_rich(obj: dict) -> ReviewerVerdict:
         gate_blocked=gate_blocked,
         gate_result=gate_result,
         review_body=str(obj.get("review_body") or ""),
+        change_summary=change_summary,
         stamphog_version=str(obj.get("stamphog_version") or ""),
     )
 

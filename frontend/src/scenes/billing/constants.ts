@@ -1,6 +1,6 @@
 // sync with ee/hogai/tools/read_billing_tool/tool.py
 // Values are sent to the `billing` repo as `usage_types`; keep in sync with accepted types in `billing/types/usage.py`.
-export const USAGE_TYPES = [
+export const SPEND_TYPES = [
     { label: 'Events', value: 'event_count_in_period' },
     { label: 'Identified events', value: 'enhanced_persons_event_count_in_period' },
     { label: 'Group analytics', value: 'group_analytics' },
@@ -25,6 +25,15 @@ export const USAGE_TYPES = [
     { label: 'Logs ingested (MB)', value: 'logs_mb_in_period' },
     { label: 'Logs 30-day retention (MB)', value: 'logs_retention_30d_mb_in_period' },
 ] as const
+
+export const USAGE_ONLY_TYPES = [
+    { label: 'PostHog Desktop token credits', value: 'posthog_code_token_credits_used_in_period' },
+    { label: 'Sandbox compute credits', value: 'sandbox_compute_credits_used_in_period' },
+    { label: 'Sandbox compute CPU millicore-seconds', value: 'sandbox_compute_cpu_millicore_seconds_in_period' },
+    { label: 'Sandbox compute memory MiB-seconds', value: 'sandbox_compute_memory_mib_seconds_in_period' },
+] as const
+
+export const USAGE_TYPES = [...SPEND_TYPES, ...USAGE_ONLY_TYPES] as const
 
 export type UsageTypeOption = (typeof USAGE_TYPES)[number]
 export type UsageTypeValue = UsageTypeOption['value']

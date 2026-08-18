@@ -3,29 +3,29 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from typing import Any, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
 
 import psycopg
 from asgiref.sync import async_to_sync
+from psycopg import sql as psql
 
-from posthog.ducklake.client import execute_ducklake_query
-from posthog.ducklake.common import (
-    get_duckgres_server_by_team_org,
-    is_dev_mode,
-    sanitize_ducklake_identifier,
-    validate_duckgres_identifier,
-)
-from posthog.ducklake.models import ManagedWarehousePublishedTable
-from posthog.ducklake.publish import ModeledTable, is_publishable_table
-from posthog.ducklake.team_state import CPUnavailableError, resolve_events_persons_tables
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.ducklake.publish_table_workflow import PrunePublishedSnapshotInputs, PublishTableInputs
 
+from products.managed_warehouse.backend.facade import api as managed_warehouse
+from products.managed_warehouse.backend.facade.client import execute_ducklake_query
+from products.managed_warehouse.backend.facade.contracts import (
+    CPUnavailableError,
+    ManagedWarehouseModeledTable,
+    ManagedWarehousePublishedTableRecord,
+)
+from products.managed_warehouse.backend.facade.team_state import resolve_events_persons_tables
+from products.managed_warehouse.backend.facade.temporal import PrunePublishedSnapshotInputs, PublishTableInputs
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
@@ -37,7 +37,7 @@ _DISCOVERY_STATEMENT_TIMEOUT_SECONDS = 5
 _MODELED_TABLES_SQL = """
 SELECT table_schema, table_name
 FROM information_schema.tables
-WHERE table_type = 'BASE TABLE'
+WHERE table_type = 'BASE TABLE' AND table_schema = {}
 ORDER BY table_schema, table_name
 """
 
@@ -50,25 +50,29 @@ class ModeledTableDiscoveryError(Exception):
     pass
 
 
-def list_modeled_tables(team_id: int) -> list[ModeledTable]:
-    if get_duckgres_server_by_team_org(team_id) is None and not is_dev_mode():
+def list_modeled_tables(team_id: int) -> list[ManagedWarehouseModeledTable]:
+    if not managed_warehouse.is_dev_mode() and not managed_warehouse.has_provisioned_warehouse(
+        managed_warehouse.get_org_id_for_team(team_id)
+    ):
         return []
 
     try:
-        events_table, persons_table = resolve_events_persons_tables(team_id)
+        modeled_schema = managed_warehouse.ducklake_data_modeling_schema(team_id)
+        managed_tables = resolve_events_persons_tables(team_id)
         result = execute_ducklake_query(
             team_id,
-            sql=_MODELED_TABLES_SQL,
+            sql=psql.SQL(_MODELED_TABLES_SQL).format(psql.Literal(modeled_schema)).as_string(),
             connect_timeout_seconds=_DISCOVERY_CONNECT_TIMEOUT_SECONDS,
             statement_timeout_seconds=_DISCOVERY_STATEMENT_TIMEOUT_SECONDS,
         )
     except (CPUnavailableError, psycopg.Error) as error:
         raise ModeledTableDiscoveryError("The managed warehouse is temporarily unavailable.") from error
-    reserved_table_names = frozenset({events_table, persons_table})
+    reserved_table_names = frozenset({managed_tables.events_table, managed_tables.persons_table})
     return [
-        ModeledTable(schema_name=str(row[0]), table_name=str(row[1]))
+        ManagedWarehouseModeledTable(schema_name=str(row[0]), table_name=str(row[1]))
         for row in result.results
-        if is_publishable_table(str(row[0]), str(row[1]), reserved_table_names=reserved_table_names)
+        if str(row[0]) == modeled_schema
+        and managed_warehouse.is_publishable_table(str(row[0]), str(row[1]), reserved_table_names=reserved_table_names)
     ]
 
 
@@ -78,17 +82,20 @@ def create_publication(
     source_schema_name: str,
     source_table_name: str,
     name: str | None,
-) -> ManagedWarehousePublishedTable:
-    if get_duckgres_server_by_team_org(team.pk) is None and not is_dev_mode():
+) -> ManagedWarehousePublishedTableRecord:
+    if not managed_warehouse.has_provisioned_warehouse(team.organization_id) and not managed_warehouse.is_dev_mode():
         raise PublishValidationError("No managed warehouse is provisioned for this organization.")
 
     try:
-        validate_duckgres_identifier(source_schema_name)
-        validate_duckgres_identifier(source_table_name)
+        managed_warehouse.validate_duckgres_identifier(source_schema_name)
+        managed_warehouse.validate_duckgres_identifier(source_table_name)
     except ValueError as error:
         raise PublishValidationError(str(error)) from error
 
-    resolved_name = name or sanitize_ducklake_identifier(
+    if source_schema_name != managed_warehouse.ducklake_data_modeling_schema(team.pk):
+        raise PublishValidationError("Choose a modeled table from this project.")
+
+    resolved_name = name or managed_warehouse.sanitize_ducklake_identifier(
         f"{source_schema_name}_{source_table_name}", default_prefix="published"
     )
     if not _NAME_PATTERN.match(resolved_name) or len(resolved_name) > 128:
@@ -97,17 +104,16 @@ def create_publication(
             "underscores, and be at most 128 characters."
         )
 
-    name_taken = (
-        DataWarehouseTable.objects.filter(team_id=team.pk, name=resolved_name).exclude(deleted=True).exists()
-        or ManagedWarehousePublishedTable.objects.for_team(team.pk).filter(name=resolved_name, deleted=False).exists()
-    )
+    name_taken = DataWarehouseTable.objects.filter(team_id=team.pk, name=resolved_name).exclude(
+        deleted=True
+    ).exists() or managed_warehouse.managed_warehouse_published_table_name_exists(team.pk, resolved_name)
     if name_taken:
         raise PublishValidationError(f"A warehouse table named '{resolved_name}' already exists.")
 
     try:
         with transaction.atomic():
-            return ManagedWarehousePublishedTable.objects.for_team(team.pk).create(
-                team=team,
+            return managed_warehouse.create_managed_warehouse_published_table(
+                team_id=team.pk,
                 source_schema_name=source_schema_name,
                 source_table_name=source_table_name,
                 name=resolved_name,
@@ -131,25 +137,33 @@ def _start_workflow(
     )
 
 
-def start_publish_workflow(publication: ManagedWarehousePublishedTable) -> None:
+def list_publications(team_id: int) -> list[ManagedWarehousePublishedTableRecord]:
+    return managed_warehouse.list_managed_warehouse_published_tables(team_id)
+
+
+def get_publication(team_id: int, publication_id: UUID | str) -> ManagedWarehousePublishedTableRecord | None:
+    publication = managed_warehouse.get_managed_warehouse_published_table(team_id, publication_id)
+    return publication if publication is not None and not publication.deleted else None
+
+
+def start_publish_workflow(publication: ManagedWarehousePublishedTableRecord) -> None:
     inputs = PublishTableInputs(team_id=publication.team_id, publication_id=str(publication.id))
     _start_workflow("duckgres-publish-table", f"duckgres-publish-{publication.id}", inputs)
 
 
-def start_snapshot_prune_workflow(publication: ManagedWarehousePublishedTable) -> None:
+def start_snapshot_prune_workflow(publication: ManagedWarehousePublishedTableRecord) -> None:
     inputs = PrunePublishedSnapshotInputs(team_id=publication.team_id, publication_id=str(publication.id))
     _start_workflow("duckgres-prune-published-snapshot", f"duckgres-prune-published-{publication.id}", inputs)
 
 
-def delete_publication(publication: ManagedWarehousePublishedTable) -> None:
+def delete_publication(publication: ManagedWarehousePublishedTableRecord) -> None:
     with transaction.atomic():
         if publication.table_id is not None:
             table = DataWarehouseTable.objects.filter(team_id=publication.team_id, id=publication.table_id).first()
             if table is not None:
                 table.soft_delete()
 
-        publication.deleted = True
-        publication.save(update_fields=["deleted", "updated_at"])
+        managed_warehouse.mark_managed_warehouse_published_table_deleted(publication.team_id, publication.id)
 
         # The parquet snapshot in the org bucket must go too, but only the temporal
         # workers hold the cross-account DeleteObject grant — schedule the prune and
@@ -157,7 +171,7 @@ def delete_publication(publication: ManagedWarehousePublishedTable) -> None:
         transaction.on_commit(lambda: _start_snapshot_prune_best_effort(publication))
 
 
-def _start_snapshot_prune_best_effort(publication: ManagedWarehousePublishedTable) -> None:
+def _start_snapshot_prune_best_effort(publication: ManagedWarehousePublishedTableRecord) -> None:
     try:
         start_snapshot_prune_workflow(publication)
     except Exception as error:

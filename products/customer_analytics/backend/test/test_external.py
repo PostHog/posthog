@@ -4,6 +4,8 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -17,11 +19,19 @@ from products.customer_analytics.backend.models import (
     Account,
     AccountRelationship,
     AccountRelationshipDefinition,
+    CustomPropertySource,
     CustomPropertyValue,
     DisplayType,
 )
 from products.customer_analytics.backend.models.account import AccountProperties
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
+
+_SYNC_EXECUTE = "products.customer_analytics.backend.logic.custom_property_sync.execute_hogql_query"
+
+
+class _SyncResponse:
+    def __init__(self, results):
+        self.results = results
 
 
 class TestExternalAccountAPI(APIBaseTest):
@@ -111,12 +121,16 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_get_account_returns_fields(self):
+        self.account.churned_at = datetime(2026, 8, 1, 12, 30, tzinfo=UTC)
+        self.account.save(update_fields=["churned_at"])
+
         response = self._get()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["id"], str(self.account.id))
         self.assertEqual(data["external_id"], "acme-1")
         self.assertEqual(data["name"], "Acme Corp")
+        self.assertEqual(data["churned_at"], "2026-08-01T12:30:00Z")
         self.assertEqual(data["relationships"], {})
 
     def test_get_account_returns_active_relationships(self):
@@ -168,6 +182,22 @@ class TestExternalAccountAPI(APIBaseTest):
     def test_patch_requires_auth(self):
         response = self.client.patch(self.url, data={"external_id": "acme-1"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_patch_sets_and_clears_churned_at(self):
+        response = self._patch({"external_id": "acme-1", "churned_at": "2026-08-02T09:00:00Z"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["churned_at"], "2026-08-02T09:00:00Z")
+        self.account.refresh_from_db()
+        assert self.account.churned_at is not None
+        self.assertEqual(self.account.churned_at.isoformat(), "2026-08-02T09:00:00+00:00")
+
+        response = self._patch({"external_id": "acme-1", "churned_at": None})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["churned_at"])
+        self.account.refresh_from_db()
+        self.assertIsNone(self.account.churned_at)
 
     def test_patch_requires_external_id(self):
         response = self._patch({"tags": ["enterprise"]})
@@ -402,6 +432,53 @@ class TestExternalAccountAPI(APIBaseTest):
         response = self._post({"external_id": "shared-key"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Account.objects.for_team(self.team.id).get(external_id="shared-key").name, "shared-key")
+
+    def _create_warehouse_backed_property(self):
+        DataWarehouseTable = apps.get_model("warehouse_sources", "DataWarehouseTable")
+        DataWarehouseSavedQuery = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+        table = DataWarehouseTable.objects.create(team=self.team, name="billing_view_mat", columns={})
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="billing_view", columns={"org_id": {}, "mrr": {}}, table=table
+        )
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="MRR", display_type=DisplayType.NUMBER
+        )
+        return CustomPropertySource.objects.unscoped().create(
+            team=self.team, definition=definition, saved_query=view, source_column="mrr", key_column="org_id"
+        )
+
+    def test_post_from_workflow_returns_warehouse_custom_properties_synced_on_create(self):
+        self._create_warehouse_backed_property()
+        # selected columns are sorted: mrr, org_id
+        with patch(_SYNC_EXECUTE, return_value=_SyncResponse([(100.0, "new-1")])):
+            response = self._post({"external_id": "new-1"}, HTTP_X_POSTHOG_HOG_FLOW_ID=str(uuid4()))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["custom_properties"]["MRR"], 100.0)
+
+    def test_post_succeeds_when_property_sync_fails(self):
+        self._create_warehouse_backed_property()
+        with patch(_SYNC_EXECUTE, side_effect=Exception("clickhouse down")):
+            response = self._post({"external_id": "new-1"}, HTTP_X_POSTHOG_HOG_FLOW_ID=str(uuid4()))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.json()["custom_properties"]["MRR"])
+
+    def test_post_without_workflow_header_does_not_sync(self):
+        self._create_warehouse_backed_property()
+        with patch(_SYNC_EXECUTE) as execute:
+            response = self._post({"external_id": "new-1"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        execute.assert_not_called()
+
+    def test_post_existing_account_does_not_sync(self):
+        self._create_warehouse_backed_property()
+        with patch(_SYNC_EXECUTE) as execute:
+            response = self._post({"external_id": "acme-1"}, HTTP_X_POSTHOG_HOG_FLOW_ID=str(uuid4()))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        execute.assert_not_called()
 
 
 class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
