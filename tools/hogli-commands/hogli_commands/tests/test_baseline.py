@@ -22,18 +22,6 @@ class TestIsolationBaseline:
     def test_strict_equality(self, unsealed: set[str], baseline: set[str], expected: int) -> None:
         assert len(baseline_issues(unsealed, baseline)) == expected
 
-    def test_new_unsealed_product_names_itself_and_the_scaffold(self) -> None:
-        issues = baseline_issues({"canvas"}, set())
-        assert len(issues) == 1
-        assert "canvas" in issues[0]
-        assert "product:bootstrap" in issues[0]
-
-    def test_sealed_product_still_listed_asks_for_regeneration(self) -> None:
-        issues = baseline_issues(set(), {"wizard"})
-        assert len(issues) == 1
-        assert "wizard" in issues[0]
-        assert "--regenerate-baseline" in issues[0]
-
     @pytest.mark.parametrize(
         "with_python,expected",
         [

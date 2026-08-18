@@ -70,6 +70,8 @@ def cmd_bootstrap(
 )
 def cmd_lint(name: str | None, lint_all: bool, regenerate_baseline: bool) -> None:
     if regenerate_baseline:
+        if name or lint_all:
+            raise click.UsageError("--regenerate-baseline takes no product name and does not combine with --all")
         do_regenerate_baseline()
         return
 

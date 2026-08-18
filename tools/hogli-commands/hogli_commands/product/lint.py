@@ -92,7 +92,8 @@ def lint_all_products() -> None:
     click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
     click.echo(
         "Checks: required root files, package.json scripts (presence + content), misplaced files (strict), "
-        "file/folder conflicts, tach boundaries (+ interfaces for strict), isolation progress (lenient)\n"
+        "file/folder conflicts, tach boundaries (+ interfaces for strict), isolation progress (lenient), "
+        "isolation baseline\n"
     )
 
     structure = load_structure()
