@@ -236,6 +236,26 @@ describe('action.conditional_branch', () => {
             ])
         })
 
+        it('does not query membership when an earlier non-cohort condition matches', async () => {
+            // The lookup is lazy: a run that never reaches the cohort condition must not depend on
+            // the behavioral cohorts DB, even when that DB is down.
+            const repository = new FakeCohortMembershipRepository([], new Error('cohorts DB down'))
+            action.config.conditions = [
+                { filters: HOG_FILTERS_EXAMPLES.no_filters.filters }, // matches first
+                { filters: cohortConditionFilters('inCohort') },
+            ]
+            const handler = new ConditionalBranchHandler(repository)
+
+            const result = await handler.execute({
+                invocation,
+                action,
+                result: createInvocationResult(invocation),
+            })
+
+            expect(result.nextAction).toEqual(findActionById(invocation.hogFlow, 'condition_1'))
+            expect(repository.calls).toEqual([])
+        })
+
         it('does not query membership for a condition that merely mentions "inCohort" as a string', async () => {
             const repository = new FakeCohortMembershipRepository([COHORT_ID])
             action.config.conditions = [

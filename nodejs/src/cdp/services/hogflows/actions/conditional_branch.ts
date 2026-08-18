@@ -100,11 +100,11 @@ export class ConditionalBranchHandler implements ActionHandler {
                       },
                   }
 
-        // A lookup failure throws on purpose: it follows the action's on_error setting instead
-        // of silently routing the person as a non-member
-        const memberCohortIds = await this.fetchMemberCohortIds(invocation, conditionalAction)
-
-        const conditionResult = await checkConditions(invocation, conditionalAction, memberCohortIds)
+        const conditionResult = await checkConditions(
+            invocation,
+            conditionalAction,
+            this.createMemberCohortIdsLoader(invocation)
+        )
 
         const isWait = action.type === 'wait_until_condition'
 
@@ -135,21 +135,21 @@ export class ConditionalBranchHandler implements ActionHandler {
         return { nextAction: findContinueAction(invocation), result: { conditionResult } }
     }
 
-    /** Person-less invocations (warehouse rows, account audiences) are non-members of everything. */
-    private async fetchMemberCohortIds(
-        invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'conditional_branch' }>
-    ): Promise<number[] | undefined> {
-        if (!action.config.conditions.some(conditionReferencesCohorts)) {
-            return undefined
+    /**
+     * Memoized so one lookup covers every cohort condition in the action. Person-less
+     * invocations (warehouse rows, account audiences) are non-members of everything.
+     */
+    private createMemberCohortIdsLoader(invocation: CyclotronJobInvocationHogFlow): () => Promise<number[]> {
+        let loaded: Promise<number[]> | undefined
+        return () => {
+            if (!loaded) {
+                const personUuid = invocation.person?.id ?? invocation.state.personId
+                loaded = personUuid
+                    ? this.cohortMembershipRepository.getMemberCohortIds(invocation.hogFlow.team_id, personUuid)
+                    : Promise.resolve([])
+            }
+            return loaded
         }
-
-        const personUuid = invocation.person?.id ?? invocation.state.personId
-        if (!personUuid) {
-            return []
-        }
-
-        return await this.cohortMembershipRepository.getMemberCohortIds(invocation.hogFlow.team_id, personUuid)
     }
 }
 
@@ -177,13 +177,22 @@ function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
     action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
-    memberCohortIds?: number[]
+    loadMemberCohortIds?: () => Promise<number[]>
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
 }> {
     // the index is used to find the right edge
     for (const [index, condition] of action.config.conditions.entries()) {
+        // Loaded only when evaluation actually reaches a cohort condition, so a run whose earlier
+        // condition matches never touches the behavioral cohorts DB. A lookup failure throws here
+        // on purpose (following the action's on_error) instead of guessing non-membership; the
+        // inCohort/notInCohort STL functions read the resulting cohort_ids global.
+        const cohortGlobals =
+            loadMemberCohortIds && conditionReferencesCohorts(condition)
+                ? { cohort_ids: await loadMemberCohortIds() }
+                : {}
+
         // TODO(team-workflows): Figure out error handling here - do we throw or just move on to other conditions?
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
@@ -191,9 +200,7 @@ export async function checkConditions(
             filterGlobals: {
                 ...invocation.filterGlobals,
                 variables: invocation.state.variables,
-                // The inCohort/notInCohort STL functions read this; when it wasn't prefetched
-                // they fail the evaluation loudly instead of guessing non-membership
-                ...(memberCohortIds !== undefined ? { cohort_ids: memberCohortIds } : {}),
+                ...cohortGlobals,
             },
         })
 
