@@ -51,4 +51,5 @@ export const WithoutSparkline: Story = {
 
 export const Loading: Story = {
     args: { loading: true },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
