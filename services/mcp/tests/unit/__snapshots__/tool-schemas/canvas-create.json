@@ -5,6 +5,17 @@
             "description": "Id of the channel to create the canvas in — the channel the task was created in, from the task's context. Use channel-list only to resolve a channel the user named; never pick a channel from the listing yourself (the personal #me channel is not a default).",
             "type": "string"
         },
+        "description": {
+            "default": "",
+            "description": "Short prose describing the canvas. For components this is the store-search text agents match against — say what the widget shows and what its config controls.",
+            "type": "string"
+        },
+        "kind": {
+            "default": "freeform",
+            "description": "What to create: 'freeform' (a standalone app), 'component' (a reusable widget for grids — its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited through the layout endpoints).\n\n* `freeform` - freeform\n* `grid` - grid\n* `component` - component",
+            "enum": ["freeform", "grid", "component"],
+            "type": "string"
+        },
         "name": {
             "description": "Display name for the canvas.",
             "maxLength": 400,
