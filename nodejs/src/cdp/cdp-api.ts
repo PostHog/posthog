@@ -1043,24 +1043,28 @@ export class CdpApi {
 
     // Shared gate for the per-call scoped JWTs Django mints (reschedule, cancel): verifies the
     // token and requires its claims to match the URL's team + workflow, so a leaked token can't
-    // touch another team or flow. Writes the 401 itself and returns false on any mismatch.
+    // touch another team or flow. Routes scoped tighter than a workflow (batch cancel) pass the
+    // narrower claims via extraClaims and every one must match too. Writes the 401 itself and
+    // returns false on any mismatch.
     private verifyScopedWorkflowJwt(
         jwt: ScopedServiceJwt,
         req: ModifiedRequest,
         res: express.Response,
-        label: string
+        label: string,
+        extraClaims?: Record<string, string>
     ): boolean {
         const { team_id, id } = req.params
         const authHeader = req.headers['authorization']
         const token =
             typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
-        let claims: { team_id?: number; hog_flow_id?: string } | undefined
+        let claims: Record<string, unknown> | undefined
         try {
             claims = token ? (jwt.verify(token) as typeof claims) : undefined
         } catch {
             claims = undefined
         }
-        if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
+        const extrasMatch = !extraClaims || Object.entries(extraClaims).every(([key, value]) => claims?.[key] === value)
+        if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id || !extrasMatch) {
             res.status(401).json({ error: `Unauthorized: Invalid ${label} token` })
             return false
         }
@@ -1256,9 +1260,9 @@ export class CdpApi {
 
             const { team_id, id, batch_job_id } = req.params
 
-            // The batch job id needs no claim of its own: cancelJobs filters on
-            // (team_id, function_id, parent_run_id), so an id from another workflow matches nothing.
-            if (!this.verifyScopedWorkflowJwt(this.cancelBatchJwt, req, res, 'cancel')) {
+            // batch_job_id is pinned in the claims too: without it, a captured token could stop
+            // any sibling batch of the same workflow for the token's lifetime.
+            if (!this.verifyScopedWorkflowJwt(this.cancelBatchJwt, req, res, 'cancel', { batch_job_id })) {
                 return
             }
 

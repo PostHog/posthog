@@ -1830,14 +1830,22 @@ describe('CDP API', () => {
 
         // Built with the raw audience literal and Python claim names: this is the wire contract
         // with Django's WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE, so drift on either side breaks here.
+        const batchFlowId = new UUIDT().toString()
+        const batchJobId = new UUIDT().toString()
+
         const mintBatchToken = (
             teamId: number,
             hogFlowId: string,
-            { secret = 'local-dev-workflows-reschedule-jwt', audience = 'posthog:workflows:cancel_batch' } = {}
-        ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, secret, { audience, expiresIn: '2m' })
-
-        const batchFlowId = new UUIDT().toString()
-        const batchJobId = new UUIDT().toString()
+            {
+                secret = 'local-dev-workflows-reschedule-jwt',
+                audience = 'posthog:workflows:cancel_batch',
+                batchJob = batchJobId,
+            } = {}
+        ) =>
+            jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId, batch_job_id: batchJob }, secret, {
+                audience,
+                expiresIn: '2m',
+            })
         const batchAuth = (teamId: number, hogFlowId: string) => ({
             Authorization: `Bearer ${mintBatchToken(teamId, hogFlowId)}`,
         })
@@ -1881,9 +1889,16 @@ describe('CDP API', () => {
                 "another workflow's token",
                 () => ({ Authorization: `Bearer ${mintBatchToken(team.id, new UUIDT().toString())}` }),
             ],
+            ["another team's token", () => ({ Authorization: `Bearer ${mintBatchToken(team.id + 1, batchFlowId)}` })],
             [
-                "another team's token",
-                () => ({ Authorization: `Bearer ${mintBatchToken(team.id + 1, batchFlowId)}` }),
+                // A captured token must not be replayable against a sibling batch run of the
+                // same workflow: the batch_job_id claim has to match the URL.
+                "another batch run's token",
+                () => ({
+                    Authorization: `Bearer ${mintBatchToken(team.id, batchFlowId, {
+                        batchJob: new UUIDT().toString(),
+                    })}`,
+                }),
             ],
             [
                 // The batch purpose shares its signing key with the other workflows purposes, so
