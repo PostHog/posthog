@@ -68,7 +68,7 @@ export function createCanvasHostMessageRouter(
 
   return async (message) => {
     switch (message.type) {
-      case "data-request":
+      case "data-request": {
         // Canvas code is untrusted, so the host is what stops a canvas from
         // firing writes just by being loaded or rendered.
         if (
@@ -88,8 +88,13 @@ export function createCanvasHostMessageRouter(
           });
           break;
         }
+        // agentRequest settles on a viewer's decision, not on I/O, so it stays
+        // out of the shared slot pool: an approval dialog left open must not
+        // starve the canvas's ordinary reads/writes. Its own bound is the
+        // host's single-flight guard (one request awaiting approval at a time).
+        const holdsSlot = message.method !== "agentRequest";
         if (
-          activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS ||
+          (holdsSlot && activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS) ||
           !isBoundedPayload(message.payload)
         ) {
           options.post({
@@ -101,7 +106,7 @@ export function createCanvasHostMessageRouter(
           });
           break;
         }
-        activeDataRequests += 1;
+        if (holdsSlot) activeDataRequests += 1;
         try {
           const call = options
             .callbacks()
@@ -139,9 +144,10 @@ export function createCanvasHostMessageRouter(
             error: error instanceof Error ? error.message : String(error),
           });
         } finally {
-          activeDataRequests -= 1;
+          if (holdsSlot) activeDataRequests -= 1;
         }
         break;
+      }
       case "error":
         options.callbacks().onError?.(message.message, message.stack);
         break;

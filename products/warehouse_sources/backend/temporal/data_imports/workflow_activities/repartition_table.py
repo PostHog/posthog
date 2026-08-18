@@ -85,6 +85,11 @@ _TRANSIENT_ERROR_SNIPPETS = (
     "reduce your request rate",  # S3 503 SlowDown surfaced by the delta kernel as OSError
     "error occurred while loading credentials",  # IMDS/credential-provider timeout inside the kernel
     "event loop is closed",  # s3fs client bound to an already-completed async_to_sync loop
+    # S3 NoSuchKey from an s3fs purge/swap op (`_copy`/`_rm`/`_find`) that raced a concurrent delete —
+    # a temp file swept by another attempt, not a bug. A hollow *live* table surfaces the missing file
+    # with its path embedded and is routed to a revive inside `repartition_table_in_place` before it
+    # ever reaches here, so this bare, pathless variant only ever means a raced object-store operation.
+    "the specified key does not exist",
 )
 
 
@@ -436,7 +441,10 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         if _is_transient_infra_error(e):
             # Transient infra noise mid-repartition (app-DB pooler drop, S3 rate limit, credential
             # timeout) — not a repartition bug. The rewrite/swap is idempotent via the swap marker, so
-            # retrying is always safe. Don't consume an attempt or emit a failure event.
+            # retrying is always safe. Don't consume an attempt, emit a failure event, or report to
+            # error tracking — a condition nobody can act on (e.g. a pgbouncer login-retry cooldown)
+            # shouldn't trip an issue there; the log line, the transient metric, and the skipped
+            # event's reason="transient_infra_error" already carry the visibility.
             DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="transient").inc()
             if trigger_reason == "admin":
                 # An operator staged this rewrite precisely because syncing on the old layout is
@@ -454,7 +462,6 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                     type="TransientRepartitionError",
                 ) from e
             logger.warning("repartition: transient infra error, will retry on next sync", exc_info=True)
-            capture_exception(e)
             _capture_stood_down(schema, inputs, trigger_reason, "transient_infra_error", logger)
             return
         failure_outcome = _handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger)
