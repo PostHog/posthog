@@ -59,7 +59,10 @@ describe('weekly flaky report', () => {
             table.rows[0].map((tableCell) => tableCell.text),
             ['test', 'runner', 'owner', 'quarantined', 'rescued', 'fails', 'logs']
         )
-        assert.equal(blocks.filter((block) => block.type === 'context').length, 0)
+        // The edit-workflow context block may still render when Actions env vars are set;
+        // only the action footer has to be gone.
+        const contextText = JSON.stringify(blocks.filter((block) => block.type === 'context'))
+        assert.doesNotMatch(contextText, /fixing-flaky-tests|test:quarantine/)
         for (const tableCell of table.rows.flat()) {
             assert.ok(['raw_text', 'raw_number', 'rich_text'].includes(tableCell.type))
         }
@@ -324,10 +327,15 @@ describe('weekly flaky report', () => {
             failed_run_count: 4,
         }
         const trunked = { runner: 'pytest', selector: 'masked.py::test_masked', failed_run_count: 9 }
+        const undated = { runner: 'pytest', selector: 'undated.py::test_undated', failed_run_count: 2 }
         const plain = { runner: 'pytest', selector: 'plain.py::test_plain', failed_run_count: 1 }
-        const items = [quarantineFile, unparked, trunked, plain]
-        const trunkFor = (item) =>
-            item.selector === trunked.selector ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
+        const items = [quarantineFile, unparked, trunked, undated, plain]
+        const trunkFor = (item) => {
+            if (item.selector === trunked.selector) {
+                return { quarantinedAt: '2026-07-13T17:12:22.000Z' }
+            }
+            return item.selector === undated.selector ? { quarantinedAt: null } : null
+        }
 
         const cells = (masksCi) =>
             tableRows(
@@ -337,12 +345,12 @@ describe('weekly flaky report', () => {
                 quarantineStatusFor(trunkFor, masksCi)
             ).map((row) => row[3].text)
 
-        assert.deepEqual(cells(true), ['file', '-', '2026-07-13', '-'])
+        assert.deepEqual(cells(true), ['file', '-', '2026-07-13', 'yes', '-'])
         // Masking off leaves Trunk's failure reddening CI, so the date would overclaim.
-        assert.deepEqual(cells(false), ['file', '-', 'flagged', '-'])
+        assert.deepEqual(cells(false), ['file', '-', 'flagged', 'flagged', '-'])
     })
 
-    it('keeps a Trunk-quarantined test in the report and collapses co-failing files', async () => {
+    it('keeps a Trunk-quarantined test in the report and counts suppressed cluster members', async () => {
         const clustered = Array.from({ length: CLUSTER_MIN_TESTS }, (_, index) => ({
             runner: 'pytest',
             selector: `shared.py::test_${index}`,
@@ -350,11 +358,12 @@ describe('weekly flaky report', () => {
             failed_pr_count: 1,
         }))
         const trunked = { runner: 'pytest', selector: 'masked.py::test_masked', failed_run_count: 9 }
+        const quarantined = new Set([trunked.selector, 'shared.py::test_0', 'shared.py::test_1'])
         const [{ candidates, statusFor }] = await buildRunnerReports(
             [{ runner: 'pytest', candidates: [...clustered, trunked] }],
             async () => () => ({ runsRescued: null, evidence: [] }),
             async () => (item) =>
-                item.selector === trunked.selector ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
+                quarantined.has(item.selector) ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
         )
 
         assert.deepEqual(
@@ -364,8 +373,9 @@ describe('weekly flaky report', () => {
                 ['masked.py::test_masked', 9],
             ]
         )
-        // The test env sets no TRUNK_* variables, so masking is off and the flag shows without a date.
-        assert.equal(statusFor(trunked), 'flagged')
+        // Truthy either way TRUNK_* masking resolves, so these hold without pinning the env.
+        assert.equal(statusFor(candidates[0]), `2/${CLUSTER_MIN_TESTS}`)
+        assert.ok(statusFor(trunked))
     })
 
     it('matches a Jest selector reported from the package root against Trunk', async () => {

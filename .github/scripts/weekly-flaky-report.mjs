@@ -233,7 +233,7 @@ const TRUNK_QUARANTINED_QUERY = `
     )`
 
 // Uploads off, a missing table, or a query error all degrade to a report without Trunk state,
-// never to a failed run or an empty table.
+// never to a failed run.
 async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_UPLOADS_ON) {
     const none = () => null
     if (!enabled) {
@@ -262,12 +262,17 @@ async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_U
 }
 
 // One question for both systems: is this failure suppressed, and since when? Suppressed tests
-// stay in the table so it shows the full flake cost, not just the unsuppressed tail.
+// stay in the table with their suppression labeled, so masked failures remain visible.
 //
 // Trunk with masking off is marked but not suppressed: Trunk called the test flaky, CI still goes
 // red on it, so it reads 'flagged' rather than a quarantine date.
 function quarantineStatusFor(trunkFor, masksCi = TRUNK_MASKS_CI) {
     return (item) => {
+        // A cluster's bare file selector can never match a per-test quarantine, so the members'
+        // statuses are counted at collapse time and the row reports how many are suppressed.
+        if (item.cluster_size) {
+            return item.quarantined_member_count ? `${item.quarantined_member_count}/${item.cluster_size}` : null
+        }
         // Both counts are seven-day aggregates and the endpoint counts a quarantined run
         // separately from a failed one, so a park that ended inside the window leaves the
         // quarantined count set while CI fails on the test again. The unquarantined failures
@@ -280,12 +285,16 @@ function quarantineStatusFor(trunkFor, masksCi = TRUNK_MASKS_CI) {
         if (!trunk) {
             return null
         }
-        return masksCi ? String(trunk.quarantinedAt).slice(0, 10) : 'flagged'
+        if (!masksCi) {
+            return 'flagged'
+        }
+        const quarantinedOn = String(trunk.quarantinedAt || '').slice(0, 10)
+        return quarantinedOn || 'yes'
     }
 }
 
 // 5+ co-failing tests in one file are one shared-fixture incident, not N flakes.
-function collapseClusters(items) {
+function collapseClusters(items, statusFor) {
     const byFile = new Map()
     for (const item of items) {
         const file = item.selector.split('::')[0]
@@ -301,6 +310,7 @@ function collapseClusters(items) {
                 runner: group[0].runner,
                 selector: file,
                 cluster_size: group.length,
+                quarantined_member_count: group.filter((item) => statusFor(item)).length,
                 failed_run_count: group.reduce((sum, item) => sum + item.failed_run_count, 0),
                 failed_pr_count: Math.max(...group.map((item) => item.failed_pr_count)),
                 quarantined_failed_run_count: 0,
@@ -334,7 +344,7 @@ async function buildRunnerReports(
     return Promise.all(
         candidatePools.map(async ({ runner, candidates }) => {
             const statusFor = quarantineStatusFor(await getTrunk(runner))
-            const queue = collapseClusters(candidates)
+            const queue = collapseClusters(candidates, statusFor)
             const extrasFor = await getEnrichment(runner, queue)
             return { runner, candidates: rankReportCandidates(queue, extrasFor), extrasFor, statusFor }
         })
