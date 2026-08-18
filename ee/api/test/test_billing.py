@@ -1039,6 +1039,47 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
         self.assertEqual(call_args[1], expected_data)
 
 
+class TestVerifyYCLinkBillingAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        # Set user as admin/owner by default
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.url = "/api/billing/startups/verify_yc_link"
+        self.data = {
+            "organization_id": str(self.organization.id),
+            "yc_verification_url": "https://www.ycombinator.com/verify/db9imrf5u1kaxib5",
+        }
+
+    @patch("ee.billing.billing_manager.BillingManager.verify_yc_link")
+    def test_verify_yc_link_success(self, mock_verify_yc_link):
+        mock_verify_yc_link.return_value = {"status": "verified", "founder_name": "Jane Doe", "batches": ["S26"]}
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "verified")
+        mock_verify_yc_link.assert_called_once()
+        _, call_args, _ = mock_verify_yc_link.mock_calls[0]
+        self.assertEqual(call_args[0], self.organization)
+        self.assertEqual(call_args[1], {"yc_verification_url": self.data["yc_verification_url"]})
+
+    def test_verify_yc_link_non_admin_failure(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_verify_yc_link_missing_org_id(self):
+        response = self.client.post(self.url, {"yc_verification_url": self.data["yc_verification_url"]})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "organization_id")
+
+
 class TestCouponClaimBillingAPI(APILicensedTest):
     def setUp(self):
         super().setUp()
@@ -1292,6 +1333,7 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
             ("purchase_credits", "post", "/api/billing/credits/purchase", {"amount": 100}),
             ("claim_coupon", "post", "/api/billing/coupons/claim", {"code": "TEST"}),
             ("startup_apply", "post", "/api/billing/startups/apply", "USE_ORG_ID"),
+            ("startup_verify_yc_link", "post", "/api/billing/startups/verify_yc_link", "USE_ORG_ID"),
         ]
     )
     def test_permission_denied(self, _name, method, url, data):

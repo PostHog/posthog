@@ -155,4 +155,93 @@ describe('startupProgramLogic', () => {
             ],
         ])
     })
+
+    describe('YC verification link', () => {
+        const mockVerifyEndpoint = (response: Record<string, any>): void => {
+            useMocks({
+                post: {
+                    '/api/billing/startups/verify_yc_link': () => [200, response],
+                },
+            })
+        }
+
+        it('verifies the link and auto-fills the batch', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com', referrer: 'yc' })
+            mockVerifyEndpoint({ status: 'verified', founder_name: 'Jane Doe', batches: ['S26'] })
+
+            await expectLogic(logic, () => {
+                logic.actions.setStartupProgramValue(
+                    'yc_verification_url',
+                    'https://www.ycombinator.com/verify/db9imrf5u1kaxib5'
+                )
+            })
+                .toDispatchActions(['verifyYcLink', 'setYcVerification'])
+                .toFinishAllListeners()
+
+            expect(logic.values.ycVerification).toEqual({
+                status: 'verified',
+                founder_name: 'Jane Doe',
+                batches: ['S26'],
+            })
+            expect(logic.values.startupProgram.yc_batch).toEqual('Summer 2026')
+            expect(logic.values.startupProgramValidationErrors.yc_verification_url).toBeUndefined()
+        })
+
+        it('does not call the endpoint for a URL that is not a YC verification link', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com', referrer: 'yc' })
+            const endpointCalls = jest.fn()
+            useMocks({
+                post: {
+                    '/api/billing/startups/verify_yc_link': () => {
+                        endpointCalls()
+                        return [200, { status: 'verified' }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setStartupProgramValue('yc_verification_url', 'https://example.com/verify/abc')
+            }).toFinishAllListeners()
+
+            expect(endpointCalls).not.toHaveBeenCalled()
+            expect(logic.values.startupProgramValidationErrors.yc_verification_url).toEqual(
+                'This should look like https://www.ycombinator.com/verify/your-unique-code'
+            )
+        })
+
+        it('blocks submission when the link was already used by another organization', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com', referrer: 'yc' })
+            mockVerifyEndpoint({ status: 'already_used' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setStartupProgramValue(
+                    'yc_verification_url',
+                    'https://www.ycombinator.com/verify/db9imrf5u1kaxib5'
+                )
+            })
+                .toDispatchActions(['verifyYcLink', 'setYcVerification'])
+                .toFinishAllListeners()
+
+            expect(logic.values.startupProgramValidationErrors.yc_verification_url).toEqual(
+                'This verification link has already been used by another organization. Please create your own link at ycombinator.com/verify/manage'
+            )
+        })
+
+        it('keeps the form submittable when YC is unreachable', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com', referrer: 'yc' })
+            mockVerifyEndpoint({ status: 'unreachable' })
+
+            await expectLogic(logic, () => {
+                logic.actions.setStartupProgramValue(
+                    'yc_verification_url',
+                    'https://www.ycombinator.com/verify/db9imrf5u1kaxib5'
+                )
+            })
+                .toDispatchActions(['verifyYcLink', 'setYcVerification'])
+                .toFinishAllListeners()
+
+            expect(logic.values.ycVerification).toEqual({ status: 'unreachable' })
+            expect(logic.values.startupProgramValidationErrors.yc_verification_url).toBeUndefined()
+        })
+    })
 })

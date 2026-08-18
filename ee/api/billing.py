@@ -523,6 +523,39 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         methods=["POST"],
         detail=False,
+        url_path="startups/verify_yc_link",
+        permission_classes=[permissions.IsAuthenticated],
+    )
+    def verify_yc_link(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Check a YC founder verification link with the billing service without submitting an application.
+
+        Used by the startup program form for inline validation and auto-filling the batch."""
+        user = self.request.user
+        if not isinstance(user, AbstractUser):
+            raise PermissionDenied("You must be logged in to verify a YC link")
+
+        organization_id = request.data.get("organization_id")
+        if not organization_id:
+            raise ValidationError({"organization_id": "This field is required."})
+
+        organization = Organization.objects.get(id=organization_id)
+        if not organization:
+            raise ValidationError({"organization_id": "Organization not found."})
+
+        if not OrganizationMembership.objects.filter(
+            user=user, organization=organization, level__gte=OrganizationMembership.Level.ADMIN
+        ).exists():
+            raise PermissionDenied("You need to be an organization admin or owner to apply for the startup program")
+
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.verify_yc_link(
+            organization, {"yc_verification_url": request.data.get("yc_verification_url")}
+        )
+        return Response(res, status=status.HTTP_200_OK)
+
+    @action(
+        methods=["POST"],
+        detail=False,
         url_path="coupons/claim",
         permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
     )
