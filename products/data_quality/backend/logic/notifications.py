@@ -157,7 +157,9 @@ def notify_check_started_failing(check: DataQualityCheck, failed_row_count: int 
         LOGGER.exception("Could not send a data quality failure notification", check_id=str(check.id))
 
 
-def notify_materialization_blocked(team_id: int, saved_query_id: str, view_name: str, blocking_failures: int) -> None:
+def notify_materialization_blocked(
+    team_id: int, saved_query_id: str, view_name: str, blocking_failures: int, job_id: str
+) -> None:
     """Tell the team a refresh was not published because its checks failed. Best-effort."""
     try:
         if not is_data_quality_checks_enabled_for_team_id(team_id):
@@ -176,6 +178,10 @@ def notify_materialization_blocked(team_id: int, saved_query_id: str, view_name:
                 target_id=str(team_id),
                 resource_type="warehouse_objects",
                 resource_id=saved_query_id,
+                # Keyed on the blocked materialization job: the block activity can run twice when a
+                # slow attempt hits its start-to-close timeout, and the unique constraint behind this
+                # key collapses the retry to one notice while a genuinely new block notifies again.
+                idempotency_key=f"matview-blocked-{job_id}",
                 resolver=_WarehouseSubjectResolver(
                     team,
                     SubjectType.VIEW,

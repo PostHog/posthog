@@ -68,7 +68,7 @@ def _block_node_and_job(inputs: QualityBlockMaterializationInputs) -> None:
 
     if job.saved_query_id and node.saved_query is not None:
         data_quality_facade.notify_materialization_blocked(
-            inputs.team_id, str(job.saved_query_id), node.saved_query.name, inputs.blocking_failures
+            inputs.team_id, str(job.saved_query_id), node.saved_query.name, inputs.blocking_failures, inputs.job_id
         )
 
 

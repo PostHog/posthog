@@ -244,7 +244,7 @@ class TestDataQualityNotifications(BaseTest):
         )
 
         with patch(CREATE_NOTIFICATION) as create_notification:
-            notify_materialization_blocked(self.team.id, str(customers.id), "customers", 1)
+            notify_materialization_blocked(self.team.id, str(customers.id), "customers", 1, str(uuid4()))
 
         resolver = create_notification.call_args.args[0].resolver
         resolved = resolver.resolve(TargetType.TEAM, str(self.team.id), self.team.id)
@@ -273,6 +273,22 @@ class TestDataQualityNotifications(BaseTest):
         )
 
         assert _blocking_referenced_names(self.team.id, str(customers.id)) == expected
+
+    def test_a_blocked_run_carries_a_dedupe_key_stable_per_job(self) -> None:
+        # The block activity runs twice when a slow attempt hits its start-to-close timeout; both
+        # attempts share the job id, so the notice carries a key stable across retries -- the unique
+        # constraint behind it collapses the retry to one notice -- while a genuinely new block
+        # (a different job) gets a new key and notifies again.
+        job_id = str(uuid4())
+        with patch(CREATE_NOTIFICATION) as create_notification:
+            notify_materialization_blocked(self.team.id, str(self.view.id), "orders", 1, job_id)
+            notify_materialization_blocked(self.team.id, str(self.view.id), "orders", 1, job_id)
+            notify_materialization_blocked(self.team.id, str(self.view.id), "orders", 1, str(uuid4()))
+
+        keys = [call.args[0].idempotency_key for call in create_notification.call_args_list]
+        assert keys[0] is not None
+        assert keys[0] == keys[1]
+        assert keys[0] != keys[2]
 
     def test_a_notification_failure_does_not_fail_the_run(self) -> None:
         check = self._check()
