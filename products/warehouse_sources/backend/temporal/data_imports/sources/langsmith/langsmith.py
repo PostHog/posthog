@@ -649,12 +649,14 @@ def _get_examples_rows(
             page_offset = offset
             url = f"{base_url}{config.path}?{urlencode({'dataset': dataset_id, 'limit': config.page_size, 'offset': page_offset})}"
             data = _fetch_page(session, url, headers, logger)
+            # Count every request, including a short first page, against the per-run limit. A
+            # dataset whose examples fit on one page must still cost one request — otherwise a
+            # host serving many datasets (bounded only by MAX_DATASET_IDS_BYTES) each with a
+            # single short page pages forever without ever tripping MAX_PAGES_PER_RUN.
+            pages += 1
 
             rows = data if isinstance(data, list) else []
-            if not rows:
-                break
-
-            is_last_page = len(rows) < config.page_size
+            is_last_page = not rows or len(rows) < config.page_size
 
             for item in rows:
                 batcher.batch(item)
@@ -667,20 +669,27 @@ def _get_examples_rows(
                             LangSmithResumeConfig(dataset_id=dataset_id, offset=page_offset)
                         )
 
-            if is_last_page:
-                break
-            offset = page_offset + config.page_size
-
-            pages += 1
-            if pages >= MAX_PAGES_PER_RUN:
-                # Flush any batched-but-unyielded items before checkpointing the next offset —
+            run_is_finished = is_last_page and is_last_dataset
+            if pages >= MAX_PAGES_PER_RUN and not run_is_finished:
+                # Flush any batched-but-unyielded items before checkpointing where to resume —
                 # resuming skips this page, so an unflushed partial batch is lost.
                 if batcher.should_yield(include_incomplete_chunk=True):
                     yield batcher.get_table()
-                resumable_source_manager.save_state(LangSmithResumeConfig(dataset_id=dataset_id, offset=offset))
+                if is_last_page:
+                    # This dataset is exhausted; resume picks up at the start of the next one.
+                    next_dataset_id = dataset_ids[index + 1]
+                    resumable_source_manager.save_state(LangSmithResumeConfig(dataset_id=next_dataset_id, offset=0))
+                else:
+                    resumable_source_manager.save_state(
+                        LangSmithResumeConfig(dataset_id=dataset_id, offset=page_offset + config.page_size)
+                    )
                 raise LangSmithPageLimitError(
                     f"LangSmith examples import hit the {MAX_PAGES_PER_RUN}-page per-attempt limit; resuming from checkpoint"
                 )
+
+            if is_last_page:
+                break
+            offset = page_offset + config.page_size
 
 
 def get_rows(

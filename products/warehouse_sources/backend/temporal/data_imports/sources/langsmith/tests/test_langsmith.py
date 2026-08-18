@@ -354,6 +354,29 @@ class TestExamplesPagination:
         assert "dataset=ds-3" in example_urls[1] and "offset=0" in example_urls[1]
         assert all("dataset=ds-1" not in u for u in example_urls)
 
+    def test_many_short_pages_still_hit_the_page_limit(self):
+        # A dataset whose examples fit on a single short page must still cost one request against
+        # MAX_PAGES_PER_RUN. Otherwise a host serving many datasets (bounded only by
+        # MAX_DATASET_IDS_BYTES), each with one short page, could page forever without ever
+        # tripping the per-run limit.
+        manager = FakeManager()
+        dataset_ids = [f"ds-{i}" for i in range(10)]
+        example_urls: list[str] = []
+
+        def fake_fetch(session, url, headers, log, json_body=None):
+            if "/api/v1/examples" in url:
+                example_urls.append(url)
+                return [{"id": "ex"}]  # a single-item, short page — never the "full page" branch
+            return [{"id": d} for d in dataset_ids]
+
+        with mock.patch(_MAX_PAGES, 3), mock.patch(_FETCH_PAGE, side_effect=fake_fetch):
+            with pytest.raises(LangSmithPageLimitError):
+                _collect(get_rows("key", BASE_URL, "examples", logger, manager, 1))  # type: ignore[arg-type]
+
+        assert len(example_urls) == 3
+        assert manager.saved[-1].dataset_id == "ds-3"
+        assert manager.saved[-1].offset == 0
+
 
 class TestPaginationAbuseGuards:
     def test_oversized_session_id_accumulation_raises(self):
