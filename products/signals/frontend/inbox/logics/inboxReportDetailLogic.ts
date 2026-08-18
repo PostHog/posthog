@@ -73,6 +73,12 @@ import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
 
+// A report funds one implementation task at a time, enforced server-side by
+// `_live_implementation_exists` in products/signals/backend/task_run_artefacts.py. Only a failed or
+// cancelled run hands the slot back there, so `completed` is deliberately absent: reusing
+// TERMINAL_RUN_STATUSES here would offer a second PR the server then refuses.
+const IMPLEMENTATION_SLOT_RELEASING_STATUSES: TaskRunStatus[] = [TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
+
 // The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
 // gone), and the activity timeline renders the whole log. Pull a generous page so early entries
 // (the first task runs, repo selection) stay visible on reports with many findings — matching the
@@ -91,6 +97,23 @@ export interface ReportTaskEntry {
     purpose: ReportTaskPurpose
     purposeLabel: string
     startedAt: string
+}
+
+/**
+ * Whether an implementation task still holds this report's single implementation slot, which makes a
+ * manual "Create PR" fail with a `signal_report_task_cap` 429.
+ *
+ * Approximates the server predicate with what the client has: only `latest_run` rather than every
+ * run, and a shipped PR is read off the report instead (`hasImplementationPr`). Unloaded tasks read
+ * as no live implementation, so a cold load leaves the action enabled and the 429 stays the backstop
+ * rather than blocking a legitimate first press.
+ */
+export function hasLiveImplementationTask(reportTasks: ReportTaskEntry[] | null): boolean {
+    return (reportTasks ?? []).some(
+        (entry) =>
+            entry.purpose === 'implementation' &&
+            !IMPLEMENTATION_SLOT_RELEASING_STATUSES.includes(entry.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED)
+    )
 }
 
 // While the report is still being worked, poll linked tasks every 5s. Mirrors desktop.
@@ -210,6 +233,7 @@ export interface inboxReportDetailLogicValues {
     feedbackNoteSubmitting: boolean
     feedbackSentiment: InboxReportFeedbackSentiment | null
     hasImplementationPr: boolean
+    hasLiveImplementationTask: boolean
     hasPersonalGithub: boolean
     inlineThreadCount: number
     inlineThreadsByFile: Record<string, ReviewThread[]>
@@ -492,6 +516,7 @@ export interface inboxReportDetailLogicMeta {
             user: null | import('~/types').UserType
         ) => AvailableReviewerOption[]
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
+        hasLiveImplementationTask: (reportTasks: ReportTaskEntry[] | null) => boolean
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         selectedTask: (
             reportTasks: ReportTaskEntry[] | null,
@@ -1071,6 +1096,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 })
                 return hasInFlight && hasPriorTerminal
             },
+        ],
+        hasLiveImplementationTask: [
+            (s) => [s.reportTasks],
+            (reportTasks: ReportTaskEntry[] | null): boolean => hasLiveImplementationTask(reportTasks),
         ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
         // link. Mirrors desktop `AgentRunDetail`'s `pickPrimaryTask`.
