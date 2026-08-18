@@ -109,7 +109,12 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     TaskThreadMessageMention,
 )
-from products.tasks.backend.pr_urls import merge_pr_output
+from products.tasks.backend.pr_urls import (
+    merge_pr_output,
+    read_agent_opened_pr_urls,
+    read_pr_urls,
+    with_agent_opened_pr_urls,
+)
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
 from products.tasks.backend.visibility import (
     TEAM_READABLE_ORIGIN_PRODUCTS,
@@ -198,6 +203,7 @@ __all__ = [
     "finalize_task_staged_artifacts",
     "get_active_wizard_cloud_run",
     "get_conversation_task_dtos",
+    "get_agent_opened_pr_urls_by_task",
     "get_latest_pr_url_by_task",
     "get_merged_pr_task_ids",
     "get_latest_run_by_task",
@@ -943,6 +949,23 @@ def get_merged_pr_task_ids(task_ids: Iterable[str | UUID]) -> set[str]:
         .distinct("task_id")
     )
     return {str(row["task_id"]) for row in rows if row["output_pr_merged_flag"] in ("true", "True")}
+
+
+def get_agent_opened_pr_urls_by_task(task_ids: Iterable[str | UUID]) -> dict[str, set[str]]:
+    """PR URLs each task's agent is attested to have opened, unioned across the task's runs.
+
+    A URL is present only when the sandbox agent reported opening it, or when the webhook
+    backstop confirmed the PR head against a commit the run pushed. Callers use this to tell an
+    agent-opened PR from one that merely shares a branch name with the run.
+    """
+    ids = [str(t) for t in task_ids]
+    if not ids:
+        return {}
+    rows = TaskRun.objects.filter(task_id__in=ids, output__has_key="agent_opened_pr_urls").values("task_id", "output")
+    result: dict[str, set[str]] = {}
+    for row in rows:
+        result.setdefault(str(row["task_id"]), set()).update(read_agent_opened_pr_urls(row["output"]))
+    return result
 
 
 def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contracts.TaskRunDTO]:
@@ -2573,7 +2596,12 @@ def update_task_run(
                 # Same attested-key policy as set_task_run_output — this PATCH surface is
                 # caller-controlled too, so it can't be a back door to output.pr_merged.
                 merged_output = merge_pr_output(existing_output, value)
-                setattr(run, key, _apply_caller_output(existing_output, value, merged_output))
+                applied_output = _apply_caller_output(existing_output, value, merged_output)
+                # The sandbox agent reporting a PR URL attests that it opened that PR. A webhook
+                # branch match never reaches this surface, so it cannot forge the flag.
+                if caller_is_agent:
+                    applied_output = with_agent_opened_pr_urls(applied_output, read_pr_urls(value))
+                setattr(run, key, applied_output)
                 update_fields.add(key)
                 continue
             if key == "state_remove_keys":
@@ -2693,7 +2721,9 @@ def set_task_run_output(
     # so a bare `= output` would drop output.pr_url recorded out of band.
     existing = run.output if isinstance(run.output, dict) else {}
     merged = merge_pr_output(existing, output)
-    run.output = _apply_caller_output(existing, output, merged)
+    applied = _apply_caller_output(existing, output, merged)
+    # set_output is a caller-facing agent surface, so a PR URL it reports is one we opened.
+    run.output = with_agent_opened_pr_urls(applied, read_pr_urls(output))
     run.save(update_fields=["output", "updated_at"])
     _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
     if task.json_schema:

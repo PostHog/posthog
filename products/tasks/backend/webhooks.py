@@ -19,7 +19,13 @@ from products.signals.backend.report_generation.resolve_reviewers import resolve
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
+from products.tasks.backend.pr_urls import (
+    merge_pr_output,
+    read_agent_opened_pr_urls,
+    read_pr_urls,
+    read_pushed_commit_shas,
+    with_agent_opened_pr_urls,
+)
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
 logger = structlog.get_logger(__name__)
@@ -211,7 +217,20 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         and repository_full_name is not None
         and head_repo_full_name.strip().lower() == repository_full_name.strip().lower()
     )
-    if task_run is not None and is_internal_branch:
+    # A same-repo branch name is not proof we opened the PR: a customer PR on a colliding
+    # branch (e.g. "main") would otherwise be claimed. To bind a *new* URL, require the PR
+    # head to be a commit this run pushed, so the backstop attests ownership instead of
+    # guessing from the name. A URL the run already carries was trusted when first recorded,
+    # so re-seeing it (e.g. to repair a missing artifact) needs no fresh proof.
+    head_sha = (pull_request.get("head") or {}).get("sha")
+    run_pushed_pr_head = (
+        task_run is not None
+        and isinstance(head_sha, str)
+        and bool(head_sha)
+        and head_sha in read_pushed_commit_shas(task_run.output)
+    )
+    already_trusted = task_run is not None and pr_url in read_pr_urls(task_run.output)
+    if task_run is not None and is_internal_branch and (run_pushed_pr_head or already_trusted):
         _record_run_pr_url(task_run, pr_url)
 
     # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
@@ -336,7 +355,9 @@ def _append_run_pr_url(task_run: TaskRun, pr_url: str) -> bool:
                 task_run.state = locked.state
                 task_run.output = locked.output
                 return False
-            locked.output = merge_pr_output(locked.output, {"pr_urls": [pr_url]})
+            # This path runs only after the caller confirmed the PR head against a commit the run
+            # pushed. The URL is therefore ours, so attest it as agent-opened for the close guard.
+            locked.output = with_agent_opened_pr_urls(merge_pr_output(locked.output, {"pr_urls": [pr_url]}), [pr_url])
             locked.save(update_fields=["state", "output", "updated_at"])
         task_run.state = locked.state
         task_run.output = locked.output
@@ -584,9 +605,13 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
         if analytics_event == "pr_merged":
             merged_by_properties, merger_distinct_id = _merged_by_attribution(payload, task_run.team_id)
             pr_properties = {**pr_properties, **merged_by_properties}
+        # Marks a PR our agent opened, apart from one only branch-matched to the run. The
+        # pr_created and pr_closed streams then measure how often attribution acts.
+        pr_url = pr_properties.get("pr_url")
+        pr_opened_by_agent = isinstance(pr_url, str) and pr_url in read_agent_opened_pr_urls(task_run.output)
         task_run.capture_event(
             analytics_event,
-            {**pr_properties, "pr_source": "task"},
+            {**pr_properties, "pr_source": "task", "pr_opened_by_agent": pr_opened_by_agent},
             event_uuid=event_uuid,
             distinct_id_override=merger_distinct_id,
         )
@@ -607,6 +632,7 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
         **pr_properties,
         "repository": ((payload.get("repository") or {}).get("full_name") or "").strip().lower() or None,
         "pr_source": "external",
+        "pr_opened_by_agent": False,
         "team_id": team.id,
         # title omitted to avoid leaking customer business context.
         **dict.fromkeys(_TASK_ATTRIBUTION_KEYS, None),

@@ -491,12 +491,13 @@ class TestGitHubPRWebhook(TestCase):
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_opened_backfills_pr_url_on_branch_match(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
+        head_sha = "a" * 40
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             branch="feature/needs-pr-url",
-            output={},
+            output={"commit_push": {"branch": "feature/needs-pr-url", "commits": [{"sha": head_sha}]}},
         )
         pr_url = "https://github.com/posthog/posthog/pull/777"
         payload = {
@@ -504,7 +505,7 @@ class TestGitHubPRWebhook(TestCase):
             "pull_request": {
                 "html_url": pr_url,
                 "merged": False,
-                "head": {"ref": "feature/needs-pr-url", "repo": {"full_name": "posthog/posthog"}},
+                "head": {"ref": "feature/needs-pr-url", "sha": head_sha, "repo": {"full_name": "posthog/posthog"}},
             },
             "repository": {"full_name": "posthog/posthog"},
         }
@@ -516,6 +517,39 @@ class TestGitHubPRWebhook(TestCase):
         assert run.output is not None
         self.assertEqual(run.output["pr_url"], pr_url)
         self.assertEqual(run.state["verified_pr_urls"], [pr_url])
+        # A SHA-verified backstop match is proof we opened the PR, so the close guard can act on it.
+        self.assertEqual(run.output["agent_opened_pr_urls"], [pr_url])
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_opened_does_not_backfill_on_branch_match_without_pushed_commit(self, mock_capture, mock_get_secret):
+        # The customer-PR scenario: a same-repo PR whose branch name collides with the run's, but
+        # whose head is a commit the run never pushed. It must not be bound to the run.
+        mock_get_secret.return_value = self.webhook_secret
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
+            output={"commit_push": {"branch": "main", "commits": [{"sha": "a" * 40}]}},
+        )
+        payload = {
+            "action": "opened",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/779",
+                "merged": False,
+                "head": {"ref": "main", "sha": "b" * 40, "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+        self.assertEqual(response.status_code, 200)
+
+        run.refresh_from_db()
+        assert run.output is not None
+        self.assertNotIn("pr_url", run.output)
+        self.assertNotIn("agent_opened_pr_urls", run.output)
 
     @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
@@ -553,13 +587,14 @@ class TestGitHubPRWebhook(TestCase):
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_opened_backfills_pr_url_on_wizard_head_branch_match(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
+        head_sha = "c" * 40
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             branch="main",
             state={"wizard_head_branch": "posthog/instrumentation-ab12cd"},
-            output={},
+            output={"commit_push": {"branch": "posthog/instrumentation-ab12cd", "commits": [{"sha": head_sha}]}},
         )
         pr_url = "https://github.com/posthog/posthog/pull/778"
         payload = {
@@ -567,7 +602,11 @@ class TestGitHubPRWebhook(TestCase):
             "pull_request": {
                 "html_url": pr_url,
                 "merged": False,
-                "head": {"ref": "posthog/instrumentation-ab12cd", "repo": {"full_name": "posthog/posthog"}},
+                "head": {
+                    "ref": "posthog/instrumentation-ab12cd",
+                    "sha": head_sha,
+                    "repo": {"full_name": "posthog/posthog"},
+                },
             },
             "repository": {"full_name": "posthog/posthog"},
         }
@@ -608,7 +647,9 @@ class TestGitHubPRWebhook(TestCase):
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_pr_opened_does_not_overwrite_existing_pr_url(self, mock_capture, mock_get_secret):
+    def test_pr_opened_does_not_bind_second_unproven_pr_on_same_branch(self, mock_capture, mock_get_secret):
+        # A second PR appearing on the run's branch is not the run's PR unless its head is a commit
+        # the run pushed. The already-recorded PR stays primary and the unproven URL is not added.
         mock_get_secret.return_value = self.webhook_secret
         existing = "https://github.com/posthog/posthog/pull/900"
         run = TaskRun.objects.create(
@@ -623,7 +664,7 @@ class TestGitHubPRWebhook(TestCase):
             "pull_request": {
                 "html_url": "https://github.com/posthog/posthog/pull/901",
                 "merged": False,
-                "head": {"ref": "feature/has-pr", "repo": {"full_name": "posthog/posthog"}},
+                "head": {"ref": "feature/has-pr", "sha": "d" * 40, "repo": {"full_name": "posthog/posthog"}},
             },
             "repository": {"full_name": "posthog/posthog"},
         }
@@ -634,10 +675,7 @@ class TestGitHubPRWebhook(TestCase):
         run.refresh_from_db()
         assert run.output is not None
         self.assertEqual(run.output["pr_url"], existing)
-        self.assertEqual(
-            run.output["pr_urls"],
-            [existing, "https://github.com/posthog/posthog/pull/901"],
-        )
+        self.assertNotIn("https://github.com/posthog/posthog/pull/901", run.output.get("pr_urls", []))
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_invalid_signature_rejected(self, mock_get_secret):

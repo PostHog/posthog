@@ -21,6 +21,9 @@ class ImplementationPr:
 
     url: str
     merged: bool
+    # True only when our agent is attested to have opened this PR (agent report or SHA-verified
+    # webhook backstop). False when the URL was matched to the run by branch name alone.
+    opened_by_agent: bool = False
 
 
 def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str, ImplementationPr]:
@@ -63,12 +66,17 @@ def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str
     task_ids = [task_id for _, task_id in pairs]
     pr_url_by_task = tasks_facade.get_latest_pr_url_by_task(task_ids)
     merged_task_ids = tasks_facade.get_merged_pr_task_ids(task_ids)
+    agent_opened_by_task = tasks_facade.get_agent_opened_pr_urls_by_task(task_ids)
 
     result: dict[str, ImplementationPr] = {}
     for report_id, task_id in pairs:
         pr_url = pr_url_by_task.get(task_id)
         if pr_url and report_id not in result:
-            result[report_id] = ImplementationPr(url=pr_url, merged=task_id in merged_task_ids)
+            result[report_id] = ImplementationPr(
+                url=pr_url,
+                merged=task_id in merged_task_ids,
+                opened_by_agent=pr_url in agent_opened_by_task.get(task_id, set()),
+            )
     return result
 
 
@@ -99,15 +107,29 @@ def close_implementation_pr_for_report(
     """Best-effort: comment on and close the GitHub PR opened for this report's implementation task.
 
     Called when a report is suppressed or snoozed — the open PR shouldn't linger. Only acts on a PR
-    that is still open: an already-closed or merged PR is left untouched (no comment, no close), so
-    we never leave a confusing "closing this PR" note on a PR that shipped months ago. Leaves an
-    explanatory comment, then closes the PR. Returns True when the PR was closed, False when there
-    was nothing to close or the close couldn't be completed. Never raises: the state transition
-    must succeed regardless.
+    our agent is attested to have opened, and only while it is still open. A PR matched to the run by
+    branch name alone is left untouched, so we never comment on or close a customer's own PR that
+    merely shares a branch. An already-closed or merged PR is likewise left untouched (no comment, no
+    close). Leaves an explanatory comment, then closes the PR. Returns True when the PR was closed,
+    False when there was nothing to close or the close couldn't be completed. Never raises: the state
+    transition must succeed regardless.
     """
     try:
-        pr_url = fetch_implementation_pr_urls_for_reports([str(report_id)]).get(str(report_id))
-        if not pr_url:
+        pr = fetch_implementation_pr_state_for_reports([str(report_id)]).get(str(report_id))
+        if pr is None:
+            return False
+        pr_url = pr.url
+
+        # Ownership gate before any write to the repo. Without a positive "we opened it" attestation,
+        # the URL could be a customer PR the webhook matched by branch name, so skip and record it
+        # rather than comment on or close someone else's work.
+        if not pr.opened_by_agent:
+            logger.warning(
+                "close_implementation_pr_skipped_not_agent_authored",
+                report_id=str(report_id),
+                pr_url=pr_url,
+                reason=reason,
+            )
             return False
 
         parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)

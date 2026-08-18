@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+
+
 def read_pr_urls(output: object) -> list[str]:
     if not isinstance(output, dict):
         return []
@@ -7,6 +10,39 @@ def read_pr_urls(output: object) -> list[str]:
     pr_url = output.get("pr_url")
     candidates = [*urls, pr_url]
     return list(dict.fromkeys(url for url in candidates if isinstance(url, str) and url))
+
+
+def read_agent_opened_pr_urls(output: object) -> list[str]:
+    """PR URLs this run's agent is attested to have opened itself.
+
+    Only the caller-facing run APIs (the sandbox agent reporting its own PR) and the
+    SHA-verified webhook backstop write this set. A bare branch-name webhook match never
+    does. Membership therefore means we opened the PR, not that a PR shares the branch.
+    """
+    if not isinstance(output, dict):
+        return []
+    raw = output.get("agent_opened_pr_urls")
+    urls: list[object] = raw if isinstance(raw, list) else []
+    return list(dict.fromkeys(url for url in urls if isinstance(url, str) and url))
+
+
+def read_pushed_commit_shas(output: object) -> set[str]:
+    """SHAs of commits the run pushed, from the latest signed-commit report."""
+    if not isinstance(output, dict) or not isinstance(output.get("commit_push"), dict):
+        return set()
+    commits = output["commit_push"].get("commits")
+    if not isinstance(commits, list):
+        return set()
+    return {c["sha"] for c in commits if isinstance(c, dict) and isinstance(c.get("sha"), str) and c["sha"]}
+
+
+def with_agent_opened_pr_urls(output: dict, urls: Iterable[str]) -> dict:
+    """Return ``output`` with ``urls`` added to the agent-opened set, or unchanged when nothing is new."""
+    existing = read_agent_opened_pr_urls(output)
+    merged = list(dict.fromkeys([*existing, *(url for url in urls if isinstance(url, str) and url)]))
+    if merged == existing:
+        return output
+    return {**output, "agent_opened_pr_urls": merged}
 
 
 def read_head_branches(output: object) -> list[dict[str, str]]:

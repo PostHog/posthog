@@ -3,11 +3,19 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
+from products.signals.backend.implementation_pr import (
+    ImplementationPr,
+    PrCloseReason,
+    close_implementation_pr_for_report,
+)
 from products.signals.backend.models import SignalReport
 from products.signals.backend.tasks import close_dismissed_report_pr
 
 _PR_URL = "https://github.com/PostHog/posthog/pull/123"
+
+
+def _state(opened_by_agent: bool = True, merged: bool = False) -> dict[str, ImplementationPr]:
+    return {"report-1": ImplementationPr(url=_PR_URL, merged=merged, opened_by_agent=opened_by_agent)}
 
 
 class TestClosePrWhenReportDismissed(BaseTest):
@@ -121,8 +129,8 @@ class TestCloseImplementationPrForReport(BaseTest):
         github.close_pull_request.return_value = {"success": True, "number": 123, "state": "closed"}
         with (
             patch(
-                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
-                return_value={"report-1": _PR_URL},
+                "products.signals.backend.implementation_pr.fetch_implementation_pr_state_for_reports",
+                return_value=_state(),
             ),
             patch(
                 "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
@@ -135,10 +143,30 @@ class TestCloseImplementationPrForReport(BaseTest):
         assert reason in comment_body
         github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
 
+    def test_returns_false_and_skips_github_when_pr_not_agent_authored(self):
+        # The guard against destructively closing a customer PR that merely shares a branch name:
+        # without agent authorship, nothing about the PR is touched (no status fetch, no comment, no close).
+        github = MagicMock()
+        with (
+            patch(
+                "products.signals.backend.implementation_pr.fetch_implementation_pr_state_for_reports",
+                return_value=_state(opened_by_agent=False),
+            ),
+            patch(
+                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ) as mock_resolve,
+        ):
+            assert close_implementation_pr_for_report(self.team.id, "report-1") is False
+        mock_resolve.assert_not_called()
+        github.get_pull_request.assert_not_called()
+        github.comment_on_pull_request.assert_not_called()
+        github.close_pull_request.assert_not_called()
+
     def test_returns_false_and_skips_github_without_linked_pr(self):
         with (
             patch(
-                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
+                "products.signals.backend.implementation_pr.fetch_implementation_pr_state_for_reports",
                 return_value={},
             ),
             patch(
@@ -151,8 +179,8 @@ class TestCloseImplementationPrForReport(BaseTest):
     def test_returns_false_when_no_integration_resolves(self):
         with (
             patch(
-                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
-                return_value={"report-1": _PR_URL},
+                "products.signals.backend.implementation_pr.fetch_implementation_pr_state_for_reports",
+                return_value=_state(),
             ),
             patch(
                 "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
@@ -172,8 +200,8 @@ class TestCloseImplementationPrForReport(BaseTest):
         github.get_pull_request.return_value = pr_status
         with (
             patch(
-                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
-                return_value={"report-1": _PR_URL},
+                "products.signals.backend.implementation_pr.fetch_implementation_pr_state_for_reports",
+                return_value=_state(),
             ),
             patch(
                 "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
@@ -189,8 +217,8 @@ class TestCloseImplementationPrForReport(BaseTest):
         github.get_pull_request.return_value = {"success": False, "error": "boom", "status_code": 404}
         with (
             patch(
-                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
-                return_value={"report-1": _PR_URL},
+                "products.signals.backend.implementation_pr.fetch_implementation_pr_state_for_reports",
+                return_value=_state(),
             ),
             patch(
                 "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
