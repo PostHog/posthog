@@ -264,3 +264,81 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         diagnostics = validate_source_project(candidate)
 
         self.assertIn("capability_missing_agent_requests", [entry["code"] for entry in diagnostics])
+
+
+def component_meta(**overrides):
+    meta = {
+        "size": {"defaultW": 2, "defaultH": 1, "minW": 1, "minH": 1},
+        "configSchema": {"type": "object", "properties": {"location": {"type": "string"}}},
+    }
+    meta.update(overrides)
+    return meta
+
+
+class TestComponentMetaValidation(SimpleTestCase):
+    def test_valid_component_project_has_no_errors(self):
+        candidate = project(component=component_meta())
+        self.assertFalse(has_errors(validate_source_project(candidate, kind="component")))
+
+    def test_component_meta_is_rejected_outside_component_kind(self):
+        diagnostics = validate_source_project(project(component=component_meta()))
+        self.assertIn("component_meta_not_allowed", [entry["code"] for entry in diagnostics])
+
+    @parameterized.expand(
+        [
+            ("missing_meta", None, "component_meta_missing"),
+            ("meta_not_object", "big", "component_meta_missing"),
+            ("missing_size", {"configSchema": {"type": "object"}}, "component_size_invalid"),
+            (
+                "size_not_ints",
+                component_meta(size={"defaultW": "2", "defaultH": 1, "minW": 1, "minH": 1}),
+                "component_size_invalid",
+            ),
+            (
+                "min_above_default",
+                component_meta(size={"defaultW": 1, "defaultH": 1, "minW": 2, "minH": 1}),
+                "component_size_invalid",
+            ),
+            (
+                "default_above_max",
+                component_meta(size={"defaultW": 4, "defaultH": 1, "minW": 1, "minH": 1, "maxW": 3}),
+                "component_size_invalid",
+            ),
+            (
+                "width_above_grid_cap",
+                component_meta(size={"defaultW": 13, "defaultH": 1, "minW": 1, "minH": 1}),
+                "component_size_invalid",
+            ),
+            (
+                "zero_height",
+                component_meta(size={"defaultW": 1, "defaultH": 0, "minW": 1, "minH": 0}),
+                "component_size_invalid",
+            ),
+            (
+                "config_schema_not_object_type",
+                component_meta(configSchema={"type": "array"}),
+                "component_config_schema_invalid",
+            ),
+            (
+                "config_schema_malformed",
+                component_meta(configSchema={"type": "object", "properties": 5}),
+                "component_config_schema_invalid",
+            ),
+            (
+                "config_schema_ref_not_allowlisted",
+                component_meta(configSchema={"type": "object", "properties": {"a": {"$ref": "#/defs/a"}}}),
+                "component_config_schema_invalid",
+            ),
+            (
+                "config_schema_pattern_not_allowlisted",
+                component_meta(
+                    configSchema={"type": "object", "properties": {"a": {"type": "string", "pattern": "^a"}}}
+                ),
+                "component_config_schema_invalid",
+            ),
+        ]
+    )
+    def test_invalid_component_meta_produces_error(self, _name, meta, expected_code):
+        candidate = project() if meta is None else project(component=meta)
+        diagnostics = validate_source_project(candidate, kind="component")
+        self.assertIn(expected_code, [entry["code"] for entry in diagnostics])
