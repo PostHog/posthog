@@ -1,4 +1,5 @@
 import { Layout } from 'react-grid-layout'
+import { cloneLayout, type Compactor } from 'react-grid-layout/core'
 
 import {
     DASHBOARD_WIDGET_CATALOG,
@@ -23,6 +24,12 @@ const MIN_TILE_HEIGHT_ROWS = 2
 const MIN_TEXT_TILE_HEIGHT_ROWS = 1
 const MIN_WIDGET_TILE_WIDTH_COLS = 3
 const MIN_WIDGET_TILE_HEIGHT_ROWS = 4
+
+export const freePlacementCompactor: Compactor = {
+    type: 'vertical',
+    allowOverlap: false,
+    compact: (layout) => cloneLayout(layout),
+}
 
 /** Fallback tile dimensions (half-width, standard height) when a tile has no known layout yet. */
 export const DEFAULT_INSERTED_TILE_SIZE = { w: 6, h: 5 } as const

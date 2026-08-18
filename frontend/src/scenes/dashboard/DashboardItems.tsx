@@ -28,6 +28,7 @@ import {
 } from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
 import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
+import { freePlacementCompactor } from 'scenes/dashboard/tileLayouts'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -498,6 +499,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         className={className}
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}
+                        compactor={freePlacementCompactor}
                         layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
                         rowHeight={rowHeight}
                         margin={margin}

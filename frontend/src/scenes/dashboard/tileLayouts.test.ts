@@ -1,6 +1,12 @@
 import { Layout, LayoutItem } from 'react-grid-layout'
+import { moveElement } from 'react-grid-layout/core'
 
-import { calculateDuplicateLayout, calculateInsertionLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import {
+    calculateDuplicateLayout,
+    calculateInsertionLayout,
+    calculateLayouts,
+    freePlacementCompactor,
+} from 'scenes/dashboard/tileLayouts'
 
 import { DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
 
@@ -16,6 +22,29 @@ function textTileWithLayout(
 }
 
 describe('calculating tile layouts', () => {
+    it('pushes colliding tiles without compacting free space', () => {
+        const layout = [
+            { i: 'moving', x: 0, y: 0, w: 6, h: 4 },
+            { i: 'neighbor', x: 0, y: 6, w: 6, h: 4 },
+        ]
+
+        const movedLayout = moveElement(
+            layout,
+            layout[0],
+            0,
+            6,
+            true,
+            false,
+            freePlacementCompactor.type,
+            12,
+            freePlacementCompactor.allowOverlap
+        )
+        const finalLayout = freePlacementCompactor.compact(movedLayout, 12)
+
+        expect(finalLayout.find(({ i }) => i === 'moving')?.y).toBe(6)
+        expect(finalLayout.find(({ i }) => i === 'neighbor')?.y).toBe(2)
+    })
+
     it('minimum width and height are added if missing', () => {
         const tiles: DashboardTile<QueryBasedInsightModel>[] = [
             textTileWithLayout({
