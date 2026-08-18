@@ -10,8 +10,8 @@
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
-#   setup-sqlx-cli, and setup-python-cached mirror the canonical composites; any
-#   deltas are documented in each mirror's header)
+#   setup-sqlx-cli, setup-python-cached, and paths-filter mirror the canonical
+#   composites; any deltas are documented in each mirror's header)
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
@@ -241,7 +241,7 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-            - uses: ./.github/actions/paths-filter
+            - uses: ./.depot/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
