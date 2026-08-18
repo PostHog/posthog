@@ -2809,6 +2809,58 @@ async fn same_person_carried_writes_apply_sequentially_in_request_order() {
     h.ctx.cleanup().await.expect("cleanup");
 }
 
+/// Sources whose verdict is fixed before any lookup — illegal ids and ids
+/// too long for the varchar(400) column — must not ride the resolution
+/// query: nothing reads their resolutions, so resolving them would let a
+/// caller pump arbitrarily large ids through the primary for free.
+#[tokio::test]
+async fn settled_sources_stay_out_of_the_resolution_query() {
+    let h = MergeHarness::new().await;
+    let racing = Arc::new(common::RacingStorage::new(h.ctx.storage.clone()));
+    let service = h.service_with_storage(racing.clone());
+    h.ctx.insert_person_with_distinct_id("resq-target").await;
+    h.ctx.insert_person_with_distinct_id("resq-source").await;
+
+    let oversized = "x".repeat(401);
+    let response = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "resq-target",
+            &["resq-source", "anonymous", &oversized],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("merge succeeds")
+        .into_inner();
+
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![
+            ("resq-source".to_string(), MergeSourceOutcome::Merged),
+            ("anonymous".to_string(), MergeSourceOutcome::SkippedIllegal),
+            (oversized.clone(), MergeSourceOutcome::SkippedIllegal),
+        ]
+    );
+    let resolved: Vec<String> = racing
+        .resolved_keys
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, did)| did.clone())
+        .collect();
+    assert!(
+        resolved.contains(&"resq-target".to_string())
+            && resolved.contains(&"resq-source".to_string()),
+        "the live pair still resolves"
+    );
+    assert!(
+        !resolved.contains(&"anonymous".to_string()) && !resolved.contains(&oversized),
+        "settled sources must not reach the resolution query: {resolved:?}"
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
 /// Carried operations are the caller's still-buffered writes. They have to
 /// land before the seal fences the source, or the leader would reject them
 /// and they would arrive after the merge decided the conflict.

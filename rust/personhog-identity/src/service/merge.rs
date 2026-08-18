@@ -128,14 +128,26 @@ impl MergeEntrance {
         // never needs the saga, collect the two-person set (the only
         // destructive shape). The saga re-resolves
         // authoritatively at claim time; this pass only decides shape.
+        //
+        // Illegal and oversized sources settle here, before resolution,
+        // and stay out of the resolve batch: their verdict does not
+        // depend on the world (nothing downstream reads their
+        // resolutions — see establish_target's own illegal filter), and
+        // resolving them would let a caller pump arbitrarily large ids
+        // through the primary for free. Carried ids never need this;
+        // validation rejects illegal and oversized carried entries
+        // outright.
+        let mut inline_results: HashMap<String, String> = HashMap::new();
         let mut keys: Vec<(i64, String)> =
             vec![(request.team_id, request.target_distinct_id.clone())];
-        keys.extend(
-            request
-                .sources
-                .iter()
-                .map(|s| (request.team_id, s.source_distinct_id.clone())),
-        );
+        for source in &request.sources {
+            let did = &source.source_distinct_id;
+            if is_distinct_id_illegal(did) || is_distinct_id_oversized(did) {
+                inline_results.insert(did.clone(), OUTCOME_SKIPPED_ILLEGAL.to_string());
+            } else {
+                keys.push((request.team_id, did.clone()));
+            }
+        }
         // Carried distinct ids resolve here rather than in a call of their
         // own, so the person an operation lands on is the person this call
         // classified against.
@@ -165,16 +177,12 @@ impl MergeEntrance {
             .apply_carried_operations(&request, &resolved, &target_person)
             .await;
 
-        let mut inline_results: HashMap<String, String> = HashMap::new();
         let mut attach: Vec<String> = Vec::new();
         let mut saga_sources: Vec<MergeSourceEntry> = Vec::new();
         for source in &request.sources {
             let did = &source.source_distinct_id;
-            // Oversized ids share the illegal settlement: they cannot
-            // exist in the varchar(400) column, so they can never resolve
-            // — and attaching one would fail the insert.
-            if is_distinct_id_illegal(did) || is_distinct_id_oversized(did) {
-                inline_results.insert(did.clone(), OUTCOME_SKIPPED_ILLEGAL.to_string());
+            // Illegal and oversized sources settled before resolution.
+            if inline_results.contains_key(did.as_str()) {
                 continue;
             }
             match resolved.get(&(request.team_id, did.clone())) {
