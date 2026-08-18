@@ -307,6 +307,12 @@ def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None 
     # `BAD_REFRESH_TOKEN` responses do carry `"error": "invalid_grant"` and need no special case.
     if kind == "hubspot" and status_code < 500 and body.get("status") == "BAD_HUB":
         return REFRESH_FAILURE_REASON_INVALID_GRANT
+    # Meta Graph nests its error as an object (`{"error": {"code": 190, ...}}`) and never
+    # sends the `invalid_grant` string. Code 190 means the access token is dead (password
+    # change, checkpoint, expiry, revocation). Without this mapping, a revoked Meta token
+    # classifies as `other`. Meta rate limits use codes 4, 17, and 32, which do not match.
+    if kind in ("meta-ads", "instagram") and status_code < 500 and isinstance(error, dict) and error.get("code") == 190:
+        return REFRESH_FAILURE_REASON_INVALID_GRANT
     # Transient throttling, not a credential problem: the backoff cap synchronises failed
     # integrations into retry herds that can trip a provider's per-second limit and take
     # healthy refreshes in the same second down with them.
