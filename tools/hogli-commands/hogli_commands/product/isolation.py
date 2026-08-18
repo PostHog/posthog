@@ -222,6 +222,34 @@ def permanent_interface_modules(tach_content: str, module_path: str) -> set[str]
     return modules
 
 
+def _importlinter_ignore_entries(pyproject_text: str | None = None) -> list[str]:
+    """Every ignore_imports entry across the import-linter contracts, or [] if unreadable."""
+    if pyproject_text is None:
+        pyproject = REPO_ROOT / "pyproject.toml"
+        if not pyproject.exists():
+            return []
+        pyproject_text = pyproject.read_text()
+    try:
+        contracts = tomllib.loads(pyproject_text)["tool"]["importlinter"]["contracts"]
+    except (tomllib.TOMLDecodeError, KeyError):
+        return []
+    return [entry for contract in contracts for entry in contract.get("ignore_imports", [])]
+
+
+def ignored_import_edges(pyproject_text: str | None = None) -> set[tuple[str, str]]:
+    """The exact (importer, imported) edges the import-linter contracts ignore.
+
+    Wildcard entries are dropped: they only ever allow the presentation/facade trees, which the
+    AST surface check permits outright."""
+    edges = set()
+    for entry in _importlinter_ignore_entries(pyproject_text):
+        if "*" in entry or " -> " not in entry:
+            continue
+        importer, imported = entry.split(" -> ", 1)
+        edges.add((importer.strip(), imported.strip()))
+    return edges
+
+
 def presentation_bypass_entries(name: str, pyproject_text: str | None = None) -> list[str]:
     """import-linter ignore_imports entries that still let this product's HTTP surface
     reach past the facade — the deferred presentation-wave worklist.
@@ -232,19 +260,8 @@ def presentation_bypass_entries(name: str, pyproject_text: str | None = None) ->
     see, so both block the internal seal until removed (see the
     isolating-product-facade-contracts skill).
     """
-    if pyproject_text is None:
-        pyproject = REPO_ROOT / "pyproject.toml"
-        if not pyproject.exists():
-            return []
-        pyproject_text = pyproject.read_text()
-    try:
-        contracts = tomllib.loads(pyproject_text)["tool"]["importlinter"]["contracts"]
-    except (tomllib.TOMLDecodeError, KeyError):
-        return []
     prefixes = (f"products.{name}.backend.presentation", f"products.{name}.backend.routes ->")
-    return [
-        entry for contract in contracts for entry in contract.get("ignore_imports", []) if entry.startswith(prefixes)
-    ]
+    return [entry for entry in _importlinter_ignore_entries(pyproject_text) if entry.startswith(prefixes)]
 
 
 def has_contract_check_script(product_dir: Path) -> bool:

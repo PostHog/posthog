@@ -16,12 +16,14 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .ast_helpers import module_import_targets
 from .isolation import (
     IsolationStatus,
     compute_isolation_status,
     has_legacy_interface_leaks,
     has_routes_module,
     has_tach_interface,
+    ignored_import_edges,
     is_isolated_product,
     iter_interface_blocks as _iter_interface_blocks,
     location_input_glob,
@@ -428,6 +430,62 @@ def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
     return None
 
 
+class ImportSurfaceCheck(ProductCheck):
+    """Hold the two import-linter contracts by AST, so a namespace package cannot dodge them.
+
+    The contracts say routes.py imports only presentation/, and presentation/ imports only
+    facade/ and itself. import-linter enforces both through grimp, and grimp does not descend
+    into a directory without an __init__.py — so `from ...backend.services.views import X`
+    with no `services/__init__.py` is invisible to it and the contract passes vacuously.
+    That is a live view outside presentation/ that the narrowed contract-check inputs do not
+    watch. This check reads the same imports straight from the AST, honors the same
+    ignore_imports deferrals, and fails on what grimp cannot see.
+    """
+
+    label = "import surface"
+    for_lenient = False
+
+    # (source subtree or module, allowed destination subtrees)
+    SURFACES = (
+        ("routes", ("presentation",)),
+        ("presentation", ("presentation", "facade")),
+    )
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return super().should_run(ctx) and ctx.backend_dir.is_dir()
+
+    def _module_name(self, ctx: CheckContext, path: Path) -> str:
+        rel = path.relative_to(ctx.backend_dir).with_suffix("")
+        parts = [p for p in rel.parts if p != "__init__"]
+        return ".".join([f"products.{ctx.name}.backend", *parts]) if parts else f"products.{ctx.name}.backend"
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        prefix = f"products.{ctx.name}.backend"
+        ignored = ignored_import_edges()
+        issues = []
+        for source, allowed in self.SURFACES:
+            root = ctx.backend_dir / source
+            files = [root.with_suffix(".py")] if root.with_suffix(".py").exists() else []
+            if root.is_dir():
+                files += sorted(f for f in root.rglob("*.py") if "__pycache__" not in f.parts)
+            allowed_prefixes = tuple(f"{prefix}.{a}" for a in allowed)
+            for f in files:
+                importer = self._module_name(ctx, f)
+                for line, target in module_import_targets(f, ctx.backend_dir, prefix):
+                    if target.startswith(allowed_prefixes) or (importer, target) in ignored:
+                        continue
+                    issues.append(
+                        f"{f.relative_to(ctx.product_dir)}:{line} imports {target} — {source} may only import "
+                        f"{'/'.join(allowed)}. If import-linter did not flag this, the target sits under a "
+                        "directory without __init__.py, which grimp cannot see"
+                    )
+        if issues:
+            return CheckResult(
+                lines=[f"✗ {len(issues)} import(s) outside the surface"] + [f"  → {i}" for i in issues], issues=issues
+            )
+        return CheckResult(lines=["✓ ok"])
+
+
 class PackageJsonScriptsCheck(ProductCheck):
     label = "package.json scripts"
 
@@ -548,7 +606,8 @@ class MisplacedFilesCheck(ProductCheck):
     # `services/`, `reviewer/`) is its own business, and the thing that must not
     # drift — presentation code outside presentation/ — is enforced by shape in
     # pyproject.toml: routes.py may only import presentation, and presentation may
-    # only import facade, so a view anywhere else cannot be routed.
+    # only import facade, so a view anywhere else cannot be routed. ImportSurfaceCheck
+    # holds the same two rules by AST where grimp cannot see.
 
     def run(self, ctx: CheckContext) -> CheckResult:
         if not ctx.backend_dir.exists():
@@ -1098,6 +1157,7 @@ CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
     RequiredRootFilesCheck(),
     BackendPackageMarkerCheck(),
+    ImportSurfaceCheck(),
     PackageJsonScriptsCheck(),
     MisplacedFilesCheck(),
     FileFolderConflictsCheck(),
