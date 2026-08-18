@@ -1,4 +1,5 @@
-import { LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonInput, LemonSegmentedButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
@@ -63,6 +64,16 @@ export function getDefaultForecastConfig(): ForecastConfig {
     }
 }
 
+/** A setting's label with an info balloon saying what the setting is for, rather than what it does.
+ *  The per-option tooltips already cover the mechanics. */
+function SettingHelp({ text }: { text: string }): JSX.Element {
+    return (
+        <Tooltip title={text} delayMs={0}>
+            <IconInfo className="text-muted size-3.5" />
+        </Tooltip>
+    )
+}
+
 interface ForecastSelectorProps {
     value: ForecastConfig | null
     onChange: (config: ForecastConfig) => void
@@ -101,8 +112,10 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                     },
                 ]}
             />
+            <SettingHelp text="What counts as a problem: heading for a limit, abnormal right now, or not on course for a number." />
             {config.condition === ForecastConditionType.TARGET_BY_DATE && (
                 <div className="flex flex-wrap items-center gap-2">
+                    <SettingHelp text="The number you need to hit and by when. Use at least for goals such as signups, and at most for budgets such as churn or latency." />
                     <LemonSelect
                         data-attr="alertForm-forecast-target-direction"
                         value={config.target_direction ?? ForecastTargetDirection.AT_LEAST}
@@ -147,12 +160,14 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                         }
                     />
                     <span>{unit}</span>
+                    <SettingHelp text="How far ahead to look. A shorter window is more reliable, a longer one gives you more time to react." />
                 </div>
             )}
             {/* The label and its control wrap as one unit, so the label never strands on the row above. */}
             {config.condition === ForecastConditionType.BAND_DEVIATION ? (
                 <div className="flex items-center gap-2">
                     <span className="text-secondary whitespace-nowrap">Expected range</span>
+                    <SettingHelp text="How far from normal counts as unusual. Narrower catches smaller dips and fires more often." />
                     <LemonSegmentedButton
                         size="small"
                         data-attr="alertForm-forecast-interval-width"
@@ -176,6 +191,7 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                 /* The band width does not decide when these two fire; which line they read does. */
                 <div className="flex items-center gap-2">
                     <span className="text-secondary whitespace-nowrap">Alert when</span>
+                    <SettingHelp text="How certain to be before alerting. Best case waits until the outcome can no longer be avoided, so it fires less often." />
                     <LemonSegmentedButton
                         size="small"
                         data-attr="alertForm-forecast-sensitivity"
