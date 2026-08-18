@@ -129,7 +129,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
             ),
-        grid_compaction: zod
+        layout_compaction: zod
             .enum(['vertical', 'horizontal', 'stable'])
             .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
             .optional()
@@ -306,7 +306,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
             ),
-        grid_compaction: zod
+        layout_compaction: zod
             .enum(['vertical', 'horizontal', 'stable'])
             .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable')
             .optional()

@@ -252,7 +252,7 @@ DASHBOARD_SHARED_FIELDS = [
     "quick_filter_ids",
     "customization",
     "grid_spacing",
-    "grid_compaction",
+    "layout_compaction",
 ]
 
 
@@ -1225,7 +1225,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         write_only=True,
         help_text="Named tile density preset. Use tight, condensed, standard, relaxed, or wide.",
     )
-    grid_compaction = serializers.ChoiceField(
+    layout_compaction = serializers.ChoiceField(
         choices=DASHBOARD_GRID_COMPACTION_MODES,
         required=False,
         write_only=True,
@@ -1527,11 +1527,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
         team_id = self.context["team_id"]
         team = self.context["get_team"]()
         grid_spacing = validated_data.pop("grid_spacing", None)
-        grid_compaction = validated_data.pop("grid_compaction", None)
+        layout_compaction = validated_data.pop("layout_compaction", None)
         if grid_spacing is not None and not dashboard_customization_enabled(team=team, user=request.user):
             raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
-        if grid_compaction is not None and not dashboard_customization_enabled(team=team, user=request.user):
-            raise serializers.ValidationError({"grid_compaction": "Tile movement settings aren't available."})
+        if layout_compaction is not None and not dashboard_customization_enabled(team=team, user=request.user):
+            raise serializers.ValidationError({"layout_compaction": "Tile movement settings aren't available."})
         current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
         check_count_limit(
             team=team,
@@ -1589,10 +1589,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 **validated_data.get("customization", {}),
                 "tile_spacing": grid_spacing,
             }
-        if grid_compaction is not None:
+        if layout_compaction is not None:
             validated_data["customization"] = {
                 **validated_data.get("customization", {}),
-                "layout_compaction": grid_compaction,
+                "layout_compaction": layout_compaction,
             }
 
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
@@ -1791,20 +1791,20 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         validated_data.pop("use_template", None)  # Remove attribute if present
         grid_spacing = validated_data.pop("grid_spacing", None)
-        grid_compaction = validated_data.pop("grid_compaction", None)
+        layout_compaction = validated_data.pop("layout_compaction", None)
         if grid_spacing is not None and not dashboard_customization_enabled(
             team=instance.team, user=cast(User, self.context["request"].user)
         ):
             raise serializers.ValidationError({"grid_spacing": "Tile density isn't available."})
-        if grid_compaction is not None and not dashboard_customization_enabled(
+        if layout_compaction is not None and not dashboard_customization_enabled(
             team=instance.team, user=cast(User, self.context["request"].user)
         ):
-            raise serializers.ValidationError({"grid_compaction": "Tile movement settings aren't available."})
-        if grid_spacing is not None or grid_compaction is not None:
+            raise serializers.ValidationError({"layout_compaction": "Tile movement settings aren't available."})
+        if grid_spacing is not None or layout_compaction is not None:
             validated_data["customization"] = {
                 **_normalize_dashboard_customization(instance.customization),
                 **({"tile_spacing": grid_spacing} if grid_spacing is not None else {}),
-                **({"layout_compaction": grid_compaction} if grid_compaction is not None else {}),
+                **({"layout_compaction": layout_compaction} if layout_compaction is not None else {}),
             }
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
@@ -1875,14 +1875,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 self._deep_duplicate_tiles(instance, existing_tile, user_access_control)
 
         if "request" in self.context:
-            if grid_compaction is not None and grid_compaction != previous_layout_compaction:
+            if layout_compaction is not None and layout_compaction != previous_layout_compaction:
                 report_user_action(
                     user,
                     "dashboard grid compaction configured",
                     {
                         "dashboard_id": instance.id,
                         "previous_layout_compaction": previous_layout_compaction,
-                        "layout_compaction": grid_compaction,
+                        "layout_compaction": layout_compaction,
                     },
                     team=instance.team,
                     request=self.context["request"],

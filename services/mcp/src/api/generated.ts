@@ -19401,7 +19401,7 @@ export namespace Schemas {
        * * `vertical` - vertical
        * * `horizontal` - horizontal
        * * `stable` - stable */
-      grid_compaction?: LayoutCompactionEnum;
+      layout_compaction?: LayoutCompactionEnum;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -59770,7 +59770,7 @@ export namespace Schemas {
        * * `vertical` - vertical
        * * `horizontal` - horizontal
        * * `stable` - stable */
-      grid_compaction?: LayoutCompactionEnum;
+      layout_compaction?: LayoutCompactionEnum;
       /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
       tiles?: DashboardPatchTileOpenApi[];
       /** Template key to create the dashboard from a predefined template. */

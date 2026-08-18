@@ -80,8 +80,8 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
         if (params.grid_spacing !== undefined) {
             body['grid_spacing'] = params.grid_spacing
         }
-        if (params.grid_compaction !== undefined) {
-            body['grid_compaction'] = params.grid_compaction
+        if (params.layout_compaction !== undefined) {
+            body['layout_compaction'] = params.layout_compaction
         }
         if (params.use_template !== undefined) {
             body['use_template'] = params.use_template
@@ -482,8 +482,8 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
         if (params.grid_spacing !== undefined) {
             body['grid_spacing'] = params.grid_spacing
         }
-        if (params.grid_compaction !== undefined) {
-            body['grid_compaction'] = params.grid_compaction
+        if (params.layout_compaction !== undefined) {
+            body['layout_compaction'] = params.layout_compaction
         }
         if (params.tiles !== undefined) {
             body['tiles'] = params.tiles

@@ -449,7 +449,7 @@ export interface DashboardApi {
      * * `vertical` - vertical
      * * `horizontal` - horizontal
      * * `stable` - stable */
-    grid_compaction?: LayoutCompactionEnumApi
+    layout_compaction?: LayoutCompactionEnumApi
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
     /** Template key to create the dashboard from a predefined template. */
@@ -1036,7 +1036,7 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `vertical` - vertical
      * * `horizontal` - horizontal
      * * `stable` - stable */
-    grid_compaction?: LayoutCompactionEnumApi
+    layout_compaction?: LayoutCompactionEnumApi
     /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
     /** Template key to create the dashboard from a predefined template. */

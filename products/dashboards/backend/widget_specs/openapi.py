@@ -308,7 +308,7 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         required=False,
         help_text="Named tile density preset. Use tight, condensed, standard, relaxed, or wide.",
     )
-    grid_compaction = serializers.ChoiceField(
+    layout_compaction = serializers.ChoiceField(
         choices=DASHBOARD_GRID_COMPACTION_MODES,
         required=False,
         help_text=(

@@ -677,12 +677,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand([("horizontal",), ("stable",)])
     @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
-    def test_dashboard_grid_compaction_is_saved_and_duplicated(
+    def test_dashboard_layout_compaction_is_saved_and_duplicated(
         self, layout_compaction: str, _mock_enabled: MagicMock
     ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"grid_compaction": layout_compaction})
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": layout_compaction})
         self.assertEqual(updated["customization"], {"layout_compaction": layout_compaction})
 
         copied_id, copied = self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": dashboard_id})
@@ -691,14 +691,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
     @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
-    def test_dashboard_grid_compaction_reports_every_mode_change(
+    def test_dashboard_layout_compaction_reports_every_mode_change(
         self, _mock_enabled: MagicMock, mock_report_user_action: MagicMock
     ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         mock_report_user_action.reset_mock()
 
-        self.dashboard_api.update_dashboard(dashboard_id, {"grid_compaction": "horizontal"})
-        self.dashboard_api.update_dashboard(dashboard_id, {"grid_compaction": "vertical"})
+        self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": "horizontal"})
+        self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": "vertical"})
 
         compaction_calls = [
             call
@@ -746,15 +746,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["detail"], "Tile density isn't available.")
 
     @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=False)
-    def test_dashboard_grid_compaction_requires_feature_flag(self, _mock_enabled: MagicMock) -> None:
+    def test_dashboard_layout_compaction_requires_feature_flag(self, _mock_enabled: MagicMock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, response = self.dashboard_api.update_dashboard(
             dashboard_id,
-            {"grid_compaction": "horizontal"},
+            {"layout_compaction": "horizontal"},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(response["attr"], "grid_compaction")
+        self.assertEqual(response["attr"], "layout_compaction")
         self.assertEqual(response["detail"], "Tile movement settings aren't available.")
 
     @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
@@ -769,15 +769,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["attr"], "grid_spacing")
 
     @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
-    def test_dashboard_grid_compaction_requires_a_known_mode(self, _mock_enabled: MagicMock) -> None:
+    def test_dashboard_layout_compaction_requires_a_known_mode(self, _mock_enabled: MagicMock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, response = self.dashboard_api.update_dashboard(
             dashboard_id,
-            {"grid_compaction": "none"},
+            {"layout_compaction": "none"},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(response["attr"], "grid_compaction")
+        self.assertEqual(response["attr"], "layout_compaction")
 
     @patch("products.product_analytics.backend.api.insight.record_dashboard_cache_outcome")
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")

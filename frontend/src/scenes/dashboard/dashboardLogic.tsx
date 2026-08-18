@@ -3743,7 +3743,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                     {
                         grid_spacing: tileSpacing,
-                        grid_compaction: values.dashboard?.customization?.layout_compaction ?? 'vertical',
+                        layout_compaction: values.dashboard?.customization?.layout_compaction ?? 'vertical',
                     }
                 )
                 dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard))
@@ -3786,7 +3786,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const dashboard = await api.update<DashboardType<QueryBasedInsightModel>>(
                     `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                     {
-                        grid_compaction: layoutCompaction,
+                        layout_compaction: layoutCompaction,
                         grid_spacing: values.dashboard?.customization?.tile_spacing ?? 'standard',
                     }
                 )

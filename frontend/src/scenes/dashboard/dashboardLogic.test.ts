@@ -387,7 +387,7 @@ describe('dashboardLogic', () => {
 
                 expect(api.update).toHaveBeenCalledTimes(1)
                 expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
-                    grid_compaction: 'vertical',
+                    layout_compaction: 'vertical',
                     grid_spacing: 'relaxed',
                 })
                 expect(reportTileDensityConfigured).toHaveBeenCalledWith('relaxed')
@@ -435,7 +435,7 @@ describe('dashboardLogic', () => {
 
                 expect(api.update).toHaveBeenCalledTimes(1)
                 expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
-                    grid_compaction: 'horizontal',
+                    layout_compaction: 'horizontal',
                     grid_spacing: 'standard',
                 })
             } finally {
