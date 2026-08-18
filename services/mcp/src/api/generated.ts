@@ -53770,6 +53770,8 @@ export namespace Schemas {
       created_at?: string | null;
       /** @nullable */
       updated_at?: string | null;
+      /** @nullable */
+      last_activity_at?: string | null;
       created_by?: TaskUserBasicInfo | null;
       /** @nullable */
       ci_prompt: string | null;
@@ -91879,6 +91881,14 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.
+     *
+     * * `-created_at` - -created_at
+     * * `-last_activity_at` - -last_activity_at
+     * @minLength 1
+     */
+    ordering?: TasksListOrdering;
+    /**
      * Filter by repository organization
      * @minLength 1
      */
@@ -91932,6 +91942,14 @@ export namespace Schemas {
       True: 'true',
       False: 'false',
       All: 'all',
+    } as const;
+
+    export type TasksListOrdering = typeof TasksListOrdering[keyof typeof TasksListOrdering];
+
+
+    export const TasksListOrdering = {
+      CreatedAt: '-created_at',
+      LastActivityAt: '-last_activity_at',
     } as const;
 
     export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];
