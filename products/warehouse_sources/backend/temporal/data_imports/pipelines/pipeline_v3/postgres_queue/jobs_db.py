@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -153,7 +154,22 @@ def sync_type_scope_sql(
     return "", {}
 
 
-def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
+def _superseded_set_from_status(include_superseded: bool) -> str:
+    """Trailing SET fragment mirroring the status row's superseded flag onto the batch.
+
+    Empty when ``include_superseded`` is False, so the same statement runs against a
+    queue schema that predates the ``sourcebatch.superseded`` column (see
+    :func:`_run_write_tolerating_missing_superseded`).
+    """
+    if not include_superseded:
+        return ""
+    return (
+        ",\n            superseded = (ins.job_state = 'failed'"
+        "\n                          AND COALESCE((ins.error_response->>'superseded')::boolean, false))"
+    )
+
+
+def build_status_dual_write_sql(*, with_batch_created_at: bool, include_superseded: bool = True) -> str:
     """Single-statement status INSERT + denormalized-state UPDATE (atomic under autocommit).
 
     The UPDATE guards: exact ``created_at`` match prunes to one partition when the
@@ -163,6 +179,10 @@ def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
     ``state_changed_at`` check makes cross-connection races converge to the status
     row with the greatest ``created_at`` — the same answer the latest-status
     lateral gives.
+
+    ``include_superseded=False`` omits the ``superseded`` write for a schema without
+    the column; the read-side fence in :meth:`get_failed_runs` reads such rows as not
+    superseded, so dropping the write only shrinks a sweep's yield until backfill.
     """
     created_at_predicate = (
         "b.created_at = %(batch_created_at)s"
@@ -176,9 +196,7 @@ def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
             RETURNING batch_id, job_state, attempt, created_at, error_response
         )
         UPDATE {BATCH_TABLE} b
-        SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at,
-            superseded = (ins.job_state = 'failed'
-                          AND COALESCE((ins.error_response->>'superseded')::boolean, false))
+        SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at{_superseded_set_from_status(include_superseded)}
         FROM ins
         WHERE b.id = ins.batch_id
           AND {created_at_predicate}
@@ -189,7 +207,7 @@ def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
 
 
 def build_status_dual_write_unless_failed_sql(
-    *, with_batch_created_at: bool, with_expected_state_changed_at: bool = False
+    *, with_batch_created_at: bool, with_expected_state_changed_at: bool = False, include_superseded: bool = True
 ) -> str:
     """Guarded twin of :func:`build_status_dual_write_sql`: inserts nothing over a
     terminal 'failed', so a consumer's newer executing/succeeded rows can't
@@ -237,9 +255,7 @@ def build_status_dual_write_unless_failed_sql(
         ),
         upd AS (
             UPDATE {BATCH_TABLE} b
-            SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at,
-                superseded = (ins.job_state = 'failed'
-                              AND COALESCE((ins.error_response->>'superseded')::boolean, false))
+            SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at{_superseded_set_from_status(include_superseded)}
             FROM ins
             WHERE b.id = ins.batch_id
               AND {created_at_predicate}
@@ -252,13 +268,21 @@ def build_status_dual_write_unless_failed_sql(
     """
 
 
-def _bulk_fail_dual_write_sql(where_sql: str) -> str:
+def _bulk_fail_dual_write_sql(where_sql: str, *, include_superseded: bool = True) -> str:
     """Bulk 'failed' status inserts plus the denormalized-state UPDATE, one statement.
 
     ``targets`` carries ``(id, created_at)`` so the UPDATE join prunes partitions
     exactly; rowcount reports updated batches (== inserted statuses, minus any a
     concurrent newer write already superseded via the monotonic guard).
+
+    ``include_superseded=False`` omits the ``superseded`` write for a schema without
+    the column (see :func:`_run_write_tolerating_missing_superseded`).
     """
+    superseded_set = (
+        ",\n            superseded = COALESCE((%(error_response)s::jsonb->>'superseded')::boolean, false)"
+        if include_superseded
+        else ""
+    )
     return f"""
         WITH targets AS (
             SELECT b.id, b.created_at
@@ -276,8 +300,7 @@ def _bulk_fail_dual_write_sql(where_sql: str) -> str:
             RETURNING batch_id, created_at
         )
         UPDATE {BATCH_TABLE} b
-        SET latest_state = 'failed', latest_attempt = 0, state_changed_at = ins.created_at,
-            superseded = COALESCE((%(error_response)s::jsonb->>'superseded')::boolean, false)
+        SET latest_state = 'failed', latest_attempt = 0, state_changed_at = ins.created_at{superseded_set}
         FROM ins
         JOIN targets t ON t.id = ins.batch_id
         WHERE b.id = t.id
@@ -292,10 +315,38 @@ def _bulk_fail_dual_write_sql(where_sql: str) -> str:
 # paths always know the run's group, so they scope by it too — guards against
 # cross-group writes on a run_uuid collision and keeps the scan on the
 # team/schema indexes.
-FAIL_RUN_SQL = _bulk_fail_dual_write_sql("b.run_uuid = %(run_uuid)s")
-FAIL_RUN_SCOPED_SQL = _bulk_fail_dual_write_sql(
-    "b.run_uuid = %(run_uuid)s AND b.team_id = %(team_id)s AND b.schema_id = %(schema_id)s"
-)
+FAIL_RUN_WHERE = "b.run_uuid = %(run_uuid)s"
+FAIL_RUN_SCOPED_WHERE = "b.run_uuid = %(run_uuid)s AND b.team_id = %(team_id)s AND b.schema_id = %(schema_id)s"
+
+
+async def _run_write_tolerating_missing_superseded(
+    conn: psycopg.AsyncConnection[Any],
+    build_sql: Callable[[bool], str],
+    params: dict[str, Any],
+) -> psycopg.AsyncCursor[Any]:
+    """Run a dual-write, retrying without the ``superseded`` write when the column is absent.
+
+    Fences the deploy window where this code reaches a worker before the migration
+    that adds ``sourcebatch.superseded``: Postgres raises ``UndefinedColumn`` while
+    parsing, before any row changes, and these connections are autocommit, so the
+    rejected statement leaves no aborted transaction and the fallback is a clean retry.
+    """
+    try:
+        return await conn.execute(build_sql(True), params)
+    except psycopg.errors.UndefinedColumn:
+        return await conn.execute(build_sql(False), params)
+
+
+def _run_write_tolerating_missing_superseded_sync(
+    conn: psycopg.Connection[Any],
+    build_sql: Callable[[bool], str],
+    params: dict[str, Any],
+) -> psycopg.Cursor[Any]:
+    """Sync twin of :func:`_run_write_tolerating_missing_superseded`."""
+    try:
+        return conn.execute(build_sql(True), params)
+    except psycopg.errors.UndefinedColumn:
+        return conn.execute(build_sql(False), params)
 
 
 def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
@@ -827,8 +878,11 @@ class BatchQueue:
         }
         if batch_created_at is not None:
             params["batch_created_at"] = batch_created_at
-        await conn.execute(
-            build_status_dual_write_sql(with_batch_created_at=batch_created_at is not None),
+        await _run_write_tolerating_missing_superseded(
+            conn,
+            lambda include_superseded: build_status_dual_write_sql(
+                with_batch_created_at=batch_created_at is not None, include_superseded=include_superseded
+            ),
             params,
         )
 
@@ -863,10 +917,12 @@ class BatchQueue:
             params["batch_created_at"] = batch_created_at
         if arm_cas:
             params["expected_state_changed_at"] = expected_state_changed_at
-        cursor = await conn.execute(
-            build_status_dual_write_unless_failed_sql(
+        cursor = await _run_write_tolerating_missing_superseded(
+            conn,
+            lambda include_superseded: build_status_dual_write_unless_failed_sql(
                 with_batch_created_at=batch_created_at is not None,
                 with_expected_state_changed_at=arm_cas,
+                include_superseded=include_superseded,
             ),
             params,
         )
@@ -1063,8 +1119,11 @@ class BatchQueue:
         reason: str,
     ) -> int:
         """Mark every pending batch in a run as failed. Returns the count of batches failed."""
-        cursor = await conn.execute(
-            FAIL_RUN_SCOPED_SQL,
+        cursor = await _run_write_tolerating_missing_superseded(
+            conn,
+            lambda include_superseded: _bulk_fail_dual_write_sql(
+                FAIL_RUN_SCOPED_WHERE, include_superseded=include_superseded
+            ),
             {
                 "run_uuid": run_uuid,
                 "team_id": team_id,
@@ -1082,8 +1141,9 @@ class BatchQueue:
         reason: str,
     ) -> int:
         """Sync twin of ``fail_run`` for the ops management command."""
-        cursor = conn.execute(
-            FAIL_RUN_SQL,
+        cursor = _run_write_tolerating_missing_superseded_sync(
+            conn,
+            lambda include_superseded: _bulk_fail_dual_write_sql(FAIL_RUN_WHERE, include_superseded=include_superseded),
             {
                 "run_uuid": run_uuid,
                 "error_response": json.dumps({"error": reason}),
@@ -1104,8 +1164,11 @@ class BatchQueue:
         batches would otherwise load after the takeover and stale-overwrite
         newer data or flip the FAILED job back to COMPLETED via the final batch.
         """
-        cursor = conn.execute(
-            _bulk_fail_dual_write_sql("b.job_id = %(job_id)s"),
+        cursor = _run_write_tolerating_missing_superseded_sync(
+            conn,
+            lambda include_superseded: _bulk_fail_dual_write_sql(
+                "b.job_id = %(job_id)s", include_superseded=include_superseded
+            ),
             {
                 "job_id": job_id,
                 "error_response": json.dumps({"error": reason}),
@@ -1140,9 +1203,7 @@ class BatchQueue:
         A spared run that stalls later is not re-checked here (this fires once, at the
         new run's first batch); the reconcile sweep's stranded-run pass owns that case.
         """
-        cursor = conn.execute(
-            _bulk_fail_dual_write_sql(
-                f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
+        supersede_where = f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
                 AND NOT EXISTS (
                     SELECT 1
                     FROM {BATCH_TABLE} b_live
@@ -1151,6 +1212,10 @@ class BatchQueue:
                         AND b_live.latest_state IN ('executing', 'succeeded', 'waiting_retry')
                         AND b_live.state_changed_at > now() - make_interval(secs => %(progress_stale)s)
                 )"""
+        cursor = _run_write_tolerating_missing_superseded_sync(
+            conn,
+            lambda include_superseded: _bulk_fail_dual_write_sql(
+                supersede_where, include_superseded=include_superseded
             ),
             {
                 "job_id": job_id,

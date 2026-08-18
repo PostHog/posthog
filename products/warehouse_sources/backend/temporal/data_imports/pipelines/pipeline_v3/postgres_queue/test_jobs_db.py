@@ -1794,3 +1794,35 @@ class TestGetFailedRuns:
         refs = await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=86_400, limit=10)
 
         assert refs == []
+
+
+@pytest.mark.django_db(transaction=True)
+class TestDualWritesTolerateMissingSupersededColumn:
+    @pytest.mark.asyncio
+    async def test_writes_survive_schema_without_superseded_column(self, conn, sync_conn):
+        status_batch = await _insert_batch(conn, run_uuid="run-status")
+        await _insert_batch(conn, run_uuid="run-fail")
+        await _insert_batch(conn, run_uuid="run-old", job_id="job-super")
+
+        # Reproduce the deploy window where this code reaches a worker before the
+        # migration adds sourcebatch.superseded; every dual-write must still apply.
+        await conn.execute(f"ALTER TABLE {BATCH_TABLE} DROP COLUMN superseded")
+        try:
+            await BatchQueue.update_status(conn, batch_id=status_batch, job_state="executing")
+            wrote = await BatchQueue.update_status_unless_failed(conn, batch_id=status_batch, job_state="succeeded")
+            failed = await BatchQueue.fail_run(
+                conn, run_uuid="run-fail", team_id=1, schema_id="schema-1", reason="boom"
+            )
+            superseded = BatchQueue.supersede_other_runs(sync_conn, job_id="job-super", current_run_uuid="run-new")
+        finally:
+            await conn.execute(f"ALTER TABLE {BATCH_TABLE} ADD COLUMN superseded BOOLEAN NOT NULL DEFAULT FALSE")
+
+        assert wrote is True
+        assert failed == 1
+        assert superseded == 1
+        cur = await conn.execute(f"SELECT run_uuid, latest_state FROM {BATCH_TABLE} ORDER BY run_uuid")
+        assert {row[0]: row[1] for row in await cur.fetchall()} == {
+            "run-fail": "failed",
+            "run-old": "failed",
+            "run-status": "succeeded",
+        }
