@@ -20,7 +20,9 @@ import type { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
+import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -35,6 +37,7 @@ import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFla
 import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 import type { UserType } from '../../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
+import { buildAiObservabilityStorageConfig } from './preferenceStorage'
 import { parserRecipesLogic } from './settings/parserRecipesLogic'
 import { hasRecentAIEvents } from './utils/aiEvents'
 
@@ -140,6 +143,7 @@ export interface aiObservabilitySharedLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
     setupStatus: ProductSetupStatus // productSetupStatusLogic
+    currentProjectId: number | null // projectLogic
     sceneKey: string | null // sceneLogic
     user: UserType | null // userLogic
     activeTab: AIObservabilityTabId
@@ -148,6 +152,11 @@ export interface aiObservabilitySharedLogicValues {
         dateFrom: string | null
         dateTo: string | null
     }
+    dashboardDateOverride: boolean
+    dashboardExternalDateFilters: {
+        date_from: string | null | undefined
+        date_to: string | null | undefined
+    }
     dateFilter: {
         dateFrom: string | null
         dateTo: string | null
@@ -155,6 +164,10 @@ export interface aiObservabilitySharedLogicValues {
     hasSentAiEvent: boolean | undefined
     hasSentAiEventLoading: boolean
     propertyFilters: AnyPropertyFilter[]
+    savedDashboardDateFilter: {
+        dateFrom: string | null
+        dateTo: string | null
+    }
     searchQuery: string
     shouldFilterSupportTraces: boolean
     shouldFilterTestAccounts: boolean
@@ -169,6 +182,13 @@ export interface aiObservabilitySharedLogicActions {
         status: ProductSetupStatus
     } // productSetupStatusLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
+    applyDashboardUrlDates: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    }
     applyUrlState: (state: ApplyUrlStatePayload) => ApplyUrlStatePayload
     loadAIEventDefinition: () => any
     loadAIEventDefinitionFailure: (
@@ -185,6 +205,20 @@ export interface aiObservabilitySharedLogicActions {
         hasSentAiEvent: boolean
         payload?: any
     }
+    restoreSavedDashboardDates: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    }
+    setDashboardDates: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    }
     setDates: (
         dateFrom: string | null,
         dateTo: string | null
@@ -194,6 +228,13 @@ export interface aiObservabilitySharedLogicActions {
     }
     setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => {
         propertyFilters: AnyPropertyFilter[]
+    }
+    setSavedDashboardDates: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
     }
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
@@ -210,6 +251,16 @@ export interface aiObservabilitySharedLogicActions {
 export interface aiObservabilitySharedLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        dashboardExternalDateFilters: (
+            dashboardDateFilter: {
+                dateFrom: string | null
+                dateTo: string | null
+            },
+            dashboardDateOverride: boolean
+        ) => {
+            date_from: string | null | undefined
+            date_to: string | null | undefined
+        }
         activeTab: (sceneKey: string | null) => AIObservabilityTabId
     }
 }
@@ -224,7 +275,7 @@ export type aiObservabilitySharedLogicType = MakeLogicType<
 export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     path(['products', 'ai_observability', 'frontend', 'aiObservabilitySharedLogic']),
     props({} as AIObservabilitySharedLogicProps),
-    key((props: AIObservabilitySharedLogicProps) => `${props?.personId || 'aiObservabilityScene'}`),
+    key((props: AIObservabilitySharedLogicProps) => props.logicKey || props.personId || 'aiObservabilityScene'),
     connect(() => ({
         // Mount the parser-recipe logic so a team's custom recipes reach the trace-rendering
         // normalizer on any AI observability page, not just the settings scene.
@@ -240,6 +291,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             ['filterTestAccountsDefault'],
             productSetupStatusLogic({ productKey: ProductKey.AI_OBSERVABILITY }),
             ['status as setupStatus'],
+            projectLogic,
+            ['currentProjectId'],
         ],
         actions: [
             teamLogic,
@@ -253,6 +306,10 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setDashboardDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        applyDashboardUrlDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        restoreSavedDashboardDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setSavedDashboardDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setShouldFilterSupportTraces: (shouldFilterSupportTraces: boolean) => ({ shouldFilterSupportTraces }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
@@ -263,11 +320,15 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         applyUrlState: (state: ApplyUrlStatePayload) => state,
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         dateFilter: [
             {
                 dateFrom: INITIAL_EVENTS_DATE_FROM,
                 dateTo: INITIAL_DATE_TO,
+            },
+            {
+                ...buildAiObservabilityStorageConfig('events.dateFilter'),
+                persist: !props.logicKey,
             },
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
@@ -281,9 +342,31 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 dateTo: INITIAL_DATE_TO,
             },
             {
-                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
-                applyUrlState: (state, { dateFrom, dateTo, datesChanged }) =>
-                    datesChanged ? { dateFrom, dateTo } : state,
+                // `setDates` (the events tabs' picker) is deliberately absent: it would move the
+                // dashboard picker without setting `dashboardDateOverride`, which gates the range
+                // the tiles actually run on.
+                setDashboardDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                applyDashboardUrlDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                restoreSavedDashboardDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+            },
+        ],
+
+        dashboardDateOverride: [
+            false,
+            {
+                setDashboardDates: () => true,
+                applyDashboardUrlDates: () => true,
+                restoreSavedDashboardDates: () => false,
+            },
+        ],
+
+        savedDashboardDateFilter: [
+            {
+                dateFrom: INITIAL_DASHBOARD_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+            },
+            {
+                setSavedDashboardDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
             },
         ],
 
@@ -317,7 +400,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 applyUrlState: (state, { searchQuery }) => searchQuery ?? state,
             },
         ],
-    }),
+    })),
 
     loaders(() => ({
         hasSentAiEvent: {
@@ -329,6 +412,11 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     })),
 
     listeners(({ actions, values, cache }) => ({
+        setSavedDashboardDates: ({ dateFrom, dateTo }) => {
+            if (!values.dashboardDateOverride) {
+                actions.restoreSavedDashboardDates(dateFrom, dateTo)
+            }
+        },
         loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
             // Feed the app-wide setup-status layer (drives the scene empty-state gate).
             actions.setDetectedStatus(hasSentAiEvent ? 'has-data' : 'needs-setup')
@@ -355,6 +443,19 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     })),
 
     selectors({
+        dashboardExternalDateFilters: [
+            (s) => [s.dashboardDateFilter, s.dashboardDateOverride],
+            (
+                dashboardDateFilter: {
+                    dateFrom: string | null
+                    dateTo: string | null
+                },
+                dashboardDateOverride: boolean
+            ) => ({
+                date_from: dashboardDateOverride ? dashboardDateFilter.dateFrom : undefined,
+                date_to: dashboardDateOverride ? dashboardDateFilter.dateTo : undefined,
+            }),
+        ],
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey: string | null): AIObservabilityTabId => {
@@ -407,12 +508,35 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     }),
 
     urlToAction(({ actions, values, cache }) => {
-        function applySearchParams(searchParams: Record<string, unknown>): void {
+        function applySearchParams(searchParams: Record<string, unknown>, applyEventDateParams: boolean = true): void {
             const { filters, date_from, date_to, filter_test_accounts, trace_search } = searchParams
 
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
-            const newDateFrom = (date_from as string | null) || INITIAL_EVENTS_DATE_FROM
-            const newDateTo = (date_to as string | null) || INITIAL_DATE_TO
+            const hasDateFromParam = applyEventDateParams && typeof date_from === 'string' && date_from.length > 0
+            const hasDateToParam = applyEventDateParams && typeof date_to === 'string' && date_to.length > 0
+            const hasDateFromOverride =
+                applyEventDateParams &&
+                typeof date_from === 'string' &&
+                date_from.length > 0 &&
+                isValidRelativeOrAbsoluteDate(date_from)
+            const hasDateToOverride =
+                applyEventDateParams &&
+                typeof date_to === 'string' &&
+                date_to.length > 0 &&
+                isValidRelativeOrAbsoluteDate(date_to)
+            const hasInvalidDateParam =
+                (hasDateFromParam && !hasDateFromOverride) || (hasDateToParam && !hasDateToOverride)
+            const hasDateOverride = hasDateFromOverride || hasDateToOverride
+            const newDateFrom = hasDateOverride
+                ? hasDateFromOverride
+                    ? date_from
+                    : INITIAL_EVENTS_DATE_FROM
+                : values.dateFilter.dateFrom
+            const newDateTo = hasDateOverride
+                ? hasDateToOverride
+                    ? date_to
+                    : INITIAL_DATE_TO
+                : values.dateFilter.dateTo
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(
                 filter_test_accounts as string | number | boolean
             )
@@ -423,7 +547,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             const testAccountsChanged = filterTestAccountsValue !== values.shouldFilterTestAccounts
             const searchQueryChanged = newSearchQuery !== values.searchQuery
 
-            if (filtersChanged || datesChanged || testAccountsChanged || searchQueryChanged) {
+            if (filtersChanged || datesChanged || testAccountsChanged || searchQueryChanged || hasInvalidDateParam) {
                 // Dispatch a single batched action so actionToUrl produces one URL
                 // change instead of up to 3 separate ones. The actionToUrl handler
                 // for applyUrlState rewrites the shared params and drops stale
@@ -472,9 +596,37 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             applySearchParams(searchParams)
         }
 
+        function applyDashboard(searchParams: Record<string, unknown>): void {
+            applySearchParams(searchParams, false)
+
+            const hasDateOverride =
+                typeof searchParams.date_from === 'string' || typeof searchParams.date_to === 'string'
+            if (hasDateOverride) {
+                const dateFrom =
+                    typeof searchParams.date_from === 'string' ? searchParams.date_from : INITIAL_EVENTS_DATE_FROM
+                const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : INITIAL_DATE_TO
+                if (
+                    !values.dashboardDateOverride ||
+                    dateFrom !== values.dashboardDateFilter.dateFrom ||
+                    dateTo !== values.dashboardDateFilter.dateTo
+                ) {
+                    actions.applyDashboardUrlDates(dateFrom, dateTo)
+                }
+            } else if (
+                values.dashboardDateOverride ||
+                values.dashboardDateFilter.dateFrom !== values.savedDashboardDateFilter.dateFrom ||
+                values.dashboardDateFilter.dateTo !== values.savedDashboardDateFilter.dateTo
+            ) {
+                actions.restoreSavedDashboardDates(
+                    values.savedDashboardDateFilter.dateFrom,
+                    values.savedDashboardDateFilter.dateTo
+                )
+            }
+        }
+
         return {
             [urls.aiObservabilityDashboard()]: (_, searchParams) => {
-                applySearchParams(searchParams)
+                applyDashboard(searchParams)
                 startDashboardTimer()
             },
             [urls.aiObservabilitySelfDriving()]: (_, searchParams) => applyNonDashboard(searchParams),
@@ -514,14 +666,26 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             return { ...passthroughSearchParams(), filters, date_from, date_to, filter_test_accounts, trace_search }
         }
 
+        function dateSearchParams(dateFrom: string | null, dateTo: string | null): Record<string, unknown> {
+            if (router.values.location.pathname.endsWith(urls.aiObservabilityDashboard())) {
+                return {
+                    date_from: router.values.searchParams.date_from,
+                    date_to: router.values.searchParams.date_to,
+                }
+            }
+            return {
+                date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
+                date_to: dateTo || undefined,
+            }
+        }
+
         return {
             applyUrlState: ({ propertyFilters, dateFrom, dateTo, shouldFilterTestAccounts, searchQuery }) => [
                 router.values.location.pathname,
                 {
                     ...passthroughSearchParams(),
                     filters: propertyFilters.length > 0 ? propertyFilters : undefined,
-                    date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
-                    date_to: dateTo || undefined,
+                    ...dateSearchParams(dateFrom, dateTo),
                     filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
                     trace_search:
                         (searchQuery ?? (router.values.searchParams.trace_search as string | undefined)) || undefined,
@@ -539,6 +703,14 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 {
                     ...sharedSearchParams(),
                     date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
+                    date_to: dateTo || undefined,
+                },
+            ],
+            setDashboardDates: ({ dateFrom, dateTo }) => [
+                router.values.location.pathname,
+                {
+                    ...sharedSearchParams(),
+                    date_from: dateFrom ?? 'all',
                     date_to: dateTo || undefined,
                 },
             ],
@@ -560,12 +732,21 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     }),
 
     afterMount(({ actions, values, cache }) => {
-        actions.loadAIEventDefinition()
+        // The API layer takes the project id from bootstrap state, not from the URL, so a detection
+        // fired before the project resolves throws instead of answering. Skipping those ticks keeps
+        // the answer at "not known yet"; the poll below picks the check up once bootstrap settles.
+        const detectAIEventsIfProjectKnown = (): void => {
+            if (values.currentProjectId) {
+                actions.loadAIEventDefinition()
+            }
+        }
+
+        detectAIEventsIfProjectKnown()
         // While the empty state (or its post-skip reminder banner) is up, re-check on a
         // timer so the page flips to the real product on its own once events land.
         // Disposed as soon as data is detected; paused automatically on hidden tabs.
         cache.disposables.add(() => {
-            const id = window.setInterval(() => actions.loadAIEventDefinition(), SETUP_POLL_INTERVAL_MS)
+            const id = window.setInterval(detectAIEventsIfProjectKnown, SETUP_POLL_INTERVAL_MS)
             return () => clearInterval(id)
         }, 'setupPoll')
         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)

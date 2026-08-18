@@ -100,6 +100,15 @@ def test_str_to_optional_list(value, expected):
     assert config.str_to_optional_list(value) == expected
 
 
+@pytest.mark.parametrize("value", [{"owner": "repo"}, {}, 5])
+def test_str_to_optional_list_rejects_unsupported_types(value):
+    """A non-str/list value (e.g. a dict submitted for a multi-select field) must raise a
+    `TypeError` that `_convert_value` can surface as a validation error, not an `AttributeError`
+    from calling `.strip()` on it."""
+    with pytest.raises(TypeError):
+        config.str_to_optional_list(value)
+
+
 @pytest.mark.parametrize(
     "value,expected",
     [
@@ -149,6 +158,38 @@ def test_from_dict_raises_clear_error_on_undecrypted_secret(config_dict):
         TestConfig.from_dict(config_dict)
 
     assert _UNDECRYPTED_TOKEN not in str(exc_info.value)
+
+
+def test_from_dict_raises_clear_error_on_unconvertible_value():
+    """A converter failing on bad user input must fail with a clear error that names the field but
+    not the value, instead of the opaque, value-leaking `invalid literal for int()` crash."""
+
+    @config.config
+    class TestConfig(config.Config):
+        host: str
+        port: int = config.value(converter=int)
+
+    with pytest.raises(config.ConfigValueError) as exc_info:
+        TestConfig.from_dict({"host": "db.example.com", "port": "not-a-number"})
+
+    assert "port" in str(exc_info.value)
+    assert "not-a-number" not in str(exc_info.value)
+
+
+def test_validate_dict_rejects_unconvertible_value():
+    """`validate_dict` must flag a value that can't convert to the declared type rather than pass and
+    defer the crash to `to_config`. The reported error came from a value that cleared validation."""
+
+    @config.config
+    class TestConfig(config.Config):
+        host: str
+        port: int = config.value(converter=int)
+
+    is_valid, errors = TestConfig.validate_dict({"host": "db.example.com", "port": "not-a-number"})
+
+    assert is_valid is False
+    assert len(errors) == 1
+    assert "not-a-number" not in errors[0]
 
 
 def test_nested_to_config_with_flat_dict():

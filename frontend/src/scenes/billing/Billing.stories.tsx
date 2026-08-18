@@ -6,7 +6,7 @@ import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_10
 import billingJsonWithCredits from '~/mocks/fixtures/_billing_with_credits.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { BillingType } from '~/types'
+import { BillingType, StartupProgramLabel } from '~/types'
 
 import { Billing } from './Billing'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
@@ -59,6 +59,21 @@ export const _Billing: Story = {
             get: {
                 '/api/billing/': {
                     ...billingJson,
+                },
+            },
+        })
+
+        return <Billing />
+    },
+}
+
+export const BillingOnStartupPlan: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingJson,
+                    startup_program_label: StartupProgramLabel.Startup,
                 },
             },
         })

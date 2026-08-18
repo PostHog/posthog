@@ -66,7 +66,7 @@ def forward_pending_user_message(run_id: str) -> None:
     from products.tasks.backend.models import TaskRun
 
     try:
-        task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "task__team", "task__loop").get(id=run_id)
     except TaskRun.DoesNotExist:
         # The run existed when this workflow started, so a missing row means it was
         # hard-deleted mid-run (team/org deletion cascade). Fail the workflow rather
@@ -103,6 +103,15 @@ def forward_pending_user_message(run_id: str) -> None:
         pending_user_artifact_ids = state.get("pending_user_artifact_ids") or []
         if not pending_message and not pending_user_artifact_ids:
             return
+
+        if state.get("await_user_message"):
+            from products.tasks.backend.exceptions import ComputeBillingLimitError
+            from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason
+
+            if reason := get_compute_quota_denial_reason(task_run.task):
+                raise ComputeBillingLimitError(
+                    {"team_id": task_run.team_id, "task_id": str(task_run.task_id), "run_id": run_id}, reason
+                )
 
         pending_message_id = state.get("pending_user_message_id")
         assert isinstance(pending_message_id, str) and pending_message_id

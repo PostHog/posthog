@@ -296,9 +296,11 @@ class ExperimentSummaryTool(MaxTool):
         data_service = ExperimentSummaryDataService(self._team, self._user)
 
         try:
-            summary_context, _last_refresh, pending = await data_service.fetch_experiment_data(experiment_id)
+            summary_data = await data_service.fetch_experiment_data(experiment_id)
         except ValueError as e:
             return str(e), {"error": "not_found"}
+
+        summary_context = summary_data.context
 
         experiment_context = ExperimentContext(team=self._team, experiment_id=experiment_id)
         experiment = await experiment_context.aget_experiment()
@@ -312,8 +314,13 @@ class ExperimentSummaryTool(MaxTool):
             secondary_metrics_results=summary_context.secondary_metrics_results,
         )
 
-        if pending:
+        if summary_data.pending_calculation:
             formatted_data += "\n\n**Note:** Some metrics are still being calculated. Results may be incomplete."
+
+        if summary_data.omitted_metric_count:
+            formatted_data += (
+                f"\n\n**Note:** {summary_data.omitted_metric_count} metrics were omitted from this summary."
+            )
 
         return self._build_result(
             experiment,
@@ -463,9 +470,11 @@ class SessionReplaySummaryTool(MaxTool):
                         with tags_context(
                             product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id
                         ):
-                            recordings, has_more, _, _ = list_recordings_from_query(query=q, user=None, team=self._team)
-                            # If has_more, there are 100+ recordings
-                            return len(recordings) if not has_more else 100
+                            listing_result = list_recordings_from_query(query=q, user=None, team=self._team)
+                            # If more recordings are available, there are 100+ recordings
+                            return (
+                                len(listing_result.recordings) if not listing_result.more_recordings_available else 100
+                            )
 
                     count = await count_recordings(query)
                     recording_counts[variant_key] = count
