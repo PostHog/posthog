@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -475,3 +476,54 @@ class TestRelayedAnswerFooter(SimpleTestCase):
             assert kwargs["blocks"][-1]["type"] == "context"
             # A section collapses behind "Show more" unless it is told to expand.
             assert kwargs["blocks"][0]["expand"] is True
+
+
+class TestDeletedTriggerMessage(SimpleTestCase):
+    """A run whose prompt has been deleted has nobody left to answer, so it says nothing."""
+
+    def setUp(self) -> None:
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
+
+    def _handler(self) -> SlackThreadHandler:
+        return SlackThreadHandler(
+            SlackThreadContext(
+                integration_id=1,
+                channel="C_DELETED",
+                thread_ts="1700000000.000100",
+                mentioning_slack_user_id="U123",
+            )
+        )
+
+    @parameterized.expand(
+        [
+            ("relayed_answer", lambda h: h.post_thread_message("here is the answer")),
+            ("completion_card", lambda h: h.post_completion(task_url=None)),
+            ("failure_card", lambda h: h.post_error("boom", task_url=None)),
+            ("progress_update", lambda h: h.post_or_update_progress("planning")),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_nothing_is_posted_once_the_prompt_is_deleted(
+        self, _name, post, mock_get_client, _mock_find_progress
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.conversations_history.return_value = {"messages": []}
+        mock_get_client.return_value = mock_client
+
+        post(self._handler())
+
+        mock_client.chat_postMessage.assert_not_called()
+
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_status_stream_does_not_start_for_a_deleted_prompt(self, mock_get_client) -> None:
+        mock_client = MagicMock()
+        mock_client.conversations_history.return_value = {"messages": []}
+        mock_get_client.return_value = mock_client
+
+        assert self._handler().start_status_stream(first_markdown_text="thinking") is None
+
+        mock_client.chat_startStream.assert_not_called()
