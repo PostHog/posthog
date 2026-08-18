@@ -1,9 +1,6 @@
 import { SquaresFourIcon } from "@phosphor-icons/react";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
-import type {
-  ComponentSize,
-  GridPlacement,
-} from "@posthog/core/canvas/gridLayoutSchemas";
+import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
 import {
   Empty,
   EmptyDescription,
@@ -14,24 +11,14 @@ import {
 } from "@posthog/quill";
 import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useGenerateFreeformCanvas } from "@posthog/ui/features/canvas/hooks/useGenerateFreeformCanvas";
-import { toast } from "@posthog/ui/primitives/toast";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   GridPlacementTile,
   type PlacementTileActions,
 } from "./GridPlacementTile";
-import {
-  clampRectToContract,
-  collides,
-  type GridRect,
-  surfaceRows,
-} from "./gridGeometry";
+import { collides, type GridRect, surfaceRows } from "./gridGeometry";
 import { type GridDragOutcome, useGridDrag } from "./useGridDrag";
-import {
-  useComponentStore,
-  useGridLayout,
-  usePatchLayout,
-} from "./useGridLayout";
+import { useGridLayout, usePatchLayout } from "./useGridLayout";
 
 const DEFAULT_GRID = { columns: 6, rowHeight: 96, gap: 8 };
 
@@ -102,27 +89,6 @@ export function GridCanvasView({
   }, []);
   const surfaceWidth = useMeasuredWidth(surfaceEl);
   const placements = layout?.placements;
-  const columns = layout?.grid.columns ?? DEFAULT_GRID.columns;
-
-  // Size contracts of the placed components, for snapping edits into range
-  // before the server would reject them. Fetched only while editing a grid
-  // that has live placements; an entry missing (still loading, or a stale
-  // reference) just skips the snap and lets the server answer.
-  const hasLivePlacements = !!placements?.some(
-    (candidate) => candidate.status === "live" && candidate.component,
-  );
-  const { components: storeComponents } = useComponentStore("", {
-    enabled: interactive && hasLivePlacements,
-  });
-  const contractByComponent = useMemo(() => {
-    const map = new Map<string, ComponentSize>();
-    for (const component of storeComponents) {
-      if (component.componentMeta?.size) {
-        map.set(component.id, component.componentMeta.size);
-      }
-    }
-    return map;
-  }, [storeComponents]);
 
   const onDragComplete = useCallback(
     (outcome: GridDragOutcome) => {
@@ -144,18 +110,8 @@ export function GridCanvasView({
         );
         return;
       }
-      let { rect } = outcome;
-      const { origin, placementId } = outcome;
+      const { rect, origin, placementId } = outcome;
       if (!origin || !placementId) return;
-      if (outcome.kind === "resize") {
-        const target = placements.find(
-          (candidate) => candidate.id === placementId,
-        );
-        const size = target?.component
-          ? contractByComponent.get(target.component)
-          : undefined;
-        if (size) rect = clampRectToContract(rect, size, columns);
-      }
       const moved =
         rect.x !== origin.x ||
         rect.y !== origin.y ||
@@ -167,7 +123,7 @@ export function GridCanvasView({
         currentVersionId,
       );
     },
-    [placements, patch, currentVersionId, contractByComponent, columns],
+    [placements, patch, currentVersionId],
   );
 
   const {
@@ -231,40 +187,21 @@ export function GridCanvasView({
 
   const place = useCallback(
     (placement: GridPlacement, component: DashboardRecord) => {
-      // Snap the drawn box into the component's size contract; the server
-      // rejects a live placement outside it. Growing can collide with a
-      // neighbor, which is the user's call to resolve, not a patch to send.
-      const size = component.componentMeta?.size;
-      const target = size
-        ? clampRectToContract(placement, size, columns)
-        : placement;
-      if (placements && collides(target, placements, placement.id) && size) {
-        toast.error("Not enough room for this component", {
-          description: `It needs at least ${size.minW}x${size.minH} cells. Clear the space around the box or draw a bigger one.`,
-        });
-        return;
-      }
+      // The drawn box is the user's size choice: size contracts are advisory
+      // and components render responsively, so the box is kept as drawn.
       void patch(
         [
           {
             op: "update_placement",
             id: placement.id,
-            changes: {
-              status: "live",
-              component: component.id,
-              config: {},
-              x: target.x,
-              y: target.y,
-              w: target.w,
-              h: target.h,
-            },
+            changes: { status: "live", component: component.id, config: {} },
           },
         ],
         currentVersionId,
         `Place ${component.name}`,
       );
     },
-    [patch, currentVersionId, placements, columns],
+    [patch, currentVersionId],
   );
 
   const reset = useCallback(
