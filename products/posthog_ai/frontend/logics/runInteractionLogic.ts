@@ -8,7 +8,6 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import {
     buildRunCreateRequest,
-    DEFAULT_COMPOSER_EFFORT,
     DEFAULT_COMPOSER_MODEL,
     resolveEffortForModel,
 } from 'products/posthog_ai/frontend/utils/composerModels'
@@ -99,8 +98,8 @@ export interface runInteractionLogicValues {
     isThinking: boolean // runStreamLogic
     pendingPermissionRequest: PermissionRequestRecord | null // runStreamLogic
     respondingToPermission: boolean // runStreamLogic
-    claudeDefaultEffort: string | null // taskRunDefaultsLogic
-    claudeDefaultModel: string | null // taskRunDefaultsLogic
+    defaultEffort: string | null // taskRunDefaultsLogic
+    defaultModel: string | null // taskRunDefaultsLogic
     canSend: boolean
     clearing: boolean
     composerForm: {
@@ -350,11 +349,11 @@ export interface runInteractionLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isTerminal: (currentRunStatus: RunStatus | null) => boolean
-        selectedModel: (modelOverride: string | null, arg: any, claudeDefaultModel: string | null) => string
+        selectedModel: (modelOverride: string | null, arg: any, defaultModel: string | null) => string
         selectedEffort: (
             effortOverride: string | null,
             arg: any,
-            claudeDefaultEffort: string | null,
+            defaultEffort: string | null,
             selectedModel: string,
             catalogue: ModelChoiceApi[]
         ) => ReasoningEffortEnumApi
@@ -421,7 +420,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             modelCatalogueLogic,
             ['catalogue'],
             taskRunDefaultsLogic,
-            ['claudeDefaultModel', 'claudeDefaultEffort'],
+            ['defaultModel', 'defaultEffort'],
         ],
         actions: [
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
@@ -635,24 +634,19 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // override, else the run's stored value, else the server-resolved default (user preference over
         // project default), else the built-in default. Effort is clamped to one the model supports.
         selectedModel: [
-            (s) => [s.modelOverride, (_, p) => p.currentModel, s.claudeDefaultModel],
+            (s) => [s.modelOverride, (_, p) => p.currentModel, s.defaultModel],
             (override: string | null, current, serverDefault: string | null): string =>
                 override ?? current ?? serverDefault ?? DEFAULT_COMPOSER_MODEL,
         ],
         selectedEffort: [
-            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.claudeDefaultEffort, s.selectedModel, s.catalogue],
+            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.defaultEffort, s.selectedModel, s.catalogue],
             (
                 override: string | null,
                 current: string | null | undefined,
                 serverDefault: string | null,
                 model: string,
                 catalogue: ModelChoiceApi[]
-            ): ReasoningEffortEnumApi =>
-                resolveEffortForModel(
-                    catalogue,
-                    override ?? current ?? serverDefault ?? DEFAULT_COMPOSER_EFFORT,
-                    model
-                ),
+            ): ReasoningEffortEnumApi => resolveEffortForModel(catalogue, override ?? current ?? serverDefault, model),
         ],
         // The permission mode to display and launch with: the client-side override, else the session's live
         // mode (from the stream's `current_mode_update` frames), else the run's stored launch mode, else the
@@ -787,13 +781,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // failure here aborts the send (the catch restores the content); `setSent*` runs only after a
                     // successful sync so the next send retries an unsent change.
                     const activeModel =
-                        values.sentModel ?? props.currentModel ?? values.claudeDefaultModel ?? DEFAULT_COMPOSER_MODEL
+                        values.sentModel ?? props.currentModel ?? values.defaultModel ?? DEFAULT_COMPOSER_MODEL
                     const activeEffort = resolveEffortForModel(
                         values.catalogue,
-                        values.sentEffort ??
-                            props.currentEffort ??
-                            values.claudeDefaultEffort ??
-                            DEFAULT_COMPOSER_EFFORT,
+                        values.sentEffort ?? props.currentEffort ?? values.defaultEffort,
                         activeModel
                     )
                     if (values.selectedModel !== activeModel) {

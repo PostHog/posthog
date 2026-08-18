@@ -214,13 +214,12 @@ describe('taskTrackerSceneLogic', () => {
         consent.unmount()
         jest.restoreAllMocks()
     })
-    // The runtime selection on submit decides whether server-side defaults can apply: an untouched picker
-    // with a Claude default must OMIT the triple (re-pinning it client-side would defeat team/user defaults
-    // and warm-run matching), while no default / a Codex default must pin the built-in Claude model (the web
-    // tracker can't drive Codex runs), and an explicit pick must always be sent for that run.
+    // A run launches on the resolved default whatever runtime it names — a Codex default used to be
+    // discarded here and the run fell back to the built-in Claude model, which reads as the setting being
+    // ignored. The built-in only applies when no level configured one, and an explicit pick always wins.
     it.each([
         {
-            description: 'omits the runtime selection when a Claude server default exists',
+            description: 'launches on a Claude server default',
             resolved: {
                 runtime_adapter: 'claude',
                 model: 'claude-sonnet-4-6',
@@ -228,19 +227,19 @@ describe('taskTrackerSceneLogic', () => {
                 source: 'team',
             },
             pick: null,
-            expectModel: undefined,
+            expectModel: 'claude-sonnet-4-6',
         },
         {
-            description: 'pins the built-in model when no server default exists',
+            description: 'launches on the built-in model when no server default exists',
             resolved: null,
             pick: null,
             expectModel: DEFAULT_COMPOSER_MODEL,
         },
         {
-            description: 'pins the built-in model when the server default is a Codex runtime',
+            description: 'launches on a Codex server default rather than the built-in Claude model',
             resolved: { runtime_adapter: 'codex', model: 'gpt-5.5', reasoning_effort: 'medium', source: 'user' },
             pick: null,
-            expectModel: DEFAULT_COMPOSER_MODEL,
+            expectModel: 'gpt-5.5',
         },
         {
             description: 'sends an explicit pick even when a server default exists',
@@ -263,7 +262,10 @@ describe('taskTrackerSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(runBody?.model).toEqual(expectModel)
-        expect(runBody?.runtime_adapter).toEqual(expectModel === undefined ? undefined : 'claude')
+        // The create endpoint rejects a launch mode sent without the runtime it belongs to, so the two
+        // always travel together — the run 400s before any of the above matters otherwise.
+        expect(runBody?.initial_permission_mode).not.toBeUndefined()
+        expect(runBody?.runtime_adapter).not.toBeUndefined()
         // The one-off pick resets after submit, back to "use default".
         expect(logic.values.newTaskData.model).toBeNull()
     })

@@ -11,8 +11,6 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
 import {
-    type ClaudeTaskRunCreateSchemaApi,
-    type CodexTaskRunCreateSchemaApi,
     type LegacyDesktopAccessResponseApi,
     type ModelChoiceApi,
     TaskOriginProductEnumApi,
@@ -132,8 +130,8 @@ export interface taskTrackerSceneLogicValues {
     currentProjectId: number | null // projectLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
     historyExpanded: boolean // runnerPanelLogic
-    claudeDefaultEffort: string | null // taskRunDefaultsLogic
-    claudeDefaultModel: string | null // taskRunDefaultsLogic
+    defaultEffort: string | null // taskRunDefaultsLogic
+    defaultModel: string | null // taskRunDefaultsLogic
     warmLease: WarmLease | null // taskWarmLogic
     repositories: string[] // tasksLogic
     taskListParams: TaskListParams // tasksLogic
@@ -396,10 +394,10 @@ export interface taskTrackerSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasDesktopAccess: (desktopAccess: LegacyDesktopAccessResponseApi | null) => boolean
         displayHeadline: (overrideHeadlines: string[] | null, headlineSeed: number) => string
-        displayModel: (newTaskData: TaskCreateForm, claudeDefaultModel: string | null) => string
+        displayModel: (newTaskData: TaskCreateForm, defaultModel: string | null) => string
         displayEffort: (
             newTaskData: TaskCreateForm,
-            claudeDefaultEffort: string | null,
+            defaultEffort: string | null,
             displayModel: string,
             catalogue: ModelChoiceApi[]
         ) => ReasoningEffortEnumApi
@@ -448,7 +446,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             taskWarmLogic({ panelId: props.panelId }),
             ['warmLease'],
             taskRunDefaultsLogic,
-            ['claudeDefaultModel', 'claudeDefaultEffort'],
+            ['defaultModel', 'defaultEffort'],
         ],
         actions: [
             runnerPanelLogic(props),
@@ -567,19 +565,19 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // The pickers render these and a submit sends exactly these, so the composer can never
         // show one model or effort while the run launches with another.
         displayModel: [
-            (s) => [s.newTaskData, s.claudeDefaultModel],
-            (newTaskData: TaskCreateForm, claudeDefaultModel: string | null): string =>
-                newTaskData.model ?? claudeDefaultModel ?? DEFAULT_COMPOSER_MODEL,
+            (s) => [s.newTaskData, s.defaultModel],
+            (newTaskData: TaskCreateForm, defaultModel: string | null): string =>
+                newTaskData.model ?? defaultModel ?? DEFAULT_COMPOSER_MODEL,
         ],
         displayEffort: [
-            (s) => [s.newTaskData, s.claudeDefaultEffort, s.displayModel, s.catalogue],
+            (s) => [s.newTaskData, s.defaultEffort, s.displayModel, s.catalogue],
             (
                 newTaskData: TaskCreateForm,
-                claudeDefaultEffort: string | null,
+                defaultEffort: string | null,
                 displayModel: string,
                 catalogue: ModelChoiceApi[]
             ): ReasoningEffortEnumApi =>
-                resolveEffortForModel(catalogue, newTaskData.reasoningEffort ?? claudeDefaultEffort, displayModel),
+                resolveEffortForModel(catalogue, newTaskData.reasoningEffort ?? defaultEffort, displayModel),
         ],
         // Neither picker touched: submit omits the triple so the backend resolves it, which also
         // lets a warm run provisioned under the default match.
@@ -703,24 +701,21 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     mode: TaskExecutionModeEnumApi.Interactive,
                     pending_user_message: pendingUserMessage,
                 }
-                // The model triple is omitted only when nothing is pinned AND a server default exists, so
-                // the backend resolves it (which also lets a warm run provisioned under that default
-                // match). Otherwise send the displayed selection, with the runtime derived from the model.
-                let pinnedRequest: ClaudeTaskRunCreateSchemaApi | CodexTaskRunCreateSchemaApi | null = null
-                if (!(values.isDefaultSelection && values.claudeDefaultModel)) {
-                    const built = buildRunCreateRequest(
-                        values.catalogue,
-                        values.displayModel,
-                        values.displayEffort,
-                        permissionMode,
-                        runPayload
-                    )
-                    if (!('runtime_adapter' in built)) {
-                        throw new Error('Run request is missing a runtime adapter')
-                    }
-                    pinnedRequest = built
+                // Always the displayed selection, runtime derived from the model — which is the resolved
+                // default when nothing was picked. Omitting the triple to let the backend resolve it is not
+                // an option: `initial_permission_mode` is rejected without a `runtime_adapter` alongside it,
+                // and the launch mode is the composer's to state (the backend only fills one in for Codex,
+                // so a Claude run would silently drop off Plan).
+                const runRequest = buildRunCreateRequest(
+                    values.catalogue,
+                    values.displayModel,
+                    values.displayEffort,
+                    permissionMode,
+                    runPayload
+                )
+                if (!('runtime_adapter' in runRequest)) {
+                    throw new Error('Run request is missing a runtime adapter')
                 }
-                const runRequest = pinnedRequest ?? { ...runPayload, initial_permission_mode: permissionMode }
                 const taskData: TaskWriteApi = {
                     title: '',
                     description,
@@ -731,17 +726,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // Warm-reuse hints. The backend matches these against an idling warm Run and, on a hit,
                     // activates it in place and returns it as `latest_run` — no second Run is created. All of
                     // them are write-only and ignored on a cold create. `branch` must be present as a key
-                    // (even `null`) or reuse is never attempted at all. The model triple is left off when
-                    // the server resolves defaults, so warm matching resolves it the same way.
-                    branch: runPayload.branch,
-                    ...(pinnedRequest
-                        ? {
-                              runtime_adapter: pinnedRequest.runtime_adapter,
-                              model: pinnedRequest.model,
-                              reasoning_effort: pinnedRequest.reasoning_effort,
-                              initial_permission_mode: pinnedRequest.initial_permission_mode,
-                          }
-                        : { initial_permission_mode: permissionMode }),
+                    // (even `null`) or reuse is never attempted at all.
+                    branch: runRequest.branch ?? null,
+                    runtime_adapter: runRequest.runtime_adapter,
+                    model: runRequest.model,
+                    reasoning_effort: runRequest.reasoning_effort,
+                    initial_permission_mode: runRequest.initial_permission_mode,
                     pending_user_message: pendingUserMessage,
                 }
 
