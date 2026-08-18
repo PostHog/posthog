@@ -414,11 +414,17 @@ impl MinifiedSourceFile {
 
 const CSS_SOURCEMAP_REFERENCE_PREFIX: &str = "/*# sourceMappingURL=";
 
+fn css_sourcemap_reference_range(line: &str) -> Option<std::ops::Range<usize>> {
+    let comment_start = line.rfind(CSS_SOURCEMAP_REFERENCE_PREFIX)?;
+    let reference_start = comment_start + CSS_SOURCEMAP_REFERENCE_PREFIX.len();
+    let comment_end = reference_start + line[reference_start..].find("*/")? + 2;
+    Some(comment_start..comment_end)
+}
+
 fn css_sourcemap_reference(line: &str) -> Option<&str> {
-    let comment = line.trim().strip_suffix("*/")?;
-    let reference_start =
-        comment.rfind(CSS_SOURCEMAP_REFERENCE_PREFIX)? + CSS_SOURCEMAP_REFERENCE_PREFIX.len();
-    Some(comment[reference_start..].trim_end())
+    let range = css_sourcemap_reference_range(line)?;
+    let reference_start = range.start + CSS_SOURCEMAP_REFERENCE_PREFIX.len();
+    Some(line[reference_start..range.end - 2].trim_end())
 }
 
 fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<usize>> {
@@ -442,13 +448,13 @@ fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<u
         {
             return Some(line_start..line_end);
         }
-        if css_sourcemap_reference(line).is_some() {
-            let comment_start = line.rfind(CSS_SOURCEMAP_REFERENCE_PREFIX)?;
-            if line[..comment_start].trim().is_empty() {
+        if let Some(comment_range) = css_sourcemap_reference_range(line) {
+            if line[..comment_range.start].trim().is_empty()
+                && line[comment_range.end..].trim().is_empty()
+            {
                 return Some(line_start..line_end);
             }
-            let content_end = line.trim_end_matches(['\r', '\n']).len();
-            return Some((line_start + comment_start)..(line_start + content_end));
+            return Some((line_start + comment_range.start)..(line_start + comment_range.end));
         }
         is_trailing_content = false;
     }
@@ -690,6 +696,18 @@ mod tests {
         );
         assert!(source.remove_sourcemap_reference());
         assert_eq!(source.inner.content, ".app{color:black}\n");
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_preserves_adjacent_css_license() {
+        let mut source = minified_source(".a{}/*# sourceMappingURL=app.css.map*/ /* license */\n");
+
+        assert_eq!(
+            source.get_sourcemap_reference().unwrap(),
+            Some("app.css.map".to_string())
+        );
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, ".a{} /* license */\n");
     }
 
     #[test]
