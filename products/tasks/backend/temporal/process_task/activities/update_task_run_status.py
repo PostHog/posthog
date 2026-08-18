@@ -134,6 +134,7 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         "Task run status updated",
         run_id=input.run_id,
         status=input.status,
+        termination_reason=marker if marker in _TERMINAL_STATE_MARKERS else None,
     )
 
 
@@ -146,8 +147,13 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
     transition so activity retries and repeat updates don't double-count.
     """
     try:
+        marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker
+        termination_reason = marker if marker in _TERMINAL_STATE_MARKERS else None
         if input.status == TaskRun.Status.COMPLETED:
-            task_run.capture_event("task_run_completed", {"duration_seconds": task_run._duration_seconds()})
+            task_run.capture_event(
+                "task_run_completed",
+                {"duration_seconds": task_run._duration_seconds(), "termination_reason": termination_reason},
+            )
         else:
             task_run.capture_event(
                 "task_run_failed",
@@ -155,6 +161,7 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                     "error_message": truncate_error_message(input.error_message or task_run.error_message),
                     "error_type": input.error_type or "unspecified",
                     "duration_seconds": task_run._duration_seconds(),
+                    "termination_reason": termination_reason,
                 },
             )
 
