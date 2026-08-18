@@ -10,6 +10,7 @@ from products.skills.backend.models.skills import LLMSkill
 from .models import (
     SignalReport,
     SignalReportArtefact,
+    SignalReportCanvasGeneration,
     SignalScoutConfig,
     SignalScoutNote,
     SignalScoutRun,
@@ -82,6 +83,47 @@ class SignalReportAdmin(admin.ModelAdmin):
     )
 
     inlines = [SignalReportArtefactInline]
+
+
+@admin.register(SignalReportCanvasGeneration)
+class SignalReportCanvasGenerationAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "report_id",
+        "team_id",
+        "status",
+        "validation_status",
+        "review_status",
+        "duration_ms",
+        "created_at",
+    )
+    list_filter = ("status", "validation_status", "review_status", "prompt_version")
+    search_fields = ("id", "report_id", "team_id", "generation_task_id", "generation_run_id")
+    ordering = ("-created_at",)
+    show_full_result_count = False
+    readonly_fields = (
+        "id",
+        "team",
+        "report",
+        "status",
+        "validation_status",
+        "trigger",
+        "prompt_version",
+        "input_fingerprint",
+        "output_source",
+        "output_storage_key",
+        "model_metadata",
+        "error_category",
+        "failure_reason",
+        "duration_ms",
+        "generation_task_id",
+        "generation_run_id",
+        "canvas_id",
+        "started_at",
+        "completed_at",
+        "created_at",
+        "updated_at",
+    )
 
 
 @admin.register(SignalScoutConfig)

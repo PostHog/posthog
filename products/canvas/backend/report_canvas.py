@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
+from products.canvas.backend.build_service import read_source_project
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 
 
@@ -12,6 +13,13 @@ from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVers
 class CanvasGenerationState:
     status: Literal["waiting_for_source", "building", "ready", "failed"]
     failure_reason: str = ""
+
+
+@frozen
+class CanvasGenerationSource:
+    project: dict[str, object]
+    storage_key: str
+    source_hash: str
 
 
 def create_report_canvas(*, team_id: int, channel_id: str | UUID, name: str, discussion_task_id: str | UUID) -> UUID:
@@ -64,3 +72,19 @@ def canvas_generation_result(*, team_id: int, canvas_id: str | UUID, task_id: st
     ]
     reason = messages[0] if messages else "The canvas build failed."
     return CanvasGenerationState(status="failed", failure_reason=reason)
+
+
+def canvas_generation_source(*, team_id: int, canvas_id: str | UUID, task_id: str | UUID) -> CanvasGenerationSource:
+    version = (
+        CanvasSourceVersion.objects.for_team(team_id)
+        .filter(canvas_id=canvas_id, task_id=task_id)
+        .order_by("-created_at")
+        .first()
+    )
+    if version is None:
+        raise CanvasSourceVersion.DoesNotExist(task_id)
+    return CanvasGenerationSource(
+        project=read_source_project(version),
+        storage_key=version.source_object_key,
+        source_hash=version.source_hash,
+    )
