@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task
@@ -339,7 +340,7 @@ def test_workflow_run_fails_closed_when_owner_is_not_a_current_org_member(mock_c
 )
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_workflow_run_scopes_never_exceed_request_or_snapshot(
-    mock_create: MagicMock, requested: str, snapshot: str
+    mock_create: MagicMock, requested: PosthogMcpScopes, snapshot: str
 ) -> None:
     from posthog.models.organization import OrganizationMembership
     from posthog.temporal.oauth import resolve_scopes

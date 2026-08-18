@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast, get_args
 from uuid import UUID
 
 from django.db import transaction
@@ -9,6 +9,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
     ARRAY_APP_CLIENT_ID_US,
+    McpScopePreset,
     PosthogMcpScopes,
     SandboxOAuthApplication,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
@@ -62,8 +63,13 @@ def _workflow_run_scopes(requested: PosthogMcpScopes, state: dict[str, Any] | No
     runs also strip."""
     resolved = set(resolve_scopes(requested, include_internal_scopes=True))
     connectors = ((state or {}).get("config_snapshot") or {}).get("connectors")
-    snapshot = connectors.get("posthog_mcp_scopes") if isinstance(connectors, dict) else None
-    if isinstance(snapshot, str | list):
+    raw = connectors.get("posthog_mcp_scopes") if isinstance(connectors, dict) else None
+    snapshot: PosthogMcpScopes | None = None
+    if isinstance(raw, list):
+        snapshot = [str(scope) for scope in raw]
+    elif isinstance(raw, str) and raw in get_args(McpScopePreset):
+        snapshot = cast(McpScopePreset, raw)
+    if snapshot is not None:
         resolved &= set(resolve_scopes(snapshot, include_internal_scopes=True))
     return sorted(scope for scope in resolved if scope not in LOOP_FIRED_RUN_EXCLUDED_SCOPES)
 
