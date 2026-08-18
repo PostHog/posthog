@@ -140,6 +140,20 @@ const MAX_HOST_ENDED_RESUBSCRIBES = 3;
  */
 const LOCAL_SILENCE_WARN_AFTER_MS = 60_000;
 const LOCAL_SILENCE_CHECK_INTERVAL_MS = 30_000;
+
+/** Short label for a log line: `session/update:agent_message_chunk`, `response`. */
+function describeAcpMethod(acpMsg: AcpMessage): string {
+  const msg = acpMsg.message as {
+    method?: unknown;
+    params?: { update?: { sessionUpdate?: unknown } };
+    error?: unknown;
+  };
+  if (typeof msg.method !== "string") {
+    return msg.error ? "error-response" : "response";
+  }
+  const update = msg.params?.update?.sessionUpdate;
+  return typeof update === "string" ? `${msg.method}:${update}` : msg.method;
+}
 /**
  * Streamed events are buffered and flushed on this cadence so a burst of tokens
  * coalesces into one processing pass (and roughly one render) instead of one
@@ -1662,6 +1676,11 @@ export class SessionService {
   private hostEndedResubscribes = new Map<string, number>();
   /** When each local run last delivered a session event to this renderer. */
   private lastSessionEventAt = new Map<string, number>();
+  /** Per-run tallies of what this renderer received and failed to apply. */
+  private sessionEventStats = new Map<
+    string,
+    { received: number; failed: number; lastMethod: string }
+  >();
   /** Runs already logged for their current stretch of silence. */
   private silenceLogged = new Set<string>();
   private silenceCheckHandle: ReturnType<typeof setInterval> | null = null;
@@ -2662,6 +2681,9 @@ export class SessionService {
     this.lastSessionEventAt.set(taskRunId, Date.now());
     this.silenceLogged.delete(taskRunId);
     this.ensureSilenceCheck();
+    const stats = this.statsFor(taskRunId);
+    stats.received += 1;
+    stats.lastMethod = describeAcpMethod(acpMsg);
     if (isAgentTextStreamEvent(acpMsg)) {
       this.lastAgentTextAt.set(taskRunId, Date.now());
     }
@@ -2685,7 +2707,7 @@ export class SessionService {
     this.pendingSessionEvents = new Map();
     for (const [taskRunId, events] of batches) {
       for (const acpMsg of events) {
-        this.handleSessionEvent(taskRunId, acpMsg);
+        this.applySessionEvent(taskRunId, acpMsg);
       }
     }
   }
@@ -2697,8 +2719,44 @@ export class SessionService {
     if (!events) return;
     this.pendingSessionEvents.delete(taskRunId);
     for (const acpMsg of events) {
-      this.handleSessionEvent(taskRunId, acpMsg);
+      this.applySessionEvent(taskRunId, acpMsg);
     }
+  }
+
+  /**
+   * One event that throws must not take the rest of its batch (and every other
+   * run's batch in the same flush) down with it: that leaves the transcript
+   * frozen with nothing in the log. Log it, count it, keep going.
+   */
+  private applySessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
+    try {
+      this.handleSessionEvent(taskRunId, acpMsg);
+    } catch (error) {
+      const stats = this.statsFor(taskRunId);
+      stats.failed += 1;
+      if (stats.failed === 1 || stats.failed % 100 === 0) {
+        this.d.log.error("Session event handling failed", {
+          taskRunId,
+          method: describeAcpMethod(acpMsg),
+          failed: stats.failed,
+          received: stats.received,
+          error,
+        });
+      }
+    }
+  }
+
+  private statsFor(taskRunId: string): {
+    received: number;
+    failed: number;
+    lastMethod: string;
+  } {
+    let stats = this.sessionEventStats.get(taskRunId);
+    if (!stats) {
+      stats = { received: 0, failed: 0, lastMethod: "" };
+      this.sessionEventStats.set(taskRunId, stats);
+    }
+    return stats;
   }
 
   private ensureSilenceCheck(): void {
@@ -2726,6 +2784,7 @@ export class SessionService {
       const silentForMs = now - lastSignalAt;
       if (silentForMs < LOCAL_SILENCE_WARN_AFTER_MS) continue;
       this.silenceLogged.add(taskRunId);
+      const stats = this.sessionEventStats.get(taskRunId);
       this.d.log.warn("Local session silent while a prompt is pending", {
         taskRunId,
         taskId: session.taskId,
@@ -2733,6 +2792,9 @@ export class SessionService {
         subscribed: this.subscriptions.has(taskRunId),
         bufferedEvents: this.pendingSessionEvents.get(taskRunId)?.length ?? 0,
         eventCount: session.events.length,
+        received: stats?.received ?? 0,
+        failed: stats?.failed ?? 0,
+        lastMethod: stats?.lastMethod ?? null,
         online: this.d.getIsOnline(),
       });
     }
@@ -2941,6 +3003,7 @@ export class SessionService {
     subscription?.permission?.unsubscribe();
     this.hostEndedResubscribes.delete(taskRunId);
     this.lastSessionEventAt.delete(taskRunId);
+    this.sessionEventStats.delete(taskRunId);
     this.silenceLogged.delete(taskRunId);
     this.liveTurnContent.delete(taskRunId);
     this.agentSpokeAt.delete(taskRunId);
@@ -2978,6 +3041,7 @@ export class SessionService {
     this.pendingSessionEvents.clear();
     this.hostEndedResubscribes.clear();
     this.lastSessionEventAt.clear();
+    this.sessionEventStats.clear();
     this.silenceLogged.clear();
     if (this.silenceCheckHandle !== null) {
       clearInterval(this.silenceCheckHandle);
@@ -3028,6 +3092,7 @@ export class SessionService {
     if (!tally) return;
     this.liveTurnContent.delete(taskRunId);
     const session = this.d.store.getSessions()[taskRunId];
+    const stats = this.sessionEventStats.get(taskRunId);
     const payload = {
       taskRunId,
       taskId: session?.taskId,
@@ -3036,11 +3101,14 @@ export class SessionService {
       agentTextChunks: tally.agentTextChunks,
       agentOutputEvents: tally.agentOutputEvents,
       durationMs: Math.max(0, endedAtTs - tally.startedAtTs),
+      eventCount: session?.events.length ?? 0,
+      received: stats?.received ?? 0,
+      failed: stats?.failed ?? 0,
     };
     if (tally.agentTextChunks === 0 && tally.agentOutputEvents === 0) {
       this.d.log.warn("Turn completed with no agent output", payload);
     } else {
-      this.d.log.debug("Turn completed", payload);
+      this.d.log.info("Turn completed", payload);
     }
   }
 
@@ -6179,7 +6247,19 @@ export class SessionService {
         taskRunId,
         normalizedUpdate,
       );
-      this.handleCloudTaskUpdate(taskRunId, normalizedUpdate);
+      try {
+        this.handleCloudTaskUpdate(taskRunId, normalizedUpdate);
+      } catch (error) {
+        // Same reasoning as applySessionEvent: one bad update must not end
+        // the stream silently. The subscription stays up for the next one.
+        this.d.log.error("Cloud task update handling failed", {
+          taskId,
+          taskRunId,
+          kind: update.kind,
+          error,
+        });
+        return;
+      }
       if (
         (update.kind === "status" ||
           update.kind === "snapshot" ||
