@@ -1,6 +1,7 @@
 use common_types::CapturedEventHeaders;
 use metrics::{counter, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
+use rdkafka::message::Headers;
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use std::future::Future;
 use std::pin::Pin;
@@ -11,6 +12,9 @@ use tracing::error;
 use crate::api::CaptureError;
 use crate::prometheus::report_dropped_events;
 
+const KAFKA_MESSAGE_V2_MAX_OVERHEAD: usize = 36;
+const MAX_VARINT_BYTES: usize = 10;
+
 /// A record to be produced to Kafka
 #[derive(Debug, Clone)]
 pub struct ProduceRecord {
@@ -18,6 +22,25 @@ pub struct ProduceRecord {
     pub key: Option<String>,
     pub payload: Vec<u8>,
     pub headers: CapturedEventHeaders,
+}
+
+impl ProduceRecord {
+    /// Returns a conservative upper bound for librdkafka's encoded message size.
+    pub(crate) fn max_wire_size(&self) -> usize {
+        let key_size = self.key.as_ref().map_or(0, String::len);
+        let headers: rdkafka::message::OwnedHeaders = self.headers.clone().into();
+        let headers_size = headers.iter().fold(0usize, |size, header| {
+            size.saturating_add(MAX_VARINT_BYTES)
+                .saturating_add(header.key.len())
+                .saturating_add(MAX_VARINT_BYTES)
+                .saturating_add(header.value.map_or(0, <[u8]>::len))
+        });
+
+        KAFKA_MESSAGE_V2_MAX_OVERHEAD
+            .saturating_add(key_size)
+            .saturating_add(self.payload.len())
+            .saturating_add(headers_size)
+    }
 }
 
 /// Abstraction over Kafka producer for testability
