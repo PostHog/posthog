@@ -9849,20 +9849,6 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(forwarded["method"], "side_question")
         self.assertEqual(forwarded["params"]["question"], "what does it do?")
 
-    @parameterized.expand([("blank", "   "), ("empty", ""), ("missing", None)])
-    def test_command_rejects_side_question_without_a_question(self, _name, question):
-        task = self.create_task()
-        run = self._create_run_with_sandbox(task)
-        params = {} if question is None else {"question": question}
-
-        response = self.client.post(
-            self._command_url(task, run),
-            {"jsonrpc": "2.0", "method": "side_question", "params": params, "id": "req-btw"},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_side_question_requires_code_access(self, mock_post):
         self.set_tasks_feature_flag(False)
@@ -9877,6 +9863,23 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
+        mock_post.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_command_side_question_respects_usage_limit(self, mock_gate, mock_post):
+        mock_gate.return_value = OVER_LIMIT
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "side_question", "params": {"question": "why?"}, "id": "req-btw"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
         mock_post.assert_not_called()
 
     def test_empty_task_session_returns_read_only_storage_access(self):
@@ -10569,6 +10572,22 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                         "payload": {"result": "x" * 300_001},
                     },
                 },
+            ),
+            (
+                "side_question_blank_question",
+                {"jsonrpc": "2.0", "method": "side_question", "params": {"question": "   "}},
+            ),
+            (
+                "side_question_empty_question",
+                {"jsonrpc": "2.0", "method": "side_question", "params": {"question": ""}},
+            ),
+            (
+                "side_question_missing_question",
+                {"jsonrpc": "2.0", "method": "side_question", "params": {}},
+            ),
+            (
+                "side_question_oversized_question",
+                {"jsonrpc": "2.0", "method": "side_question", "params": {"question": "x" * 10_001}},
             ),
         ]
     )
