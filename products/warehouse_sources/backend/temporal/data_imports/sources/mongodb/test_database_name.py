@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch
 
-from pymongo.errors import InvalidURI, OperationFailure, ServerSelectionTimeoutError
+from pymongo.errors import ConfigurationError, InvalidURI, OperationFailure, ServerSelectionTimeoutError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
@@ -179,6 +179,20 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
                 ),
                 _MONGO_UNREACHABLE_MESSAGE,
                 False,
+            ),
+            (
+                # dnspython's NXDOMAIN, wrapped by pymongo as ConfigurationError, when a
+                # mongodb+srv:// URI's SRV DNS record doesn't exist at all.
+                ConfigurationError("The DNS query name does not exist: _mongodb._tcp.cluster.abc.mongodb.net."),
+                _MONGO_HOST_UNRESOLVED_MESSAGE,
+                False,
+            ),
+            (
+                # An unrecognized ConfigurationError still falls back to capturing, same as any
+                # other unexpected exception.
+                ConfigurationError("some-unrecognized-configuration-problem"),
+                _MONGO_CONNECT_FAILED_MESSAGE,
+                True,
             ),
             (Exception("some-internal-driver-detail"), _MONGO_CONNECT_FAILED_MESSAGE, True),
         ],
