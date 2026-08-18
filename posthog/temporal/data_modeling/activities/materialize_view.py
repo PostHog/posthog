@@ -643,13 +643,20 @@ async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: Fi
 
 
 async def _stage_person_property_batch(
-    sink: PersonPropertyRowSink | None, batch_index: int, batch: pa.RecordBatch
+    sink: PersonPropertyRowSink | None, batch_index: int, batch: pa.RecordBatch, *, fatal: bool
 ) -> None:
     """Stage one written batch's projected columns, if a warehouse property reads this view.
 
     Staged from the transformed batch, so the values a person property gets are the ones the Delta
-    table gets. Never raises: a staging failure costs the affected properties one run's updates (the
-    next run re-diffs them from its own rows), which is not worth failing the materialization for.
+    table gets.
+
+    ``fatal`` follows the write path. A full rebuild re-stages every row on its next run, so there a
+    staging failure only costs that run's updates and is swallowed (``fatal=False``). An incremental
+    run stages only its own window and then advances the watermark past it, so a swallowed failure
+    would move the watermark past rows that never reached staging, which no later incremental run
+    re-stages until they change again. The incremental path therefore raises (``fatal=True``) to fail
+    the run before the watermark is recorded — matching the import pipeline's sink contract — so
+    Temporal retries the whole window.
     """
     if sink is None:
         return
@@ -657,6 +664,8 @@ async def _stage_person_property_batch(
         await sink.stage_chunk(batch_index, pa.Table.from_batches([batch]))
     except Exception as e:
         await sink.logger.awarning(f"Failed to stage person-property batch {batch_index}: {e}")
+        if fatal:
+            raise
         capture_exception(e)
 
 
@@ -705,7 +714,7 @@ async def _materialize_fully(
         batch = _force_nullable(batch)
         if tracker is not None:
             await asyncio.to_thread(tracker.check, batch)
-        await _stage_person_property_batch(person_property_sink, batch_index, batch)
+        await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
         batch_index += 1
         if delta_table is None:
             pa_schema = batch.schema
@@ -803,7 +812,7 @@ async def _materialize_incrementally(
             # Checked before the upsert so a duplicate split across batches fails the run instead
             # of the later batch silently replacing the earlier one.
             await asyncio.to_thread(tracker.check, batch)
-            await _stage_person_property_batch(person_property_sink, batch_index, batch)
+            await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=True)
             batch_index += 1
 
             stats = await asyncio.to_thread(
