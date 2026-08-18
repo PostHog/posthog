@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 
 from pydantic import ValidationError as PydanticValidationError
 
@@ -29,7 +30,11 @@ from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS, FORECAST_EXTRACTORS
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
-from products.alerts.backend.forecasting.engine import validate_forecast_horizon_and_width, validate_forecast_interval
+from products.alerts.backend.forecasting.engine import (
+    horizon_for_target_date,
+    validate_forecast_horizon_and_width,
+    validate_forecast_interval,
+)
 
 THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
 
@@ -213,6 +218,23 @@ def _validate_metrics_alert_config(ctx: _AlertConfigValidationContext) -> None:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
+def _validate_target_by_date(parsed: ForecastConfig, interval: IntervalType | None) -> None:
+    """A target alert turns on three fields the other conditions don't use, so reject a half-filled
+    one at save rather than at the first check."""
+    if parsed.target is None:
+        raise ValueError("A target alert needs a target value.")
+    if parsed.target_direction is None:
+        raise ValueError("A target alert needs a direction: at least, or at most.")
+    if not parsed.target_date:
+        raise ValueError("A target alert needs a target date.")
+    try:
+        target_date = date.fromisoformat(str(parsed.target_date))
+    except ValueError:
+        raise ValueError(f"Target date isn't a valid date: {parsed.target_date}")
+    # Reuses the horizon derivation so the date bounds can't drift from what evaluation accepts.
+    horizon_for_target_date(target_date, interval, datetime.now(UTC).date())
+
+
 def _validate_forecast_config(
     forecast_config: dict, kind: str | None, query: dict, threshold_config: dict | None
 ) -> None:
@@ -229,6 +251,8 @@ def _validate_forecast_config(
     except Exception as e:
         raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
     validate_forecast_horizon_and_width(parsed, trends_query.interval)
+    if parsed.condition == ForecastConditionType.TARGET_BY_DATE:
+        _validate_target_by_date(parsed, trends_query.interval)
     if is_non_time_series_trend(trends_query):
         raise ValueError("Forecast alerts require a time series trends insight")
     if _has_breakdown(trends_query):

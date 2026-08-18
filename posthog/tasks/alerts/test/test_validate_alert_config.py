@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -730,4 +731,56 @@ class TestForecastConfigValidation:
             {"type": "percentage", "bounds": {"upper": 0.2}},
             calculation_interval="daily",
             forecast_config={**VALID_FORECAST, "condition": "band_deviation"},
+        )
+
+    @parameterized.expand(
+        [
+            ("missing target", {"target_direction": "at_least", "target_date": "2026-12-31"}, "needs a target value"),
+            ("missing direction", {"target": 100, "target_date": "2026-12-31"}, "at least, or at most"),
+            ("missing date", {"target": 100, "target_direction": "at_least"}, "needs a target date"),
+            (
+                "past date",
+                {"target": 100, "target_direction": "at_least", "target_date": "2020-01-01"},
+                "in the future",
+            ),
+            (
+                "beyond the cap",
+                {"target": 100, "target_direction": "at_least", "target_date": "2030-01-01"},
+                "within 6 months",
+            ),
+        ]
+    )
+    def test_target_by_date_config_is_rejected(self, _name: str, extra: dict, message: str) -> None:
+        with pytest.raises(ValueError, match=message):
+            validate_alert_config(
+                TRENDS_QUERY,
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config={
+                    "type": "ForecastConfig",
+                    "engine": "prophet",
+                    "condition": "target_by_date",
+                    **extra,
+                },
+            )
+
+    def test_target_by_date_config_is_accepted(self) -> None:
+        # Far enough out to be useful, inside the six month cap on a daily insight.
+        target_date = (datetime.now(UTC).date() + timedelta(days=90)).isoformat()
+        validate_alert_config(
+            TRENDS_QUERY,
+            {"type": "absolute_value"},
+            TRENDS_CONFIG,
+            ABS_THRESHOLD,
+            calculation_interval="daily",
+            forecast_config={
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "target_by_date",
+                "target": 10000,
+                "target_direction": "at_least",
+                "target_date": target_date,
+            },
         )

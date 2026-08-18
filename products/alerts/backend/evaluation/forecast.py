@@ -1,12 +1,14 @@
+from collections.abc import Callable
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from posthog.schema import ForecastConfig, InsightThreshold, IntervalType, TrendsQuery
+from posthog.schema import ForecastConfig, InsightsThresholdBounds, InsightThreshold, IntervalType, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.schema_enums import ForecastConditionType
+from posthog.schema_enums import ForecastConditionType, ForecastSensitivity, ForecastTargetDirection
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.trends import _has_breakdown
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
@@ -21,6 +23,7 @@ from products.alerts.backend.forecasting.engine import (
     ForecastEngine,
     ForecastResult,
     get_forecast_engine,
+    horizon_for_target_date,
     min_forecast_points,
     validate_forecast_horizon_and_width,
     validate_forecast_interval,
@@ -101,6 +104,65 @@ def _evaluate_band_deviation(
     )
 
 
+def _evaluate_future_breach_values(
+    *,
+    yhat: list[float],
+    lower: list[float],
+    upper: list[float],
+    dates: list[str],
+    bounds: InsightsThresholdBounds,
+    sensitivity: str,
+    label: str,
+    horizon: int,
+    interval_value: str | None = None,
+    fallback_value: float | None = None,
+    decomposition: Callable[[int], str] = lambda _i: "",
+) -> AlertEvaluationResult:
+    """Fire on the first predicted point that crosses a bound. Split out from the fit so the
+    sensitivity matrix is testable without an engine.
+
+    `best_case` reads the edge that keeps the metric on the acceptable side, which is the lower
+    edge against a ceiling and the upper edge against a floor, so it always fires later.
+    """
+    best_case = sensitivity == ForecastSensitivity.BEST_CASE.value
+    against_upper = lower if best_case else yhat
+    against_lower = upper if best_case else yhat
+
+    for i in range(len(yhat)):
+        breach_date = dates[i][:10]
+        if bounds.upper is not None and against_upper[i] > bounds.upper:
+            predicted = against_upper[i]
+            message = (
+                f"Forecast for {label}: predicted value {predicted:.2f} on {breach_date} "
+                f"is more than the upper threshold ({bounds.upper}){decomposition(i)}"
+            )
+        elif bounds.lower is not None and against_lower[i] < bounds.lower:
+            predicted = against_lower[i]
+            message = (
+                f"Forecast for {label}: predicted value {predicted:.2f} on {breach_date} "
+                f"is less than the lower threshold ({bounds.lower}){decomposition(i)}"
+            )
+        else:
+            continue
+        return AlertEvaluationResult(
+            value=predicted,
+            breaches=[message],
+            interval=interval_value,
+            triggered_metadata={
+                "forecast": {
+                    "breach_date": dates[i],
+                    "predicted_value": predicted,
+                    "lower": lower[i],
+                    "upper": upper[i],
+                    "horizon": horizon,
+                    "sensitivity": sensitivity,
+                }
+            },
+        )
+
+    return AlertEvaluationResult(value=fallback_value, breaches=[], interval=interval_value)
+
+
 def _evaluate_future_breach(
     dates: list[str],
     values: list[float],
@@ -111,8 +173,8 @@ def _evaluate_future_breach(
     interval_type: IntervalType | None,
     threshold: InsightThreshold | None,
 ) -> AlertEvaluationResult:
-    """Fit on the full history, predict `horizon` intervals, fire if the point forecast crosses
-    the threshold bounds."""
+    """Fit on the full history, predict `horizon` intervals, fire if the forecast crosses the
+    threshold bounds."""
     interval_value = interval_type.value if interval_type else None
     horizon = _resolve_horizon(forecast_config)
     forecast = engine.forecast(dates, values, horizon, interval_width, interval_type)
@@ -120,36 +182,111 @@ def _evaluate_future_breach(
     if bounds is None or (bounds.lower is None and bounds.upper is None):
         return AlertEvaluationResult(value=values[-1], breaches=[], interval=interval_value)
 
-    for i, predicted in enumerate(forecast.yhat):
-        breach_date = forecast.dates[i][:10]
-        if bounds.upper is not None and predicted > bounds.upper:
-            message = (
-                f"Forecast for {label}: predicted value {predicted:.2f} on {breach_date} "
-                f"is more than the upper threshold ({bounds.upper}){_decomposition_suffix(forecast, i)}"
-            )
-        elif bounds.lower is not None and predicted < bounds.lower:
-            message = (
-                f"Forecast for {label}: predicted value {predicted:.2f} on {breach_date} "
-                f"is less than the lower threshold ({bounds.lower}){_decomposition_suffix(forecast, i)}"
-            )
-        else:
-            continue
-        return AlertEvaluationResult(
-            value=predicted,
-            breaches=[message],
-            interval=interval_value,
-            triggered_metadata={
-                "forecast": {
-                    "breach_date": forecast.dates[i],
-                    "predicted_value": predicted,
-                    "lower": forecast.lower[i],
-                    "upper": forecast.upper[i],
-                    "horizon": horizon,
-                }
-            },
-        )
+    return _evaluate_future_breach_values(
+        yhat=forecast.yhat,
+        lower=forecast.lower,
+        upper=forecast.upper,
+        dates=forecast.dates,
+        bounds=bounds,
+        sensitivity=_resolve_sensitivity(forecast_config),
+        label=label,
+        horizon=horizon,
+        interval_value=interval_value,
+        fallback_value=values[-1],
+        decomposition=lambda i: _decomposition_suffix(forecast, i),
+    )
 
-    return AlertEvaluationResult(value=values[-1], breaches=[], interval=interval_value)
+
+def _resolve_sensitivity(forecast_config: dict[str, Any]) -> str:
+    """Which line the comparison reads. `best_case` is always the edge most favorable to the user,
+    so it always fires later than `forecast`.
+
+    The default depends on the condition. A target has months of runway, so flapping is the failure
+    mode and the conservative reading wins. A breach alert exists for lead time, so defaulting it to
+    the quiet end would blunt the one thing it is for, and it keeps reading the point forecast.
+    """
+    explicit = forecast_config.get("sensitivity")
+    if explicit:
+        return str(explicit)
+    if forecast_config.get("condition") == ForecastConditionType.FUTURE_BREACH.value:
+        return ForecastSensitivity.FORECAST.value
+    return ForecastSensitivity.BEST_CASE.value
+
+
+def _evaluate_target_by_date_values(
+    *,
+    yhat: float,
+    lower: float,
+    upper: float,
+    target: float,
+    direction: str,
+    sensitivity: str,
+    target_date: str,
+    label: str,
+) -> AlertEvaluationResult:
+    """Compare the value predicted for the target date against the target. Split out from the fit so
+    the direction and sensitivity matrix is testable without an engine."""
+    best_case = sensitivity == ForecastSensitivity.BEST_CASE.value
+    if direction == ForecastTargetDirection.AT_LEAST.value:
+        predicted = upper if best_case else yhat
+        missed = predicted < target
+        comparison = "below"
+    else:
+        predicted = lower if best_case else yhat
+        missed = predicted > target
+        comparison = "above"
+    if not missed:
+        return AlertEvaluationResult(value=yhat, breaches=[], interval=None)
+    qualifier = "even in the best case" if best_case else "on the current forecast"
+    return AlertEvaluationResult(
+        value=predicted,
+        breaches=[
+            f"Forecast for {label}: predicted {predicted:.2f} on {target_date} is {comparison} "
+            f"the target of {target} {qualifier}"
+        ],
+        interval=None,
+        triggered_metadata={
+            "forecast": {
+                "target": target,
+                "target_date": target_date,
+                "predicted_value": predicted,
+                "direction": direction,
+                "sensitivity": sensitivity,
+            }
+        },
+    )
+
+
+def _evaluate_target_by_date(
+    dates: list[str],
+    values: list[float],
+    label: str,
+    forecast_config: dict[str, Any],
+    engine: ForecastEngine,
+    interval_width: float,
+    interval_type: IntervalType | None,
+) -> AlertEvaluationResult:
+    """Forecast to a fixed calendar date and compare the value predicted there against the target."""
+    target = forecast_config.get("target")
+    target_date = forecast_config.get("target_date")
+    if target is None or not target_date:
+        raise AlertExtractionError("A target alert needs both a target and a target date.")
+    try:
+        horizon = horizon_for_target_date(date.fromisoformat(target_date), interval_type, datetime.now(UTC).date())
+    except ValueError as e:
+        raise AlertExtractionError(str(e))
+    forecast = engine.forecast(dates, values, horizon, interval_width, interval_type)
+    # The last predicted point is the one that lands on or just past the target date.
+    return _evaluate_target_by_date_values(
+        yhat=forecast.yhat[-1],
+        lower=forecast.lower[-1],
+        upper=forecast.upper[-1],
+        target=float(target),
+        direction=forecast_config.get("target_direction") or ForecastTargetDirection.AT_LEAST.value,
+        sensitivity=_resolve_sensitivity(forecast_config),
+        target_date=str(target_date),
+        label=label,
+    )
 
 
 def evaluate_with_forecast(
@@ -181,6 +318,10 @@ def evaluate_with_forecast(
 
     if condition == ForecastConditionType.BAND_DEVIATION.value:
         return _evaluate_band_deviation(dates, values, label, engine, interval_width, result.interval_type)
+    elif condition == ForecastConditionType.TARGET_BY_DATE.value:
+        return _evaluate_target_by_date(
+            dates, values, label, forecast_config, engine, interval_width, result.interval_type
+        )
     elif condition == ForecastConditionType.FUTURE_BREACH.value:
         return _evaluate_future_breach(
             dates,
@@ -293,9 +434,15 @@ def simulate_forecast_on_insight(
             f"Not enough history to forecast: need at least {min_points} completed intervals, got {len(values)}."
         )
 
-    horizon = _resolve_horizon(forecast_config)
     interval_width = _resolve_interval_width(forecast_config)
     interval_type = IntervalType(interval_value) if interval_value else None
+    if forecast_config.get("condition") == ForecastConditionType.TARGET_BY_DATE.value:
+        target_date = forecast_config.get("target_date")
+        if not target_date:
+            raise ValueError("A target alert needs a target date.")
+        horizon = horizon_for_target_date(date.fromisoformat(str(target_date)), interval_type, datetime.now(UTC).date())
+    else:
+        horizon = _resolve_horizon(forecast_config)
     engine = get_forecast_engine(forecast_config)
     forecast = engine.forecast(dates, values, horizon, interval_width, interval_type, include_history=True)
     return {
@@ -309,12 +456,37 @@ def simulate_forecast_on_insight(
         "forecast_components": forecast.components,
         "history_lower": forecast.history_lower,
         "history_upper": forecast.history_upper,
+        "target_projection": _target_projection(forecast, forecast_config),
         "latest_deviation": _latest_deviation(dates, values, forecast_config, engine, interval_width, interval_type),
         "fit_quality": {
             "mape": forecast.fit_mape,
             "coverage": forecast.fit_coverage,
             "verdict": _fit_verdict(forecast.fit_mape, forecast.fit_coverage, interval_width),
         },
+    }
+
+
+def _target_projection(forecast: ForecastResult, forecast_config: dict[str, Any]) -> dict[str, Any] | None:
+    """Both crossings for the preview: what the forecast says, and what the favorable edge says.
+    Returning both is what makes the choice between the two sensitivities visible rather than
+    theoretical, so a user can see which one their target sits between."""
+    if forecast_config.get("condition") != ForecastConditionType.TARGET_BY_DATE.value:
+        return None
+    target = forecast_config.get("target")
+    if target is None:
+        return None
+    at_least = (forecast_config.get("target_direction") or ForecastTargetDirection.AT_LEAST.value) == (
+        ForecastTargetDirection.AT_LEAST.value
+    )
+    predicted = forecast.yhat[-1]
+    best_case = forecast.upper[-1] if at_least else forecast.lower[-1]
+    return {
+        "predicted": predicted,
+        "best_case": best_case,
+        "target": float(target),
+        "target_date": str(forecast_config.get("target_date") or ""),
+        "misses_on_forecast": predicted < target if at_least else predicted > target,
+        "misses_on_best_case": best_case < target if at_least else best_case > target,
     }
 
 

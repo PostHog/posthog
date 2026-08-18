@@ -51,7 +51,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config
-from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
+from products.alerts.backend.insight_alert_state_machine import apply_unsnooze, disable_if_target_date_passed
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -245,6 +245,13 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             alert_calculation_interval=alert.calculation_interval,
             alert_config_type=(alert.config or {}).get("type"),
         )
+
+        # A target alert is finished once its date arrives: stop checking rather than keep
+        # forecasting past the date it was asked about.
+        finished_fields = disable_if_target_date_passed(alert, datetime.now(UTC).date())
+        if finished_fields:
+            alert.save(update_fields=finished_fields)
+            return EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState(alert.state))
 
         value: float | None = None
         breaches: list[str] | None = None

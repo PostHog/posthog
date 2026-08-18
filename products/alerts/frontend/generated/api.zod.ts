@@ -1155,18 +1155,34 @@ export const AlertsSimulateForecastCreateBody = /* @__PURE__ */ zod.object({
     insight: zod.number().describe('Insight ID to simulate the forecast on.'),
     forecast_config: zod
         .object({
-            condition: zod.enum(['future_breach', 'band_deviation']),
+            condition: zod.enum(['future_breach', 'band_deviation', 'target_by_date']),
             engine: zod.literal('prophet').default(alertsSimulateForecastCreateBodyForecastConfigOneEngineDefault),
             horizon: zod
                 .union([zod.number(), zod.null()])
                 .optional()
                 .describe(
-                    'How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7, max 30.'
+                    "How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7. The forecast can reach at most 6 months ahead, so the limit depends on the insight's interval."
                 ),
             interval_width: zod
                 .union([zod.number(), zod.null()])
                 .optional()
                 .describe('Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95).'),
+            sensitivity: zod
+                .union([zod.enum(['forecast', 'best_case']), zod.null()])
+                .optional()
+                .describe('Which line the comparison reads. Defaults to best_case. Ignored by band_deviation.'),
+            target: zod
+                .union([zod.number(), zod.null()])
+                .optional()
+                .describe('Value the metric must reach or stay under (target_by_date only).'),
+            target_date: zod
+                .union([zod.string(), zod.null()])
+                .optional()
+                .describe('ISO date the target must be met by (target_by_date only).'),
+            target_direction: zod
+                .union([zod.enum(['at_least', 'at_most']), zod.null()])
+                .optional()
+                .describe('Which side of `target` is acceptable (target_by_date only).'),
             type: zod.literal('ForecastConfig').default(alertsSimulateForecastCreateBodyForecastConfigOneTypeDefault),
         })
         .describe('Forecast configuration to simulate.'),
