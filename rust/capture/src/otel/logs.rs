@@ -38,6 +38,7 @@ pub fn expand_into_events(
     let mut events =
         Vec::with_capacity(count_records(request).min(super::MAX_AI_EVENTS_PER_REQUEST));
     let mut expanded_bytes = 0usize;
+    let mut evaluation_records = 0usize;
 
     for resource_logs in &request.resource_logs {
         let resource_attributes = resource_logs
@@ -61,6 +62,16 @@ pub fn expand_into_events(
 
         for scope_logs in &resource_logs.scope_logs {
             for record in &scope_logs.log_records {
+                if record.event_name != EVALUATION_EVENT_NAME {
+                    continue;
+                }
+                evaluation_records += 1;
+                if evaluation_records > super::MAX_AI_EVENTS_PER_REQUEST {
+                    return Err(CaptureError::RequestParsingError(format!(
+                        "Too many evaluation records: {evaluation_records} exceeds limit of {}",
+                        super::MAX_AI_EVENTS_PER_REQUEST
+                    )));
+                }
                 let Some(event) = evaluation_event(
                     record,
                     &resource_attributes,
@@ -177,6 +188,7 @@ fn evaluation_event(
         Value::String("otel".to_string()),
     );
 
+    properties.remove("$ai_trace_id");
     if record.trace_id.len() == 16 {
         properties.insert(
             "$ai_trace_id".to_string(),
@@ -345,6 +357,33 @@ mod tests {
 
         assert_eq!(events[0].properties["$ai_evaluation_result"], 0.9);
         assert_eq!(events[0].properties["$ai_evaluation_result_type"], "number");
+    }
+
+    #[test]
+    fn rejects_too_many_invalid_evaluation_records() {
+        let mut invalid = evaluation_record();
+        invalid.attributes.clear();
+        let mut request = request(invalid.clone());
+        request.resource_logs[0].scope_logs[0]
+            .log_records
+            .extend(vec![invalid; super::super::MAX_AI_EVENTS_PER_REQUEST]);
+
+        let error = expand_into_events(&request, "fallback").unwrap_err();
+
+        assert!(error.to_string().contains("Too many evaluation records"));
+    }
+
+    #[test]
+    fn malformed_wire_trace_id_removes_attribute_trace_id() {
+        let mut record = evaluation_record();
+        record.trace_id.clear();
+        record
+            .attributes
+            .push(string_attribute("$ai_trace_id", "forged"));
+
+        let events = expand_into_events(&request(record), "fallback").unwrap();
+
+        assert!(events[0].properties.get("$ai_trace_id").is_none());
     }
 
     #[test]

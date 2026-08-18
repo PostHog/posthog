@@ -62,8 +62,8 @@ pub fn apply(
     provenance: Provenance,
     signature_present: bool,
     request_id: Option<&str>,
+    require_trace_id: bool,
 ) {
-    let trusted = provenance == Provenance::Verified;
     let reason = match provenance {
         Provenance::Verified => "verified",
         Provenance::Stale => "stale",
@@ -76,6 +76,12 @@ pub fn apply(
             continue;
         };
         properties.retain(|key, _| !key.starts_with(shared::GATEWAY_PREFIX));
+        let trusted = provenance == Provenance::Verified
+            && (!require_trace_id
+                || properties
+                    .get("$ai_trace_id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|trace_id| !trace_id.is_empty()));
         if trusted {
             properties.insert(shared::VERIFIED_PROPERTY.to_string(), Value::Bool(true));
             properties.insert(RELAY_PROPERTY.to_string(), Value::Bool(true));
@@ -186,7 +192,13 @@ mod tests {
             timestamp: None,
         }];
 
-        apply(&mut events, Provenance::Verified, true, Some(REQUEST_ID));
+        apply(
+            &mut events,
+            Provenance::Verified,
+            true,
+            Some(REQUEST_ID),
+            false,
+        );
 
         let properties = events[0].properties.as_object().unwrap();
         assert_eq!(
@@ -210,11 +222,33 @@ mod tests {
             timestamp: None,
         }];
 
-        apply(&mut events, Provenance::Invalid, true, None);
+        apply(&mut events, Provenance::Invalid, true, None, false);
 
         let properties = events[0].properties.as_object().unwrap();
         assert!(!properties.contains_key(shared::VERIFIED_PROPERTY));
         assert!(!properties.contains_key(RELAY_PROPERTY));
         assert_eq!(properties.get("$ai_trace_id"), Some(&json!("trace-1")));
+    }
+
+    #[test]
+    fn does_not_verify_trace_less_events_when_trace_is_required() {
+        let mut events = vec![SpanEvent {
+            event_name: "$ai_evaluation".to_string(),
+            distinct_id: "user-1".to_string(),
+            properties: json!({}),
+            timestamp: None,
+        }];
+
+        apply(
+            &mut events,
+            Provenance::Verified,
+            true,
+            Some(REQUEST_ID),
+            true,
+        );
+
+        let properties = events[0].properties.as_object().unwrap();
+        assert!(!properties.contains_key(shared::VERIFIED_PROPERTY));
+        assert!(!properties.contains_key(REQUEST_ID_PROPERTY));
     }
 }

@@ -212,6 +212,7 @@ pub async fn otel_handler(
         headers
             .get(crate::gateway_provenance::REQUEST_ID_HEADER)
             .and_then(|value| value.to_str().ok()),
+        false,
     );
     let span_count = span_events.len();
     let dropped_span_count = raw_span_count.saturating_sub(span_count);
@@ -253,15 +254,7 @@ pub async fn otel_handler(
     counter!("capture_ai_otel_spans_accepted").increment(span_count as u64);
     histogram!("capture_ai_otel_spans_per_request").record(span_count as f64);
 
-    process_events(
-        &state,
-        ip,
-        token.to_string(),
-        gateway_provenance,
-        span_events,
-        received_at,
-    )
-    .await?;
+    process_events(&state, ip, token.to_string(), span_events, received_at).await?;
 
     counter!("capture_ai_otel_events_ingested").increment(span_count as u64);
     counter!("capture_ai_otel_requests_success").increment(1);
@@ -396,18 +389,11 @@ pub async fn logs_handler(
         &mut events,
         gateway_provenance,
         headers.contains_key(crate::gateway_provenance::SIGNATURE_HEADER),
+        headers
+            .get(crate::gateway_provenance::REQUEST_ID_HEADER)
+            .and_then(|value| value.to_str().ok()),
+        true,
     );
-    let quota_provenance = if events.iter().all(|event| {
-        event
-            .properties
-            .get("$ai_trace_id")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|trace_id| !trace_id.is_empty())
-    }) {
-        gateway_provenance
-    } else {
-        provenance::Provenance::Invalid
-    };
     let event_count = events.len();
     Span::current().record("record_count", event_count);
 
@@ -419,15 +405,7 @@ pub async fn logs_handler(
         counter!("capture_ai_otel_logs_requests_success").increment(1);
         return Ok(Json(json!({})));
     }
-    process_events(
-        &state,
-        ip,
-        token.to_string(),
-        quota_provenance,
-        events,
-        received_at,
-    )
-    .await?;
+    process_events(&state, ip, token.to_string(), events, received_at).await?;
 
     counter!("capture_ai_otel_log_records_accepted").increment(event_count as u64);
     counter!("capture_ai_otel_logs_events_ingested").increment(event_count as u64);
@@ -444,7 +422,6 @@ async fn process_events(
     state: &AppState,
     ip: Option<InsecureClientIp>,
     token: String,
-    gateway_provenance: provenance::Provenance,
     span_events: Vec<fan_out::SpanEvent>,
     received_at: chrono::DateTime<Utc>,
 ) -> Result<(), Response> {
@@ -453,14 +430,7 @@ async fn process_events(
         .unwrap_or_else(|| "127.0.0.1".to_string());
 
     // All-or-nothing quota check: reject the entire batch if any span is over quota
-    if let Err(outcome) = filtering::check_quota(
-        &state.quota_limiter,
-        &token,
-        &span_events,
-        gateway_provenance == provenance::Provenance::Verified,
-    )
-    .await
-    {
+    if let Err(outcome) = filtering::check_quota(&state.quota_limiter, &token, &span_events).await {
         return match outcome {
             filtering::QuotaOutcome::Dropped => Err(non_retryable_rejection("quota exceeded")),
             filtering::QuotaOutcome::Error(e) => {
