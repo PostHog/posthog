@@ -128,6 +128,7 @@ class Command(BaseCommand):
                 json.dumps(
                     {
                         "settings": self._settings_snapshot(),
+                        "max_chunk_attempts": options["max_chunk_attempts"],
                         "summary": summarize_inventory(rows),
                         "runs": [asdict(row) for row in rows],
                         "allowlist_line": allowlist_env_line(stampable),
@@ -141,6 +142,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING("Finalizer settings"))
         for name, value in self._settings_snapshot().items():
             self.stdout.write(f"  {name}={value}")
+        self.stdout.write(f"  {self._classification_cap_line(options)}")
 
         summary = summarize_inventory(rows)
         teams = len({row.team_id for row in rows})
@@ -232,6 +234,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING(f"Runs to cancel ({len(rows)})"))
         self._print_rows(rows, PRINT_LIMIT)
 
+        # The cap only shapes the `seeding-stalled` classification, so it is only worth flagging
+        # before the confirmation when one of those runs is in the cancel set.
+        if any(row.classification == "seeding-stalled" for row in rows):
+            self.stdout.write(f"  {self._classification_cap_line(options)}")
+
         if not options["live_run"]:
             self.stdout.write(self.style.WARNING(DRY_RUN_MESSAGE))
             return
@@ -275,6 +282,16 @@ class Command(BaseCommand):
             stalled_after=timedelta(hours=options["stalled_for_hours"]),
             older_than=None if older_than_hours is None else timedelta(hours=older_than_hours),
             max_chunk_attempts=options["max_chunk_attempts"],
+        )
+
+    def _classification_cap_line(self, options: dict[str, Any]) -> str:
+        # The cap Django classified against is invisible in the run listing otherwise, so a
+        # `seeding-stalled` reading looks identical whether it rests on the default or a value the
+        # operator passed. Surfacing it lets them catch a deployed SEEDER_MAX_CHUNK_ATTEMPTS the
+        # inventory undershot, which would misread a still-retryable chunk as provably wedged.
+        return (
+            f"max_chunk_attempts={options['max_chunk_attempts']} "
+            "(assumed seeder cap; pass --max-chunk-attempts if the deployed SEEDER_MAX_CHUNK_ATTEMPTS is higher)"
         )
 
     def _settings_snapshot(self) -> dict[str, Any]:
