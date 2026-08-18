@@ -53,6 +53,8 @@ def fetch_entry_freshness(cache_key: str, team_id: int) -> Optional[EntryFreshne
 
     Pointer records carry last_refresh, so probing an S3-backed entry costs one Redis read;
     resolving the blob here would put an S3 round trip into every warming candidate check.
+    The trade: a pointer whose blob has died still reads as a live entry until a real read
+    clears it (the first miss deletes the pointer, and the next warming cycle sees it cold).
     """
     try:
         stored_value = load_entry_value(cache_key)

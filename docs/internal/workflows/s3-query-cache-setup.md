@@ -17,7 +17,7 @@ See `posthog/query_cache/storage.py`.
 
 ## Object layout and tagging
 
-Objects are written to `s3://{QUERY_CACHE_S3_BUCKET}/{OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{team_id}/{cache_key}` with attribution tags (`cache_type=query_data`, `team_id=<id>`). Tags carry no expiry meaning.
+Objects are written to `s3://{QUERY_CACHE_S3_BUCKET}/{OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{team_id}/{cache_key}/{upload_id}` with attribution tags (`cache_type=query_data`, `team_id=<id>`). Tags carry no expiry meaning. The per-upload suffix keeps overlapping recomputes of one query from overwriting each other's blob; superseded objects sit unreferenced until the lifecycle rule collects them.
 
 ## Required S3 lifecycle rule
 
@@ -35,3 +35,5 @@ The cloud buckets (`posthog-query-cache-<region>-<env>`) are dedicated and manag
 | `QUERY_CACHE_S3_BUCKET`                | `OBJECT_STORAGE_BUCKET` | Bucket for cache blobs (`posthog-query-cache-<region>-<env>` in cloud) |
 | `OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER` | `query_cache`           | Key prefix inside the bucket                                           |
 | `QUERY_CACHE_S3_MIN_COMPRESSED_BYTES`  | `131072`                | Minimum zstd-compressed size for S3 routing                            |
+
+These are plain environment variables read at process start. Cloud runs the defaults; overriding one in production means plumbing it through the deployment charts first, the same as any other app setting.

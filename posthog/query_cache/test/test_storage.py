@@ -245,6 +245,22 @@ class TestQueryCacheS3Routing(BaseTest):
         assert entry is not None
         assert entry.as_full_response() == response
 
+    def test_each_upload_writes_a_fresh_object(self):
+        cache_key = f"s3_fresh_object_{self.team.pk}"
+        cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)
+        first = self._large_response()
+        second = {**self._large_response(), "cache_key": "second"}
+
+        with patch("posthog.query_cache.storage.s3_write_mode", return_value="on"):
+            cache.store_result(response=first, target_age=None)
+            cache.store_result(response=second, target_age=None)
+
+        # A shared object key would let overlapping recomputes overwrite each other's blob.
+        assert len(self.storage.objects) == 2
+        entry = cache.lookup().entry
+        assert entry is not None
+        assert entry.as_full_response() == second
+
     def test_inline_value_is_readable_during_the_upload(self):
         cache_key = f"s3_during_upload_{self.team.pk}"
         cache = QueryCache(team_id=self.team.pk, cache_key=cache_key, insight_id=1)

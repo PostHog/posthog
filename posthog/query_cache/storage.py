@@ -32,6 +32,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Literal, NoReturn, Optional, cast
+from uuid import uuid4
 
 from django.conf import settings
 from django.core.cache import caches
@@ -360,7 +361,10 @@ def write_blob(
     to inline caching instead of failing the query response.
     """
     bucket = settings.QUERY_CACHE_S3_BUCKET
-    object_key = f"{settings.OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{team_id}/{cache_key}"
+    # A fresh object per upload: overlapping recomputes of one query would otherwise race on a
+    # shared key, and the last PUT to land could pair an older blob with a newer pointer's
+    # metadata. Superseded generations become unreferenced objects the lifecycle rule collects.
+    object_key = f"{settings.OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{team_id}/{cache_key}/{uuid4().hex}"
     upload_start = time.perf_counter()
     try:
         # The bucket's lifecycle rule garbage-collects blobs after CACHED_RESULTS_TTL_DAYS;
