@@ -1513,10 +1513,9 @@ def test_append_partition_key_datetime_md5_composite():
     )
 
     assert result is not None
-    partitioned, mode, fmt, keys = result
-    assert mode == "datetime_md5"
-    assert fmt == "day"
-    values = partitioned.column(PARTITION_KEY).to_pylist()
+    assert result.partition_mode == "datetime_md5"
+    assert result.partition_format == "day"
+    values = result.table.column(PARTITION_KEY).to_pylist()
     expected_dates = ["2026-01-15", "2026-01-15", "2026-01-16", "2026-01-16", "2026-01-15"]
     for value, date in zip(values, expected_dates):
         assert isinstance(value, str)

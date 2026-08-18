@@ -56,13 +56,20 @@ def _estimate_fallback_md5_partition_count(pa_table: pa.Table, rows_to_sync: int
     return max(1, math.ceil(estimated_total_bytes / DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES))
 
 
+@frozen
+class _FallbackPartitionScheme:
+    mode: PartitionMode
+    keys: list[str]
+    count: int | None
+
+
 def _resolve_fallback_partition_scheme(
     pa_table: pa.Table,
     schema: ExternalDataSchema,
     partition_keys: list[str],
     rows_to_sync: int | None,
     logger: FilteringBoundLogger,
-) -> tuple[PartitionMode, list[str], int | None] | None:
+) -> _FallbackPartitionScheme | None:
     """A partition scheme for a table the built-in auto-detect couldn't place.
 
     `append_partition_key_to_table` only recognizes an explicit count (md5), an incrementing integer
@@ -86,12 +93,14 @@ def _resolve_fallback_partition_scheme(
             has_values = pa_table.column(column).null_count != pa_table.num_rows
             if (pa.types.is_timestamp(column_type) or pa.types.is_date(column_type)) and has_values:
                 logger.debug(f"partition fallback: datetime on incremental field {column}")
-                return "datetime", [column], None
+                return _FallbackPartitionScheme(mode="datetime", keys=[column], count=None)
 
     if partition_keys:
         count = _estimate_fallback_md5_partition_count(pa_table, rows_to_sync)
         logger.debug(f"partition fallback: md5 over {partition_keys} with count={count}")
-        return "md5", [normalize_column_name(key) for key in partition_keys], count
+        return _FallbackPartitionScheme(
+            mode="md5", keys=[normalize_column_name(key) for key in partition_keys], count=count
+        )
 
     return None
 
@@ -150,14 +159,13 @@ async def setup_partitioning(
         # the keys so the table is partitioned on this first load rather than written unpartitioned.
         fallback = _resolve_fallback_partition_scheme(pa_table, schema, partition_keys, resource.rows_to_sync, logger)
         if fallback is not None:
-            fallback_mode, fallback_keys, fallback_count = fallback
-            partition_count = fallback_count
+            partition_count = fallback.count
             partition_result = append_partition_key_to_table(
                 table=pa_table,
-                partition_count=fallback_count,
+                partition_count=fallback.count,
                 partition_size=partition_size,
-                partition_keys=fallback_keys,
-                partition_mode=fallback_mode,
+                partition_keys=fallback.keys,
+                partition_mode=fallback.mode,
                 partition_format=partition_format,
                 logger=logger,
             )
