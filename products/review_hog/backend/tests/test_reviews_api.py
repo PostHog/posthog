@@ -505,11 +505,13 @@ class TestRecentReviewsAPI(APIBaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-    def _thread_verdict(self, report: ReviewReport, thread_id: str, outcome: str) -> None:
+    def _thread_verdict(self, report: ReviewReport, thread_id: str, outcome: str, *, delivered: bool = True) -> None:
         ReviewReportArtefact.append_thread_verdict(
             team_id=self.team.id,
             report_id=str(report.id),
-            content=ThreadVerdictArtefact(thread_id=thread_id, outcome=outcome, reasoning="r", reply="reply"),
+            content=ThreadVerdictArtefact(
+                thread_id=thread_id, outcome=outcome, reasoning="r", reply="reply", reply_posted=delivered
+            ),
             attribution=ArtefactAttribution.system(),
         )
 
@@ -526,7 +528,8 @@ class TestRecentReviewsAPI(APIBaseTest):
         # fresh artefacts, so the row inferred a review stage from the COMPLETED turn's working
         # state and rendered "Re-reviewing · Merging overlapping findings". A resolving report must
         # carry resolution progress instead, counting only this run's queued threads — not a
-        # redelivered foreign verdict, and not a previous run's verdict for a re-queued thread.
+        # redelivered foreign verdict, not a previous run's verdict for a re-queued thread, and not
+        # a judged thread whose GitHub writes haven't landed.
         report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.ACTIVE)
         with freeze_time(timezone.now() - timedelta(hours=1)):
             # A previous run already judged PRRT_3; a new comment re-queued it, so only a verdict
@@ -537,6 +540,8 @@ class TestRecentReviewsAPI(APIBaseTest):
         self._thread_verdict(report, "PRRT_2", "escalate")
         # A prior run's redelivery (thread not queued this run) also appends a row mid-run.
         self._thread_verdict(report, "PRRT_X", "fixed")
+        # Judged but its GitHub reply failed — no reply on the thread yet, so it must not count.
+        self._thread_verdict(report, "PRRT_3", "fixed", delivered=False)
 
         row = self.client.get(self.url).json()["results"][0]
 

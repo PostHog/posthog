@@ -293,8 +293,9 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
 
     # Latest verdict per thread within each live run (rows come oldest-first, so later rows win) —
     # scoped to the run's own queued threads, because redelivering a prior run's verdict also
-    # appends rows during this run.
-    verdicts: dict[str, dict[str, str]] = {report_id: {} for report_id in live}
+    # appends rows during this run. Only delivered verdicts (`reply_posted`) count: a judged thread
+    # whose GitHub writes failed has no reply yet, so it must not read as settled.
+    verdicts: dict[str, dict[str, tuple[str, bool]]] = {report_id: {} for report_id in live}
     verdict_rows = (
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(
@@ -305,16 +306,17 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
         .annotate(
             thread_id=KeyTextTransform("thread_id", _content_json()),
             outcome=KeyTextTransform("outcome", _content_json()),
+            reply_posted=KeyTextTransform("reply_posted", _content_json()),
         )
         .order_by("created_at", "id")
-        .values("report_id", "thread_id", "outcome", "created_at")
+        .values("report_id", "thread_id", "outcome", "reply_posted", "created_at")
     )
     for row in verdict_rows:
         report_id = str(row["report_id"])
         run, started_at = live[report_id]
         if row["created_at"] < started_at or row["thread_id"] not in run.thread_ids:
             continue
-        verdicts[report_id][row["thread_id"]] = row["outcome"]
+        verdicts[report_id][row["thread_id"]] = (row["outcome"], row["reply_posted"] == "true")
 
     cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
     reports_by_id = {str(report.id): report for report in reports}
@@ -323,13 +325,13 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
         report = reports_by_id[report_id]
         last_activity = max(filter(None, [report.updated_at, activity_latest.get(report_id)]), default=None)
         fresh = last_activity is not None and last_activity >= cutoff
-        outcomes = verdicts[report_id]
+        delivered = [outcome for outcome, reply_posted in verdicts[report_id].values() if reply_posted]
         states[report_id] = ResolutionRunState(
             status=RESOLUTION_RESOLVING if fresh else RESOLUTION_STOPPED,
-            done=len(outcomes),
+            done=len(delivered),
             total=run.total,
-            fixed=sum(1 for outcome in outcomes.values() if outcome == "fixed"),
-            needs_attention=sum(1 for outcome in outcomes.values() if outcome == "escalate"),
+            fixed=sum(1 for outcome in delivered if outcome == "fixed"),
+            needs_attention=sum(1 for outcome in delivered if outcome == "escalate"),
         )
     return states
 

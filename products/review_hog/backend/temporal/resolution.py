@@ -139,6 +139,9 @@ class ResolutionRunResult:
     # Threads that got an LLM turn this run, and their outcome counts (keyed by ThreadOutcome value).
     triaged: int = 0
     outcomes: dict[str, int] = field(default_factory=dict)
+    # Outcome counts for threads whose GitHub writes also landed. The PR-facing counters render from
+    # these, not `outcomes` — a judged thread with no reply must not read as settled.
+    delivered_outcomes: dict[str, int] = field(default_factory=dict)
     # Threads whose persisted verdict only needed its GitHub writes redelivered (no LLM turn).
     redelivered: int = 0
     # Threads skipped as already judged and delivered.
@@ -546,10 +549,10 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
             input.team_id,
             prepared.report_id,
             render_resolution_progress_section(
-                done=result.triaged,
+                done=sum(result.delivered_outcomes.values()),
                 total=total_queued,
-                fixed=result.outcomes.get(ThreadOutcome.FIXED.value, 0),
-                left_for_you=result.outcomes.get(ThreadOutcome.ESCALATE.value, 0),
+                fixed=result.delivered_outcomes.get(ThreadOutcome.FIXED.value, 0),
+                left_for_you=result.delivered_outcomes.get(ThreadOutcome.ESCALATE.value, 0),
             ),
             integration_row_id=prepared.integration_row_id,
         )
@@ -658,6 +661,9 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                         branch=prepared.pr_metadata.head_branch,
                         integration_row_id=prepared.integration_row_id,
                     )
+                    result.delivered_outcomes[resolution.outcome.value] = (
+                        result.delivered_outcomes.get(resolution.outcome.value, 0) + 1
+                    )
                 except Exception:
                     # The verdict row still says reply_posted=False, so the next run redelivers.
                     result.undelivered += 1
@@ -677,7 +683,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                 await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
                     input.team_id,
                     prepared.report_id,
-                    render_resolution_failed_section(done=result.triaged, total=total_queued),
+                    render_resolution_failed_section(done=sum(result.delivered_outcomes.values()), total=total_queued),
                     integration_row_id=prepared.integration_row_id,
                 )
         raise
@@ -694,7 +700,11 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
         await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
             input.team_id,
             prepared.report_id,
-            render_resolution_final_section(outcomes=result.outcomes, failed_turns=result.failed_turns),
+            # Undelivered threads (judged, or redelivered, without their GitHub writes landing) join
+            # the couldn't-handle count: the tally must not claim an outcome the thread can't show.
+            render_resolution_final_section(
+                outcomes=result.delivered_outcomes, failed_turns=result.failed_turns + result.undelivered
+            ),
             integration_row_id=prepared.integration_row_id,
         )
     await database_sync_to_async(_idle_report, thread_sensitive=False)(input.team_id, prepared.report_id)

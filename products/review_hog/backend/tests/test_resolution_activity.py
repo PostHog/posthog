@@ -565,3 +565,29 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         assert result.outcomes == {"wont_fix": 1}
         assert result.failed_turns == 2
         assert self._report_status() == ReviewReport.Status.IDLE
+
+    def test_undelivered_thread_never_counts_as_settled_in_the_status_comment(self) -> None:
+        # A judged thread whose GitHub writes failed has no reply on the PR — the progress line and
+        # the closing tally must not claim it as done/declined; it lands in "couldn't handle" instead.
+        mock_activity = Mock()
+        mock_activity.info.return_value.attempt = 1
+        session = Mock()
+        session.task_run.task_id = "11111111-1111-1111-1111-111111111111"
+        session.task_run.id = "run-1"
+        res = ThreadResolution(thread_id="PRRT_A", outcome="wont_fix", reasoning="checked", reply="declined")
+        with ExitStack() as stack:
+            for p in self._base_patches(mock_activity, [self._thread("PRRT_A")]):
+                stack.enter_context(p)
+            stack.enter_context(patch(f"{_RESOLUTION}.start_sandbox_session", AsyncMock(return_value=(session, res))))
+            stack.enter_context(patch(f"{_RESOLUTION}.end_sandbox_session", AsyncMock()))
+            stack.enter_context(patch(f"{_RESOLUTION}.reply_to_thread", side_effect=RuntimeError("token expired")))
+            status_comment = stack.enter_context(patch(f"{_RESOLUTION}.update_resolution_status_comment"))
+
+            result = async_to_sync(resolve_threads_activity)(self._input())
+
+        assert result.outcomes == {"wont_fix": 1}
+        assert result.delivered_outcomes == {}
+        assert result.undelivered == 1
+        final_section = status_comment.call_args.args[2]
+        assert "couldn't handle 1" in final_section
+        assert "declined" not in final_section

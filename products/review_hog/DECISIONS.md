@@ -3807,6 +3807,13 @@ resolution died silently at sandbox checkout. Decisions, in one PR:
   Row shows "Resolving comments · 6/10 · 5 fixed, 1 needs you"; crashed runs go quiet and age out via the
   existing staleness window, mirroring review progress. Rejected: mutable stats block on the report (second
   writer, stale stats on crash).
+- **Settled means delivered** (PR-review follow-up, 2026-08-18). The counters originally bumped at judge time,
+  so a thread whose GitHub reply/resolve failed still read as done/fixed until the next run redelivered. Both
+  surfaces now count only delivered threads — the activity renders from `delivered_outcomes` (bumped after
+  `_deliver_side_effects` succeeds) and the UI derivation counts only `reply_posted` verdict rows — with
+  undelivered threads folded into the closing tally's "couldn't handle" count. `triaged`/`outcomes` keep their
+  judge-time meaning for the run note. Rejected: leaving it (the tally claimed replies that weren't on the PR)
+  and a separate "pending redelivery" bucket (a third state to explain for a transient window).
 - **Same GitHub status comment, extended.** Chained runs edit the review's existing status comment with a
   resolving section + final tally; standalone runs create the comment on demand via the same machinery
   (edits don't notify — one ReviewHog voice per PR).

@@ -91,7 +91,8 @@ Stage 7; vocabulary: CONTEXT.md; the live-e2e qualification plan (the resolver f
 **Resolution visibility & the busy-guard** (grilled 2026-08-13, DECISIONS.md "Resolution-stage visibility & cycle guard"; ADR `adr/0001`):
 a run opens with a `resolution_run` work-list artefact (queued thread ids + counts) written by `_prepare_run`,
 and `reviewer/progress.py::resolution_states` derives the run's state from artefacts alone —
-resolving (verdicts counted against the queue, fresh activity), completed (a closing run note, author `RESOLUTION_RUN_NOTE_AUTHOR`), or died-partway (no note, stale).
+resolving (delivered verdicts — `reply_posted` — counted against the queue, fresh activity), completed (a closing run note, author `RESOLUTION_RUN_NOTE_AUTHOR`), or died-partway (no note, stale).
+The PR-comment counters likewise count only threads whose GitHub writes landed (`delivered_outcomes`); judged-but-undelivered threads join the closing tally's "couldn't handle" count instead.
 The reviews API exposes it as the row's `resolution` field ("Resolving comments · 6/10" / "Resolution didn't finish · stopped at 6/10" in the scene),
 the PR status comment carries a marker-delimited resolution section (`update_resolution_status_comment` — spliced into the review's comment, created on demand for standalone runs, failure-edited on the final attempt),
 and each queued thread's opening comment gets a best-effort 👀 reaction (queue marker; never removed).
