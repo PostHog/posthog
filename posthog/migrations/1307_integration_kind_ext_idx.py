@@ -16,9 +16,7 @@ class Migration(migrations.Migration):
 
     atomic = False
 
-    dependencies = [
-        ("posthog", "1305_alter_identityproviderconfig_saml_relay_state_and_more"),
-    ]
+    dependencies = [("posthog", "1306_add_youtube_analytics_integration_kind")]
 
     operations = [
         SafeAddIndexConcurrently(
