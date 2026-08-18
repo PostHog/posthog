@@ -1446,76 +1446,21 @@ describe('Hogflow Executor', () => {
                 `)
             })
 
-            describe('conversion watchers', () => {
-                const propertyGoal = {
+            it("puts the run's conversion watcher on the result", async () => {
+                // Wiring guard only: what the watcher contains is covered by buildConversionWatcher's
+                // own tests, which need no database. This proves execute() actually carries it out.
+                hogFlow.exit_condition = 'exit_only_at_end'
+                hogFlow.conversion = {
                     filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
                     window_minutes: null,
-                }
-                const eventGoal = {
-                    filters: [],
-                    bytecode: [],
-                    window_minutes: null,
-                    events: [{ filters: { bytecode: ['_H', 1, 29] } }],
-                }
-                const noGoal = { filters: [], bytecode: [], window_minutes: null }
+                } as any
 
-                it.each([
-                    ['a property goal', propertyGoal, true],
-                    ['an event goal', eventGoal, true],
-                    ['no goal configured', noGoal, false],
-                ])('writes a watcher for a workflow with %s', async (_name, conversion, shouldWrite) => {
-                    hogFlow.exit_condition = 'exit_only_at_end'
-                    hogFlow.conversion = conversion as any
+                const invocation = createExampleHogFlowInvocation(hogFlow)
+                const result = await executor.execute(invocation)
 
-                    const invocation = createExampleHogFlowInvocation(hogFlow, {}, { properties: { $browser: 'Edge' } })
-                    const result = await executor.execute(invocation)
-
-                    expect(result.conversionWatchers).toHaveLength(shouldWrite ? 1 : 0)
-                    if (shouldWrite) {
-                        expect(result.conversionWatchers[0]).toMatchObject({
-                            run_id: invocation.id,
-                            function_id: hogFlow.id,
-                            team_id: hogFlow.team_id,
-                            distinct_id: 'distinct_id',
-                        })
-                    }
-                })
-
-                it('pins the goal as it stood at enrollment', async () => {
-                    // Read from the watcher rather than the live flow, so editing a goal changes what
-                    // later runs are measured against without re-judging cohorts already in flight.
-                    hogFlow.conversion = propertyGoal as any
-
-                    const result = await executor.execute(createExampleHogFlowInvocation(hogFlow))
-
-                    expect(result.conversionWatchers[0].goal).toEqual({ properties: propertyGoal.bytecode })
-                })
-
-                it('caps an unbounded window at 30 days', async () => {
-                    // `window_minutes: null` is the default for most goal workflows. Treating it as
-                    // "forever" would mean watchers the expiry sweep can never remove.
-                    hogFlow.conversion = propertyGoal as any
-
-                    const before = Date.now()
-                    const result = await executor.execute(createExampleHogFlowInvocation(hogFlow))
-
-                    const expiresInMs = result.conversionWatchers[0].expires_at.getTime() - before
-                    expect(expiresInMs).toBeLessThanOrEqual(30 * 24 * 60 * 60 * 1000)
-                    expect(expiresInMs).toBeGreaterThan(29 * 24 * 60 * 60 * 1000)
-                })
-
-                it('does not write a second watcher when a parked run resumes', async () => {
-                    // A run with several delays would otherwise enroll once per wake, inflating the
-                    // denominator and the row count together.
-                    hogFlow.conversion = propertyGoal as any
-
-                    const invocation = createExampleHogFlowInvocation(hogFlow)
-                    invocation.state.currentAction = { id: 'function_id_1', startedAtTimestamp: Date.now() }
-
-                    const result = await executor.execute(invocation)
-                    expect(result.conversionWatchers).toHaveLength(0)
-                })
+                expect(result.conversionWatchers).toHaveLength(1)
+                expect(result.conversionWatchers[0].run_id).toEqual(invocation.id)
             })
 
             it('does not count event-based conversions in the executor (counted by the matcher)', async () => {

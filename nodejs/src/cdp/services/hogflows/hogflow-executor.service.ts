@@ -135,7 +135,7 @@ function pinConversionGoal(hogFlow: HogFlow): PinnedConversionGoal | null {
 // webhooks, batch children, reruns) creates the invocation without one, and `ensureCurrentAction`
 // fills it in on the first execution. `ON CONFLICT (id) DO NOTHING` on the insert makes a retry after
 // a crash idempotent, since the id is derived from the run.
-function buildConversionWatcher(invocation: CyclotronJobInvocationHogFlow): ConversionWatcherRow | null {
+export function buildConversionWatcher(invocation: CyclotronJobInvocationHogFlow): ConversionWatcherRow | null {
     if (invocation.state.currentAction) {
         return null
     }
