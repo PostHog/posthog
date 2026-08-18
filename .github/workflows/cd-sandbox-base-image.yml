@@ -224,6 +224,7 @@ jobs:
                     id: build
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                         buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -238,6 +239,7 @@ jobs:
                     id: build-notebook
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook
                         buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -250,6 +252,7 @@ jobs:
                     id: build-streamlit
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit
                         buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -262,6 +265,7 @@ jobs:
                     id: build-pi
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi
                         buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -275,6 +279,7 @@ jobs:
                     id: build-vm
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm
                         buildx-fallback: false # the fallback is so slow it's better to just fail
