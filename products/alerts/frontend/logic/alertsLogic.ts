@@ -39,6 +39,7 @@ export interface alertsLogicValues {
     }
     alertsResponseLoading: boolean
     alertsSortedByState: AlertType[]
+    deletedAlertIds: Set<string>
     deletingAlertIds: Set<string>
     filters: AlertsFilters
     isFiltering: boolean
@@ -182,6 +183,12 @@ export const alertsLogic = kea<alertsLogicType>([
                 },
             },
         ],
+        deletedAlertIds: [
+            new Set<string>(),
+            {
+                removeAlertFromList: (state, { alertId }) => new Set(state).add(alertId),
+            },
+        ],
         togglingAlertIds: [
             new Set<string>(),
             {
@@ -221,7 +228,14 @@ export const alertsLogic = kea<alertsLogicType>([
                         ...(search ? { search } : {}),
                         ...(values.filters.createdBy !== 'All users' ? { created_by: values.filters.createdBy } : {}),
                     })
-                    return { results: response.results, count: response.count ?? response.results.length }
+                    const results = response.results.filter((alert) => !values.deletedAlertIds.has(alert.id))
+                    return {
+                        results,
+                        count: Math.max(
+                            0,
+                            (response.count ?? response.results.length) - (response.results.length - results.length)
+                        ),
+                    }
                 },
             },
         ],
@@ -296,6 +310,7 @@ export const alertsLogic = kea<alertsLogicType>([
             try {
                 await api.alerts.delete(alert.id)
                 actions.removeAlertFromList(alert.id)
+                actions.loadAlerts()
                 lemonToast.success(`${alert.name || 'Unnamed alert'} has been deleted`)
             } catch {
                 lemonToast.error("Couldn't delete the alert. Try again.")

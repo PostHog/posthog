@@ -9,6 +9,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -87,7 +88,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
         alertDestinationCounts,
     } = useValues(logic)
 
-    const { alert } = useValues(alertLogic({ alertId }))
+    const { alert, alertLoading } = useValues(alertLogic({ alertId }))
 
     const columns: LemonTableColumns<AlertType> = [
         {
@@ -256,6 +257,18 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
                         push(urls.alerts())
                     }}
                 />
+            )}
+
+            {alertId && !alertForEditModal && !alertLoading && (
+                <LemonModal onClose={() => push(urls.alerts())} isOpen simple title="">
+                    <div className="flex min-h-64 flex-col items-center justify-center gap-2 p-6 text-center">
+                        <h2 className="m-0 text-lg font-semibold">Alert not found</h2>
+                        <p className="m-0 text-secondary">This alert may have been deleted.</p>
+                        <LemonButton type="secondary" onClick={() => push(urls.alerts())}>
+                            Close
+                        </LemonButton>
+                    </div>
+                </LemonModal>
             )}
 
             {isEmpty ? null : (
