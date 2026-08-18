@@ -846,14 +846,6 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
     bytecode_error = serializers.CharField(required=False)
-    cohort_ids = serializers.ListField(
-        child=serializers.IntegerField(),
-        required=False,
-        help_text=(
-            "Cohorts referenced by the compiled filter bytecode's inCohort/notInCohort calls. "
-            "Derived at save time so the runtime can prefetch membership; caller-supplied values are ignored."
-        ),
-    )
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...

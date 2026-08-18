@@ -193,7 +193,7 @@ EMAIL_SENDING_RATE_LIMIT_FLAG = "workflows-email-rate-limit"
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
 # been through validation. Comparing them would make an unchanged condition look edited.
-_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source", "cohort_ids")
+_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source")
 
 # Rollout gate for cohort filters in conditional branches, targeted per organization
 WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"

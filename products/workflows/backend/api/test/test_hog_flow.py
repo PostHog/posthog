@@ -1212,7 +1212,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         filters = response.json()["actions"][1]["config"]["conditions"][0]["filters"]
         assert filters["bytecode"] == ["_H", 1, 33, cohort.id, 32, "cohort_ids", 1, 1, 2, expected_call, 2]
-        assert filters["cohort_ids"] == [cohort.id]
+        assert "cohort_ids" not in filters
 
     @parameterized.expand(
         [

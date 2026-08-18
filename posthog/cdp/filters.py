@@ -296,8 +296,7 @@ def filter_action_ids(filters: Optional[dict]) -> list[int]:
 
 
 def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
-    """Cohort ids referenced by the filters' property tree, stored on compiled filters
-    so the runtime can prefetch membership without parsing bytecode."""
+    """Cohort ids referenced by the filters' property tree, for save-time eligibility validation."""
     if not filters:
         return []
 
@@ -396,8 +395,6 @@ def compile_filters_bytecode(
     cohort_membership_supported: bool = False,
 ) -> dict:
     filters = filters or {}
-    # Derived below on a successful compile; never trust a caller-supplied value
-    filters.pop("cohort_ids", None)
     try:
         expr = compile_filters_expr(filters, team, actions)
         if SelectFinder.has_select(expr):
@@ -408,8 +405,6 @@ def compile_filters_bytecode(
         filters["bytecode"] = create_bytecode(
             expr, context=context, cohort_membership_supported=cohort_membership_supported
         ).bytecode
-        if cohort_membership_supported:
-            filters["cohort_ids"] = filter_cohort_ids(filters)
 
         # context.errors here only contains "function not implemented" errors from the
         # bytecode compiler (the resolver doesn't run during create_bytecode). These are
