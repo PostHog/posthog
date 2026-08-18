@@ -9,10 +9,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode, LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 import { isTracesQuery } from '~/queries/utils'
@@ -136,9 +136,7 @@ function TracesOptionsMenu(): JSX.Element | null {
     )
 }
 
-// Same target as the ID and trace-name links, so a row click, a link click, and
-// open-in-new-tab all land on the trace detail view.
-function buildTraceDetailUrl(row: LLMTrace, searchParams: Record<string, any>): string {
+function buildTraceDetailUrl(row: LLMTrace, searchParams: Record<string, unknown>): string {
     const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     return combineUrl(urls.aiObservabilityTrace(row.id), {
         ...nonTraceSearchParams,
@@ -147,23 +145,50 @@ function buildTraceDetailUrl(row: LLMTrace, searchParams: Record<string, any>): 
     }).url
 }
 
+function getTraceFromRow(record: unknown): LLMTrace | null {
+    if (typeof record !== 'object' || !record || !('result' in record)) {
+        return null
+    }
+    const result = record.result
+    if (typeof result !== 'object' || !result || Array.isArray(result) || !('id' in result) || !result.id) {
+        return null
+    }
+    return result as LLMTrace
+}
+
+// Cells with their own link or button (ID, trace name, person) handle their own clicks.
+function hasOwnClickHandler(target: EventTarget | null): boolean {
+    return target instanceof Element && !!target.closest('button, a, [role="button"]')
+}
+
 export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
     const { searchParams } = useValues(router)
     const { push } = useActions(router)
     // Stable identity so DataTable's `onRow` useCallback holds and rows are not re-rendered each poll cycle.
-    const rowProps = useCallback(
-        (record: unknown): ReturnType<NonNullable<QueryContext['rowProps']>> => {
-            const row = (record as DataTableRow).result as LLMTrace | undefined
-            if (!row?.id) {
+    const rowProps = useCallback<NonNullable<QueryContext['rowProps']>>(
+        (record) => {
+            const row = getTraceFromRow(record)
+            if (!row) {
                 return {}
             }
+            const url = buildTraceDetailUrl(row, searchParams)
             return {
                 onClick: (event) => {
-                    // Cells with their own link or button (ID, trace name, person) handle their own clicks.
-                    if ((event.target as HTMLElement).closest('button, a, [role="button"]')) {
+                    if (hasOwnClickHandler(event.target)) {
                         return
                     }
-                    push(buildTraceDetailUrl(row, searchParams))
+                    if (event.metaKey || event.ctrlKey) {
+                        newInternalTab(url)
+                    } else {
+                        push(url)
+                    }
+                },
+                onAuxClick: (event) => {
+                    if (event.button !== 1 || hasOwnClickHandler(event.target)) {
+                        return
+                    }
+                    event.preventDefault()
+                    newInternalTab(url)
                 },
             }
         },
