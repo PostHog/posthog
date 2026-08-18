@@ -3156,7 +3156,7 @@ export interface PaginatedExternalDataSourceSerializersListApi {
 }
 
 /**
- * Connection credentials and a 'schemas' array. Keys depend on source_type.
+ * Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings.
  */
 export type ExternalDataSourceCreateApiPayload = { [key: string]: unknown }
 
@@ -4475,7 +4475,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Hootsuite` - Hootsuite
      * * `WisprFlow` - WisprFlow */
     source_type: ExternalDataSourceTypeEnumApi
-    /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
+    /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
     /**
      * Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.
