@@ -10,6 +10,7 @@ from products.tasks.backend.logic.services.agent_command import (
     REFRESH_TIMEOUT_SECONDS,
     CommandResult,
     _build_request_args,
+    read_agent_turn_in_flight,
     send_agent_command,
     send_cancel,
     send_refresh_session,
@@ -136,6 +137,27 @@ class TestSendAgentCommand:
         if connect_token:
             run.state["sandbox_connect_token"] = connect_token
         return run
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [(True, True), (False, False), ("true", None), (None, None)],
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.get")
+    def test_reads_turn_state(self, mock_get, mock_validate, value, expected):
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"turnInFlight": value}
+        mock_get.return_value = response
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run", connect_token="token")
+
+        assert read_agent_turn_in_flight(task_run) is expected
+
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.get", side_effect=requests.Timeout)
+    def test_turn_state_timeout_is_unknown(self, mock_get, mock_validate):
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run")
+
+        assert read_agent_turn_in_flight(task_run) is None
 
     def test_no_sandbox_url(self):
         task_run = self._make_task_run()

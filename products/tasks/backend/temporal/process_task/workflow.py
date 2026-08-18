@@ -20,7 +20,7 @@ from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SNAPSHOT_KIND
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
-from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
+from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate, confirm_turn_before_timeout
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     GetPrContextInput,
     get_pr_context,
@@ -72,6 +72,7 @@ from .activities.provision_sandbox import (
     invalidate_resume_snapshot,
     prepare_sandbox_for_repository,
 )
+from .activities.read_agent_turn_state import ReadAgentTurnStateInput, read_agent_turn_state
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.relay_sandbox_events import (
     RelaySandboxEventsInput,
@@ -167,6 +168,7 @@ class ResumedSandboxState:
     # ISO8601 start of the whole continue_as_new chain, so the wall-clock cap is not
     # reset by a continuation. None on payloads written before this field existed.
     chain_started_at: Optional[str] = None
+    inactivity_deferrals: int = 0
 
 
 @dataclass
@@ -313,6 +315,7 @@ _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 # histories of such runs proceeded into provisioning; the marker keeps their replays
 # deterministic. Same two-step cleanup lifecycle as above.
 _PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS = "tasks-skip-local-environment-runs"
+MAX_INACTIVITY_DEFERRALS = 3
 
 # Defers stream completion to cleanup without breaking existing histories.
 _PATCH_ID_DEFER_RUN_STREAM_COMPLETION = "tasks-defer-run-stream-completion"
@@ -383,6 +386,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._shutting_down: bool = False
         self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
+        self._inactivity_deferrals: int = 0
         self._last_active_time: Optional[datetime] = None
         # Start of the continue_as_new chain, carried across continuations so the
         # wall-clock cap measures the whole chain rather than restarting per run.
@@ -548,6 +552,23 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             followup = self._pop_next_followup()
             if followup is not None:
                 await self._dispatch_followup(followup)
+
+    async def _agent_is_mid_turn(self) -> bool:
+        if not confirm_turn_before_timeout() or self._inactivity_deferrals >= MAX_INACTIVITY_DEFERRALS:
+            return False
+        try:
+            state = await workflow.execute_activity(
+                read_agent_turn_state,
+                ReadAgentTurnStateInput(context=self.context),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except Exception:
+            return False
+        if state.turn_in_flight is not True:
+            return False
+        self._inactivity_deferrals += 1
+        return True
 
     async def _wait_for_inactivity(self, timeout: timedelta = INACTIVITY_TIMEOUT):
         await workflow.sleep(timeout.total_seconds())
@@ -903,6 +924,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 event = await self._wait_for_event()
                 match event:
                     case TaskEvent.TIMEOUT_REACHED:
+                        if await self._agent_is_mid_turn():
+                            self._last_active_time = workflow.now()
+                            continue
                         timeout_event = event
                         break
                     case TaskEvent.MAX_DURATION_REACHED:
@@ -984,6 +1008,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     case TaskEvent.SANDBOX_GONE:
                         self._mark_sandbox_gone()
                     case TaskEvent.SIGNAL_RECEIVED:
+                        self._inactivity_deferrals = 0
                         if workflow.patched(_PATCH_ID_CONCURRENT_FOLLOWUP_STEERING):
                             if self._has_dispatchable_followup():
                                 pending_followup_count = len(self._pending_followups) + (
@@ -1349,6 +1374,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 last_active_time=self._last_active_time.isoformat() if self._last_active_time else None,
                 accepted_message_ids=self._accepted_message_ids,
                 chain_started_at=self._chain_start_time().isoformat(),
+                inactivity_deferrals=self._inactivity_deferrals,
             ),
         )
 
@@ -1373,6 +1399,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._accepted_message_ids = resumed.accepted_message_ids
         self._accepted_message_id_set = set(resumed.accepted_message_ids)
         self._last_active_time = datetime.fromisoformat(resumed.last_active_time) if resumed.last_active_time else None
+        self._inactivity_deferrals = resumed.inactivity_deferrals
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         context = await workflow.execute_activity(

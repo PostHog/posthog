@@ -20,3 +20,12 @@ def ci_follow_up_actionable_gate() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(PATCH_ID_CI_FOLLOW_UP_ACTIONABLE_GATE)
+
+
+PATCH_ID_CONFIRM_TURN_BEFORE_TIMEOUT = "tasks-confirm-turn-before-timeout"
+
+
+def confirm_turn_before_timeout() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(PATCH_ID_CONFIRM_TURN_BEFORE_TIMEOUT)

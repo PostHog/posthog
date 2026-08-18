@@ -14,6 +14,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 COMMAND_TIMEOUT_SECONDS = 15
+HEALTH_TIMEOUT_SECONDS = 5
 CANCEL_TIMEOUT_SECONDS = 10
 # Refresh triggers a query.interrupt() + resume with a 30s SDK timeout on the
 # agent-server, so we need more headroom than a plain command.
@@ -125,6 +126,38 @@ def _build_request_args(
     elif connect_token:
         headers["Authorization"] = f"Bearer {connect_token}"
     return headers, query_params
+
+
+def read_agent_turn_in_flight(task_run: Any, timeout: int = HEALTH_TIMEOUT_SECONDS) -> bool | None:
+    sandbox_url, connect_token = _get_sandbox_url_and_token(task_run)
+    if not sandbox_url:
+        return None
+
+    validation_error = validate_sandbox_url(sandbox_url)
+    if validation_error:
+        logger.warning(
+            "agent_health_ssrf_blocked",
+            sandbox_url=sandbox_url,
+            error=validation_error,
+            task_run_id=str(task_run.id),
+        )
+        return None
+
+    headers, query_params = _build_request_args(connect_token, None)
+    try:
+        response = requests.get(
+            f"{sandbox_url.rstrip('/')}/health",
+            headers=headers,
+            timeout=timeout,
+            params=query_params or None,
+        )
+        if response.status_code != 200:
+            return None
+        value = response.json().get("turnInFlight")
+    except Exception:
+        return None
+
+    return value if isinstance(value, bool) else None
 
 
 def send_agent_command(
