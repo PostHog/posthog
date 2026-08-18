@@ -2,7 +2,7 @@
 name: querying-canvas-data
 description: >
   Get PostHog data into a canvas correctly: the host-injected `ph` SDK (loadInsight, query,
-  capture, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes
+  capture, state, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes
   second, inline HogQL last), per-insight-type result shapes, date-range wiring, and event capture
   from a canvas. Use whenever a canvas shows metrics, charts, tables, or any PostHog data, or
   needs to send analytics events.
