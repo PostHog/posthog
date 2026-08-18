@@ -206,6 +206,7 @@ class TestFinalize:
         if expected_keys is None:
             assert result.query is None
         else:
+            assert result.query is not None
             # A key must be absent, not an empty list, when its filter kind didn't survive.
             assert set(result.query) == expected_keys
             RecordingsQuery.model_validate(result.query)
