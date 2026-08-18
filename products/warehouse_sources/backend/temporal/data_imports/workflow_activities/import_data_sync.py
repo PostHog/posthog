@@ -330,7 +330,6 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 db_incremental_field_earliest_value=processed_incremental_earliest_value
                 if schema.should_use_incremental_field
                 else None,
-                db_backfill_floor_value=schema.backfill_floor_value if schema.should_use_incremental_field else None,
                 db_incremental_field_lookback_seconds=applied_lookback_seconds,
                 logger=logger,
                 job_id=inputs.run_id,

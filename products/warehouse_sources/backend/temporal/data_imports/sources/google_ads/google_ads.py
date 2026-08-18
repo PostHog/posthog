@@ -87,6 +87,10 @@ GOOGLE_ADS_MAX_DRAIN_SECONDS = 10 * 60
 # serves older rows than this, so raising it costs first-sync catch-up time rather than correctness.
 GOOGLE_ADS_INITIAL_BACKFILL_DAYS = 2 * 365
 
+# Lower bound for the "where does this account's data begin" probe. Google serves the query with a
+# date this old and returns nothing before an account existed, so it needs no per-account tuning.
+_GOOGLE_ADS_EARLIEST_QUERYABLE_DATE = "1970-01-01"
+
 # The Google Ads SDK hardcodes `grpc.max_receive_message_length` to 64 MiB. A single
 # `GoogleAdsService.Search` page can carry up to 10,000 rows, and wide resources routinely
 # serialize past 64 MiB — when that happens the gRPC client aborts the call with a
@@ -490,6 +494,35 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int, api_version: s
     return table_schemas
 
 
+def _earliest_date_with_data(
+    service: "GoogleAdsSearchService",
+    customer_id: str | None,
+    table: "GoogleAdsTable",
+    incremental_field: str,
+) -> dt.date | None:
+    """Return the first date this resource holds rows for, or None when it holds none.
+
+    One request: Google sorts and truncates server-side, so the cost doesn't grow with the range or
+    with how much the account holds. That makes it cheap enough to replace guessing how far back to
+    reach. Selects only the date, since the rows themselves are fetched by the windowed drain.
+    """
+    query = (
+        f"SELECT {incremental_field} FROM {table.name} "
+        f"WHERE {incremental_field} >= '{_GOOGLE_ADS_EARLIEST_QUERYABLE_DATE}' "
+        f"AND {incremental_field} < '{(dt.date.today() + dt.timedelta(days=1)).isoformat()}'"
+    )
+    if table.extra_where:
+        query += f" AND {table.extra_where}"
+    query += f" ORDER BY {incremental_field} ASC LIMIT 1"
+
+    # Through the wrapper, so a manager account's missing login-customer-id header recovers here the
+    # same way it does for the drain's own queries.
+    for row in _search_with_transient_retry(service, {"customer_id": customer_id, "query": query}):
+        return dt.date.fromisoformat(_traverse_attributes(row, *incremental_field.split(".")))
+
+    return None
+
+
 def _incremental_value_as_date(value: dt.date | dt.datetime | str) -> dt.date:
     """Coerce a stored incremental cursor value to a plain date for window arithmetic.
 
@@ -513,8 +546,8 @@ def google_ads_source(
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
-    db_backfill_floor_value: typing.Any = None,
     db_incremental_field_lookback_seconds: int | None = None,
+    is_reset: bool = False,
 ) -> SourceResponse:
     """A data warehouse Google Ads source.
 
@@ -579,31 +612,24 @@ def google_ads_source(
         if incremental_field is None or incremental_field_type is None:
             raise ValueError("incremental_field and incremental_field_type can't be None")
 
-        # Bounded windowed drain for date-partitioned report tables (`requires_filter`), including
-        # the first sync. Excluding first syncs is what stranded them: with no cursor they ran a
-        # single open-ended 1970..2100 scan over the whole account history, and a run that never
-        # finishes never lands a chunk, so the cursor stays empty and the next run repeats the same
-        # unbounded scan — the very death spiral the windows exist to break, except nothing could
-        # escape it. A first sync instead starts a bounded backfill window behind today.
-        #
-        # Only incremental pipelines take this path. The per-run window budget assumes the cursor
-        # lands between runs so the next run continues where this one stopped. A full-refresh run
-        # persists no cursor, so a budgeted drain restarts from the same backfill date every run,
-        # and the refresh then replaces the whole table with that same first slice of history:
-        # silent data loss that reports Completed.
+        # Date-partitioned report tables drain in bounded ascending windows rather than one
+        # open-ended scan (see the module constants). A full-refresh pipeline persists no cursor, so
+        # a budgeted drain would restart from the same date every run and the refresh would replace
+        # the table with that one slice; only incremental pipelines, which land a cursor between
+        # runs, take this path.
         if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
             if db_incremental_field_last_value is not None:
                 start = _incremental_value_as_date(db_incremental_field_last_value)
                 # The cursor arrives shifted back by the schema's lookback, so the windows before
                 # `charge_from` re-read rows the table already has. They don't count as progress.
                 charge_from = start + dt.timedelta(seconds=db_incremental_field_lookback_seconds or 0)
-            elif db_backfill_floor_value is not None:
-                # Re-import of a table that held history: the cursor is gone but the range it
-                # covered is known, so walk from there rather than from the bound below.
-                start = _incremental_value_as_date(db_backfill_floor_value)
-                charge_from = start
             else:
-                start = dt.date.today() - dt.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
+                # A reset clears the cursor, so this looks like a first sync. The bound would drop
+                # whatever the wiped table held before it, so ask the account where its data begins
+                # instead. A genuine first sync keeps the bound: its rows are billable to import.
+                start = (is_reset and _earliest_date_with_data(service, customer_id, table, incremental_field)) or (
+                    dt.date.today() - dt.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
+                )
                 charge_from = start
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
             end = dt.date.today() + dt.timedelta(days=1)
@@ -613,9 +639,9 @@ def google_ads_source(
             drain_started = time.monotonic()
 
             while start < end:
-                # Only a run that already imported a window past the cursor can stop on the budget.
-                # Spending it all on the lookback overlap would leave the cursor where it started,
-                # for the next run to repeat forever.
+                # Only a run that already imported a window past the cursor can stop on the budget:
+                # spending it all on the lookback overlap would leave the cursor unmoved for the next
+                # run to repeat.
                 if landed_new_ground and time.monotonic() - drain_started >= GOOGLE_ADS_MAX_DRAIN_SECONDS:
                     break
 
@@ -629,13 +655,10 @@ def google_ads_source(
                     had_data = True
                     yield pa_table
 
-                # An empty window doesn't count, so a gap in the data is crossed within a single run
-                # instead of ending it, and the cursor never stalls on the gap. The test is `start`,
-                # not `window_end`: the query is `segments.date >= start`, so only a window that
-                # starts past `charge_from` holds rows guaranteed to advance the cursor. A window that
-                # merely ends past it straddles the cursor and can hold only overlap rows at or before
-                # `charge_from` — counting that as new ground lets the budget stop with the cursor
-                # unmoved, stalling every later run on the same windows.
+                # New ground only, so the budget can't stop a run that hasn't moved the cursor, and
+                # an empty window doesn't end the run. The test is `start`, not `window_end`: the
+                # query is `>= start`, so a window merely ending past `charge_from` can still hold
+                # only overlap rows at or before it.
                 if had_data and start > charge_from:
                     landed_new_ground = True
                 first_window = False

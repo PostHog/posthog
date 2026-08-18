@@ -79,8 +79,8 @@ class SourceResponse:
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
 
 
-# nosemgrep: prefer-frozen-dataclasses -- shared contract for every source; adding a field here
-# shouldn't carry a decorator migration for 40 implementations. Tracked by the ratchet baseline.
+# Kept a bare dataclass: every source constructs this, so migrating the decorator is its own change.
+# nosemgrep: prefer-frozen-dataclasses -- shared source contract, grandfathered in the ratchet
 @dataclasses.dataclass
 class SourceInputs:
     """Contextual info required by a source to actually run"""
@@ -97,9 +97,6 @@ class SourceInputs:
     job_id: str
     logger: FilteringBoundLogger
     reset_pipeline: bool
-    # Where this schema's data started before it was last wiped, for a source that bounds a first
-    # sync and would otherwise re-import from its own default window.
-    db_backfill_floor_value: Optional[Any] = None
     # How much of `db_incremental_field_last_value` is lookback overlap rather than new ground.
     db_incremental_field_lookback_seconds: Optional[int] = None
     enabled_columns: Optional[list[str]] = None

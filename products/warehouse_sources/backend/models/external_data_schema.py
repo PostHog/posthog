@@ -35,11 +35,6 @@ if TYPE_CHECKING:
 
 type IncrementalFieldValue = str | int | float | None
 
-
-class BackfillFloorUnavailable(Exception):
-    """A schema's earliest synced value could not be read before a wipe that needs it."""
-
-
 # Recorded as the job's latest_error, which the syncs UI shows to the customer.
 SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
 SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"
@@ -193,7 +188,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # ignored by version-migration tooling — only the user changes it. Not available for
     # webhook-sync schemas (webhook payload versions are configured per source at the vendor).
     api_version = models.CharField(max_length=128, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "backfill_floor": { "field": str, "value": any }, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -868,22 +863,6 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def update_incremental_field_value(
         self, last_value: Any, save: bool = True, type: Literal["last"] | Literal["earliest"] = "last"
     ) -> None:
-        last_value_json = self._incremental_value_as_json(last_value)
-
-        if last_value_json is None:
-            return
-
-        if type == "last":
-            self.sync_type_config["incremental_field_last_value"] = last_value_json
-        elif type == "earliest":
-            self.sync_type_config["incremental_field_earliest_value"] = last_value_json
-        else:
-            raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
-
-        if save:
-            self.save(skip_activity_log=True)
-
-    def _incremental_value_as_json(self, last_value: Any) -> Any:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
 
         # a numpy scalar can only arrive here if numpy is already imported (the import-pipeline
@@ -897,7 +876,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         last_value_json: Any
 
         if last_value_py is None:
-            return None
+            return
 
         if (
             incremental_field_type == IncrementalFieldType.Integer
@@ -922,7 +901,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         else:
             last_value_json = str(last_value_py)
 
-        return last_value_json
+        if type == "last":
+            self.sync_type_config["incremental_field_last_value"] = last_value_json
+        elif type == "earliest":
+            self.sync_type_config["incremental_field_earliest_value"] = last_value_json
+        else:
+            raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
+
+        if save:
+            self.save(skip_activity_log=True)
 
     def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
         # Call at job completion, not per-batch: a mid-run crash then re-reads the window
@@ -939,21 +926,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.deleted_at = timezone.now()
         self.save()
 
-    def delete_table(self, *, stash_floor: bool = True):
-        """Wipe this schema's synced data.
-
-        `stash_floor` records where the data started so a later sync can resume there, which costs a
-        query over the table. Pass False when the schema is going away for good and will never read
-        it back.
-        """
+    def delete_table(self):
         # s3fs/boto3 at module scope would load at app population — only this method needs them
         from products.data_warehouse.backend.facade.api import get_s3_client  # noqa: PLC0415
 
         if self.table is not None:
-            if stash_floor:
-                # Before the S3 delete below, because it reads the synced data.
-                self.stash_backfill_floor()
-
             try:
                 client = get_s3_client()
                 client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
@@ -969,57 +946,6 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.save()
 
             self.update_sync_type_config_for_reset_pipeline()
-
-    def stash_backfill_floor(self) -> None:
-        """Record where this table's data starts. Call before a wipe: it reads the synced data.
-
-        A wipe clears the cursor, so the next run looks like a first sync. A source that bounds a
-        first sync restarts from its own default window rather than the range this table held,
-        dropping everything older without saying so.
-
-        Raises `BackfillFloorUnavailable` when the table holds rows but the lookup came back empty,
-        which leaves the caller to abandon the wipe rather than perform it unprotected.
-        """
-        field = self.incremental_field
-        if self.table is None or not field:
-            return
-
-        # An incremental field is named as the source's API exposes it, which is not always the
-        # synced column: Google Ads reports `segments.date` and lands `segments_date`. Give up
-        # rather than guess when neither spelling is there.
-        columns = self.table.columns or {}
-        column = next((c for c in (field, field.replace(".", "_")) if c in columns), None)
-        if column is None:
-            return
-
-        value = self._incremental_value_as_json(self.table.get_min_value_for_column(column))
-        if value is None:
-            # The lookup returns None both for a table with no readable files and for a failed
-            # query, so a transient ClickHouse or S3 error is indistinguishable from an empty table.
-            # `row_count` comes from Postgres and doesn't share that failure, so it separates the
-            # two. Wiping a table that holds rows without a floor is the silent truncation the floor
-            # exists to prevent, and no later run recovers from it.
-            if self.table.row_count:
-                raise BackfillFloorUnavailable(
-                    f"Could not read the earliest {column} for schema {self.id}, which holds "
-                    f"{self.table.row_count} rows. Refusing to wipe it without a backfill floor."
-                )
-            return
-
-        # Merged rather than saved off this instance, which the pipeline holds from before the run
-        # linked the table. Keyed by field so a later change of incremental_field can't hand a
-        # source a floor measured against a different column.
-        self.sync_type_config = update_sync_type_config_keys(
-            self.id, self.team_id, updates={"backfill_floor": {"field": field, "value": value}}
-        )
-
-    @property
-    def backfill_floor_value(self) -> IncrementalFieldValue:
-        floor = self.sync_type_config.get("backfill_floor") if self.sync_type_config else None
-        if not isinstance(floor, dict) or floor.get("field") != self.incremental_field:
-            return None
-
-        return floor.get("value")
 
 
 # JS `Date.prototype.toString()` output (e.g. "Sun Mar 15 2026 16:59:47 GMT+0000 (Coordinated
