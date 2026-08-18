@@ -146,7 +146,7 @@ export function TicketList({ activeTicketId }: { activeTicketId?: string }) {
                 </Button>
               }
             />
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="min-w-48">
               <DropdownMenuRadioGroup
                 value={orderBy}
                 onValueChange={(value) =>
