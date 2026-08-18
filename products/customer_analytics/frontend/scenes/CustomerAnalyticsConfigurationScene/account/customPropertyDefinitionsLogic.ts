@@ -738,7 +738,10 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         selectedTableColumns: [
             [] as WarehouseColumn[],
             {
-                loadSelectedTableColumns: async ({ source }: { source: string | null }): Promise<WarehouseColumn[]> => {
+                loadSelectedTableColumns: async (
+                    { source }: { source: string | null },
+                    breakpoint
+                ): Promise<WarehouseColumn[]> => {
                     const ref = decodeWarehouseSource(source)
                     if (!ref) {
                         return []
@@ -760,6 +763,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                         }))
                     } else {
                         const table = await api.dataWarehouseTables.get(ref.id)
+                        breakpoint()
                         tableName = table.hogql_name || table.name
                         columns = (table.columns ?? []).map((column) => ({
                             name: column.name,
@@ -770,6 +774,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     // Seed each column's canonical description from the warehouse catalog. Best-effort:
                     // descriptions are often unset for warehouse columns, and the catalog query mustn't
                     // block picking columns, so any failure leaves descriptions null.
+                    const descriptionByColumn = new Map<string, string>()
                     try {
                         const response = (await api.query({
                             kind: NodeKind.HogQLQuery,
@@ -779,7 +784,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                                 where table_name = ${tableName}
                             `,
                         })) as HogQLQueryResponse
-                        const descriptionByColumn = new Map<string, string>()
                         for (const row of (response.results ?? []) as unknown[][]) {
                             const name = row[0] as string | null
                             const description = row[1] as string | null
@@ -787,13 +791,16 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                                 descriptionByColumn.set(name, description)
                             }
                         }
-                        return columns.map((column) => ({
-                            ...column,
-                            description: descriptionByColumn.get(column.name) ?? null,
-                        }))
                     } catch {
-                        return columns
+                        // Descriptions stay null on failure — the catalog query must not block picking columns.
                     }
+                    // Drop this result if a newer source selection has started since, so a slow table fetch
+                    // can't overwrite the columns of the source the user has since picked.
+                    breakpoint()
+                    return columns.map((column) => ({
+                        ...column,
+                        description: descriptionByColumn.get(column.name) ?? null,
+                    }))
                 },
             },
         ],
