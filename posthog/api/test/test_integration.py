@@ -2150,6 +2150,75 @@ class TestIntegrationAPIKeyAccess:
             assert response.status_code == expected_status
         assert mock_slack_instance.get_user_by_id.call_count == 2
 
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_users_action_maps_missing_scope_to_reconnect(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_USERS_SCOPE",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        # An install predating the `users:read` scope never granted it.
+        mock_slack_instance.list_users.side_effect = SlackApiError(
+            "Slack request failed", {"ok": False, "error": "missing_scope"}
+        )
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_slack_users_scope"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["code"] == "slack_integration_inactive"
+        assert "reconnect slack" in body["detail"].lower()
+
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_users_action_serves_cached_list_while_a_refresh_is_in_flight(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_USERS_INFLIGHT",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_class.return_value = mock_slack_instance
+
+        key = f"slack/{slack_integration.id}/users"
+        cache.set(
+            key,
+            {
+                "users": [{"id": "U1", "name": "andy.m", "display_name": "Andy Maguire"}],
+                # Older than the refresh floor, so only the in-flight sentinel can hold this back.
+                "lastRefreshedAt": (timezone.now() - timedelta(minutes=5)).isoformat(),
+            },
+            3600,
+        )
+        cache.add(f"{key}/filling", 1, 60)
+
+        client.force_login(self.user)
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/?force_refresh=true"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [user["id"] for user in response.json()["users"]] == ["U1"]
+        mock_slack_instance.list_users.assert_not_called()
+
     def test_channels_action_with_missing_authed_user_returns_400(self, client: HttpClient):
         slack_integration = Integration.objects.create(
             team=self.team,

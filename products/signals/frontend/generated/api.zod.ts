@@ -338,6 +338,9 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannel
 
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemMax = 255
 
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemRegExp = new RegExp(
+    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
+)
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
 
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
@@ -426,6 +429,9 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                                                 .string()
                                                 .max(
                                                     signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemMax
+                                                )
+                                                .regex(
+                                                    signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersItemRegExp
                                                 )
                                         )
                                         .min(1)
@@ -526,6 +532,9 @@ export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax
 
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemMax = 255
 
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemRegExp = new RegExp(
+    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
+)
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
@@ -576,6 +585,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                                     zod
                                         .string()
                                         .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemMax)
+                                        .regex(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemRegExp)
                                 )
                                 .min(1)
                                 .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax)
@@ -664,6 +674,9 @@ export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax
 
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemMax = 255
 
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemRegExp = new RegExp(
+    '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
+)
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
 export const signalsScoutConfigUpdateBodyModelMax = 200
@@ -722,6 +735,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                                     zod
                                         .string()
                                         .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemMax)
+                                        .regex(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemRegExp)
                                 )
                                 .min(1)
                                 .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax)

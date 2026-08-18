@@ -1939,6 +1939,13 @@ class ProjectProfileSerializer(serializers.Serializer):
 # --- Scout config ----------------------------------------------------------
 
 
+# A Slack member target: the member ID alone, or the picker's `U0123ABC456|@display name` composite.
+SLACK_MEMBER_TARGET_RE = r"^[UW][A-Z0-9]{4,}\s*(\|.*)?$"
+SLACK_MEMBER_TARGET_ERROR = (
+    "Expected a Slack member ID starting with U or W, e.g. `U0123ABC456` or `U0123ABC456|@name`."
+)
+
+
 class SignalScoutSlackDestinationSerializer(serializers.Serializer):
     integration_id = serializers.IntegerField(
         min_value=1,
@@ -1956,7 +1963,15 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         ),
     )
     users = serializers.ListField(
-        child=serializers.CharField(allow_blank=False, max_length=255, trim_whitespace=True),
+        # The pattern reaches the OpenAPI schema (unlike `validate_users` below, which stays the
+        # authority), so generated MCP/Zod clients reject a handle or channel id before the API 400s.
+        child=serializers.RegexField(
+            SLACK_MEMBER_TARGET_RE,
+            allow_blank=False,
+            max_length=255,
+            trim_whitespace=True,
+            error_messages={"invalid": SLACK_MEMBER_TARGET_ERROR},
+        ),
         required=False,
         allow_null=True,
         allow_empty=False,

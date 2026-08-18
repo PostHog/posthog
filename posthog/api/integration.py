@@ -128,6 +128,28 @@ class SlackIntegrationInactiveError(APIException):
     )
 
 
+class SlackIntegrationMissingScopeError(SlackIntegrationInactiveError):
+    # Reuses the inactive error's code so the pickers' existing reconnect banner renders; only the
+    # copy differs, because what the admin has to do — reinstall the app — is the same either way.
+    default_detail = (
+        "Your Slack connection is missing the permission PostHog needs to list workspace members. "
+        "Reconnect Slack to grant it."
+    )
+
+
+def _reraise_slack_users_api_error(error: SlackApiError) -> NoReturn:
+    """Same as `_reraise_slack_api_error`, plus the member endpoints' own scope failure.
+
+    `users.list` and `users.info` need `users:read`, which an install predating that scope never
+    granted. Slack answers `missing_scope`, which is not an auth failure, so without this it would
+    surface as a 500 and dead-end the member picker instead of offering the reconnect that fixes it.
+    """
+    error_code = error.response.get("error") if error.response is not None else None
+    if error_code == "missing_scope":
+        raise SlackIntegrationMissingScopeError() from error
+    _reraise_slack_api_error(error)
+
+
 def _reraise_slack_api_error(error: SlackApiError) -> NoReturn:
     """Translate an inactive-auth Slack error into an actionable 4xx; re-raise everything else.
 
@@ -1449,7 +1471,7 @@ class IntegrationViewSet(
             try:
                 member = slack.get_user_by_id(user_id)
             except SlackApiError as e:
-                _reraise_slack_api_error(e)
+                _reraise_slack_users_api_error(e)
             serialized_lookup = [self._serialize_slack_user(member)] if member else []
             cache.set(lookup_key, serialized_lookup, 60 * 60)
             return Response({"users": serialized_lookup})
@@ -1470,11 +1492,21 @@ class IntegrationViewSet(
             ):
                 force_refresh = False
 
-        if data is None or force_refresh:
+        # The refresh floor above compares a value that concurrent requests all read before any of
+        # them writes, so it alone can't stop parallel forced refreshes from each enumerating the
+        # workspace. Whoever claims this sentinel refreshes; the rest serve the list they have. A
+        # cold cache still fills on every racing request, having nothing to serve instead.
+        needs_fill = data is None or force_refresh
+        filling_key = f"{key}/filling"
+        claimed_fill = needs_fill and cache.add(filling_key, 1, 60)
+        if needs_fill and (claimed_fill or data is None):
             try:
                 members = slack.list_users()
             except SlackApiError as e:
-                _reraise_slack_api_error(e)
+                _reraise_slack_users_api_error(e)
+            finally:
+                if claimed_fill:
+                    cache.delete(filling_key)
             serialized = sorted(
                 (self._serialize_slack_user(member) for member in members),
                 key=lambda member: member["display_name"].lower(),

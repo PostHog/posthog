@@ -1842,6 +1842,7 @@ export interface SignalScoutSlackDestinationApi {
      * @maxItems 5
      * @nullable
      * @items.maxLength 255
+     * @items.pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
      */
     users?: string[] | null
 }

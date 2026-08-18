@@ -159,6 +159,7 @@ export function SlackUserPicker({
         slackUsers,
         allSlackUsers,
         allSlackUsersLoading,
+        attemptedSlackUserIds,
         slackIntegrationInactiveMessage,
         getUsersRefreshButtonDisabledReason,
     } = useValues(logic)
@@ -169,9 +170,6 @@ export function SlackUserPicker({
     // The refresh action must keep the active query: LemonInputSelect filters options by the
     // visible text, so an unfiltered reload under it would hide a searched-for member.
     const activeSearchRef = useRef('')
-    // One direct lookup per unresolved saved id, ever — resolution merges into slackUsers, and an
-    // id Slack doesn't know must not be re-probed on every render.
-    const requestedIdsRef = useRef(new Set<string>())
 
     const usersRefreshButtonDisabledReason = getUsersRefreshButtonDisabledReason()
     // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender.
@@ -180,7 +178,10 @@ export function SlackUserPicker({
     useEffect(() => {
         // Read live logic values rather than the render closure: sibling pickers can mount within
         // the same commit, before the first one's dispatch is reflected in a re-render.
-        if (!disabled && !logic.values.slackUsers.length && !logic.values.allSlackUsersLoading) {
+        // Gate on the directory itself, not on `slackUsers`: that pool also holds members resolved
+        // by id, so a picker that resolved a saved recipient while disabled would otherwise count
+        // as loaded and never fetch the list once it becomes editable.
+        if (!disabled && !logic.values.allSlackUsers && !logic.values.allSlackUsersLoading) {
             loadAllSlackUsers()
         }
     }, [logic, loadAllSlackUsers, disabled])
@@ -190,7 +191,7 @@ export function SlackUserPicker({
     // disabled picker (e.g. a disabled scout) never loads the directory, so its saved ids go
     // straight to lookup; an enabled one waits for the list, which usually resolves them for free.
     useEffect(() => {
-        if (allSlackUsersLoading || (!disabled && !slackUsers.length)) {
+        if (allSlackUsersLoading || (!disabled && !allSlackUsers)) {
             return
         }
         for (const value of values ?? []) {
@@ -198,13 +199,12 @@ export function SlackUserPicker({
             if (
                 memberId &&
                 !slackUsers.some((user: SlackUserApi) => user.id === memberId) &&
-                !requestedIdsRef.current.has(memberId)
+                !attemptedSlackUserIds[memberId]
             ) {
-                requestedIdsRef.current.add(memberId)
                 loadSlackUserById(memberId)
             }
         }
-    }, [values, slackUsers, allSlackUsersLoading, disabled, loadSlackUserById])
+    }, [values, slackUsers, allSlackUsers, allSlackUsersLoading, disabled, attemptedSlackUserIds, loadSlackUserById])
 
     // Re-key saved values onto the freshly listed member so a stale saved display name still matches
     // its option, keeping selection and options in sync by member id.
@@ -245,7 +245,7 @@ export function SlackUserPicker({
                     }
                 }}
                 value={selectedValues}
-                onFocus={() => !slackUsers.length && !allSlackUsersLoading && loadAllSlackUsers()}
+                onFocus={() => !allSlackUsers && !allSlackUsersLoading && loadAllSlackUsers()}
                 disabled={disabled}
                 mode="multiple"
                 data-attr="select-slack-users"
