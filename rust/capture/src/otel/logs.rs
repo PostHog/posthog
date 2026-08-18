@@ -368,7 +368,9 @@ mod tests {
             .log_records
             .extend(vec![invalid; super::super::MAX_AI_EVENTS_PER_REQUEST]);
 
-        let error = expand_into_events(&request, "fallback").unwrap_err();
+        let Err(error) = expand_into_events(&request, "fallback") else {
+            panic!("expected evaluation record limit error");
+        };
 
         assert!(error.to_string().contains("Too many evaluation records"));
     }
