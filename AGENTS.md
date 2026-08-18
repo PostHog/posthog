@@ -138,6 +138,7 @@ All merges into `master` go through the Trunk merge queue.
 Never run `gh pr merge` or click the GitHub merge button — both are blocked by branch ruleset.
 
 - Enqueue: `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`.
+- The Trunk CLI is an alternative to the comments: `trunk merge <number>` enqueues, `trunk merge status <number>` inspects, `trunk merge cancel <number>` dequeues. It ships in the flox environment and reads `.trunk/trunk.yaml` (merge queue only — no Trunk linting), but needs a one-time interactive `trunk login`, so agents and headless environments should keep using the comments.
 - After enqueueing, babysit the PR until it merges or fails — follow [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) for the preflight, watch, and failure-handling loop.
 - Queue progress is the `Trunk Merge Queue (master)` check run on the PR's head commit. The PR's own checks don't reflect the queue's testing — it runs CI on a `trunk-merge/**` branch.
 - On failure the Trunk bot comments with links to the failing workflows; fix, push, and re-enqueue.
