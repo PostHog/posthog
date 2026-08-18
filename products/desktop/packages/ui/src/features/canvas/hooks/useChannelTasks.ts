@@ -59,15 +59,36 @@ export function useChannelTaskMutations() {
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
 
-  const invalidate = () => {
-    void queryClient.invalidateQueries(trpc.channelTasks.list.pathFilter());
+  /**
+   * Filing moves a task, so at most two lists change: the channel it lands in
+   * and whichever one still shows it. Every other cached channel is untouched,
+   * and someone who has browsed a lot of channels holds a lot of those.
+   */
+  const invalidateAffected = (taskId: string, channelId?: string) => {
+    if (channelId) {
+      void queryClient.invalidateQueries(
+        trpc.channelTasks.list.queryFilter({ channelId }),
+      );
+    }
+    void queryClient.invalidateQueries({
+      ...trpc.channelTasks.list.pathFilter(),
+      predicate: (query) =>
+        ((query.state.data as ChannelTaskRecord[] | undefined) ?? []).some(
+          (record) => record.taskId === taskId,
+        ),
+    });
   };
 
   const file = useMutation(
-    trpc.channelTasks.file.mutationOptions({ onSuccess: invalidate }),
+    trpc.channelTasks.file.mutationOptions({
+      onSuccess: (_data, variables) =>
+        invalidateAffected(variables.taskId, variables.channelId),
+    }),
   );
   const unfile = useMutation(
-    trpc.channelTasks.unfile.mutationOptions({ onSuccess: invalidate }),
+    trpc.channelTasks.unfile.mutationOptions({
+      onSuccess: (_data, variables) => invalidateAffected(variables.taskId),
+    }),
   );
 
   return {
