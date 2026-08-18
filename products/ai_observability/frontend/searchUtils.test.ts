@@ -132,6 +132,14 @@ describe('searchUtils', () => {
             expect(eventMatchesSearch(createEvent(), '  ')).toBe(true)
         })
 
+        it('searches in span ID', () => {
+            const event = createEvent({
+                properties: { $ai_span_id: '019c27ea3c8f8df3' },
+            })
+            expect(eventMatchesSearch(event, '27ea3c8f')).toBe(true)
+            expect(eventMatchesSearch(event, 'other-span')).toBe(false)
+        })
+
         it('searches in event title (span name)', () => {
             const event = createEvent({
                 properties: { $ai_span_name: 'My Test Span' },

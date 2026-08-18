@@ -109,6 +109,12 @@ export function eventMatchesSearch(event: { properties: Record<string, any>; eve
 
     const lowerQuery = query.toLowerCase().trim()
 
+    // Search in span ID
+    const spanId = asString(event.properties.$ai_span_id) || ''
+    if (spanId.toLowerCase().includes(lowerQuery)) {
+        return true
+    }
+
     // Search in event title
     const title = asString(event.properties.$ai_span_name) || event.event || ''
     if (title.toLowerCase().includes(lowerQuery)) {
