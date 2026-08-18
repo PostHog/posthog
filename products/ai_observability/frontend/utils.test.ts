@@ -39,8 +39,6 @@ interface EvaluationRunRowOverrides {
     sentimentScore?: EvaluationRunRow[12]
     sessionId?: EvaluationRunRow[13]
     skipped?: EvaluationRunRow[14]
-    scoreLabel?: EvaluationRunRow[15]
-    scoreValue?: EvaluationRunRow[16]
 }
 
 function makeEvaluationRunRow({
@@ -52,8 +50,6 @@ function makeEvaluationRunRow({
     sentimentScore = null,
     sessionId = null,
     skipped = null,
-    scoreLabel = null,
-    scoreValue = null,
 }: EvaluationRunRowOverrides = {}): EvaluationRunRow {
     return [
         'run-1',
@@ -71,8 +67,6 @@ function makeEvaluationRunRow({
         sentimentScore,
         sessionId,
         skipped,
-        scoreLabel,
-        scoreValue,
     ]
 }
 
@@ -129,14 +123,16 @@ describe('mapEvaluationRunRow', () => {
         expect(run.skipped).toBe(expected)
     })
 
-    it('maps OTel label and numeric scores without coercing them to booleans', () => {
-        const run = mapEvaluationRunRow(
-            makeEvaluationRunRow({ result: 'pass', resultType: 'label', scoreLabel: 'pass', scoreValue: '0.9' })
-        )
+    it('maps an imported label result without coercing it to a boolean', () => {
+        const run = mapEvaluationRunRow(makeEvaluationRunRow({ result: 'pass', resultType: 'label' }))
 
-        expect(run.result).toBeNull()
-        expect(run.score_label).toBe('pass')
-        expect(run.score_value).toBe(0.9)
+        expect(run.result).toBe('pass')
+    })
+
+    it('maps an imported numeric result', () => {
+        const run = mapEvaluationRunRow(makeEvaluationRunRow({ result: '0.9', resultType: 'number' }))
+
+        expect(run.result).toBe(0.9)
     })
 
     it.each([true, 'true', 'True', '1'])('maps explicit pass result %p', (result) => {

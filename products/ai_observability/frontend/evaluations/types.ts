@@ -13,6 +13,7 @@ export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
 export type EvaluationTarget = 'generation' | 'trace' | 'session'
 export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'
 export type EvaluationOutputType = 'boolean' | 'sentiment'
+export type EvaluationResultType = EvaluationOutputType | 'label' | 'number'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
 export type EvaluationStatusReason =
     | 'provider_key_required'
@@ -130,12 +131,10 @@ export interface EvaluationRun {
     session_id?: string | null
     timestamp: string
     evaluation_type?: EvaluationType
-    result_type?: EvaluationOutputType
-    result: boolean | null
+    result_type?: EvaluationResultType
+    result: boolean | string | number | null
     sentiment_label?: string | null
     sentiment_score?: number | null
-    score_label?: string | null
-    score_value?: number | null
     applicable?: boolean
     // A skipped run completed without grading anything. Its `result` is still false when the
     // evaluation disallows N/A, so it has to be read alongside this rather than on its own.

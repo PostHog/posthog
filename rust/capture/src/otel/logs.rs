@@ -68,7 +68,7 @@ fn evaluation_event(
         return None;
     }
 
-    let attributes = attributes_to_map(&record.attributes);
+    let mut attributes = attributes_to_map(&record.attributes);
     let evaluation_name = attributes
         .get(EVALUATION_NAME)?
         .as_str()?
@@ -78,16 +78,18 @@ fn evaluation_event(
         return None;
     }
 
-    let score_label = attributes
+    let result_label = attributes
         .get(SCORE_LABEL)
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|label| !label.is_empty())
         .map(str::to_string);
-    let score_value = attributes.get(SCORE_VALUE).and_then(Value::as_f64);
-    if score_label.is_none() && score_value.is_none() {
+    let result_value = attributes.get(SCORE_VALUE).and_then(Value::as_f64);
+    if result_label.is_none() && result_value.is_none() {
         return None;
     }
+    attributes.remove(SCORE_LABEL);
+    attributes.remove(SCORE_VALUE);
 
     let distinct_id =
         extract_distinct_id_for_span(&record.attributes, resource, request_fallback_distinct_id);
@@ -124,11 +126,7 @@ fn evaluation_event(
             Value::String(hex::encode(&record.span_id)),
         );
     }
-    if let Some(label) = score_label.as_deref() {
-        properties.insert(
-            "$ai_evaluation_score_label".to_string(),
-            Value::String(label.to_string()),
-        );
+    if let Some(label) = result_label.as_deref() {
         properties.insert(
             "$ai_evaluation_result".to_string(),
             Value::String(label.to_string()),
@@ -138,13 +136,9 @@ fn evaluation_event(
             Value::String("label".to_string()),
         );
     }
-    if let Some(value) = score_value {
+    if let Some(value) = result_value {
         if let Some(number) = serde_json::Number::from_f64(value) {
-            properties.insert(
-                "$ai_evaluation_score_value".to_string(),
-                Value::Number(number.clone()),
-            );
-            if score_label.is_none() {
+            if result_label.is_none() {
                 properties.insert("$ai_evaluation_result".to_string(), Value::Number(number));
                 properties.insert(
                     "$ai_evaluation_result_type".to_string(),
@@ -249,8 +243,10 @@ mod tests {
         assert_eq!(events[0].event_name, "$ai_evaluation");
         assert_eq!(events[0].distinct_id, "user-1");
         assert_eq!(events[0].properties["$ai_evaluation_name"], "correctness");
-        assert_eq!(events[0].properties["$ai_evaluation_score_label"], "pass");
-        assert_eq!(events[0].properties["$ai_evaluation_score_value"], 0.9);
+        assert_eq!(events[0].properties["$ai_evaluation_result"], "pass");
+        assert_eq!(events[0].properties["$ai_evaluation_result_type"], "label");
+        assert!(events[0].properties.get(SCORE_LABEL).is_none());
+        assert!(events[0].properties.get(SCORE_VALUE).is_none());
         assert_eq!(events[0].properties["$ai_evaluation_runtime"], "otel");
         assert_eq!(events[0].properties["$ai_trace_id"], hex::encode([1; 16]));
         assert_eq!(
@@ -261,6 +257,22 @@ mod tests {
             events[0].properties["$ai_evaluation_reasoning"],
             "grounded in context"
         );
+    }
+
+    #[test]
+    fn maps_numeric_evaluation_result() {
+        let record = LogRecord {
+            attributes: vec![
+                string_attribute(EVALUATION_NAME, "correctness"),
+                double_attribute(SCORE_VALUE, 0.9),
+            ],
+            ..evaluation_record()
+        };
+
+        let events = expand_into_events(&request(record), "fallback");
+
+        assert_eq!(events[0].properties["$ai_evaluation_result"], 0.9);
+        assert_eq!(events[0].properties["$ai_evaluation_result_type"], "number");
     }
 
     #[test]
@@ -287,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn ignores_evaluations_without_scores() {
+    fn ignores_evaluations_without_results() {
         let record = LogRecord {
             attributes: vec![string_attribute(EVALUATION_NAME, "correctness")],
             ..evaluation_record()
@@ -297,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn ignores_blank_score_labels_without_numeric_scores() {
+    fn ignores_blank_labels_without_numeric_results() {
         let record = LogRecord {
             attributes: vec![
                 string_attribute(EVALUATION_NAME, "correctness"),
