@@ -103,18 +103,120 @@ describe('IngestionApiServer', () => {
     })
 
     describe('events in flight gauge', () => {
-        it('counts events rather than batches while a batch is in flight', async () => {
-            let observed = 0
+        type Gate = { resolve: () => void; reject: (error: Error) => void }
+
+        // One gate per in-flight batch. The handler calls next() exactly once
+        // (the mock resolves to null, ending its drain loop), so holding that
+        // promise open holds the batch in flight and lets a test decide the
+        // order batches finish in.
+        let gates: Gate[]
+
+        beforeEach(() => {
+            gates = []
+        })
+
+        function gateBatches(): void {
             pipeline.feed.mockResolvedValue({ ok: true })
-            // next() runs while the batch occupies its slot, so this samples the peak.
-            pipeline.next.mockImplementation(async () => {
-                observed = await eventsInFlight()
-                return null
-            })
+            pipeline.next.mockImplementation(
+                () =>
+                    new Promise<null>((resolve, reject) => {
+                        gates.push({ resolve: () => resolve(null), reject })
+                    })
+            )
+        }
 
-            await handle(makeRes(), 3)
+        // Let pending callbacks run so a started request reaches next() before
+        // the test reads the gauge.
+        function flush(): Promise<void> {
+            return new Promise((resolve) => setImmediate(resolve))
+        }
 
-            expect(observed).toBe(3)
+        // Starts a batch and returns its completion promise. Deliberately not
+        // async: an async wrapper's promise would adopt this one, so awaiting
+        // the helper would wait for the batch to finish instead of starting it.
+        // Callers `await flush()` once the batches they want in flight are up.
+        function start(messageCount: number): Promise<void> {
+            return handle(makeRes(), messageCount)
+        }
+
+        it('sums events across concurrent batches of different sizes', async () => {
+            gateBatches()
+
+            const small = start(5)
+            const medium = start(100)
+            const large = start(1000)
+            await flush()
+
+            // 3 if it counted batches; the sum is the point of the metric.
+            expect(await eventsInFlight()).toBe(1105)
+
+            gates.forEach((gate) => gate.resolve())
+            await Promise.all([small, medium, large])
+            expect(await eventsInFlight()).toBe(0)
+        })
+
+        it('releases exactly the finished batch, leaving the others in flight', async () => {
+            gateBatches()
+
+            const first = start(100)
+            const second = start(5)
+            const third = start(20)
+            await flush()
+            expect(await eventsInFlight()).toBe(125)
+
+            // Finish out of order: a decrement keyed to the wrong request would
+            // subtract someone else's count and drift the gauge.
+            gates[1].resolve()
+            await second
+            expect(await eventsInFlight()).toBe(120)
+
+            gates[2].resolve()
+            await third
+            expect(await eventsInFlight()).toBe(100)
+
+            gates[0].resolve()
+            await first
+            expect(await eventsInFlight()).toBe(0)
+        })
+
+        it('leaves in-flight batches untouched when another is rejected at capacity', async () => {
+            gateBatches()
+            const accepted = start(100)
+            await flush()
+
+            pipeline.feed.mockResolvedValueOnce({ ok: false, kind: 'at_capacity', reason: 'at capacity' })
+            const rejectedRes = makeRes()
+            await handle(rejectedRes, 50)
+
+            expect(rejectedRes.statusCode()).toBe(503)
+            expect(await eventsInFlight()).toBe(100)
+
+            gates[0].resolve()
+            await accepted
+            expect(await eventsInFlight()).toBe(0)
+        })
+
+        it('releases a crashed batch while a concurrent batch stays in flight', async () => {
+            gateBatches()
+            const crashing = start(100)
+            const surviving = start(7)
+            await flush()
+
+            gates[0].reject(new Error('pipeline poisoned'))
+            await crashing
+            expect(await eventsInFlight()).toBe(7)
+
+            gates[1].resolve()
+            await surviving
+            expect(await eventsInFlight()).toBe(0)
+        })
+
+        it('does not count a batch rejected as empty', async () => {
+            const res = makeRes()
+            await handle(res, 0)
+
+            expect(res.statusCode()).toBe(400)
+            expect(await eventsInFlight()).toBe(0)
         })
 
         // A leaked increment would make the gauge climb forever and, since this
