@@ -1,6 +1,5 @@
 import json
 import hashlib
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
@@ -8,6 +7,8 @@ from typing import Any, Optional
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 from requests import Session
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
@@ -29,7 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gcp_cloud_
 VALUE_KEYS = ("doubleValue", "int64Value", "boolValue", "stringValue", "distributionValue")
 
 
-@dataclasses.dataclass
+@frozen
 class GcpCloudMonitoringResumeConfig:
     next_start_time: str
 
