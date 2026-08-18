@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("customer_analytics", "0035_alter_feature_request_description"),
-    ]
+    dependencies = [("customer_analytics", "0035_alter_feature_request_description")]
 
     operations = [
         migrations.AddField(

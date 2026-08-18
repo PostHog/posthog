@@ -253,13 +253,13 @@ export interface customPropertyDefinitionsLogicValues {
     newWorkflowUrlLoading: boolean
     personPropertyDefinitions: PropertyDefinition[]
     personPropertyDefinitionsLoading: boolean
+    profileSourceBinding: ProfileSourceBinding | null
     runsBySourceId: Record<string, CustomPropertySyncRunApi[]>
     runsLoadingBySourceId: Record<string, boolean>
     savedQueries: DataWarehouseSavedQuery[]
     savedQueriesLoading: boolean
     searchTerm: string
     selectedSourceColumns: string[]
-    profileSourceBinding: ProfileSourceBinding | null
     selectedTableColumns: WarehouseColumn[]
     selectedTableColumnsLoading: boolean
     serializedColumnDescriptions: Record<string, string>
