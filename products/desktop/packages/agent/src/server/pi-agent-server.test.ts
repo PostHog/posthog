@@ -22,6 +22,36 @@ function config(overrides: Partial<AgentServerConfig> = {}): AgentServerConfig {
 }
 
 describe("PiAgentServer", () => {
+  it.each([true, false])("reports Pi turn state", async (isStreaming) => {
+    const server = new PiAgentServer(config()) as unknown as {
+      session: unknown;
+      readTurnInFlight(): Promise<boolean | undefined>;
+    };
+    server.session = {
+      runtime: { client: { getState: vi.fn(async () => ({ isStreaming })) } },
+    };
+
+    await expect(server.readTurnInFlight()).resolves.toBe(isStreaming);
+  });
+
+  it("omits Pi turn state when the runtime fails", async () => {
+    const server = new PiAgentServer(config()) as unknown as {
+      session: unknown;
+      readTurnInFlight(): Promise<boolean | undefined>;
+    };
+    server.session = {
+      runtime: {
+        client: {
+          getState: vi.fn(async () => {
+            throw new Error("unavailable");
+          }),
+        },
+      },
+    };
+
+    await expect(server.readTurnInFlight()).resolves.toBeUndefined();
+  });
+
   it("logs session initialization diagnostics when setup fails", async () => {
     const payload = { task_id: "task-1", run_id: "run-1" };
     const server = new PiAgentServer(

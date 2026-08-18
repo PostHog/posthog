@@ -49,6 +49,7 @@ interface PiCloudSession {
 }
 
 const emptySchema = z.object({});
+const TURN_STATE_PROBE_TIMEOUT_MS = 2_000;
 const MAX_PENDING_EVENTS = 1_000;
 const MAX_PENDING_LOG_ENTRIES = 10_000;
 const LOG_FLUSH_ENTRY_COUNT = 100;
@@ -290,12 +291,13 @@ export class PiAgentServer {
   private createApp(): Hono {
     const app = new Hono();
 
-    app.get("/health", (context) =>
+    app.get("/health", async (context) =>
       context.json({
         status: "ok",
         hasSession: this.session !== null,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
+        turnInFlight: await this.readTurnInFlight(),
       }),
     );
 
@@ -720,6 +722,24 @@ export class PiAgentServer {
       params.steer === true,
     );
     return result;
+  }
+
+  private async readTurnInFlight(): Promise<boolean | undefined> {
+    const runtime = this.session?.runtime;
+    if (!runtime) {
+      return false;
+    }
+    try {
+      const state = await Promise.race([
+        runtime.client.getState(),
+        new Promise<null>((resolve) =>
+          setTimeout(() => resolve(null), TURN_STATE_PROBE_TIMEOUT_MS),
+        ),
+      ]);
+      return state === null ? undefined : state.isStreaming;
+    } catch {
+      return undefined;
+    }
   }
 
   private async prepareUserMessage(

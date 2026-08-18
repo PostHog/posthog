@@ -667,6 +667,9 @@ export class AgentServer {
         hasSession: !!this.session,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
+        turnInFlight:
+          this.activeOwnedTurnCount > 0 ||
+          this.inFlightMessageDeliveries.size > 0,
       });
     });
 

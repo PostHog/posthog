@@ -547,6 +547,7 @@ describe("AgentServer HTTP Mode", () => {
         hasSession: true,
         bootMs: expect.any(Number),
         sessionInitMs: expect.any(Number),
+        turnInFlight: false,
       });
     }, 30000);
 
