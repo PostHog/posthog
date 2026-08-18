@@ -60,6 +60,41 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(response.json()["name"], "Prod Traffic")
         self.assertEqual(ClusteringJob.objects.filter(team=self.team).count(), 1)
 
+    # The default test client uses force_login, which skips the scope check, so these
+    # cases use a real Personal API Key — the path MCP and OAuth callers take — to lock
+    # the scope the MCP tools must declare (ai_observability_clusters, not llm_analytics).
+    @parameterized.expand(
+        [
+            ("correct_read_scope", ["ai_observability_clusters:read"], status.HTTP_200_OK),
+            ("write_scope_grants_read", ["ai_observability_clusters:write"], status.HTTP_200_OK),
+            ("wrong_scope_denied", ["llm_analytics:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_list_pak_scope(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
+            ("correct_write_scope", ["ai_observability_clusters:write"], status.HTTP_201_CREATED),
+            ("read_scope_denied", ["ai_observability_clusters:read"], status.HTTP_403_FORBIDDEN),
+            ("wrong_scope_denied", ["llm_analytics:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_create_pak_scope(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        response = self.client.post(
+            self._url(),
+            {"name": "Scoped", "analysis_level": "trace", "event_filters": [], "enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status)
+
     def test_create_job_with_filters(self):
         filters = [{"key": "$ai_model", "value": "gpt-4", "operator": "exact", "type": "event"}]
         response = self.client.post(

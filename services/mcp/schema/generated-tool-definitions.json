@@ -5162,7 +5162,7 @@
         "feature": "llm_analytics",
         "summary": "Get clustering config",
         "title": "Get clustering config",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["ai_observability_clusters:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5176,7 +5176,7 @@
         "feature": "llm_analytics",
         "summary": "Set clustering config filters",
         "title": "Set clustering config filters",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["ai_observability_clusters:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5190,7 +5190,7 @@
         "feature": "llm_analytics",
         "summary": "Create clustering job",
         "title": "Create clustering job",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["ai_observability_clusters:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -5204,7 +5204,7 @@
         "feature": "llm_analytics",
         "summary": "Delete clustering job",
         "title": "Delete clustering job",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["ai_observability_clusters:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -5218,7 +5218,7 @@
         "feature": "llm_analytics",
         "summary": "Get clustering job",
         "title": "Get clustering job",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["ai_observability_clusters:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5232,7 +5232,7 @@
         "feature": "llm_analytics",
         "summary": "List clustering jobs",
         "title": "List clustering jobs",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["ai_observability_clusters:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5246,7 +5246,7 @@
         "feature": "llm_analytics",
         "summary": "Update clustering job",
         "title": "Update clustering job",
-        "required_scopes": ["llm_analytics:write"],
+        "required_scopes": ["ai_observability_clusters:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
