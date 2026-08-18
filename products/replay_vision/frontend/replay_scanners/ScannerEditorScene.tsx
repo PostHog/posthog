@@ -27,6 +27,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -280,11 +281,11 @@ function SelfDrivingOutcomesLine({ scannerId }: { scannerId: string }): JSX.Elem
     return (
         <div className="text-xs text-muted" data-attr="vision-editor-self-driving-outcomes">
             So far this scanner has emitted <strong className="tabular-nums">{signals_emitted.toLocaleString()}</strong>{' '}
-            signal{signals_emitted === 1 ? '' : 's'}, contributing to{' '}
-            <strong className="tabular-nums">{reports_contributed.toLocaleString()}</strong> report
-            {reports_contributed === 1 ? '' : 's'} and{' '}
-            <strong className="tabular-nums">{prs_opened.toLocaleString()}</strong> PR
-            {prs_opened === 1 ? '' : 's'}
+            {pluralize(signals_emitted, 'signal', undefined, false)}, contributing to{' '}
+            <strong className="tabular-nums">{reports_contributed.toLocaleString()}</strong>{' '}
+            {pluralize(reports_contributed, 'report', undefined, false)} and{' '}
+            <strong className="tabular-nums">{prs_opened.toLocaleString()}</strong>{' '}
+            {pluralize(prs_opened, 'PR', undefined, false)}
             {prs_opened > 0 ? <> ({prs_merged.toLocaleString()} merged)</> : null}.
         </div>
     )

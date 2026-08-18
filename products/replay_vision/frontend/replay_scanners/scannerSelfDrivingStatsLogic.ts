@@ -42,7 +42,7 @@ export const scannerSelfDrivingStatsLogic = kea<scannerSelfDrivingStatsLogicType
             {
                 loadSelfDrivingStats: async (): Promise<ScannerSelfDrivingStatsApi | null> => {
                     const teamId = teamLogic.values.currentTeamId
-                    if (!teamId || props.scannerId === 'new') {
+                    if (!teamId) {
                         return null
                     }
                     return await visionScannersSelfDrivingStatsRetrieve(String(teamId), props.scannerId)

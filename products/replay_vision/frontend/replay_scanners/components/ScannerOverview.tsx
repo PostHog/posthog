@@ -6,6 +6,7 @@ import { BarChart } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { creditsToUsd, formatCreditsRange } from '../../utils/credits'
@@ -209,10 +210,17 @@ function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element 
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { selfDrivingStats, selfDrivingStatsLoading } = useValues(scannerSelfDrivingStatsLogic({ scannerId }))
 
+    // Unresolved data renders as loading, never as the off-state nudge or the empty state.
+    if (!scanner || (selfDrivingStatsLoading && !selfDrivingStats)) {
+        return (
+            <OverviewPanel title="Self-driving">
+                <PanelEmpty loading message="" />
+            </OverviewPanel>
+        )
+    }
     // Historical signals from before the toggle was turned off still count, so the off-state
     // nudge only replaces the funnel when there is nothing to show.
-    const emitsSignals = !!scanner?.emits_signals
-    if (!emitsSignals && (!selfDrivingStats || selfDrivingStats.signals_emitted === 0)) {
+    if (!scanner.emits_signals && (!selfDrivingStats || selfDrivingStats.signals_emitted === 0)) {
         return (
             <OverviewPanel title="Self-driving" disabled>
                 <div className="text-muted text-sm">
@@ -243,21 +251,24 @@ function SelfDrivingOverview({ scannerId }: { scannerId: string }): JSX.Element 
             <div className="grid grid-cols-4 gap-4 max-w-3xl" data-attr="vision-self-driving-funnel">
                 <SelfDrivingStage
                     count={selfDrivingStats.signals_emitted}
-                    label={selfDrivingStats.signals_emitted === 1 ? 'signal emitted' : 'signals emitted'}
+                    label={pluralize(selfDrivingStats.signals_emitted, 'signal emitted', 'signals emitted', false)}
                 />
                 <SelfDrivingStage
                     count={selfDrivingStats.reports_contributed}
-                    label={
-                        selfDrivingStats.reports_contributed === 1 ? 'report contributed to' : 'reports contributed to'
-                    }
+                    label={pluralize(
+                        selfDrivingStats.reports_contributed,
+                        'report contributed to',
+                        'reports contributed to',
+                        false
+                    )}
                 />
                 <SelfDrivingStage
                     count={selfDrivingStats.prs_opened}
-                    label={selfDrivingStats.prs_opened === 1 ? 'PR opened' : 'PRs opened'}
+                    label={pluralize(selfDrivingStats.prs_opened, 'PR opened', 'PRs opened', false)}
                 />
                 <SelfDrivingStage
                     count={selfDrivingStats.prs_merged}
-                    label={selfDrivingStats.prs_merged === 1 ? 'PR merged' : 'PRs merged'}
+                    label={pluralize(selfDrivingStats.prs_merged, 'PR merged', 'PRs merged', false)}
                 />
             </div>
             <div className="text-xs text-muted">

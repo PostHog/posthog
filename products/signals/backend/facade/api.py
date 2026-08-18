@@ -606,9 +606,10 @@ def get_outcomes_for_signal_source_slice(
     """Aggregate downstream outcomes for signals of `(source_product, source_type)` narrowed by
     equality on `extra` keys (e.g. Replay Vision's `scanner_id`).
 
-    Reports are counted only if the row still exists for this team; a report usually aggregates
-    signals from several sources, so these are contributions, not sole causes. PR counts come from
-    the same implementation-PR resolution the inbox uses (latest PR-bearing task run per report).
+    Reports are counted only if the row still exists for this team and is not soft-deleted; a
+    report usually aggregates signals from several sources, so these are contributions, not sole
+    causes. PR counts come from the same implementation-PR resolution the inbox uses (latest
+    PR-bearing task run per report), deduplicated by URL since reports can share a task's PR.
     """
     from products.signals.backend.implementation_pr import (  # noqa: PLC0415 — keeps the tasks facade off this module's import path
         fetch_implementation_pr_state_for_reports,
@@ -617,8 +618,6 @@ def get_outcomes_for_signal_source_slice(
     stats = fetch_signal_stats_for_source_slice(
         team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
     )
-    if not stats.report_ids:
-        return SignalSourceSliceOutcomes(signal_count=stats.signal_count, report_count=0, pr_count=0, merged_pr_count=0)
     # CH metadata is not authoritative — keep only report ids that parse and still exist for this team.
     candidate_ids = []
     for report_id in stats.report_ids:
@@ -627,12 +626,17 @@ def get_outcomes_for_signal_source_slice(
         except ValueError:
             continue
     report_ids = [
-        str(rid) for rid in SignalReport.objects.filter(team=team, id__in=candidate_ids).values_list("id", flat=True)
+        str(rid)
+        for rid in SignalReport.objects.filter(team=team, id__in=candidate_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .values_list("id", flat=True)
     ]
     prs = fetch_implementation_pr_state_for_reports(report_ids)
+    pr_urls = {pr.url for pr in prs.values()}
+    merged_pr_urls = {pr.url for pr in prs.values() if pr.merged}
     return SignalSourceSliceOutcomes(
         signal_count=stats.signal_count,
         report_count=len(report_ids),
-        pr_count=len(prs),
-        merged_pr_count=sum(1 for pr in prs.values() if pr.merged),
+        pr_count=len(pr_urls),
+        merged_pr_count=len(merged_pr_urls),
     )

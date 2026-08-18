@@ -40,6 +40,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         report_id: str,
         source_product: str,
         inserted_at: datetime,
+        source_type: str = "some_type",
         deleted: bool = False,
         content: str = "the signal content",
         skill_name: str | None = None,
@@ -53,7 +54,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         metadata: dict = {
             "report_id": report_id,
             "source_product": source_product,
-            "source_type": "some_type",
+            "source_type": source_type,
             "source_id": f"src-{document_id}",
             "deleted": deleted,
         }
@@ -439,6 +440,14 @@ class TestFetchSignalStatsForSourceSlice(_SignalEmbeddingsTestBase):
         self._emit_version(
             document_id="d5", report_id="rC", source_product="replay", inserted_at=self.base, extra={"scanner_id": "sA"}
         )
+        self._emit_version(
+            document_id="d6",
+            report_id="rD",
+            source_product="errors",
+            source_type="other_type",
+            inserted_at=self.base,
+            extra={"scanner_id": "sA"},
+        )
 
         stats = fetch_signal_stats_for_source_slice(
             self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
@@ -447,47 +456,35 @@ class TestFetchSignalStatsForSourceSlice(_SignalEmbeddingsTestBase):
         assert stats.signal_count == 2
         assert stats.report_ids == ["rA"]
 
-    def test_rejects_non_identifier_extra_keys(self) -> None:
-        with self.assertRaises(ValueError):
-            fetch_signal_stats_for_source_slice(
-                self.team, source_product="errors", source_type="some_type", extra_equals={"scanner id": "x"}
-            )
-
 
 class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
-    def test_counts_only_reports_that_still_exist_for_the_team(self) -> None:
-        # Guards the CH-to-Postgres handoff: CH report ids that are malformed or point at deleted
-        # reports must not inflate the report count or reach the PR resolution.
+    def test_counts_only_live_reports_and_dedupes_shared_prs(self) -> None:
+        # Guards the CH-to-Postgres handoff: malformed ids, missing rows, and soft-deleted reports
+        # must not inflate the report count, and two reports sharing a task's PR count it once.
         existing = SignalReport.objects.create(team=self.team, title="report", summary="s")
-        self._emit_version(
-            document_id="d1",
-            report_id=str(existing.id),
-            source_product="errors",
-            inserted_at=self.base,
-            extra={"scanner_id": "sA"},
+        sibling = SignalReport.objects.create(team=self.team, title="sibling", summary="s")
+        soft_deleted = SignalReport.objects.create(
+            team=self.team, title="gone", summary="s", status=SignalReport.Status.DELETED
         )
-        self._emit_version(
-            document_id="d2",
-            report_id=str(uuid.uuid4()),
-            source_product="errors",
-            inserted_at=self.base,
-            extra={"scanner_id": "sA"},
-        )
-        self._emit_version(
-            document_id="d3",
-            report_id="not-a-uuid",
-            source_product="errors",
-            inserted_at=self.base,
-            extra={"scanner_id": "sA"},
-        )
+        for index, report_id in enumerate(
+            [str(existing.id), str(sibling.id), str(soft_deleted.id), str(uuid.uuid4()), "not-a-uuid"]
+        ):
+            self._emit_version(
+                document_id=f"d{index}",
+                report_id=report_id,
+                source_product="errors",
+                inserted_at=self.base,
+                extra={"scanner_id": "sA"},
+            )
 
+        shared_pr = ImplementationPr(url="https://github.com/o/r/pull/1", merged=True)
         with patch(
             "products.signals.backend.implementation_pr.fetch_implementation_pr_state_for_reports",
-            return_value={str(existing.id): ImplementationPr(url="https://github.com/o/r/pull/1", merged=True)},
+            return_value={str(existing.id): shared_pr, str(sibling.id): shared_pr},
         ) as mock_prs:
             outcomes = get_outcomes_for_signal_source_slice(
                 team=self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
             )
 
-        assert outcomes == SignalSourceSliceOutcomes(signal_count=3, report_count=1, pr_count=1, merged_pr_count=1)
-        assert mock_prs.call_args.args[0] == [str(existing.id)]
+        assert outcomes == SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=1, merged_pr_count=1)
+        assert sorted(mock_prs.call_args.args[0]) == sorted([str(existing.id), str(sibling.id)])

@@ -1364,24 +1364,16 @@ class ScannerSelfDrivingStatsSerializer(serializers.Serializer):
     """Response of GET /vision/scanners/:id/self_driving_stats/."""
 
     signals_emitted = serializers.IntegerField(
-        read_only=True,
-        help_text="Signals this scanner has pushed into the Signals inbox, all time.",
+        help_text="Signals this scanner has pushed into the Signals inbox, all time."
     )
     reports_contributed = serializers.IntegerField(
-        read_only=True,
         help_text=(
             "Signal reports that include at least one of this scanner's signals. Reports usually "
             "aggregate signals from several sources, so this counts contributions, not sole causes."
-        ),
+        )
     )
-    prs_opened = serializers.IntegerField(
-        read_only=True,
-        help_text="Implementation PRs opened by self-driving on those reports.",
-    )
-    prs_merged = serializers.IntegerField(
-        read_only=True,
-        help_text="Of the opened PRs, how many have merged.",
-    )
+    prs_opened = serializers.IntegerField(help_text="Implementation PRs opened by self-driving on those reports.")
+    prs_merged = serializers.IntegerField(help_text="Of the opened PRs, how many have merged.")
 
 
 @extend_schema_view(
