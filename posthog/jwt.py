@@ -19,6 +19,7 @@ class PosthogJwtAudience(Enum):
     LIVESTREAM = "posthog:livestream"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
     RECORDING_API = "posthog:recording_api"
+    WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"
     INTEGRATION_SERVICE = "posthog:integration_service"
 
 

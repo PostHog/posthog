@@ -140,6 +140,24 @@ class WarehouseColumnAnnotation:
     updated_at: datetime
 
 
+# --- Column statistics ---
+
+
+@dataclass(frozen=True)
+class ColumnStatistics:
+    """The per-column data profile core reads when describing a warehouse table.
+
+    Narrower than the model on purpose: this carries only what schema description consumes.
+    Row counts, provenance and the Delta version stay product-side.
+    """
+
+    table_id: UUID
+    column_name: str
+    null_fraction: float | None
+    min_value: str | None
+    max_value: str | None
+
+
 # --- Credential (read-only metadata; secrets are never exposed) ---
 
 

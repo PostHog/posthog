@@ -17,7 +17,7 @@ from products.slack_app.backend.services.slack_messages import (
 )
 
 TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3&unfurl=false"
-DESKTOP_URL = "posthog-code://task/2"
+DESKTOP_URL = "https://us.posthog.com/code/task/2?unfurl=false"
 
 
 class TestRunFooter(SimpleTestCase):
@@ -71,7 +71,7 @@ class TestLoadRunFooter(SimpleTestCase):
 
         footer = load_run_footer("run-1")
 
-        assert footer.desktop_url == f"posthog-code://task/{task_id}"
+        assert f"/code/task/{task_id}" in (footer.desktop_url or "")
         assert f"/tasks/{task_id}" in (footer.task_url or "")
         assert footer.model == "claude-opus-5"
 

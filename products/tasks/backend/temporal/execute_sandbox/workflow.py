@@ -1448,7 +1448,6 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             CreateResumeSnapshotInput(
                 sandbox_id=sandbox_id,
                 run_id=self.context.run_id,
-                use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
