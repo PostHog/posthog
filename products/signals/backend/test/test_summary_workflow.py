@@ -25,25 +25,28 @@ from products.signals.backend.temporal.agentic.select_repository import SelectRe
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
+    EMPTY_FETCH_RETRY_ATTEMPTS,
     CheckReportQuotaGateInput,
     MarkReportFailedInput,
     MarkReportInProgressInput,
+    ReportHasAssignedSignalsInput,
     ResetReportToPotentialInput,
     RevertReportToCandidateInput,
     SignalReportSummaryWorkflow,
     check_report_quota_gate_activity,
+    report_has_assigned_signals_activity,
     revert_report_to_candidate_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
 
 SUMMARY_MODULE_PATH = "products.signals.backend.temporal.summary"
-TASK_QUEUE = "test-summary-quota-queue"
+TASK_QUEUE = "test-summary-workflow-queue"
 
 
 @pytest_asyncio.fixture
 async def aorganization():
     organization = await sync_to_async(Organization.objects.create)(
-        name=f"SelfDrivingSummaryQuotaOrg-{random.randint(1, 99999)}",
+        name=f"SummaryWorkflowOrg-{random.randint(1, 99999)}",
     )
     yield organization
     await sync_to_async(organization.delete)()
@@ -53,7 +56,7 @@ async def aorganization():
 async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(
         organization=aorganization,
-        name=f"SelfDrivingSummaryQuotaTeam-{random.randint(1, 99999)}",
+        name=f"SummaryWorkflowTeam-{random.randint(1, 99999)}",
     )
     yield team
     await sync_to_async(team.delete)()
@@ -143,10 +146,20 @@ async def test_revert_noops_when_report_is_not_in_progress(ateam, status):
 
 
 class _Recorder:
-    def __init__(self, gate_answers: dict[str, bool]) -> None:
-        self.gate_answers = gate_answers
+    def __init__(
+        self,
+        gate_answers: dict[str, bool] | None = None,
+        # Signals returned by successive fetches; the last entry repeats once exhausted.
+        fetch_results: list[list[SignalData]] | None = None,
+        has_assigned_signals: bool = True,
+    ) -> None:
+        self.gate_answers = gate_answers or {}
+        self.fetch_results = fetch_results or [[_signal_data()]]
+        self.has_assigned_signals = has_assigned_signals
         self.gate_checks: list[str] = []
         self.fetches = 0
+        self.assigned_signal_checks = 0
+        self.failure_reasons: list[str | None] = []
         self.marks_in_progress = 0
         self.safety_checks = 0
         self.repo_selections = 0
@@ -176,8 +189,14 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
 
     @activity.defn(name="fetch_signals_for_report_activity")
     async def fake_fetch(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
+        signals = recorder.fetch_results[min(recorder.fetches, len(recorder.fetch_results) - 1)]
         recorder.fetches += 1
-        return FetchSignalsForReportOutput(signals=[_signal_data()])
+        return FetchSignalsForReportOutput(signals=signals)
+
+    @activity.defn(name="report_has_assigned_signals_activity")
+    async def fake_has_assigned_signals(input: ReportHasAssignedSignalsInput) -> bool:
+        recorder.assigned_signal_checks += 1
+        return recorder.has_assigned_signals
 
     @activity.defn(name="mark_report_in_progress_activity")
     async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
@@ -218,6 +237,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="mark_report_failed_activity")
     async def fake_failed(input: MarkReportFailedInput) -> None:
         recorder.failures += 1
+        recorder.failure_reasons.append(input.failure_reason)
 
     # The production self-driving worker runs with the pydantic data converter; the default converter
     # mangles the enum/pydantic payloads these activities exchange (RepoSelectionResult,
@@ -230,6 +250,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             activities=[
                 fake_quota,
                 fake_fetch,
+                fake_has_assigned_signals,
                 fake_mark_in_progress,
                 fake_safety,
                 fake_select_repo,
@@ -244,7 +265,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 env.client.execute_workflow(
                     SignalReportSummaryWorkflow.run,
                     SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4())),
-                    id=f"summary-quota-{uuid.uuid4()}",
+                    id=f"summary-workflow-{uuid.uuid4()}",
                     task_queue=TASK_QUEUE,
                 ),
                 timeout=30,
@@ -284,3 +305,60 @@ async def test_open_gates_let_the_run_flow_through():
     assert recorder.researches == 1
     assert recorder.reverts == 0
     assert recorder.failures == 0
+
+
+# ---------------------------------------------------------------------------
+# Empty fetch: ClickHouse lag must not fail a report that has signals assigned
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_empty_first_fetch_is_retried_and_run_proceeds():
+    recorder = _Recorder(fetch_results=[[], [], [_signal_data()]])
+    await _run_summary_workflow(recorder)
+    assert recorder.fetches == 3
+    assert recorder.researches == 1
+    assert recorder.failures == 0
+    assert recorder.assigned_signal_checks == 0
+
+
+@pytest.mark.asyncio
+async def test_persistently_empty_fetch_leaves_report_for_repromotion_when_signals_are_assigned():
+    recorder = _Recorder(fetch_results=[[]], has_assigned_signals=True)
+    await _run_summary_workflow(recorder)
+    assert recorder.fetches == 1 + EMPTY_FETCH_RETRY_ATTEMPTS
+    assert recorder.assigned_signal_checks == 1
+    # Neither researched nor failed: the report stays where it is and grouping re-promotes it.
+    assert recorder.marks_in_progress == 0
+    assert recorder.researches == 0
+    assert recorder.failures == 0
+
+
+@pytest.mark.asyncio
+async def test_persistently_empty_fetch_fails_report_with_no_assigned_signals():
+    recorder = _Recorder(fetch_results=[[]], has_assigned_signals=False)
+    await _run_summary_workflow(recorder)
+    assert recorder.fetches == 1 + EMPTY_FETCH_RETRY_ATTEMPTS
+    assert recorder.researches == 0
+    assert recorder.failure_reasons == ["no_signals_found"]
+
+
+# ---------------------------------------------------------------------------
+# report_has_assigned_signals_activity
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("signal_count,expected", [(0, False), (1, True)])
+async def test_report_has_assigned_signals_reads_postgres_signal_count(ateam, signal_count, expected):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.CANDIDATE,
+        total_weight=1.0,
+        signal_count=signal_count,
+    )
+    result = await report_has_assigned_signals_activity(
+        ReportHasAssignedSignalsInput(team_id=ateam.id, report_id=str(report.id))
+    )
+    assert result is expected
