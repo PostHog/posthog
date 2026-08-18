@@ -652,6 +652,19 @@ refreshes the perspective stats and an open drawer's detail (`reviewHogSettingsL
   published head, where `progress_payload` falls through to a review-stage label ("deduplicating"; the
   pre-publish window reads "finalizing"). A dedicated `resolving` stage needs the serializer enum, the
   frontend stage labels, and regenerated types — deliberately left out of the staleness fix.
+- **Accepted gap — a stopped standalone resolution on a never-reviewed PR never shows in the scene list.** Such
+  a report has no `last_run_at` (only review turns stamp it), and the list admits it only while its activity is
+  fresh — mutually exclusive with the stale-based "stopped" state, so the row drops out exactly when it would
+  say "didn't finish" (the detail endpoint excludes it too). Accepted because the PR status comment now carries
+  the failure notice reliably (the workflow-level `fail_resolution_activity` backstop) and the flow is rare
+  (`/resolve` / inbox handoffs on PRs ReviewHog never reviewed). Fixing it means a new list slice for reports
+  with a recent `resolution_run` plus an aging-out bound for stopped rows.
+- **Accepted gap — a resolution turn longer than the 30-minute staleness window shows a false "didn't finish".**
+  Resolution writes once per settled thread, so a single long turn (worst: the first, which carries sandbox boot
+  - clone) can outlast `IN_PROGRESS_STALE_AFTER` with the run healthy — the row reads "stopped" while a
+    retrigger correctly 409s. Accepted: typical turns run a few minutes, the label self-corrects on the next
+    verdict, and the busy-guard still prevents double runs. If turns ever grow, add a periodic DB liveness beat
+    inside `resolve_threads_activity` (Temporal's Heartbeater pings Temporal only, never the DB the UI reads).
 - **Alpha maturity** — the published comment still says "ReviewHog Alpha" and asks users to reply
   "valid"/"invalid" (`reviewer/tools/publish_review.py`, the `post_promo` block). Publish is now live
   per-run (the trigger endpoint posts with `publish=true`), so settle the prod wording before real users
