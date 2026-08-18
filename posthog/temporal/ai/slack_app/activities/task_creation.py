@@ -638,24 +638,10 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
 
-    from products.slack_app.backend.facade.run_preferences import SLACK_DEFAULT_MODEL, resolve_run_preferences
-    from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
-        ai_run_defaults,
-    )
+    from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
 
-    # Slack's own floor would make the project and user defaults unreachable from Slack:
-    # the run would always carry an explicit model. Dropping the floor when a central
-    # default exists leaves the triple empty, so `create_run` resolves it (and a warm run
-    # provisioned under that default still matches). Anything pinned in Slack — including a
-    # model named in the mention itself — still wins over the central default.
-    central_default = ai_run_defaults.resolve_ai_run_defaults(integration.team_id, user_id)
-    has_central_default = central_default.source != "none"
     run_prefs = resolve_run_preferences(
-        integration,
-        slack_user_id,
-        override=model_override,
-        default_model=None if has_central_default else SLACK_DEFAULT_MODEL,
-        deferred_default=central_default,
+        integration, slack_user_id, override=model_override, team_id=integration.team_id, user_id=user_id
     )
 
     # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
@@ -1151,6 +1137,9 @@ def _run_preference_state(
     integration: Any,
     slack_user_id: str,
     model_override: SlackAppModelOverride | None,
+    *,
+    team_id: int | None = None,
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     """The run-state keys that pin a new run's harness, model and effort.
 
@@ -1161,7 +1150,9 @@ def _run_preference_state(
     from products.slack_app.backend.facade.run_preferences import resolve_run_preferences
     from products.tasks.backend.facade.run_config import get_provider_for_runtime_adapter
 
-    prefs = resolve_run_preferences(integration, slack_user_id, override=model_override)
+    prefs = resolve_run_preferences(
+        integration, slack_user_id, override=model_override, team_id=team_id, user_id=user_id
+    )
     provider = get_provider_for_runtime_adapter(prefs.runtime_adapter) if prefs.runtime_adapter else None
     state = {
         "runtime_adapter": prefs.runtime_adapter,
@@ -1325,7 +1316,11 @@ def _resume_task_with_new_run(
     # including the runtime a live run could never be moved onto. Resolved rather than
     # carried over, like the keys above: a preference changed since the previous run is
     # picked up too.
-    extra_state.update(_run_preference_state(integration, slack_user_id, model_override))
+    extra_state.update(
+        _run_preference_state(
+            integration, slack_user_id, model_override, team_id=mapping.task.team_id, user_id=run_actor.id
+        )
+    )
 
     extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
     extra_state["resume_from_run_id"] = str(previous_run.id)
