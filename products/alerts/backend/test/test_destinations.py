@@ -1,8 +1,12 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
+
+from posthog.models.team.team import Team
 
 from products.alerts.backend.destinations import (
     AlertDelivery,
@@ -14,21 +18,52 @@ from products.alerts.backend.destinations import (
 )
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
-ALLOWED_EVENT_IDS = ("$logs_alert_firing", "$logs_alert_resolved")
+ALLOWED_EVENT_IDS = (
+    "$logs_alert_firing",
+    "$logs_alert_resolved",
+    "$logs_alert_errored",
+    "$logs_alert_auto_disabled",
+)
+
+
+def slack_inputs(channel_id: str, *, workspace_id: int = 1) -> dict[str, Any]:
+    return {"slack_workspace": {"value": workspace_id}, "channel": {"value": channel_id}}
+
+
+def webhook_inputs(url: str) -> dict[str, Any]:
+    return {"url": {"value": url}}
+
+
+# Grouping reads the destination config out of inputs, so a fixture without one does not stand
+# for a real destination. Each template gets the config build_alert_destination_config writes.
+_DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
+    "template-slack": slack_inputs("C-ENG"),
+    "template-webhook": webhook_inputs("https://example.com/hook"),
+    "template-microsoft-teams": {"webhookUrl": {"value": "https://teams.example.com/hook"}},
+}
 
 
 class TestSoftDeleteAlertDestinations(APIBaseTest):
     def _make_hog_function(
-        self, *, template_id: str, alert_id: str, event_id: str = "$logs_alert_firing"
+        self,
+        *,
+        template_id: str,
+        alert_id: str,
+        event_id: str = "$logs_alert_firing",
+        inputs: dict[str, Any] | None = None,
+        team: Team | None = None,
     ) -> HogFunction:
+        resolved_inputs = _DEFAULT_INPUTS.get(template_id, {}) if inputs is None else inputs
         return HogFunction.objects.create(
-            team=self.team,
+            team=team or self.team,
             name="Test destination",
             type="destination",
             template_id=template_id,
             enabled=True,
-            inputs_schema=[],
-            inputs={},
+            # HogFunction.save drops any input whose key is not in inputs_schema, so declare one
+            # entry per input the fixture sets. The real templates mark none of these secret.
+            inputs_schema=[{"key": key, "type": "string"} for key in resolved_inputs],
+            inputs=resolved_inputs,
             hog="return event",
             filters={
                 "events": [{"id": event_id, "type": "events"}],
@@ -36,11 +71,32 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
             },
         )
 
-    def _make_group(self, *, template_id: str, alert_id: str) -> list[HogFunction]:
+    def _make_group(
+        self,
+        *,
+        template_id: str,
+        alert_id: str,
+        inputs: dict[str, Any] | None = None,
+        team: Team | None = None,
+    ) -> list[HogFunction]:
         return [
-            self._make_hog_function(template_id=template_id, alert_id=alert_id, event_id=event_id)
+            self._make_hog_function(
+                template_id=template_id, alert_id=alert_id, event_id=event_id, inputs=inputs, team=team
+            )
             for event_id in ALLOWED_EVENT_IDS
         ]
+
+    def _assert_deleted(self, hog_functions: list[HogFunction]) -> None:
+        for hog_function in hog_functions:
+            hog_function.refresh_from_db()
+            assert hog_function.deleted is True
+            assert hog_function.enabled is False
+
+    def _assert_intact(self, hog_functions: list[HogFunction]) -> None:
+        for hog_function in hog_functions:
+            hog_function.refresh_from_db()
+            assert hog_function.deleted is False
+            assert hog_function.enabled is True
 
     def test_deletes_alert_destination_with_matching_alert_id(self) -> None:
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
@@ -69,6 +125,126 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
             )
 
         assert not HogFunction.objects.filter(id__in=[destination.id for destination in destinations], deleted=True)
+
+    def test_rejects_three_of_four_event_kinds_of_one_destination(self) -> None:
+        destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
+
+        with self.assertRaisesRegex(ValidationError, "Delete every HogFunction"):
+            soft_delete_alert_destinations(
+                team_id=self.team.id,
+                alert_id="alert-1",
+                allowed_event_ids=ALLOWED_EVENT_IDS,
+                hog_function_ids=[destination.id for destination in destinations[:-1]],
+            )
+
+        self._assert_intact(destinations)
+
+    @parameterized.expand(
+        [
+            ("slack_channels", "template-slack", slack_inputs("C-ENG"), slack_inputs("C-OPS")),
+            (
+                "webhook_urls",
+                "template-webhook",
+                webhook_inputs("https://example.com/a"),
+                webhook_inputs("https://example.com/b"),
+            ),
+        ]
+    )
+    def test_deletes_one_of_two_destinations_of_the_same_type(
+        self, _name: str, template_id: str, first_inputs: dict[str, Any], second_inputs: dict[str, Any]
+    ) -> None:
+        first = self._make_group(template_id=template_id, alert_id="alert-1", inputs=first_inputs)
+        second = self._make_group(template_id=template_id, alert_id="alert-1", inputs=second_inputs)
+
+        soft_delete_alert_destinations(
+            team_id=self.team.id,
+            alert_id="alert-1",
+            allowed_event_ids=ALLOWED_EVENT_IDS,
+            hog_function_ids=[destination.id for destination in first],
+        )
+
+        self._assert_deleted(first)
+        self._assert_intact(second)
+
+        soft_delete_alert_destinations(
+            team_id=self.team.id,
+            alert_id="alert-1",
+            allowed_event_ids=ALLOWED_EVENT_IDS,
+            hog_function_ids=[destination.id for destination in second],
+        )
+
+        self._assert_deleted(second)
+
+    def test_rejects_partial_group_when_another_destination_of_the_same_type_exists(self) -> None:
+        first = self._make_group(template_id="template-slack", alert_id="alert-1", inputs=slack_inputs("C-ENG"))
+        second = self._make_group(template_id="template-slack", alert_id="alert-1", inputs=slack_inputs("C-OPS"))
+
+        with self.assertRaisesRegex(ValidationError, "Delete every HogFunction"):
+            soft_delete_alert_destinations(
+                team_id=self.team.id,
+                alert_id="alert-1",
+                allowed_event_ids=ALLOWED_EVENT_IDS,
+                hog_function_ids=[first[0].id, *(destination.id for destination in second)],
+            )
+
+        self._assert_intact([*first, *second])
+
+    def test_deletes_row_with_unreadable_config_on_its_own(self) -> None:
+        # Without a config the row cannot be matched to siblings, so it is its own group rather
+        # than being folded into the Slack destination next to it.
+        orphan = self._make_hog_function(template_id="template-slack", alert_id="alert-1", inputs={})
+        destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
+
+        soft_delete_alert_destinations(
+            team_id=self.team.id,
+            alert_id="alert-1",
+            allowed_event_ids=ALLOWED_EVENT_IDS,
+            hog_function_ids=[orphan.id],
+        )
+
+        self._assert_deleted([orphan])
+        self._assert_intact(destinations)
+
+    def test_rejects_destinations_belonging_to_another_alert(self) -> None:
+        destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
+        other_alert = self._make_group(template_id="template-slack", alert_id="alert-2")
+
+        with self.assertRaisesRegex(ValidationError, "do not belong to this alert"):
+            soft_delete_alert_destinations(
+                team_id=self.team.id,
+                alert_id="alert-1",
+                allowed_event_ids=ALLOWED_EVENT_IDS,
+                hog_function_ids=[destination.id for destination in other_alert],
+            )
+
+        self._assert_intact([*destinations, *other_alert])
+
+    def test_rejects_destinations_belonging_to_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_team_destinations = self._make_group(template_id="template-slack", alert_id="alert-1", team=other_team)
+
+        with self.assertRaisesRegex(ValidationError, "do not belong to this alert"):
+            soft_delete_alert_destinations(
+                team_id=self.team.id,
+                alert_id="alert-1",
+                allowed_event_ids=ALLOWED_EVENT_IDS,
+                hog_function_ids=[destination.id for destination in other_team_destinations],
+            )
+
+        self._assert_intact(other_team_destinations)
+
+    def test_deletes_every_destination_of_the_alert_including_same_type_siblings(self) -> None:
+        first = self._make_group(template_id="template-slack", alert_id="alert-1", inputs=slack_inputs("C-ENG"))
+        second = self._make_group(template_id="template-slack", alert_id="alert-1", inputs=slack_inputs("C-OPS"))
+        other_alert = self._make_group(template_id="template-slack", alert_id="alert-2")
+
+        deleted_count = soft_delete_all_alert_destinations(
+            team_id=self.team.id, alert_id="alert-1", allowed_event_ids=ALLOWED_EVENT_IDS
+        )
+
+        assert deleted_count == len(first) + len(second)
+        self._assert_deleted([*first, *second])
+        self._assert_intact(other_alert)
 
     def test_reports_invalid_ids_and_does_not_delete_any_destinations(self) -> None:
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")

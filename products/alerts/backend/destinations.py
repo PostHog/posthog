@@ -22,7 +22,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
-from products.alerts.backend.destination_configs import DESTINATION_TEMPLATE_IDS, AlertDestinationConfig
+from products.alerts.backend.destination_configs import (
+    DESTINATION_TEMPLATE_IDS,
+    AlertDestinationConfig,
+    DestinationType,
+    read_alert_destination_data,
+)
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -64,6 +69,31 @@ class ActiveAlertDestination:
 _TEMPLATE_ID_TO_DESTINATION_TYPE = {
     template_id: destination_type.value for destination_type, template_id in DESTINATION_TEMPLATE_IDS.items()
 }
+
+
+AlertDestinationGroupKey = tuple[str, tuple[tuple[str, Any], ...]]
+
+
+def alert_destination_group_key(
+    *, hog_function_id: UUID, template_id: str | None, inputs: dict[str, Any] | None
+) -> AlertDestinationGroupKey:
+    """Identify the destination one HogFunction belongs to.
+
+    Creating a destination fans out into one HogFunction per event kind, so the rows of a single
+    destination are the ones sharing a template and the config written into their inputs (the
+    Slack channel, the webhook URL). Two Slack channels on one alert are therefore two groups.
+    """
+    destination_type_value = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id) if template_id else None
+    config: dict[str, Any] = {}
+    if destination_type_value is not None:
+        data = read_alert_destination_data(
+            destination_type=DestinationType(destination_type_value), inputs=inputs or {}
+        )
+        config = {key: value for key, value in data.items() if key != "type"}
+    # A row with no readable config cannot be matched against its siblings, so give it a key of
+    # its own instead of merging unrelated destinations into one group.
+    config_key = tuple(sorted(config.items())) if config else (("id", str(hog_function_id)),)
+    return (template_id or "", config_key)
 
 
 def _active_alert_destinations_qs(
@@ -112,17 +142,16 @@ def soft_delete_alert_destinations(
 ) -> None:
     unique_ids = set(hog_function_ids)
     with transaction.atomic():
-        event_filter = _allowed_event_filter(allowed_event_ids)
         owned_rows = list(
             HogFunction.objects.select_for_update()
             .filter(
-                event_filter,
+                _allowed_event_filter(allowed_event_ids),
                 team_id=team_id,
                 deleted=False,
                 template_id__in=DESTINATION_TEMPLATE_IDS.values(),
                 filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
             )
-            .values_list("id", "template_id", "filters")
+            .values_list("id", "template_id", "inputs")
         )
         owned_ids = {hog_function_id for hog_function_id, _, _ in owned_rows}
         invalid_ids = unique_ids - owned_ids
@@ -136,24 +165,16 @@ def soft_delete_alert_destinations(
                 }
             )
 
-        allowed_events = set(allowed_event_ids)
-        rows_by_template: dict[str | None, list[tuple[UUID, str | None]]] = {}
-        for hog_function_id, template_id, filters in owned_rows:
-            event_id = next(
-                (
-                    event_filter.get("id")
-                    for event_filter in (filters or {}).get("events", [])
-                    if isinstance(event_filter, dict) and event_filter.get("type") == "events"
-                ),
-                None,
-            )
-            rows_by_template.setdefault(template_id, []).append((hog_function_id, event_id))
+        ids_by_group: dict[AlertDestinationGroupKey, set[UUID]] = {}
+        for hog_function_id, template_id, inputs in owned_rows:
+            key = alert_destination_group_key(hog_function_id=hog_function_id, template_id=template_id, inputs=inputs)
+            ids_by_group.setdefault(key, set()).add(hog_function_id)
 
-        for group in rows_by_template.values():
-            group_ids = {hog_function_id for hog_function_id, _ in group}
-            if not unique_ids.intersection(group_ids):
-                continue
-            if group_ids != unique_ids.intersection(group_ids) or {event_id for _, event_id in group} != allowed_events:
+        # A destination is deleted whole or not at all, so every live row of a group the request
+        # touches has to be named. Whether the group covers all of allowed_event_ids is not
+        # checked: a destination missing an event kind still has to be removable.
+        for group_ids in ids_by_group.values():
+            if group_ids & unique_ids and not group_ids <= unique_ids:
                 raise ValidationError(
                     {"hog_function_ids": ["Delete every HogFunction in the destination group together."]}
                 )
