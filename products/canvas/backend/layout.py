@@ -259,8 +259,8 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
 
     with team_scope(team_id):
         component_ids = {str(placement["component"]) for placement in referenced}
-        heads = {
-            str(canvas.id): canvas.current_source_version
+        components = {
+            str(canvas.id): canvas
             for canvas in Canvas.objects.for_team(team_id)
             .filter(id__in=component_ids, kind=Canvas.KIND_COMPONENT, deleted=False)
             .filter(tasks_facade.visible_channels_q(user_id, relation="channel"))
@@ -279,7 +279,8 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
     for placement in referenced:
         label = f'placement "{placement.get("id")}"'
         component_id = str(placement["component"])
-        if component_id not in heads:
+        component = components.get(component_id)
+        if component is None:
             diagnostics.append(
                 diagnostic("error", "component_not_found", f"{label} references a component that is not available")
             )
@@ -293,7 +294,7 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
                     f"{label} pins a version that is not one of the component's published versions",
                 )
             )
-        head = heads[component_id]
+        head = component.current_source_version
         meta = head.component_meta if head else None
         if not isinstance(meta, dict):
             diagnostics.append(
@@ -304,6 +305,16 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
                 )
             )
             continue
+        # A live placement renders the component's built artifact; without a
+        # ready build there is nothing to render, so going live must wait for it.
+        if placement.get("status") == "live" and component.published_build_id is None:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "component_build_not_ready",
+                    f"{label} cannot go live: the component has no ready build yet — wait for its build to finish",
+                )
+            )
         size = meta.get("size") or {}
         for axis in ("W", "H"):
             value = placement.get(axis.lower())

@@ -6,7 +6,7 @@ from rest_framework import status
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend.layout import apply_layout_ops, default_layout, validate_layout
-from products.canvas.backend.models import Canvas, CanvasHomePreference
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.canvas.backend.tests.test_component_store import COMPONENT_META
 from products.tasks.backend.models import Channel
@@ -28,10 +28,18 @@ class GridLayoutAPIBaseTest(CanvasAPIBaseTest):
     def _create_grid(self, **overrides) -> str:
         return self._create_canvas(kind="grid", name="My grid", **overrides)
 
-    def _create_component(self, **overrides) -> str:
+    def _create_component(self, *, built: bool = True, **overrides) -> str:
         component_id = self._create_canvas(kind="component", name="Weather", **overrides)
         response = self._publish(component_id, self._project(component=COMPONENT_META))
         assert response.status_code == status.HTTP_200_OK, response.json()
+        if built:
+            # The build worker is mocked out, so mark the queued build ready by hand.
+            with team_scope(self.team.id):
+                build = CanvasBuild.objects.for_team(self.team.id).get(canvas_id=component_id)
+                build.status = CanvasBuild.STATUS_READY
+                build.artifact_object_prefix = f"canvas_artifact/team_{self.team.id}/{component_id}/{build.id}"
+                build.save(update_fields=["status", "artifact_object_prefix"])
+                Canvas.objects.for_team(self.team.id).filter(pk=component_id).update(published_build=build)
         return component_id
 
     def _publish_layout(self, canvas_id: str, doc: dict[str, Any] | None = None, **payload):
@@ -160,6 +168,19 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         response = self._publish_layout(grid_id, doc)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert any(entry["code"] == "component_not_published" for entry in response.json()["diagnostics"])
+
+    def test_live_placement_requires_ready_build(self):
+        grid_id = self._create_grid()
+        component_id = self._create_component(built=False)
+        doc = layout(placements=[placement(status="live", component=component_id)])
+        rejected = self._publish_layout(grid_id, doc)
+        assert rejected.status_code == status.HTTP_400_BAD_REQUEST
+        assert any(entry["code"] == "component_build_not_ready" for entry in rejected.json()["diagnostics"])
+        # The same placement may wait in the generating state until the build is ready.
+        staged = self._publish_layout(
+            grid_id, layout(placements=[placement(status="generating", component=component_id)])
+        )
+        assert staged.status_code == status.HTTP_200_OK, staged.json()
 
     def test_component_in_anothers_personal_channel_is_not_placeable(self):
         with team_scope(self.team.id):
