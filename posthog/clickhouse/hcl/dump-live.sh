@@ -56,6 +56,9 @@ else
     "ai_events localhost 9100 posthog"
     "aux       localhost 9200 posthog"
     "sessions  localhost 9400 posthog"
+    "events    localhost 9600 posthog"
+    "small     localhost 9700 posthog"
+    "medium    localhost 9800 posthog"
   )
 fi
 

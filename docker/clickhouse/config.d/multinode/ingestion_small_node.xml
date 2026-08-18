@@ -163,8 +163,8 @@
 
     <macros>
         <shard>01</shard>
-        <replica>ai</replica>
+        <replica>small</replica>
         <hostClusterType>online</hostClusterType>
-        <hostClusterRole>ai_events</hostClusterRole>
+        <hostClusterRole>small</hostClusterRole>
     </macros>
 </clickhouse>
