@@ -2,6 +2,7 @@
 import os
 import logging
 from types import SimpleNamespace
+from typing import NoReturn
 
 from unittest import mock
 
@@ -11,6 +12,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.util.types import AttributeValue
 from parameterized import parameterized
 
 from posthog.otel_instrumentation import (
@@ -386,7 +388,7 @@ class TestOtelInstrumentation(SimpleTestCase):
 
 
 class TestOtelRedisRequestHook(SimpleTestCase):
-    def _span_attributes_after_hook(self, instance: object) -> dict:
+    def _span_attributes_after_hook(self, instance: object) -> dict[str, AttributeValue]:
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -396,7 +398,7 @@ class TestOtelRedisRequestHook(SimpleTestCase):
 
         return dict(exporter.get_finished_spans()[0].attributes or {})
 
-    def test_cluster_client_command_is_attributed_to_a_backend(self):
+    def test_cluster_client_command_is_attributed_to_a_backend(self) -> None:
         node = SimpleNamespace(host="cache.example.com", port=6379)
         instance = SimpleNamespace(nodes_manager=SimpleNamespace(startup_nodes={"cache.example.com:6379": node}))
 
@@ -411,15 +413,15 @@ class TestOtelRedisRequestHook(SimpleTestCase):
             },
         )
 
-    def test_pooled_client_command_is_left_to_the_instrumentor(self):
+    def test_pooled_client_command_is_left_to_the_instrumentor(self) -> None:
         instance = SimpleNamespace(connection_pool=SimpleNamespace(connection_kwargs={"host": "cache.example.com"}))
 
         self.assertEqual(self._span_attributes_after_hook(instance), {})
 
-    def test_client_that_cannot_be_inspected_still_runs_its_command(self):
+    def test_client_that_cannot_be_inspected_still_runs_its_command(self) -> None:
         class ClientWithoutTopology:
             @property
-            def nodes_manager(self):
+            def nodes_manager(self) -> NoReturn:
                 raise RuntimeError("topology unavailable")
 
         self.assertEqual(self._span_attributes_after_hook(ClientWithoutTopology()), {})
