@@ -285,7 +285,7 @@ def warm_team_cohort_dependency_cache(team_id: int, batch_size: int = 1000):
 
     Uses keyset pagination on id instead of .iterator(), which opens a named
     server-side cursor that can be invalidated by connection recycling between
-    batches (e.g. behind a pooler) and raise InvalidCursorName mid-scan.
+    batches (e.g. behind a pooler) and raises InvalidCursorName mid-scan.
     """
     dependents_map: dict[str, list[int]] = {}
     last_id = 0
