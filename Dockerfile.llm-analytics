@@ -120,8 +120,8 @@ print(f'Model baked into {cache_dir}')
 "
 BAKE_MODEL
 
-# Copy project files. Kept below the bakes above, which read nothing from the repo, so a
-# source-only commit reuses them instead of re-downloading and re-exporting the model.
+# Copy project files. Must stay below the tiktoken pre-warm and the model bake, which read
+# nothing from the repo; moving it above them invalidates both layers on every source-only commit.
 COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
