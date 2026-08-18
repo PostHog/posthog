@@ -584,6 +584,7 @@ the row lists both.
 | simplesat                        | HTTP                        | requests                                                        | ✅                          |
 | skyvern                          | HTTP                        | requests                                                        | ✅                          |
 | slack                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| sleekplan                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | smaily                           | HTTP                        | requests                                                        | ✅                          |
 | smartengage                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | smartreach                       | HTTP                        | requests                                                        | ✅                          |
@@ -1340,7 +1341,6 @@ doesn't conflict with concurrent PRs.
 - site24x7
 - skyvern
 - slash
-- sleekplan
 - sleuth
 - smaily
 - smartlook
