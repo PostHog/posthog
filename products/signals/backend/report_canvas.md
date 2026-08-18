@@ -11,6 +11,8 @@ python manage.py backfill_report_canvases <report-id> [<report-id> ...] --team-i
 
 Only reports in `ready` or `pending_input` are eligible. The organization feature flag must be enabled outside local development. Backfills do not notify suggested reviewers unless `--notify-reviewers` is also passed.
 
+Canvas generation requires the PostHog MCP server. Report-canvas tasks probe it from their sandbox before starting the agent and fail with a setup error when it is missing or unreachable.
+
 Each report owns one `SignalReportCanvas` link. The link points to:
 
 - one visible discussion task, used as the stable shared session;
