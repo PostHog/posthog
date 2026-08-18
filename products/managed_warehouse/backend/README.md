@@ -101,12 +101,15 @@ This path currently supports Parquet only. Support for Azure Blob Storage, CSV, 
 
 ## Feature flag gating
 
-Each workflow has its own feature flag. Create or update the appropriate flag locally for the team you are testing with.
+Each workflow evaluates a feature flag through `feature_enabled`. Create or update the appropriate flag locally. The copy flags target the project, while `data-warehouse-scene` targets the organization. Otherwise, the workflow will be skipped even if the rest of the configuration is correct.
 
-| Workflow                 | Feature flag                                  |
-| ------------------------ | --------------------------------------------- |
-| Data modeling            | `ducklake-data-modeling-copy-workflow`        |
-| Data import registration | `ducklake-data-imports-registration-workflow` |
+| Workflow                 | Feature Flag                           |
+| ------------------------ | -------------------------------------- |
+| Data Modeling            | `ducklake-data-modeling-copy-workflow` |
+| Data Imports             | `ducklake-data-imports-copy-workflow`  |
+| Data Import Registration | `data-warehouse-scene`                 |
+
+The data-import copy and registration paths target the same stable DuckLake table. An organization with `data-warehouse-scene` enabled runs registration. Disable `ducklake-data-imports-copy-workflow` for its projects to avoid both paths applying the same import. If both run, the last atomic table swap wins.
 
 ## Data Ops workflow status
 
@@ -196,7 +199,7 @@ Follow these checklists to exercise the DuckLake workflows on a local checkout.
 ### Testing the data import registration workflow
 
 1. **Start the dev stack**
-   Run `hogli start` (or `bin/start`) so Postgres, Duckgres, SeaweedFS, Temporal, and all DuckLake defaults are up. Enable `ducklake-data-imports-registration-workflow` for the team you plan to use.
+   Run `hogli start` (or `bin/start`) so Postgres, Duckgres, SeaweedFS, Temporal, and all DuckLake defaults are up. Enable `data-warehouse-scene` for the prepared-Parquet path. Enable `ducklake-data-imports-copy-workflow` only when testing the existing Delta-copy path; both paths run when both flags are enabled.
 
 2. **Trigger a data import sync from the app**
    In the PostHog UI, open Data Warehouse → Sources, connect a source such as Stripe or HubSpot, select the schemas to sync, and click **Sync**. This schedules the `external-data-job` workflow.
