@@ -4,6 +4,10 @@
 
 {% block section %}
 
+{% for chart in charts %}
+    <img class="insight-image mb" src="{{ chart.image_url }}" alt="{{ chart.title }}" />
+{% endfor %}
+
 {# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe #}
 {{ rendered_html|safe }}
 

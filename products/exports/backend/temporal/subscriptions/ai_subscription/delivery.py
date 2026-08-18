@@ -1,5 +1,6 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import urlencode
 
 import nh3
@@ -16,6 +17,7 @@ from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
+from products.exports.backend.facade.api import get_delivery_image_url
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, get_unsubscribe_token
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
@@ -208,6 +210,31 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     return result
 
 
+# A PNG export lives six months (ExportedAsset.get_expiry_delta), so the delivery url is minted to
+# match: it should not outlive the bytes it points at, and a scheduled report is archival enough that
+# people scroll back to a delivery from two months ago.
+CHART_IMAGE_URL_TTL = timedelta(days=180)
+
+
+def build_chart_image_urls(charts: list[Any], *, team_id: int) -> list[dict]:
+    """Mint one delivery image url per persisted chart, dropping any whose asset is gone.
+
+    Takes list[Any] because the input is raw JSONB read back from content_snapshot, where a row
+    edited out of band can hold anything.
+    """
+    urls: list[dict] = []
+    for chart in charts:
+        if not isinstance(chart, dict):
+            continue
+        asset_id = chart.get("export_asset_id")
+        if not isinstance(asset_id, int) or isinstance(asset_id, bool):
+            continue
+        image_url = get_delivery_image_url(team_id=team_id, asset_id=asset_id, expiry_delta=CHART_IMAGE_URL_TTL)
+        if image_url:
+            urls.append({"title": str(chart.get("title") or ""), "image_url": image_url})
+    return urls
+
+
 def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback: str, source: str) -> str:
     # Lands on the authenticated subscription page; the frontend reads these exact params
     # (feedback_delivery, feedback, feedback_source) and captures an `ai_report_feedback` event.
@@ -227,6 +254,7 @@ def send_email_ai_subscription_report(
     markdown: str,
     delivery_run_id: str,
     delivery_id: uuid.UUID,
+    charts: list[dict] | None = None,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
     html = render_ai_email_html(markdown)
@@ -245,6 +273,7 @@ def send_email_ai_subscription_report(
         template_context={
             "title": title,
             "rendered_html": html,
+            "charts": charts or [],
             # `delivery` lets the frontend capture `ai_report_clicked` on landing — the
             # click-through signal for whether delivered reports actually get read.
             "subscription_url": f"{subscription_url}?{utm_tags}&delivery={delivery_id}",
@@ -297,6 +326,7 @@ def _build_ai_slack_message(
     *,
     delivery_id: uuid.UUID,
     integration: Integration | None = None,
+    charts: list[dict] | None = None,
 ) -> SlackMessage:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     channel = subscription.target_value.split("|")[0]
@@ -304,10 +334,18 @@ def _build_ai_slack_message(
     title = subscription.title or "Your PostHog AI report"
     first_section = sections[0] if sections else "_No report content was generated._"
 
-    blocks: list[dict] = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": first_section}},
-    ]
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}}]
+    # Charts lead: the picture is the point, the prose explains it.
+    for chart in charts or []:
+        blocks.append(
+            {
+                "type": "image",
+                "image_url": chart["image_url"],
+                # Slack rejects an empty alt_text and caps it at 2000 chars.
+                "alt_text": (chart.get("title") or "Chart")[:2000],
+            }
+        )
+    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": first_section}})
     if len(sections) > 1:
         blocks.append(
             {"type": "section", "text": {"type": "mrkdwn", "text": "_See thread for the rest of the report._"}}
@@ -361,13 +399,17 @@ async def send_slack_ai_subscription_report(
     markdown: str,
     integration: Integration,
     delivery_id: uuid.UUID,
+    charts: list[dict] | None = None,
 ) -> SlackDeliveryResult:
-    message_data = _build_ai_slack_message(subscription, markdown, delivery_id=delivery_id, integration=integration)
+    message_data = _build_ai_slack_message(
+        subscription, markdown, delivery_id=delivery_id, integration=integration, charts=charts
+    )
     return await deliver_slack_message_data(integration, subscription, message_data)
 
 
 __all__ = [
     "build_ai_subscription_report",
+    "build_chart_image_urls",
     "render_ai_email_html",
     "send_email_ai_subscription_report",
     "send_slack_ai_subscription_report",

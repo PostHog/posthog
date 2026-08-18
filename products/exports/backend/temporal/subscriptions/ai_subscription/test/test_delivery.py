@@ -11,14 +11,17 @@ from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
+    CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
     _persist_ai_query_plan,
     _split_text_into_chunks,
     build_ai_subscription_report,
+    build_chart_image_urls,
     render_ai_email_html,
     send_email_ai_subscription_report,
+    send_slack_ai_subscription_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
@@ -198,6 +201,64 @@ def _mock_subscription() -> MagicMock:
 
 def _build_message(markdown: str) -> SlackMessage:
     return _build_ai_slack_message(_mock_subscription(), markdown, delivery_id=_DELIVERY_ID)
+
+
+_CHART = {"title": "signups by day", "image_url": "https://ph.test/img.png"}
+
+
+class TestBuildChartImageUrls:
+    def test_a_chart_gets_a_url_minted_at_the_asset_ttl(self) -> None:
+        # The url should not outlive the bytes it points at, nor die before them.
+        with patch(f"{_DELIVERY}.get_delivery_image_url", return_value="https://ph.test/img.png") as mint:
+            urls = build_chart_image_urls([{"export_asset_id": 7, "title": "signups by day"}], team_id=1)
+
+        assert urls == [_CHART]
+        assert mint.call_args.kwargs["expiry_delta"] == CHART_IMAGE_URL_TTL
+
+    @parameterized.expand(
+        [
+            # An asset past its TTL renders as no chart at all, never a broken image.
+            ("expired_asset", [{"export_asset_id": 7, "title": "t"}], None),
+            ("missing_id", [{"title": "no id"}], "https://ph.test/img.png"),
+            ("not_a_dict", ["junk"], "https://ph.test/img.png"),
+        ]
+    )
+    def test_unusable_entries_yield_nothing(self, _name, charts, minted) -> None:
+        with patch(f"{_DELIVERY}.get_delivery_image_url", return_value=minted):
+            assert build_chart_image_urls(charts, team_id=1) == []
+
+
+class TestChartsOnSlackMessages:
+    def test_charts_sit_between_the_title_and_the_report(self) -> None:
+        message = _build_ai_slack_message(
+            _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART]
+        )
+
+        assert [block["type"] for block in message.blocks[:3]] == ["section", "image", "section"]
+        assert message.blocks[1]["image_url"] == _CHART["image_url"]
+        assert message.blocks[1]["alt_text"] == "signups by day"
+
+    def test_a_chartless_report_posts_no_image_blocks(self) -> None:
+        message = _build_message("A short report.")
+
+        assert all(block["type"] != "image" for block in message.blocks)
+
+    async def test_the_slack_sender_never_touches_the_orm(self) -> None:
+        # deliver_slack awaits this sender directly on the event loop, so a sync ORM read inside it
+        # raises SynchronousOnlyOperation in production. The urls must already be built by now.
+        with (
+            patch(f"{_DELIVERY}.get_delivery_image_url") as mint,
+            patch(f"{_DELIVERY}.deliver_slack_message_data", new_callable=AsyncMock),
+        ):
+            await send_slack_ai_subscription_report(
+                subscription=_mock_subscription(),
+                markdown="A short report.",
+                integration=MagicMock(),
+                delivery_id=_DELIVERY_ID,
+                charts=[_CHART],
+            )
+
+        mint.assert_not_called()
 
 
 class TestBuildAISlackMessage:
