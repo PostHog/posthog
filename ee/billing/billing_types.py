@@ -102,6 +102,7 @@ class CustomerInfo(TypedDict):
     available_product_features: list[ProductFeature]
     current_total_amount_usd: Optional[str]
     current_total_amount_usd_after_discount: Optional[str]
+    projected_total_amount_usd_with_limit_after_discount: Optional[str]
     products: Optional[list[CustomerProduct]]
     custom_limits_usd: Optional[dict[str, int]]
     usage_summary: Optional[dict[str, dict[str, Optional[int]]]]

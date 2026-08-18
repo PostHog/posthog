@@ -342,12 +342,19 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
 # the product output rather than an arbitrary nested blob; see `scout_harness/tools/report.py`.
 _MAX_TELEMETRY_STR_LEN = 256
 
+# Keys that name a person rather than attribute a signal. A source may carry one on `extra` because
+# triage needs it (a GitHub issue's `author_login` separates a maintainer's report from a stranger's),
+# but no lifecycle event needs the identity, so the scalar passthrough drops it.
+_TELEMETRY_EXCLUDED_EXTRA_KEYS = frozenset({"author_login"})
+
 
 def _telemetry_props_from_extra(extra: dict | None) -> dict:
     if not extra:
         return {}
     props: dict = {}
     for key, value in extra.items():
+        if key in _TELEMETRY_EXCLUDED_EXTRA_KEYS:
+            continue
         if isinstance(value, str):
             props[key] = value[:_MAX_TELEMETRY_STR_LEN]
         elif isinstance(value, (bool, int, float)):
