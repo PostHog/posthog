@@ -9,9 +9,13 @@ def backfill_first_visible_at(apps, schema_editor):
     report re-entering ready/pending_input (reopen on new signals, restore from archive) would be
     stamped with the current time and wrongly consume a max_reports_per_day slot that day. Rows
     that provably surfaced before — currently visible, resolved (only reachable from a visible
-    status), or suppressed away from one of those — get their created_at, which is always in the
-    past and so never counts toward any current day. Updated in batches so the whole backlog isn't
-    row-locked in one statement.
+    status), or suppressed away from one of those — get their created_at, which on every day after
+    this migration precedes the day boundary, so a backfilled report never counts. The lone
+    exception is a report created earlier on the migration day whose team also enables the limit
+    that same local day: created_at then falls inside the current day and the report counts against
+    it, a bounded overshoot that clears at the next local midnight, matching the in-flight overshoot
+    the limit already tolerates. Updated in batches so the whole backlog isn't row-locked in one
+    statement.
     """
     SignalReport = apps.get_model("signals", "SignalReport")
     visible = ["ready", "pending_input", "resolved"]
