@@ -210,7 +210,12 @@ function useNewArtifacts(
   active: RightPanelSide | null,
 ): { hasNew: boolean; count: number } {
   const count = useSessionArtifactCount(task);
-  const seen = useRightPanelStore((s) => s.seenArtifactCountByKey[taskId]);
+  // The count covers the latest run only, so the baseline is keyed per run too.
+  // A resume run replaces `latest_run` with a fresh, smaller manifest; a
+  // per-task baseline would then hold the old run's higher total and swallow the
+  // new run's first deliverables until they passed it.
+  const seenKey = `${taskId}:${task?.latest_run?.id ?? ""}`;
+  const seen = useRightPanelStore((s) => s.seenArtifactCountByKey[seenKey]);
   const markArtifactsSeen = useRightPanelStore((s) => s.markArtifactsSeen);
   const { markSeen, hasNew } = resolveArtifactMark({
     count,
@@ -222,8 +227,8 @@ function useNewArtifacts(
   });
 
   useEffect(() => {
-    if (markSeen) markArtifactsSeen(taskId, count);
-  }, [count, markArtifactsSeen, markSeen, taskId]);
+    if (markSeen) markArtifactsSeen(seenKey, count);
+  }, [count, markArtifactsSeen, markSeen, seenKey]);
 
   return { hasNew, count };
 }
