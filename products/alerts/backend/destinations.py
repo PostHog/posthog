@@ -288,8 +288,9 @@ def list_alert_destination_groups(
     """The alert's destinations, one entry each rather than one per HogFunction.
 
     Creating a destination fans out into one HogFunction per event kind, so regroup them by
-    the config they share. Matches the ownership filter `soft_delete_alert_destinations`
-    uses, so anything listed here can also be deleted.
+    the config they share. Note this groups more finely than `soft_delete_alert_destinations`,
+    which groups by template alone, so two destinations of one type list separately here but
+    cannot yet be deleted individually.
     """
     rows = (
         HogFunction.objects.filter(
