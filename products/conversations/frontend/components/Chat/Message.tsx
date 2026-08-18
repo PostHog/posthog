@@ -17,7 +17,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
-import { SupportMarkdown, SupportRichContentPreview, richContentToHtml } from '../Editor'
+import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
+import { richContentToHtml } from '../Editor/richContentToHtml'
 import { TeamOnlyBadge } from './TeamOnlyBadge'
 
 export interface MessageProps {

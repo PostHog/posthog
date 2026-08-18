@@ -1,6 +1,8 @@
 import { JSONContent, getSchema } from '@tiptap/core'
 import { DOMParser as ProseMirrorDOMParser } from '@tiptap/pm/model'
 
+import { RichContentNodeType } from 'lib/components/RichContentEditor/types'
+
 import { richContentToHtml } from './richContentToHtml'
 import { SUPPORT_EXTENSIONS } from './SupportEditor'
 
@@ -75,7 +77,28 @@ describe('richContentToHtml', () => {
         expect(outline(pasteIntoComposer(html as string))).toEqual(expected)
     })
 
-    it('returns null for content the schema cannot render, so the copy falls back to plain text', () => {
-        expect(richContentToHtml({ type: 'doc', content: [{ type: 'somethingUnknown' }] })).toBeNull()
+    it('keeps a mention readable outside PostHog and a node inside it', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [paragraph(text('ask '), { type: RichContentNodeType.Mention, attrs: { id: 5 } })],
+        }
+        const html = richContentToHtml(content) as string
+
+        // A mail client renders the text and ignores the tag it does not know
+        expect(html).toContain('@member:5')
+        // The composer restores the node from the tag, and its node view renders the name again
+        expect(outline(pasteIntoComposer(html))).toEqual(
+            `<doc><paragraph>ask <${RichContentNodeType.Mention}/></paragraph></doc>`
+        )
+    })
+
+    // Both of these render as the plain-text form for the reader, so the clipboard has to agree.
+    // `generateHTML` builds the document without checking it, so an invalid structure of known
+    // node types would otherwise serialize to HTML the message never displayed.
+    test.each<[string, JSONContent]>([
+        ['an unknown node type', { type: 'doc', content: [{ type: 'somethingUnknown' }] }],
+        ['known node types in an invalid structure', { type: 'doc', content: [text('bare text under doc')] }],
+    ])('returns null for %s, so the copy falls back to plain text', (_name, content) => {
+        expect(richContentToHtml(content)).toBeNull()
     })
 })

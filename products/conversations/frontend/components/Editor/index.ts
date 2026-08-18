@@ -13,7 +13,5 @@ export type { ImageLightboxProps } from './ImageLightbox'
 export { SupportMarkdown } from './SupportMarkdown'
 export type { SupportMarkdownProps } from './SupportMarkdown'
 
-export { richContentToHtml } from './richContentToHtml'
-
 export { SupportRichContentPreview } from './SupportRichContentPreview'
 export type { SupportRichContentPreviewProps } from './SupportRichContentPreview'
