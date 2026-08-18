@@ -1,9 +1,13 @@
+import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonCollapse, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { getExportsContentRetrieveUrl } from '~/generated/core/api'
 
 import type {
     AIReportQueryDiagnosticApi,
@@ -317,6 +321,9 @@ export function deliveryRowHasExpandableContent(row: SubscriptionDeliveryApi): b
     if (row.change_summary || row.ai_report || row.ai_report_prompt || (row.ai_report_diagnostics ?? []).length > 0) {
         return true
     }
+    if ((row.ai_report_charts ?? []).length > 0) {
+        return true
+    }
     if (Array.isArray(row.recipient_results) && row.recipient_results.length > 0) {
         return true
     }
@@ -382,6 +389,8 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
     const diagnostics = row.ai_report_diagnostics ?? []
     const report = row.ai_report
     const prompt = row.ai_report_prompt
+    const charts = row.ai_report_charts ?? []
+    const { currentTeamId } = useValues(teamLogic)
     // Memoized: payloads can be large for dashboard exports and this row re-renders with the table.
     const recipients = useMemo(() => parseRecipientResults(row.recipient_results), [row.recipient_results])
     const insights = useMemo(() => parseContentSnapshotInsights(row.content_snapshot), [row.content_snapshot])
@@ -402,6 +411,21 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
                         Prompt at time of generation
                     </div>
                     {prompt}
+                </div>
+            ) : null}
+            {charts.length > 0 && currentTeamId ? (
+                <div className="flex flex-col gap-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Charts</div>
+                    {charts.map((chart) => (
+                        <img
+                            key={chart.export_asset_id}
+                            className="max-w-full rounded border"
+                            // First-party PNGs the backend rendered, addressed by asset id — not urls the
+                            // model wrote, which is what disableImages below guards against.
+                            src={getExportsContentRetrieveUrl(String(currentTeamId), chart.export_asset_id)}
+                            alt={chart.title}
+                        />
+                    ))}
                 </div>
             ) : null}
             {report ? (
