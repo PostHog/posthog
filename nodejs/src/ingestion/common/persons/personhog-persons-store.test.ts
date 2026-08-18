@@ -66,7 +66,7 @@ describe('PersonhogPersonsStore', () => {
         )
     })
 
-    it('keeps an entry shippable when the reship resolve fails transiently', async () => {
+    it('keeps an entry writable when the redirect resolve fails transiently', async () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
         repository.updatePersonProperties.mockRejectedValueOnce(new NoRowsUpdatedError('merged away') as never)
@@ -76,7 +76,7 @@ describe('PersonhogPersonsStore', () => {
 
         // A throw skips the success path, so an in-flight mark left set would
         // make every later pass skip this entry and strand its ops.
-        // Cleared so only a fresh ship on the second pass can satisfy this.
+        // Cleared so only a fresh write on the second pass can satisfy this.
         repository.updatePersonProperties.mockClear()
         repository.updatePersonProperties.mockResolvedValue({ person, updated: true } as never)
         repository.resolvePersonsByDistinctIds.mockResolvedValue([])
@@ -87,29 +87,29 @@ describe('PersonhogPersonsStore', () => {
         )
     })
 
-    it('ops folded during a ship land behind it rather than in it', async () => {
+    it('ops folded during a write land behind it rather than in it', async () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
-        let releaseShip: () => void = () => {}
-        let shipStarted: () => void = () => {}
-        const shipping = new Promise<void>((resolve) => {
-            shipStarted = resolve
+        let releaseWrite: () => void = () => {}
+        let writeStarted: () => void = () => {}
+        const writing = new Promise<void>((resolve) => {
+            writeStarted = resolve
         })
         repository.updatePersonProperties.mockImplementationOnce(
             () =>
                 new Promise((resolve) => {
-                    shipStarted()
-                    releaseShip = () => resolve({ person, updated: true } as never)
+                    writeStarted()
+                    releaseWrite = () => resolve({ person, updated: true } as never)
                 }) as never
         )
 
         const flushing = bound.flush()
-        await shipping
+        await writing
         // Folded while the first payload is on the wire: merging into it
         // would change what is being sent, and truncating the snapshot
         // afterwards would take this event with it.
         await bound.applyEventOps(person, ops({ $set: { b: '2' } }), 'd1')
-        releaseShip()
+        releaseWrite()
         await flushing
 
         expect(repository.updatePersonProperties.mock.calls[0][0].setProperties).toEqual({ a: '1' })
@@ -187,7 +187,7 @@ describe('PersonhogPersonsStore', () => {
         expect(sent.setProperties).toEqual({ a: '2', first: 'shadowed' })
         expect(sent.setOnceProperties).toEqual({})
         expect(sent.unsetProperties).toEqual(['gone'])
-        // The changelog is this backend's ClickHouse feed: a flush ships
+        // The changelog is this backend's ClickHouse feed: a flush writes
         // segments and publishes nothing.
         expect(results).toEqual([])
     })
@@ -221,7 +221,7 @@ describe('PersonhogPersonsStore', () => {
             ['a person event forces the write', { $browser: 'Firefox' }, { $set: { $browser: 'Chrome' } }, '$set'],
             ['a new key always counts', {}, { $set: { $browser: 'Chrome' } }, 'pageview'],
             ['an unset always counts', { $browser: 'Firefox' }, { $unset: ['$browser'] }, 'pageview'],
-        ])('%s and the lane ships', async (_label, baseline, props, event) => {
+        ])('%s and the lane writes', async (_label, baseline, props, event) => {
             person.properties = { ...(baseline as Record<string, string>) }
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops(props as Record<string, unknown>, event as string), 'd1')
@@ -229,7 +229,7 @@ describe('PersonhogPersonsStore', () => {
             expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
         })
 
-        it('a scalar move ships without property changes', async () => {
+        it('a scalar move writes without property changes', async () => {
             const bound = store.forBatch(0)
             const scalarOnly = ops({}, 'pageview')
             scalarOnly.isIdentified = true
@@ -238,7 +238,7 @@ describe('PersonhogPersonsStore', () => {
             expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
         })
 
-        it('one update-worthy event makes the whole lane ship', async () => {
+        it('one update-worthy event makes the whole lane write', async () => {
             person.properties = { $browser: 'Firefox' }
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { $browser: 'Chrome' } }, 'pageview'), 'd1')
@@ -256,7 +256,7 @@ describe('PersonhogPersonsStore', () => {
         expect(results).toEqual([])
     })
 
-    it('a denied event still ships its scalars, without its properties', async () => {
+    it('a denied event still writes its scalars, without its properties', async () => {
         const bound = store.forBatch(0)
         const denied = ops({ $set: { a: '1' } }, '$exception')
         denied.lastSeenAtMs = 7_200_000
@@ -626,7 +626,7 @@ describe('PersonhogPersonsStore', () => {
         expect(repository.updatePersonProperties).not.toHaveBeenCalled()
     })
 
-    it('reships a merged-away lane to the survivor at flush', async () => {
+    it('redirects a merged-away lane to the survivor at flush', async () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
         repository.updatePersonProperties
@@ -644,7 +644,7 @@ describe('PersonhogPersonsStore', () => {
         )
     })
 
-    it('reships a merged-away person’s ops with source precedence', async () => {
+    it('redirects a merged-away person’s ops with source precedence', async () => {
         const bound = store.forBatch(0)
         repository.mergePersons = jest.fn().mockResolvedValue({
             survivor: { ...person, id: '7' },
@@ -674,11 +674,11 @@ describe('PersonhogPersonsStore', () => {
 
         // The merge keeps the target's value on a shared key and takes the
         // source's only where it has none: that is $set_once, not $set.
-        const reshipped = repository.updatePersonProperties.mock.calls.at(-1)![0]
-        expect(reshipped.personId).toBe('7')
-        expect(reshipped.setProperties).toEqual({})
-        expect(reshipped.setOnceProperties).toEqual({ plan: 'stale' })
-        expect(reshipped.unsetProperties).toEqual([])
+        const redirected = repository.updatePersonProperties.mock.calls.at(-1)![0]
+        expect(redirected.personId).toBe('7')
+        expect(redirected.setProperties).toEqual({})
+        expect(redirected.setOnceProperties).toEqual({ plan: 'stale' })
+        expect(redirected.unsetProperties).toEqual([])
     })
 
     it('refreshes before concluding a person is gone', async () => {
@@ -751,7 +751,7 @@ describe('PersonhogPersonsStore', () => {
             // still reach the leader the ordinary way.
             ['the service applied them', ['anon-1'], 0],
             ['the service named none', [], 1],
-        ])('ships them afterwards when %s: %s more times', async (_label, carriedApplied, expectedShips) => {
+        ])('writes them afterwards when %s: %s more times', async (_label, carriedApplied, expectedWrites) => {
             const bound = store.forBatch(0)
             respondWith(carriedApplied as string[])
             await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'paid' } }), 'anon-1')
@@ -760,13 +760,13 @@ describe('PersonhogPersonsStore', () => {
             repository.updatePersonProperties.mockClear()
             await bound.flush()
 
-            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(expectedShips as number)
+            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(expectedWrites as number)
         })
 
         it('keeps a concurrent flush off the segments it carried', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'paid' } }), 'anon-1')
-            // A flush that shipped the same segment would leave two
+            // A flush that wrote the same segment would leave two
             // truncations racing over one entry, dropping whichever
             // segment arrived between them.
             let flushed: Promise<unknown> | undefined
@@ -802,18 +802,18 @@ describe('PersonhogPersonsStore', () => {
 
             await bound.flush()
 
-            // The tail shipped within the same flush, before the batch acks.
+            // The tail was written within the same flush, before the batch acks.
             expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
             expect(repository.updatePersonProperties.mock.calls[1][0].setProperties).toEqual({ tail: 'kept' })
             expect((store as any).entries.get('1:7').segments).toHaveLength(0)
         })
 
-        it('a size rejection mid-reship still delivers the remainder to the survivor', async () => {
+        it('a size rejection mid-redirect still delivers the remainder to the survivor', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { big: 'x', k: 'a' }, $unset: ['k'] }), 'd1')
             await bound.applyEventOps(person, ops({ $set: { tail: 'kept' }, $set_once: { k: 'b' } }), 'd1')
-            // The person is merged away; the reship's first unit bounces on
-            // size; the remainder must re-enter the reship, not wait for a
+            // The person is merged away; the redirect's first unit bounces on
+            // size; the remainder must re-enter the redirect, not wait for a
             // later batch's flush.
             repository.updatePersonProperties.mockImplementation(((request: {
                 personId: string
@@ -866,15 +866,15 @@ describe('PersonhogPersonsStore', () => {
             // defers; the merge then resolves and releases its fence while
             // 10's RPC still holds the round open — so when the round's
             // scan runs, 7 is neither fenced nor in flight. A drain keyed
-            // on "currently parked" acks over 7's unshipped ops.
+            // on "currently parked" acks over 7's unwritten ops.
             await bound.applyEventOps({ ...person, id: '8', uuid: 'u8' }, ops({ $set: { a: '1' } }), 'other-1')
             await bound.applyEventOps(person, ops({ $set: { plan: 'held' } }), 'd1')
             await bound.applyEventOps({ ...person, id: '10', uuid: 'u10' }, ops({ $set: { c: '3' } }), 'other-2')
 
             const releases = new Map<string, () => void>()
-            const shipped: string[] = []
+            const written: string[] = []
             repository.updatePersonProperties.mockImplementation(((request: { personId: string }) => {
-                shipped.push(request.personId)
+                written.push(request.personId)
                 if (request.personId === '8' || request.personId === '10') {
                     return new Promise((resolve) => {
                         releases.set(request.personId, () => resolve({ person, updated: true }))
@@ -892,7 +892,7 @@ describe('PersonhogPersonsStore', () => {
 
             const flushing = bound.flush()
             await new Promise((resolve) => setTimeout(resolve, 0))
-            // The merge fences person 7 while 8's ship holds the slot, and
+            // The merge fences person 7 while 8's write holds the slot, and
             // stays in flight.
             const merging = bound.mergePersons(mergeReq())
             await new Promise((resolve) => setTimeout(resolve, 0))
@@ -900,7 +900,7 @@ describe('PersonhogPersonsStore', () => {
             // the slot.
             releases.get('8')?.()
             await new Promise((resolve) => setTimeout(resolve, 0))
-            expect(shipped).toEqual(['8', '10'])
+            expect(written).toEqual(['8', '10'])
             // The merge resolves and releases its fence while 10 is still on
             // the wire — the exact window where 7 is invisible to a
             // parked-only scan.
@@ -909,7 +909,7 @@ describe('PersonhogPersonsStore', () => {
             releases.get('10')?.()
             await flushing
 
-            expect(shipped).toEqual(['8', '10', '7'])
+            expect(written).toEqual(['8', '10', '7'])
             expect((narrowStore as any).entries.get('1:7')?.segments ?? []).toHaveLength(0)
         })
 
@@ -943,7 +943,7 @@ describe('PersonhogPersonsStore', () => {
             failMerge()
             await merging
             await flushing
-            // The handed-back segments shipped before the flush resolved.
+            // The handed-back segments were written before the flush resolved.
             expect(repository.updatePersonProperties).toHaveBeenCalledWith(
                 expect.objectContaining({ setProperties: { plan: 'held' } }),
                 expect.any(String)
@@ -951,29 +951,29 @@ describe('PersonhogPersonsStore', () => {
             expect((store as any).entries.get('1:7').segments).toHaveLength(0)
         })
 
-        it('a merge waits for a reship already shipping to its survivor', async () => {
+        it('a merge waits for a redirect already writing to its survivor', async () => {
             const bound = store.forBatch(0)
             // Lane 9's person was destroyed by an EXTERNAL merge (no local
-            // reconcile, no demote marks); its reship resolves survivor 7
+            // reconcile, no demote marks); its redirect resolves survivor 7
             // and its RPC goes on the wire. A local merge then fences 7: it
-            // must wait the reship out, or the saga's newer writes land
-            // first and the reship's older raw $set overwrites them.
+            // must wait the redirect out, or the saga's newer writes land
+            // first and the redirect's older raw $set overwrites them.
             await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'older' } }), 'anon-2')
-            let releaseReship: () => void = () => {}
+            let releaseRedirect: () => void = () => {}
             const events: string[] = []
             repository.updatePersonProperties.mockImplementation(((request: { personId: string }) => {
                 if (request.personId === '9') {
                     return Promise.reject(new NoRowsUpdatedError('merged away'))
                 }
                 return new Promise((resolve) => {
-                    releaseReship = () => {
-                        events.push('reship-landed')
+                    releaseRedirect = () => {
+                        events.push('redirect-landed')
                         resolve({ person, updated: true })
                     }
                 })
             }) as never)
             // Answered by requested id, so the merge's own fence resolve
-            // maps d1 to person 7 — the survivor the reship is shipping to.
+            // maps d1 to person 7 — the survivor the redirect is writing to.
             repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
                 Promise.resolve(
                     keys.map((key) => ({ teamId: 1, distinctId: key.distinctId, person: { ...person, id: '7' } }))
@@ -989,10 +989,10 @@ describe('PersonhogPersonsStore', () => {
             await new Promise((resolve) => setTimeout(resolve, 0))
             expect(events).toEqual([])
 
-            releaseReship()
+            releaseRedirect()
             await merging
             await flushing
-            expect(events).toEqual(['reship-landed', 'merge-sent'])
+            expect(events).toEqual(['redirect-landed', 'merge-sent'])
         })
     })
 
@@ -1008,8 +1008,8 @@ describe('PersonhogPersonsStore', () => {
             createdAtMs: 3_600_000,
         })
 
-        it('a queued ship that starts under a fence defers instead of racing the merge', async () => {
-            // One concurrency slot forces the second lane's ship to start in
+        it('a queued write that starts under a fence defers instead of racing the merge', async () => {
+            // One concurrency slot forces the second lane's write to start in
             // a later macrotask — after the merge fenced its person. The
             // capture-time fence check cannot see that future; only a check
             // at execution start can.
@@ -1021,13 +1021,13 @@ describe('PersonhogPersonsStore', () => {
             await bound.applyEventOps({ ...person, id: '8', uuid: 'other' }, ops({ $set: { a: '1' } }), 'other-1')
             await bound.applyEventOps(person, ops({ $set: { plan: 'older' } }), 'd1')
 
-            let releaseFirstShip: () => void = () => {}
-            const shipped: string[] = []
+            let releaseFirstWrite: () => void = () => {}
+            const written: string[] = []
             repository.updatePersonProperties.mockImplementation(((request: { personId: string }) => {
-                shipped.push(request.personId)
-                if (shipped.length === 1) {
+                written.push(request.personId)
+                if (written.length === 1) {
                     return new Promise((resolve) => {
-                        releaseFirstShip = () => resolve({ person, updated: true })
+                        releaseFirstWrite = () => resolve({ person, updated: true })
                     })
                 }
                 return Promise.resolve({ person, updated: true })
@@ -1042,32 +1042,32 @@ describe('PersonhogPersonsStore', () => {
 
             const flushing = bound.flush()
             await new Promise((resolve) => setTimeout(resolve, 0))
-            // Lane 8's ship holds the only slot; person 7's lane is captured
+            // Lane 8's write holds the only slot; person 7's lane is captured
             // but unstarted. The merge fences 7 now.
             const merging = bound.mergePersons(mergeReq())
             await new Promise((resolve) => setTimeout(resolve, 0))
 
-            // Free the slot: 7's queued ship begins under the fence and must
+            // Free the slot: 7's queued write begins under the fence and must
             // defer rather than send its unscrubbed segment mid-merge.
-            releaseFirstShip()
+            releaseFirstWrite()
             await new Promise((resolve) => setTimeout(resolve, 0))
-            expect(shipped).toEqual(['8'])
+            expect(written).toEqual(['8'])
 
             releaseMerge()
             await merging
             await flushing
-            // The drain shipped 7's lane after the merge settled.
-            expect(shipped).toEqual(['8', '7'])
+            // The drain wrote 7's lane after the merge settled.
+            expect(written).toEqual(['8', '7'])
         })
 
-        it('a fence appearing mid-reship is waited out before the ship', async () => {
+        it('a fence appearing mid-redirect is waited out before the write', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'pre' } }), 'anon-2')
             repository.updatePersonProperties
                 .mockRejectedValueOnce(new NoRowsUpdatedError('merged away') as never)
                 .mockResolvedValue({ person, updated: true } as never)
-            // The reship's entry check sees no fence; a merge fences the
-            // SURVIVOR while the resolve is in flight. Shipping under it
+            // The redirect's entry check sees no fence; a merge fences the
+            // SURVIVOR while the resolve is in flight. Writing under it
             // would land pre-merge ops after the saga's own writes.
             let fenceRelease: (() => void) | undefined
             repository.resolvePersonsByDistinctIds.mockImplementation(() => {
@@ -1079,8 +1079,8 @@ describe('PersonhogPersonsStore', () => {
 
             const flushing = bound.flush()
             await new Promise((resolve) => setTimeout(resolve, 0))
-            // The reship saw the survivor's fence and parked; nothing has
-            // shipped to 7 yet.
+            // The redirect saw the survivor's fence and parked; nothing has
+            // written to 7 yet.
             expect(
                 repository.updatePersonProperties.mock.calls.filter(([request]) => request.personId === '7')
             ).toHaveLength(0)
@@ -1096,14 +1096,14 @@ describe('PersonhogPersonsStore', () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
             const oldEntry = (store as any).entries.get('1:7')
-            // The old entry drained and was replaced while an old ship's
+            // The old entry drained and was replaced while an old write's
             // finalizer was still pending; retiring by key would take the
-            // new lane's unshipped ops with it.
+            // new lane's unwritten ops with it.
             ;(store as any).entries.delete('1:7')
             await bound.applyEventOps(person, ops({ $set: { b: '2' } }), 'd1')
             oldEntry.segments = []
             store.releaseBatch(0)
-            ;(store as any).releaseShipped('1:7', oldEntry)
+            ;(store as any).releaseWritten('1:7', oldEntry)
 
             expect((store as any).entries.get('1:7')?.segments).toHaveLength(1)
         })
@@ -1121,21 +1121,21 @@ describe('PersonhogPersonsStore', () => {
             createdAtMs: 3_600_000,
         })
 
-        it('a merge waits for a ship already on the wire before sending', async () => {
+        it('a merge waits for a write already on the wire before sending', async () => {
             const bound = store.forBatch(0)
             repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
             repository.fetchPersonById.mockResolvedValue({ ...person } as never)
             await bound.fetchForUpdate(1, 'd1')
             await bound.applyEventOps(person, ops({ $set: { plan: 'older' } }), 'd1')
 
-            // The lane's ship is mid-RPC when the merge starts. If the merge
+            // The lane's write is mid-RPC when the merge starts. If the merge
             // request goes out first, the saga applies its newer $set and
             // this older in-flight write lands on top of it — silently.
-            let releaseShip: () => void = () => {}
+            let releaseWrite: () => void = () => {}
             repository.updatePersonProperties.mockImplementationOnce(
                 (() =>
                     new Promise((resolve) => {
-                        releaseShip = () => resolve({ person, updated: true })
+                        releaseWrite = () => resolve({ person, updated: true })
                     })) as never
             )
             const events: string[] = []
@@ -1150,12 +1150,12 @@ describe('PersonhogPersonsStore', () => {
             await new Promise((resolve) => setTimeout(resolve, 0))
             expect(events).toEqual([])
 
-            events.push('ship-landed')
-            releaseShip()
+            events.push('write-landed')
+            releaseWrite()
             await merging
             await flushing
 
-            expect(events).toEqual(['ship-landed', 'merge-sent'])
+            expect(events).toEqual(['write-landed', 'merge-sent'])
         })
 
         it('a set_once-and-unset pair on an absent key keeps the value in the projection', async () => {
@@ -1213,8 +1213,8 @@ describe('PersonhogPersonsStore', () => {
             await new Promise((resolve) => setTimeout(resolve, 0))
 
             // A flush that resolved here would let batch A ack while its ops
-            // sit unshipped in the parked lane — a crash then loses acked
-            // writes. The flush must wait the merge out and ship first.
+            // sit unwritten in the parked lane — a crash then loses acked
+            // writes. The flush must wait the merge out and write first.
             let flushSettled = false
             const flushing = boundA.flush().then(() => {
                 flushSettled = true
@@ -1234,15 +1234,15 @@ describe('PersonhogPersonsStore', () => {
             expect((store as any).entries.get('1:7').segments).toHaveLength(0)
         })
 
-        it('a reship waits out the person\u2019s fence before shipping anywhere', async () => {
+        it('a redirect waits out the person\u2019s fence before writing anywhere', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'pre' } }), 'anon-2')
 
-            // The lane's ship is captured BEFORE any fence exists; the merge
-            // fences the person and reconciles while that ship is on the
-            // wire, then the ship fails on the tombstone. Without the fence
-            // wait, the reship resolves mid-merge — before reconcile in the
-            // general case — and ships pre-merge ops raw to the survivor.
+            // The lane's write is captured BEFORE any fence exists; the merge
+            // fences the person and reconciles while that write is on the
+            // wire, then the write fails on the tombstone. Without the fence
+            // wait, the redirect resolves mid-merge — before reconcile in the
+            // general case — and writes pre-merge ops raw to the survivor.
             let fenceRelease: () => void = () => {}
             repository.updatePersonProperties.mockImplementationOnce((() => {
                 fenceRelease = (store as any).fencePersons(['1:9'])
@@ -1265,17 +1265,17 @@ describe('PersonhogPersonsStore', () => {
 
             const flushing = bound.flush()
             await new Promise((resolve) => setTimeout(resolve, 0))
-            // The reship is parked on the fence: no resolve has run yet.
+            // The redirect is parked on the fence: no resolve has run yet.
             expect(resolveCalls).toBe(0)
             fenceRelease()
             await flushing
 
             expect(resolvedDuringFence).toBe(false)
-            const reshipped = repository.updatePersonProperties.mock.calls
+            const redirected = repository.updatePersonProperties.mock.calls
                 .map(([request]) => request)
                 .filter((request) => request.personId === '7')
-            expect(reshipped[0].setOnceProperties).toEqual({ plan: 'pre' })
-            expect(reshipped[0].setProperties).toEqual({})
+            expect(redirected[0].setOnceProperties).toEqual({ plan: 'pre' })
+            expect(redirected[0].setProperties).toEqual({})
         })
 
         it('the create found branch reads the leader before its doc becomes a baseline', async () => {
@@ -1361,10 +1361,10 @@ describe('PersonhogPersonsStore', () => {
                     { teamId: 1, distinctId: 'anon-2', person: { ...person, id: '7' } },
                 ] as never)
                 await bound.flush()
-                const reshipped = repository.updatePersonProperties.mock.calls
+                const redirected = repository.updatePersonProperties.mock.calls
                     .map(([request]) => request)
                     .filter((request) => request.personId === '7')
-                expect(reshipped[0].setOnceProperties).toEqual({ pairKey: 'kept' })
+                expect(redirected[0].setOnceProperties).toEqual({ pairKey: 'kept' })
             }
         })
 
@@ -1418,7 +1418,7 @@ describe('PersonhogPersonsStore', () => {
             await bound.mergePersons(mergeReq())
 
             // Without the captured belief, person 5's lane would never be
-            // claimed and its pre-merge ops would reship raw.
+            // claimed and its pre-merge ops would redirect raw.
             expect((store as any).entries.get('1:5').demoted?.size).toBe(1)
         })
 
@@ -1516,8 +1516,8 @@ describe('PersonhogPersonsStore', () => {
             await merging
             await fold
             // The fold waited the merge out, so reconcile never saw it: its
-            // lane is unmarked and ships as the post-merge write it is (raw,
-            // via the reship path) instead of being wrongly demoted.
+            // lane is unmarked and writes as the post-merge write it is (raw,
+            // via the redirect path) instead of being wrongly demoted.
             const lane = (store as any).entries.get('1:9')
             expect(lane.segments.at(-1).set).toEqual({ raced: 'yes' })
             expect(lane.demoted).toBeUndefined()
@@ -1648,7 +1648,7 @@ describe('PersonhogPersonsStore', () => {
             expect(seen?.properties.other).toBe('kept')
         })
 
-        it('a demoted net whose run ends on a denied event ships under a property-bearing name', async () => {
+        it('a demoted net whose run ends on a denied event writes under a property-bearing name', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'pro' } }), 'anon-2')
             const entry = (store as any).entries.get('1:9')
@@ -1670,13 +1670,13 @@ describe('PersonhogPersonsStore', () => {
             ] as never)
             await bound.flush()
 
-            const reshipped = repository.updatePersonProperties.mock.calls
+            const redirected = repository.updatePersonProperties.mock.calls
                 .map(([request]) => request)
                 .filter((request) => request.personId === '7')
-            expect(reshipped).toHaveLength(1)
-            expect(reshipped[0].setOnceProperties).toEqual({ plan: 'pro' })
-            expect(reshipped[0].eventName).not.toBe('$exception')
-            expect(reshipped[0].lastSeenAtMs).toBe(7_200_000)
+            expect(redirected).toHaveLength(1)
+            expect(redirected[0].setOnceProperties).toEqual({ plan: 'pro' })
+            expect(redirected[0].eventName).not.toBe('$exception')
+            expect(redirected[0].lastSeenAtMs).toBe(7_200_000)
         })
 
         it('carries a lane whose id is over 400 UTF-16 units but within 400 code points', async () => {
@@ -1802,7 +1802,7 @@ describe('PersonhogPersonsStore', () => {
         it('demoted lanes reach the survivor in the merge\u2019s source order, not fold order', async () => {
             const bound = store.forBatch(0)
             // Folded in the OPPOSITE order of the merge's sources, so only
-            // the rank sort can produce the right ship order.
+            // the rank sort can produce the right write order.
             await bound.applyEventOps({ ...person, id: '10' }, ops({ $set: { plan: 'second-source' } }), 'anon-2')
             await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'first-source' } }), 'anon-1')
             repository.mergePersons = jest.fn().mockResolvedValue({
@@ -1838,7 +1838,7 @@ describe('PersonhogPersonsStore', () => {
             await bound.flush()
 
             // Earlier sources beat later ones, and a demoted lane lands as
-            // first-wins $set_once — so anon-1's reship must arrive first.
+            // first-wins $set_once — so anon-1's redirect must arrive first.
             const survivorWrites = repository.updatePersonProperties.mock.calls
                 .map(([request]) => request)
                 .filter((request) => request.personId === '7')
@@ -1960,10 +1960,10 @@ describe('PersonhogPersonsStore', () => {
             expect(seen?.properties).toEqual({ plan: 'leader' })
         })
 
-        it('a mid-reship fold survives even when the direct ship landed segments first', async () => {
+        it('a mid-redirect fold survives even when the direct write landed segments first', async () => {
             const bound = store.forBatch(0)
             // Two segments; the first lands, the second hits the merged-away
-            // person. The reship then exhausts against a genuinely deleted
+            // person. The redirect then exhausts against a genuinely deleted
             // person while a new fold arrives — which this pass never
             // attempted and must not discard.
             await bound.applyEventOps(person, ops({ $set: { a: '1', k: 'x' }, $unset: ['k'] }), 'd1')
@@ -1996,7 +1996,7 @@ describe('PersonhogPersonsStore', () => {
             await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { post: 'merge' } }), 'anon-2')
 
             // Folding in place replaces the object and the mark falls off;
-            // the pre-merge ops would then reship raw and beat survivor
+            // the pre-merge ops would then redirect raw and beat survivor
             // values they lost. The post-merge op must land in its own,
             // unmarked segment.
             expect(entry.segments).toHaveLength(2)
@@ -2069,7 +2069,7 @@ describe('PersonhogPersonsStore', () => {
             expect(fenceHeldWhenFoldLanded).toBe(false)
         })
 
-        it('a successful reship repoints the lane\u2019s distinct id at the survivor', async () => {
+        it('a successful redirect repoints the lane\u2019s distinct id at the survivor', async () => {
             const bound = store.forBatch(0)
             repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
             repository.fetchPersonById.mockResolvedValue({ ...person } as never)
@@ -2077,7 +2077,7 @@ describe('PersonhogPersonsStore', () => {
             await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
 
             // A merge on another pod destroyed the person; this store only
-            // learns of it through the failed ship.
+            // learns of it through the failed write.
             repository.updatePersonProperties
                 .mockRejectedValueOnce(new NoRowsUpdatedError('merged away') as never)
                 .mockResolvedValue({ person, updated: true } as never)
@@ -2087,7 +2087,7 @@ describe('PersonhogPersonsStore', () => {
             await bound.flush()
 
             // Without the repoint, every later event folds onto the dead
-            // person and pays the reship path forever.
+            // person and pays the redirect path forever.
             expect((store as any).resolutions.get('1:d1')).toBe('1:12')
         })
 
@@ -2142,10 +2142,10 @@ describe('PersonhogPersonsStore', () => {
             expect((store as any).resolutions.has('1:d2')).toBe(false)
         })
 
-        it('shutdown fails loudly while lanes still hold unshipped ops', async () => {
+        it('shutdown fails loudly while lanes still hold unwritten ops', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
-            await expect(store.shutdown()).rejects.toThrow(/unshipped ops/)
+            await expect(store.shutdown()).rejects.toThrow(/unwritten ops/)
         })
 
         it('scrubs the merge event\u2019s $set keys from a target lane the carry left behind', async () => {
@@ -2169,8 +2169,8 @@ describe('PersonhogPersonsStore', () => {
             })
 
             // The saga already applied email=new to the survivor; the older
-            // buffered email must not ship after it and win. Keys the event
-            // never touched still ship.
+            // buffered email must not write after it and win. Keys the event
+            // never touched still write.
             const lane = (store as any).entries.get('1:7')
             const remaining = lane.segments.flatMap((segment: any) => Object.keys(segment.set))
             expect(remaining).not.toContain('email')
@@ -2203,7 +2203,7 @@ describe('PersonhogPersonsStore', () => {
             })
 
             // The echo makes the store drop the segment, so a field left off
-            // the wire is lost outright rather than shipped later.
+            // the wire is lost outright rather than written later.
             expect(repository.mergePersons.mock.calls[0][0].carriedOperations?.[0]).toEqual(
                 expect.objectContaining({ isIdentified: true, lastSeenAtMs: 7_200_000 })
             )
@@ -2241,20 +2241,20 @@ describe('PersonhogPersonsStore', () => {
             // One call, carrying the lane's net effect. Demoting segment by
             // segment would send two, and $set_once being first-wins would
             // leave the survivor on the superseded values.
-            const reshipped = repository.updatePersonProperties.mock.calls
+            const redirected = repository.updatePersonProperties.mock.calls
                 .map(([request]) => request)
                 .filter((request) => request.personId === '7')
-            expect(reshipped).toHaveLength(1)
+            expect(redirected).toHaveLength(1)
             // The net contributes only where the survivor lacks a key, and
             // under that condition the pair (set k then unset k in one
             // event) resolves to its set value — the leader's unset removes
             // only pre-existing keys — so the later $set_once never fills.
-            expect(reshipped[0].setOnceProperties).toEqual({ plan: 'second', k: 'a' })
-            expect(reshipped[0].setProperties).toEqual({})
-            expect(reshipped[0].unsetProperties).toEqual([])
+            expect(redirected[0].setOnceProperties).toEqual({ plan: 'second', k: 'a' })
+            expect(redirected[0].setProperties).toEqual({})
+            expect(redirected[0].unsetProperties).toEqual([])
         })
 
-        it('keeps the segments a failed ship never attempted', async () => {
+        it('keeps the segments a failed write never attempted', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { a: '1', k: 'x' }, $unset: ['k'] }), 'd1')
             await bound.applyEventOps(person, ops({ $set: { b: '2' }, $set_once: { k: 'y' } }), 'd1')
@@ -2353,14 +2353,14 @@ describe('PersonhogPersonsStore', () => {
             })
 
             // The merge folded `fromSource` in, which no local projection
-            // could know; the batch's own unshipped `local` still stands.
+            // could know; the batch's own unwritten `local` still stands.
             const seen = await bound.fetchForUpdate(1, 'd1')
             expect(seen?.properties).toEqual({ plan: 'free', fromSource: 'merged', local: 'mine' })
         })
 
-        it('releases the lanes behind a demoted ship that failed', async () => {
+        it('releases the lanes behind a demoted write that failed', async () => {
             const bound = store.forBatch(0)
-            // Two lanes demoted by one merge. They ship in rank order, one at
+            // Two lanes demoted by one merge. They write in rank order, one at
             // a time, so a throw on the first must not leave the second
             // marked in flight, which every later pass would skip forever.
             await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { a: '1' } }), 'anon-1')
@@ -2378,15 +2378,15 @@ describe('PersonhogPersonsStore', () => {
             // And the next pass can actually take them again.
             repository.updatePersonProperties.mockResolvedValue({ person, updated: true } as never)
             await bound.flush()
-            const shipped = repository.updatePersonProperties.mock.calls.map(([request]) => request.personId)
-            expect(shipped).toEqual(expect.arrayContaining(['9', '10']))
+            const written = repository.updatePersonProperties.mock.calls.map(([request]) => request.personId)
+            expect(written).toEqual(expect.arrayContaining(['9', '10']))
         })
 
-        it('does not discard a segment folded while a reship was running', async () => {
+        it('does not discard a segment folded while a redirect was running', async () => {
             const bound = store.forBatch(0)
             // Two segments, so the first can land and the second fail: the
             // snapshot count then overstates what is left, and re-reading it
-            // after the reship would sweep up anything folded meanwhile.
+            // after the redirect would sweep up anything folded meanwhile.
             await bound.applyEventOps(person, ops({ $set: { a: '1', k: 'x' }, $unset: ['k'] }), 'd1')
             await bound.applyEventOps(person, ops({ $set: { b: '2' }, $set_once: { k: 'y' } }), 'd1')
             expect((store as any).entries.get('1:7').segments).toHaveLength(2)
@@ -2394,13 +2394,13 @@ describe('PersonhogPersonsStore', () => {
             repository.updatePersonProperties
                 .mockResolvedValueOnce({ person, updated: true } as never)
                 .mockRejectedValueOnce(new NoRowsUpdatedError('merged away') as never)
-            // The person is gone for good, so the reship exhausts its
+            // The person is gone for good, so the redirect exhausts its
             // re-resolves; a fold arriving meanwhile was never attempted by
             // this pass and must survive it.
-            let foldedDuringReship = false
+            let foldedDuringRedirect = false
             repository.resolvePersonsByDistinctIds.mockImplementation(async () => {
-                if (!foldedDuringReship) {
-                    foldedDuringReship = true
+                if (!foldedDuringRedirect) {
+                    foldedDuringRedirect = true
                     await bound.applyEventOps(person, ops({ $set: { later: 'fold' } }), 'd1')
                 }
                 return [] as never
@@ -2433,12 +2433,12 @@ describe('PersonhogPersonsStore', () => {
             ] as never)
             await bound.flush()
 
-            const reshipped = repository.updatePersonProperties.mock.calls
+            const redirected = repository.updatePersonProperties.mock.calls
                 .map(([request]) => request)
                 .filter((request) => request.personId === '7')
-            expect(reshipped).toHaveLength(2)
-            expect(reshipped[0].setOnceProperties).toEqual({ before: 'merge' })
-            expect(reshipped[1].setProperties).toEqual({ after: 'merge' })
+            expect(redirected).toHaveLength(2)
+            expect(redirected[0].setOnceProperties).toEqual({ before: 'merge' })
+            expect(redirected[1].setProperties).toEqual({ after: 'merge' })
         })
 
         it('leaves behind a lane whose distinct id the service would reject', async () => {
@@ -2465,7 +2465,7 @@ describe('PersonhogPersonsStore', () => {
             })
 
             expect(repository.mergePersons.mock.calls[0][0].carriedOperations).toEqual([])
-            // Left in the lane, so it still ships the ordinary way.
+            // Left in the lane, so it still writes the ordinary way.
             expect((store as any).entries.get('1:9').segments).toHaveLength(1)
         })
 
@@ -2494,7 +2494,7 @@ describe('PersonhogPersonsStore', () => {
         })
     })
 
-    it('reships through consecutive merges instead of dropping on the second', async () => {
+    it('redirects through consecutive merges instead of dropping on the second', async () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
         repository.updatePersonProperties
@@ -2524,7 +2524,7 @@ describe('PersonhogPersonsStore', () => {
 
         // Throwing rather than dropping is the claim; the attempt budget is
         // a tuning constant and not what this pins.
-        await expect(bound.flush()).rejects.toThrow(/merged away \d+ times during reship/)
+        await expect(bound.flush()).rejects.toThrow(/merged away \d+ times during redirect/)
     })
 
     it('fails the flush on unexpected errors so the batch retries whole', async () => {
@@ -2553,13 +2553,13 @@ describe('PersonhogPersonsStore', () => {
             repository.updatePersonProperties.mockClear()
             repository.updatePersonProperties.mockResolvedValue({ person: { ...person, version: 2 }, updated: true })
             await store.flush()
-            // Only the failed entry survives to re-ship; the succeeded
+            // Only the failed entry survives to re-write; the succeeded
             // one was consumed by the first pass.
             expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
             expect(repository.updatePersonProperties.mock.calls[0][0].personId).toBe('8')
         })
 
-        it('flush passes serialize, so ops folded mid-pass ship strictly after it', async () => {
+        it('flush passes serialize, so ops folded mid-pass write strictly after it', async () => {
             let releaseFirst!: () => void
             const firstGate = new Promise<void>((resolve) => {
                 releaseFirst = resolve
@@ -2580,7 +2580,7 @@ describe('PersonhogPersonsStore', () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
             const firstFlush = store.flush()
-            // Spin microtasks until the first pass is mid-ship, blocked
+            // Spin microtasks until the first pass is mid-write, blocked
             // on the gate, so the next fold genuinely lands mid-pass.
             for (let i = 0; i < 100 && !callOrder.includes('first:start'); i++) {
                 await Promise.resolve()
@@ -2593,12 +2593,12 @@ describe('PersonhogPersonsStore', () => {
             expect(callOrder).toEqual(['first:start', 'first:end', 'second'])
         })
 
-        it('two batches folding one person ship once, and a filtered-only fold rides along', async () => {
+        it('two batches folding one person write once, and a filtered-only fold rides along', async () => {
             person.properties = { $browser: 'Firefox' }
             const bound0 = store.forBatch(0)
             const bound1 = store.forBatch(1)
             // One shared entry per person, so a filtered-only fold from one
-            // batch and a real one from another are the same entry: it ships
+            // batch and a real one from another are the same entry: it writes
             // once, and there is no second writer to race it.
             await bound0.applyEventOps(person, ops({ $set: { $browser: 'Chrome' } }, 'pageview'), 'd1')
             await bound1.applyEventOps(person, ops({ $set: { plan: 'pro' } }, 'pageview'), 'd1')
@@ -2630,7 +2630,7 @@ describe('PersonhogPersonsStore', () => {
             .mockResolvedValueOnce({ person: { ...person, version: 2 }, updated: true })
             .mockRejectedValueOnce(new PersonhogPropertiesSizeError('too big', 1, '7'))
         const results = await bound.flush()
-        // Both segments shipped — the first landed before the second's
+        // Both segments were written — the first landed before the second's
         // domain error, and the error skips rather than fails the flush.
         expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
         expect(results).toEqual([])
@@ -2683,12 +2683,12 @@ describe('PersonhogPersonsStore', () => {
         expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(2)
     })
 
-    it('releaseBatch defers eviction of an entry that still holds unshipped ops', async () => {
+    it('releaseBatch defers eviction of an entry that still holds unwritten ops', async () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
         store.releaseBatch(0)
 
-        // Releasing must not discard writes the batch never got to ship;
+        // Releasing must not discard writes the batch never got to write;
         // the entry survives its last reference until it drains.
         await store.flush()
         expect(repository.updatePersonProperties).toHaveBeenCalledWith(

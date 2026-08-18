@@ -138,7 +138,7 @@ export class PersonhogPendingRpcError extends Error {
  * Exhausting it throws rather than dropping, so the ops survive in the
  * batch's redelivery.
  */
-const RESHIP_MAX_ATTEMPTS = 5
+const REDIRECT_MAX_ATTEMPTS = 5
 
 /**
  * How long a fold waits for a merge holding its person. A merge that hangs
@@ -163,25 +163,25 @@ const FENCE_MAX_CHAINED_WAITS = 3
  * Backs off, because a resolution still catching up is the case worth
  * waiting for and a person genuinely deleted costs the full budget once.
  */
-const RESHIP_REFRESH_INTERVAL_MS = 100
+const REDIRECT_REFRESH_INTERVAL_MS = 100
 
 /**
- * How many wait-and-reship rounds a flush spends on lanes parked behind
+ * How many wait-and-redirect rounds a flush spends on lanes parked behind
  * in-flight merges before failing the pass. Each round's fence waits are
  * themselves bounded, so the worst case is loud and finite rather than an
- * ack over unshipped writes.
+ * ack over unwritten ops.
  */
 const FLUSH_MAX_MERGE_WAIT_ROUNDS = 3
 
-type ReshipOutcome = 'shipped' | 'gone' | 'size_violation'
+type RedirectOutcome = 'written' | 'gone' | 'size_violation'
 
-/** A reship failure that already incremented its own flush outcome. */
-class CountedReshipError extends Error {}
+/** A redirect failure that already incremented its own flush outcome. */
+class CountedRedirectError extends Error {}
 
 /**
  * Matches the service's own cap. Exceeding it is INVALID_ARGUMENT, which
  * would fail a merge that has nothing wrong with it, so the surplus lanes
- * stay behind and ship the ordinary way instead.
+ * stay behind and write the ordinary way instead.
  */
 const MAX_CARRIED_LANES = 32
 
@@ -212,7 +212,7 @@ interface OpsLaneEntry {
     /**
      * Folded ops in arrival order. Almost always one segment; a new one
      * starts only when foldOps cannot represent the composition, and
-     * flush ships segments sequentially so the leader refines between
+     * flush writes segments sequentially so the leader refines between
      * them.
      */
     segments: EventOps[]
@@ -225,26 +225,26 @@ interface OpsLaneEntry {
      */
     triggersUpdate: boolean
     /**
-     * Set while a flush is shipping this entry's leading segments. Folds
+     * Set while a flush is writing this entry's leading segments. Folds
      * arriving meanwhile start a new segment rather than merging into one
      * already on the wire.
      */
     inFlight?: boolean
     /**
-     * Settles when the current direct ship attempt finishes (landed or
-     * failed), before any reship. A merge awaits this after fencing: a
+     * Settles when the current direct write attempt finishes (landed or
+     * failed), before any redirect. A merge awaits this after fencing: a
      * write already on the wire must land before the saga applies the
      * merge event's own $set, or the older value silently overwrites the
-     * newer. The reship path is excluded because it waits on the merge's
+     * newer. The redirect path is excluded because it waits on the merge's
      * fence — including it here would deadlock the two.
      */
-    directShipSettled?: Promise<void>
+    directWriteSettled?: Promise<void>
     /**
      * The segments that were already folded when a merge destroyed this
      * entry's person. Only those logically precede the merge, so only those
-     * reship with source precedence; anything folded afterwards is a later
+     * redirect with source precedence; anything folded afterwards is a later
      * write and keeps its own. Held by segment identity rather than by
-     * count, so it stays accurate as segments ship and shift away.
+     * count, so it stays accurate as segments write and shift away.
      */
     demoted?: Set<EventOps>
     /**
@@ -260,11 +260,11 @@ interface OpsLaneEntry {
  * The personhog implementation of the person store: distinct-id
  * resolution and person creation through the identity service's
  * get-or-create, person state through the leader's strong reads, and
- * property updates as raw op folds shipped to the leader, which refines
+ * property updates as raw op folds written to the leader, which refines
  * them against authoritative state under the per-person lock.
  *
  * Where the Postgres store refines ops against a fetched snapshot before
- * writing, this store ships them as stated, so no version-race machinery
+ * writing, this store writes them as stated, so no version-race machinery
  * exists here. Fetches memoize per batch; folded ops accumulate per
  * (batch, person) and flush as one call per person.
  *
@@ -279,7 +279,7 @@ export class PersonhogPersonsStore implements PersonsStore {
     /**
      * Folded ops, one entry per person, keyed by `${teamId}:${personId}`
      * and shared by every batch that touched that person. One entry means
-     * one writer: two batches holding the same person can no longer ship
+     * one writer: two batches holding the same person can no longer write
      * it concurrently and let an older value land last.
      */
     private entries: Map<string, OpsLaneEntry> = new Map()
@@ -337,14 +337,14 @@ export class PersonhogPersonsStore implements PersonsStore {
      */
     private memoGeneration = 0
     /**
-     * Reships in flight, keyed by the person being shipped TO. A reship's
+     * Redirects in flight, keyed by the person being written TO. A redirect's
      * lane sits under its vanished person's key, so a merge fencing the
      * survivor cannot find it through the entry map; this registry is what
-     * lets the merge wait it out. Set-valued because one pass can reship
+     * lets the merge wait it out. Set-valued because one pass can redirect
      * several lanes to the same survivor concurrently, and the merge must
      * wait for all of them.
      */
-    private reshipsInFlight: Map<string, Set<Promise<void>>> = new Map()
+    private redirectsInFlight: Map<string, Set<Promise<void>>> = new Map()
     /** Serializes flush passes; see flush(). */
     private flushChain: Promise<void> = Promise.resolve()
 
@@ -491,7 +491,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             this.updateGradeKeys.add(distinctKey)
         }
         const state = this.personState
-        // A projection behind a lane holds this batch's own unshipped
+        // A projection behind a lane holds this batch's own unwritten
         // writes, which no fetch can know about — it always wins. Without
         // a lane, an awaited update-grade fetch read the leader and is
         // fresher than whatever is cached, so it replaces. A checking
@@ -641,7 +641,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      * merge left this id alone. A FAILED merge releases the team's
      * resolutions instead — the outcome is unknowable — so a miss there
      * falls back to the caller's person; if that person did die, the
-     * marked lane and the reship deliver the ops to the survivor anyway,
+     * marked lane and the redirect deliver the ops to the survivor anyway,
      * at the cost of stale enrichment until the flush.
      */
     private personAfterFence(person: InternalPerson, distinctId: string): InternalPerson {
@@ -727,13 +727,13 @@ export class PersonhogPersonsStore implements PersonsStore {
             existing.triggersUpdate = existing.triggersUpdate || triggersUpdate
             const last = existing.segments.length - 1
             const lastSegment = existing.segments[last]
-            // A flush ships a snapshot of the leading segments and truncates
+            // A flush writes a snapshot of the leading segments and truncates
             // exactly that many on success, so folding into one already on
             // the wire would either change the payload underneath it or lose
             // this event when the snapshot is dropped. A demote-marked
             // segment refuses folds for its own reason: foldOps returns a
             // new object, which would fall out of the marked set and weld
-            // post-merge ops onto pre-merge ones — both then shipping with
+            // post-merge ops onto pre-merge ones — both then writing with
             // the wrong precedence. Either way, start a new segment.
             // A drained lane a sibling batch still references has no
             // segment to fold into; the op starts the lane's next one.
@@ -811,19 +811,19 @@ export class PersonhogPersonsStore implements PersonsStore {
         let carried: CarriedLane[] = []
         try {
             releaseFence = this.fencePersons(personKeys)
-            // A ship launched before the fence went up is already on the
+            // A write launched before the fence went up is already on the
             // wire; if it lands after the saga applies the merge event's
             // $set, the older value silently overwrites the newer and the
-            // scrub finds nothing left to retract. Ships re-check the fence
+            // scrub finds nothing left to retract. Writes re-check the fence
             // at execution start, so anything without a settle promise here
             // has not launched and will defer; this wait covers the ones
             // that did launch — bounded by their remaining segment RPCs.
-            const inFlightShips = [
-                ...personKeys.map((personKey) => this.entries.get(personKey)?.directShipSettled),
-                ...personKeys.flatMap((personKey) => [...(this.reshipsInFlight.get(personKey) ?? [])]),
+            const inFlightWrites = [
+                ...personKeys.map((personKey) => this.entries.get(personKey)?.directWriteSettled),
+                ...personKeys.flatMap((personKey) => [...(this.redirectsInFlight.get(personKey) ?? [])]),
             ].filter((settled): settled is Promise<void> => settled !== undefined)
-            if (inFlightShips.length > 0) {
-                await Promise.all(inFlightShips)
+            if (inFlightWrites.length > 0) {
+                await Promise.all(inFlightWrites)
             }
             // Collected behind the fence, so nothing can arrive between the
             // collection and the send.
@@ -847,7 +847,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                     // The saga is resumable, so a call that failed may still
                     // have destroyed these sources. Marking optimistically is
                     // safe in both directions: the demote only takes effect
-                    // on the reship path, which runs only when the person
+                    // on the redirect path, which runs only when the person
                     // really did vanish. A post-verdict throw is not this
                     // shape — its verdict arrived and reconcile handled the
                     // marking — so it propagates as itself.
@@ -868,7 +868,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // Whatever of the target's lane could not travel — multi-segment
             // lanes, the cap, an uncarriable id — now holds ops older than
             // the merge event's own $set, which the saga has already applied
-            // to the survivor. Shipping them later must not overwrite it, so
+            // to the survivor. Writing them later must not overwrite it, so
             // the event's $set keys are scrubbed from the lane: the same
             // newer-write-supersedes rule foldOps applies between ordinary
             // events. The event's $set_once needs no scrub — it fills only
@@ -887,14 +887,14 @@ export class PersonhogPersonsStore implements PersonsStore {
                     // The rebase inside runMerge replayed the lane before the
                     // scrub retracted keys from it; rebuilt here so the
                     // read-your-write view never shows a value the store has
-                    // decided will not ship.
+                    // decided will not write.
                     this.rebaseProjection(survivorLane, result.survivor)
                 }
             }
             return { ...result, survivor: this.snapshotForCaller(result.survivor) }
         } finally {
             for (const { entry } of carried) {
-                this.releaseShipped(`${entry.teamId}:${entry.personId}`, entry)
+                this.releaseWritten(`${entry.teamId}:${entry.personId}`, entry)
             }
             releaseFence?.()
         }
@@ -988,7 +988,7 @@ export class PersonhogPersonsStore implements PersonsStore {
     /**
      * The pending operations of the fenced persons, to travel inside the
      * merge request and take part in it. Marked in flight for the call's
-     * duration so a concurrent flush cannot ship the same segments, which
+     * duration so a concurrent flush cannot write the same segments, which
      * would leave the two truncations racing over one entry.
      *
      * Lanes stay behind — counted by reason — when one carried entry
@@ -996,7 +996,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      * suppress them anyway (no update-worthy change), when their distinct
      * id would fail the whole request (illegal, over-length, NUL,
      * duplicate), or past the service's cap. A destroyed source's leftover
-     * lane reships demoted; the survivor's own leftover lane has its
+     * lane redirects demoted; the survivor's own leftover lane has its
      * superseded keys scrubbed after the merge instead, since demotion is
      * source precedence and the survivor is not a source.
      *
@@ -1130,7 +1130,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                         lastSeenAtMs: ops.lastSeenAtMs,
                         // Pins the write to the person these ops were folded
                         // for; a repoint by another pod then skips it, and
-                        // the unechoed lane ships through the flush instead.
+                        // the unechoed lane writes through the flush instead.
                         expectedPersonId: entry.personId,
                     })),
                 },
@@ -1188,7 +1188,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             .map((source) => source.sourceDistinctId)
         // Request order is property precedence: an earlier source beats a
         // later one. The server answers in request order, so the index is
-        // the rank a demoted reship has to land in.
+        // the rank a demoted redirect has to land in.
         const merged = result.results.filter((source) => source.outcome === 'merged')
         this.reconcileMergedPersons(
             request.teamId,
@@ -1209,7 +1209,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (result.survivor) {
             // The survivor carries what the merge folded in, which no local
             // projection knows about, so it replaces the baseline rather than
-            // losing to it. The lane's own unshipped ops go back on top, or
+            // losing to it. The lane's own unwritten ops go back on top, or
             // the batch would stop seeing its own earlier writes.
             this.rebaseProjection(`${request.teamId}:${result.survivor.id}`, result.survivor)
             // The survivor is the folded document the leader produced —
@@ -1340,27 +1340,27 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
-     * Ships every batch's folded lanes to the leader, one entry per
+     * Writes every batch's folded lanes to the leader, one entry per
      * person, segments in order. There is deliberately no Postgres
      * fallback, and nothing publishes: the leader's changelog is this
-     * backend's person feed. A missing person reships to whatever its
+     * backend's person feed. A missing person redirects to whatever its
      * distinct id resolves to now; a person genuinely gone, and the
      * leader's size rejection, are counted and dropped, since neither can
-     * succeed on retry. Identity lag that outlasts the reship's refresh
+     * succeed on retry. Identity lag that outlasts the redirect's refresh
      * budget, and any other failure, fail the flush so the batch retries
      * whole.
      *
      * Passes serialize, one at a time, with later calls queueing behind
      * the running one. A pass snapshots how many segments each lane holds
-     * before shipping and removes each segment as it lands, so a failure
+     * before writing and removes each segment as it lands, so a failure
      * part way through keeps everything it did not attempt. The failing
      * call fails its own batch, but the entry may belong to a sibling batch
      * that never acked its events, and folds are idempotent, so a later
-     * pass re-ships what remains.
+     * pass writes what remains again.
      *
      * A lane entry with no update-worthy change — every refined change
      * filtered, nothing forced, no scalar movement — is suppressed here
-     * rather than shipped, the same no-op classification the Postgres store
+     * rather than written, the same no-op classification the Postgres store
      * applies at its flush. `triggersUpdate` accumulates across every batch
      * folding into the entry, so one batch's real change carries a sibling's
      * filtered-only fold along with it.
@@ -1376,22 +1376,22 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     private async flushPass(): Promise<FlushResult[]> {
         // A flush returning success is what lets its batch ack, so it must
-        // not return while any lane still holds unshipped segments — a lane
+        // not return while any lane still holds unwritten segments — a lane
         // parked behind an in-flight merge (fenced, or carried in flight)
-        // has to be waited out and shipped, or the pass has to fail so the
+        // has to be waited out and written, or the pass has to fail so the
         // batch redelivers. Acking past a parked lane would commit offsets
         // over writes that only exist in this process.
         for (let round = 0; ; round++) {
             const pass = { deferrals: 0 }
-            await this.shipShippableLanes(round === 0, pass)
+            await this.writeEligibleLanes(round === 0, pass)
             // The loop keys off what THIS round left behind, not what is
-            // parked at this instant: a fence releasing while other ships
+            // parked at this instant: a fence releasing while other writes
             // were still in flight leaves a deferred lane neither fenced nor
             // in flight — invisible to a parked-only predicate — and a
-            // return here would ack over its unshipped writes.
+            // return here would ack over its unwritten ops.
             if (pass.deferrals === 0) {
                 // No FlushResults: the leader's changelog is the ClickHouse
-                // person feed, so a flush publishes nothing — shipping the
+                // person feed, so a flush publishes nothing — writing the
                 // segments is the whole job.
                 return []
             }
@@ -1415,12 +1415,12 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private async shipShippableLanes(countDeferrals: boolean, pass: { deferrals: number }): Promise<void> {
+    private async writeEligibleLanes(countDeferrals: boolean, pass: { deferrals: number }): Promise<void> {
         // Entries are never removed in order to be written. A pass records
         // how many segments each one holds right now, marks it in flight,
         // and truncates exactly that many on success. A failure therefore
         // leaves the entry exactly as it was — there is no claim to strand
-        // and no restore path to get wrong — and ops folded while the ship
+        // and no restore path to get wrong — and ops folded while the write
         // is in flight land in a fresh segment behind the snapshot.
         // No await in this block: the snapshot has to be atomic.
         const captured: { personKey: string; entry: OpsLaneEntry; segments: number }[] = []
@@ -1437,11 +1437,11 @@ export class PersonhogPersonsStore implements PersonsStore {
                 pass.deferrals += 1
                 continue
             }
-            // A fenced person's merge is on the wire. Shipping its lane now
-            // could hit the tombstone and reship raw before reconcile marks
+            // A fenced person's merge is on the wire. Writing its lane now
+            // could hit the tombstone and redirect raw before reconcile marks
             // the lane for demotion — the wrong-precedence landing the
             // demote machinery exists to prevent. The drain loop above waits
-            // the merge out and ships it before the flush returns.
+            // the merge out and writes it before the flush returns.
             if (this.fences.has(personKey)) {
                 pass.deferrals += 1
                 if (countDeferrals) {
@@ -1454,7 +1454,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         // A demoted lane contributes $set_once, which resolves first-wins,
         // so lanes demoted by one merge have to reach the survivor in that
-        // merge's source order. They ship in rank order, one at a time,
+        // merge's source order. They write in rank order, one at a time,
         // while everything else fans out.
         const ordered = captured
             .filter(({ entry }) => this.leadsWithDemoted(entry))
@@ -1464,21 +1464,21 @@ export class PersonhogPersonsStore implements PersonsStore {
         const limit = pLimit(this.options.maxConcurrentUpdates)
         const outcomes = await Promise.allSettled([
             ...concurrent.map(({ personKey, entry, segments }) =>
-                limit(() => this.shipEntry(personKey, entry, segments, pass))
+                limit(() => this.writeEntry(personKey, entry, segments, pass))
             ),
             limit(async () => {
                 let failure: unknown
                 for (const { personKey, entry, segments } of ordered) {
                     if (failure !== undefined) {
-                        // Shipping past a failed lane would land out of the
+                        // Writing past a failed lane would land out of the
                         // merge's source order. The mark still has to go, or
                         // every later pass skips this entry and its writes
                         // are stranded for the process lifetime.
-                        this.releaseShipped(personKey, entry)
+                        this.releaseWritten(personKey, entry)
                         continue
                     }
                     try {
-                        await this.shipEntry(personKey, entry, segments, pass)
+                        await this.writeEntry(personKey, entry, segments, pass)
                     } catch (error) {
                         failure = error
                     }
@@ -1496,10 +1496,10 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     /**
      * Clears the in-flight mark and retires an entry with nothing left.
-     * Runs on every exit from a ship, including a throw: a mark left set
+     * Runs on every exit from a write, including a throw: a mark left set
      * would make every later pass skip the entry and strand its ops.
      */
-    private releaseShipped(personKey: string, entry: OpsLaneEntry): void {
+    private releaseWritten(personKey: string, entry: OpsLaneEntry): void {
         entry.inFlight = false
         if (entry.segments.length > 0) {
             return
@@ -1508,15 +1508,15 @@ export class PersonhogPersonsStore implements PersonsStore {
         entry.demoted = undefined
         entry.demoteRank = undefined
         // A drained entry no batch still references was held open only to
-        // protect its unshipped ops; now it can go. Identity-guarded: a
-        // stale finalizer (an old ship settling after the entry was retired
-        // and recreated) must not retire the new entry's unshipped ops.
+        // protect its unwritten ops; now it can go. Identity-guarded: a
+        // stale finalizer (an old write settling after the entry was retired
+        // and recreated) must not retire the new entry's unwritten ops.
         if ((this.entryRefCount.get(personKey) ?? 0) === 0 && this.entries.get(personKey) === entry) {
             this.retireEntry(personKey)
         }
     }
 
-    private async shipEntry(
+    private async writeEntry(
         personKey: string,
         entry: OpsLaneEntry,
         segments: number,
@@ -1524,22 +1524,22 @@ export class PersonhogPersonsStore implements PersonsStore {
     ): Promise<void> {
         // Capture marked this lane, but execution may begin macrotasks later
         // (a pLimit slot, the ordered chain). A merge can fence the person in
-        // that gap, and its in-flight-ship wait cannot see a ship that has
+        // that gap, and its in-flight-write wait cannot see a write that has
         // not created its promise yet — so the fence is re-checked HERE, at
-        // the moment shipping actually starts. A fenced lane defers to the
-        // drain loop, which ships it after the merge with the scrubs and
+        // the moment writing actually starts. A fenced lane defers to the
+        // drain loop, which writes it after the merge with the scrubs and
         // demote marks in place.
         if (this.fences.has(personKey)) {
             personhogStoreFlushCounter.inc({ outcome: 'deferred_fenced_at_start' })
             if (pass) {
                 pass.deferrals += 1
             }
-            this.releaseShipped(personKey, entry)
+            this.releaseWritten(personKey, entry)
             return
         }
-        let settleDirectShip: () => void = () => {}
-        entry.directShipSettled = new Promise((resolve) => {
-            settleDirectShip = resolve
+        let settleDirectWrite: () => void = () => {}
+        entry.directWriteSettled = new Promise((resolve) => {
+            settleDirectWrite = resolve
         })
         try {
             if (!entry.triggersUpdate) {
@@ -1547,49 +1547,49 @@ export class PersonhogPersonsStore implements PersonsStore {
                 this.dropLeadingSegments(entry, segments)
                 return
             }
-            // Counts segments this pass actually removed by shipping them,
-            // across the direct attempts and any reship. The discard bound is
-            // snapshot minus shipped minus dropped — array length is no
-            // substitute, since folds arriving during a reship's waits
+            // Counts segments this pass actually removed by writing them,
+            // across the direct attempts and any redirect. The discard bound is
+            // snapshot minus written minus dropped — array length is no
+            // substitute, since folds arriving during a redirect's waits
             // inflate it with segments this pass never attempted and must
             // not discard.
-            const progress = { shipped: 0 }
+            const progress = { written: 0 }
             let dropped = 0
             // A size rejection removes only the rejected unit; the rest of
-            // the snapshot is still shippable RIGHT NOW, and the flush must
+            // the snapshot is still writable RIGHT NOW, and the flush must
             // not resolve — and the batch must not ack — over it. Looping
             // here honors that without burning a drain round on a lane
-            // nothing is fencing. Terminates: every iteration ships the
+            // nothing is fencing. Terminates: every iteration writes the
             // whole remainder, drops at least one unit, transitions to the
-            // reship phase once, or exits by throw.
-            let viaReship = false
-            while (segments - progress.shipped - dropped > 0) {
-                const budget = segments - progress.shipped - dropped
+            // redirect phase once, or exits by throw.
+            let viaRedirect = false
+            while (segments - progress.written - dropped > 0) {
+                const budget = segments - progress.written - dropped
                 try {
-                    if (viaReship) {
+                    if (viaRedirect) {
                         // The effective snapshot shrinks by what was dropped;
-                        // the reship derives its own remaining budget from it.
-                        let outcome: ReshipOutcome
+                        // the redirect derives its own remaining budget from it.
+                        let outcome: RedirectOutcome
                         try {
-                            outcome = await this.reshipToSurvivor(entry, segments - dropped, progress)
-                        } catch (reshipError) {
-                            if (!(reshipError instanceof CountedReshipError)) {
+                            outcome = await this.redirectToSurvivor(entry, segments - dropped, progress)
+                        } catch (redirectError) {
+                            if (!(redirectError instanceof CountedRedirectError)) {
                                 personhogStoreFlushCounter.inc({ outcome: 'error' })
                             }
-                            throw reshipError
+                            throw redirectError
                         }
                         personhogStoreFlushCounter.inc({
-                            outcome: { shipped: 'reshipped', gone: 'not_found', size_violation: 'size_violation' }[
+                            outcome: { written: 'redirected', gone: 'not_found', size_violation: 'size_violation' }[
                                 outcome
                             ],
                         })
                         if (outcome === 'gone') {
-                            this.dropLeadingSegments(entry, Math.max(0, segments - progress.shipped - dropped))
+                            this.dropLeadingSegments(entry, Math.max(0, segments - progress.written - dropped))
                             break
                         }
                         if (outcome === 'size_violation') {
                             // Only the rejected unit can never succeed; the
-                            // remainder re-enters the reship with the person
+                            // remainder re-enters the redirect with the person
                             // still gone.
                             this.dropLeadingSegments(entry, 1)
                             dropped += 1
@@ -1597,25 +1597,25 @@ export class PersonhogPersonsStore implements PersonsStore {
                         }
                         break
                     }
-                    await this.shipSegments(entry, entry.personId, budget, false, progress)
+                    await this.writeSegments(entry, entry.personId, budget, false, progress)
                     personhogStoreFlushCounter.inc({ outcome: 'success' })
                     break
                 } catch (error) {
                     if (error instanceof NoRowsUpdatedError) {
                         // The person was merged or deleted since the fold.
-                        // Settled before the reship phase: the reship waits
+                        // Settled before the redirect phase: the redirect waits
                         // on merge fences, and a merge waiting on this
                         // promise would be a cycle. A size-drop resume, by
                         // contrast, keeps the promise pending — the resumed
-                        // ship is still a direct write the merge must order
+                        // write is still a direct write the merge must order
                         // behind.
-                        settleDirectShip()
-                        viaReship = true
+                        settleDirectWrite()
+                        viaRedirect = true
                         continue
                     }
                     if (error instanceof PersonhogPropertiesSizeError) {
                         // The rejected segment can never succeed, so it goes
-                        // and the loop ships the remainder now. Counted only:
+                        // and the loop writes the remainder now. Counted only:
                         // the store holds no outputs handle, so the
                         // size-violation ingestion warning the Postgres store
                         // emits has no path from here.
@@ -1630,16 +1630,16 @@ export class PersonhogPersonsStore implements PersonsStore {
                         personId: entry.personId,
                         error,
                     })
-                    // The unshipped segments stay in the entry, so the next
-                    // pass ships them again rather than losing writes the
+                    // The unwritten segments stay in the entry, so the next
+                    // pass writes them again rather than losing writes the
                     // batch holds.
                     throw error
                 }
             }
         } finally {
-            settleDirectShip()
-            entry.directShipSettled = undefined
-            this.releaseShipped(personKey, entry)
+            settleDirectWrite()
+            entry.directWriteSettled = undefined
+            this.releaseWritten(personKey, entry)
         }
     }
 
@@ -1693,8 +1693,8 @@ export class PersonhogPersonsStore implements PersonsStore {
             isIdentified = ops.isIdentified || isIdentified ? true : undefined
             lastSeenAtMs = Math.max(lastSeenAtMs ?? 0, ops.lastSeenAtMs ?? 0) || undefined
         }
-        // The base segment names the ship. A denied event can end the run
-        // (it contributes scalars), but shipping the net under its name
+        // The base segment names the write. A denied event can end the run
+        // (it contributes scalars), but writing the net under its name
         // would make the leader's denylist discard every property the run
         // contributed — so the name comes from the last property-bearing
         // segment.
@@ -1755,7 +1755,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         return entry.segments.length > 0 && entry.demoted?.has(entry.segments[0]) === true
     }
 
-    private async shipOne(entry: OpsLaneEntry, personId: string, ops: EventOps): Promise<void> {
+    private async writeOne(entry: OpsLaneEntry, personId: string, ops: EventOps): Promise<void> {
         await this.repository.updatePersonProperties(
             {
                 teamId: entry.teamId,
@@ -1772,14 +1772,14 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
-     * Ships a lane's leading segments, removing each as it lands so a
+     * Writes a lane's leading segments, removing each as it lands so a
      * failure part way through never discards what has not been attempted.
-     * Demoted lanes ship as one operation, since the demote is defined over
+     * Demoted lanes write as one operation, since the demote is defined over
      * the lane's net effect rather than per segment.
      */
     /**
-     * Removes the lane's leading segments after they shipped (or were
-     * judged unshippable), keeping the demote mark set in step so it never
+     * Removes the lane's leading segments after they written (or were
+     * judged unwritable), keeping the demote mark set in step so it never
      * pins removed objects or misclassifies survivors.
      */
     private dropLeadingSegments(entry: OpsLaneEntry, count: number): void {
@@ -1788,12 +1788,12 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private async shipSegments(
+    private async writeSegments(
         entry: OpsLaneEntry,
         personId: string,
         segments: number,
         demote = false,
-        progress?: { shipped: number }
+        progress?: { written: number }
     ): Promise<void> {
         const count = Math.min(segments, entry.segments.length)
         if (count === 0) {
@@ -1803,11 +1803,11 @@ export class PersonhogPersonsStore implements PersonsStore {
         // it travels as one operation: the demote is defined over a lane's
         // net effect, so splitting the marked run across passes would let
         // an early value win first-wins over the one that stood. The run
-        // therefore ships whole even past the snapshot count — this lane is
+        // therefore writes whole even past the snapshot count — this lane is
         // in flight, so no other writer can touch it, and a marked segment
         // predates the merge in every case but a fold that outwaited the
         // fence's timeout, whose ordering was forfeited with the timeout.
-        // Anything unmarked ships as itself, bounded by the snapshot.
+        // Anything unmarked writes as itself, bounded by the snapshot.
         let prefix = 0
         if (demote) {
             while (prefix < entry.segments.length && entry.demoted?.has(entry.segments[prefix])) {
@@ -1815,51 +1815,51 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
         }
         if (prefix > 0) {
-            await this.shipOne(entry, personId, this.demoteSegments(entry.segments.slice(0, prefix)))
+            await this.writeOne(entry, personId, this.demoteSegments(entry.segments.slice(0, prefix)))
             this.dropLeadingSegments(entry, prefix)
             if (progress) {
-                progress.shipped += prefix
+                progress.written += prefix
             }
         }
-        for (let shipped = prefix; shipped < count; shipped++) {
-            await this.shipOne(entry, personId, entry.segments[0])
+        for (let written = prefix; written < count; written++) {
+            await this.writeOne(entry, personId, entry.segments[0])
             this.dropLeadingSegments(entry, 1)
             if (progress) {
-                progress.shipped += 1
+                progress.written += 1
             }
         }
     }
 
     /**
-     * Re-resolves a lane's distinct id after its person vanished and ships
+     * Re-resolves a lane's distinct id after its person vanished and writes
      * the snapshot to the survivor. Answers 'gone' when nothing resolves,
      * when the id still maps to the vanished person, or when the survivor
-     * is also gone by ship time. A transient failure rethrows with the
+     * is also gone by write time. A transient failure rethrows with the
      * segments still in the entry, so the flush retries them whole.
      */
-    private async reshipToSurvivor(
+    private async redirectToSurvivor(
         entry: OpsLaneEntry,
         segments: number,
-        progress: { shipped: number }
-    ): Promise<ReshipOutcome> {
+        progress: { written: number }
+    ): Promise<RedirectOutcome> {
         // Each pass re-resolves against the person the previous one failed
         // to write, so consecutive merges on the same lineage converge
         // instead of dropping on the second one. Postgres loops its refresh
         // for the same reason.
         // A lane captured before its person was fenced can reach this path
         // mid-merge: identity's flip becomes visible before the merge RPC
-        // returns and reconcile marks the lane. Shipping then would land the
+        // returns and reconcile marks the lane. Writing then would land the
         // pre-merge ops raw. Waiting the fence out first means the marks —
-        // and the repointed resolution — exist before anything ships.
+        // and the repointed resolution — exist before anything writes.
         const fence = this.fences.get(`${entry.teamId}:${entry.personId}`)
         if (fence) {
             await this.awaitFences(`${entry.teamId}:${entry.personId}`, fence)
         }
         let vanished = entry.personId
-        for (let attempt = 0; attempt < RESHIP_MAX_ATTEMPTS; attempt++) {
+        for (let attempt = 0; attempt < REDIRECT_MAX_ATTEMPTS; attempt++) {
             // The resolve sits inside the try because it is a network call
-            // like the ship: a transient identity failure has to put the
-            // entry back rather than leave it claimed and unshipped.
+            // like the write: a transient identity failure has to put the
+            // entry back rather than leave it claimed and unwritten.
             let survivorId: string | undefined
             try {
                 const [resolved] = await this.repository.resolvePersonsByDistinctIds(
@@ -1867,8 +1867,8 @@ export class PersonhogPersonsStore implements PersonsStore {
                     CALLER_TAG
                 )
                 survivorId = resolved?.person?.id
-                // The top-of-reship fence wait is one check; a merge can
-                // fence either person after it. Shipping under a live fence
+                // The top-of-redirect fence wait is one check; a merge can
+                // fence either person after it. Writing under a live fence
                 // lands pre-merge ops after the saga's own writes, so any
                 // fence found now is waited out and the attempt restarts
                 // with a fresh resolve.
@@ -1885,8 +1885,10 @@ export class PersonhogPersonsStore implements PersonsStore {
                     // already applied. Refresh before concluding the person
                     // is gone, so lag does not read as a deletion and throw
                     // the ops away.
-                    if (attempt < RESHIP_MAX_ATTEMPTS - 1) {
-                        await new Promise((resolve) => setTimeout(resolve, RESHIP_REFRESH_INTERVAL_MS * (attempt + 1)))
+                    if (attempt < REDIRECT_MAX_ATTEMPTS - 1) {
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, REDIRECT_REFRESH_INTERVAL_MS * (attempt + 1))
+                        )
                         continue
                     }
                     if (survivorId === vanished) {
@@ -1896,40 +1898,40 @@ export class PersonhogPersonsStore implements PersonsStore {
                         // which lags it. Dropping here would lose real
                         // writes whenever lag outruns the refresh budget, so
                         // the batch fails and redelivers instead.
-                        personhogStoreFlushCounter.inc({ outcome: 'reship_lagged' })
-                        throw new CountedReshipError(
+                        personhogStoreFlushCounter.inc({ outcome: 'redirect_lagged' })
+                        throw new CountedRedirectError(
                             `identity still resolves ${entry.distinctId} to vanished person ` +
                                 `${vanished} in team ${entry.teamId}; failing the flush rather than dropping`
                         )
                     }
                     return 'gone'
                 }
-                // Registered before the ship goes on the wire: the fence
+                // Registered before the write goes on the wire: the fence
                 // recheck above and this registration are one synchronous
                 // block, and a merge's fence-install and registry check are
-                // another, so either the merge sees this reship and waits,
+                // another, so either the merge sees this redirect and waits,
                 // or this attempt saw the fence and waited. Without the
                 // registration, a merge fencing the survivor mid-RPC could
                 // land its own writes first and have these older ops
                 // overwrite them.
                 const survivorKey = `${entry.teamId}:${survivorId}`
-                let settleReship: () => void = () => {}
-                const reshipping = new Promise<void>((resolve) => {
-                    settleReship = resolve
+                let settleRedirect: () => void = () => {}
+                const redirecting = new Promise<void>((resolve) => {
+                    settleRedirect = resolve
                 })
-                let registered = this.reshipsInFlight.get(survivorKey)
+                let registered = this.redirectsInFlight.get(survivorKey)
                 if (!registered) {
                     registered = new Set()
-                    this.reshipsInFlight.set(survivorKey, registered)
+                    this.redirectsInFlight.set(survivorKey, registered)
                 }
-                registered.add(reshipping)
+                registered.add(redirecting)
                 try {
-                    await this.shipSegments(entry, survivorId, segments - progress.shipped, true, progress)
+                    await this.writeSegments(entry, survivorId, segments - progress.written, true, progress)
                 } finally {
-                    settleReship()
-                    registered.delete(reshipping)
-                    if (registered.size === 0 && this.reshipsInFlight.get(survivorKey) === registered) {
-                        this.reshipsInFlight.delete(survivorKey)
+                    settleRedirect()
+                    registered.delete(redirecting)
+                    if (registered.size === 0 && this.redirectsInFlight.get(survivorKey) === registered) {
+                        this.redirectsInFlight.delete(survivorKey)
                     }
                 }
                 // The id belongs to the survivor now. Healing the memo stops
@@ -1937,7 +1939,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 // person and paying this path again — the same repoint the
                 // Postgres cache performs on this exact signal.
                 this.repointResolution(`${entry.teamId}:${entry.distinctId}`, `${entry.teamId}:${survivorId}`)
-                return 'shipped'
+                return 'written'
             } catch (error) {
                 if (error instanceof NoRowsUpdatedError) {
                     // The person this pass resolved is gone too; the next pass
@@ -1954,9 +1956,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         // Every attempt lost its race. The segments are still in the entry,
         // so failing here retries them on the batch's redelivery rather than
         // discarding writes the batch never acked.
-        personhogStoreFlushCounter.inc({ outcome: 'reship_exhausted' })
-        throw new CountedReshipError(
-            `person ${entry.personId} in team ${entry.teamId} merged away ${RESHIP_MAX_ATTEMPTS} times during reship`
+        personhogStoreFlushCounter.inc({ outcome: 'redirect_exhausted' })
+        throw new CountedRedirectError(
+            `person ${entry.personId} in team ${entry.teamId} merged away ${REDIRECT_MAX_ATTEMPTS} times during redirect`
         )
     }
 
@@ -1974,7 +1976,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      * missing field degrades to the older behavior instead of to nothing.
      *
      * A lane still holding ops for a destroyed person keeps them: they
-     * missed the merge, so they are marked to reship with source
+     * missed the merge, so they are marked to redirect with source
      * precedence and land on the survivor without taking a key conflict
      * the target won. Postgres drops those buffered ops outright when it
      * clears the source, so applying them late keeps writes that backend
@@ -2015,7 +2017,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // The belief predates the merge's own resolve, which has already
             // rewritten this edge; without the captured copy, a lane folded
             // under the stale belief would never be claimed and its ops
-            // would reship raw.
+            // would redirect raw.
             if (beliefKey !== undefined) {
                 claim(inferred, beliefKey, rank)
             }
@@ -2099,7 +2101,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      * read-your-write view, and `recordFetch` will overwrite it with
      * service state once it is absent, so dropping it would hide this
      * batch's earlier updates from its own later events. Re-resolution
-     * repoints the ids; the projection stays until its ops ship.
+     * repoints the ids; the projection stays until its ops write.
      */
     private invalidateTeamAfterFailedMerge(teamId: number): void {
         const teamPrefix = `${teamId}:`
@@ -2126,7 +2128,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      * entries, mirroring the Postgres store's post-flush release. Entries
      * are reference-counted because they are shared: one batch finishing
      * must not evict ops another batch is still folding into. An entry that
-     * still holds unshipped ops when its last reference goes is deferred
+     * still holds unwritten ops when its last reference goes is deferred
      * rather than evicted, so releasing never discards a write.
      */
     releaseBatch(batchId: number): void {
@@ -2145,7 +2147,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             const entry = this.entries.get(personKey)
             if (entry && entry.segments.length > 0) {
                 // Evicting now would discard the ops. The entry stays until
-                // its ship drains it, which retires it through the same
+                // its write drains it, which retires it through the same
                 // refcount check.
                 continue
             }
@@ -2165,7 +2167,7 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     /**
      * Frees a person's projection once nothing needs it: no lane holding
-     * unshipped ops, and no live resolution naming it. Called from both
+     * unwritten ops, and no live resolution naming it. Called from both
      * sides, because either can be the last to let go.
      */
     private evictProjection(personKey: string): void {
@@ -2195,7 +2197,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // the data itself is redelivery-safe, the bug is not.
         if (this.entries.size > 0) {
             return Promise.reject(
-                new Error(`PersonhogPersonsStore shut down with ${this.entries.size} lanes holding unshipped ops`)
+                new Error(`PersonhogPersonsStore shut down with ${this.entries.size} lanes holding unwritten ops`)
             )
         }
         return Promise.resolve()

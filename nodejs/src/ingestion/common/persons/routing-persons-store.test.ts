@@ -223,7 +223,7 @@ describe('RoutingPersonsStore', () => {
                     store.updatePersonWithPropertiesDiffForUpdate(person(1, '7'), { a: '1' }, [], {}, 'd1', 0),
                 (m: jest.Mocked<PersonsStore>) => m.updatePersonWithPropertiesDiffForUpdate,
             ],
-        ] as const)('%s ships the shadow backend id, not the pg id', async (_verb, call, member) => {
+        ] as const)('%s writes the shadow backend id, not the pg id', async (_verb, call, member) => {
             const stores = makeStores()
             stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
             stores.pg.updatePersonWithPropertiesDiffForUpdate.mockResolvedValue([person(1, '7'), [], true])
