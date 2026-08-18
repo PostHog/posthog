@@ -44,6 +44,11 @@ MAX_COMPONENT_HEIGHT = 40
 # no pattern/patternProperties (placement-config validation must not evaluate
 # author-supplied regexes). Size-capped so a schema cannot bloat version rows.
 MAX_CONFIG_SCHEMA_BYTES = 16 * 1024
+# Depth-capped as well: a schema well under the byte cap can still nest deeply
+# enough to exhaust the Python recursion limit inside jsonschema's check_schema
+# (or our own keyword scan), which would escape as a 500 rather than a validation
+# diagnostic. Bounded far below where check_schema starts recursing off the limit.
+MAX_CONFIG_SCHEMA_DEPTH = 32
 ALLOWED_CONFIG_SCHEMA_KEYWORDS = frozenset(
     {
         "type",
@@ -458,12 +463,38 @@ def _unknown_config_schema_keywords(schema: Any) -> set[str]:
     return unknown
 
 
+def _max_json_depth(value: Any) -> int:
+    """Deepest container nesting in a JSON value, walked with an explicit stack.
+
+    Author config schemas are hostile input, so depth is measured without
+    recursion — the point is to bound nesting before any recursive processing
+    (the keyword scan, jsonschema's check_schema) descends into it.
+    """
+    max_depth = 0
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    while stack:
+        current, depth = stack.pop()
+        if isinstance(current, dict):
+            children: Any = current.values()
+        elif isinstance(current, list):
+            children = current
+        else:
+            continue
+        if depth > max_depth:
+            max_depth = depth
+        for child in children:
+            stack.append((child, depth + 1))
+    return max_depth
+
+
 def _validate_config_schema(config_schema: Any) -> str | None:
     """Validate a component's placement-config schema; returns the problem or None."""
     if not isinstance(config_schema, dict) or config_schema.get("type") != "object":
         return 'component.configSchema must be a JSON Schema object with "type": "object"'
     if len(json.dumps(config_schema, separators=(",", ":")).encode("utf-8")) > MAX_CONFIG_SCHEMA_BYTES:
         return f"component.configSchema may not exceed {MAX_CONFIG_SCHEMA_BYTES // 1024} KB serialized"
+    if _max_json_depth(config_schema) > MAX_CONFIG_SCHEMA_DEPTH:
+        return f"component.configSchema may not nest deeper than {MAX_CONFIG_SCHEMA_DEPTH} levels"
     unknown = _unknown_config_schema_keywords(config_schema)
     if unknown:
         return (

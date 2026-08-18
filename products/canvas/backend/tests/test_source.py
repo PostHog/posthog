@@ -6,6 +6,7 @@ from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.source import (
     CANVAS_COMPONENT_PATH,
     CANVAS_ENTRY_HTML,
+    MAX_CONFIG_SCHEMA_DEPTH,
     has_errors,
     synthetic_source_project,
     validate_source_project,
@@ -275,6 +276,13 @@ def component_meta(**overrides):
     return meta
 
 
+def deeply_nested_config_schema(levels):
+    schema = {"type": "object"}
+    for _ in range(levels):
+        schema = {"type": "object", "items": schema}
+    return schema
+
+
 class TestComponentMetaValidation(SimpleTestCase):
     def test_valid_component_project_has_no_errors(self):
         candidate = project(component=component_meta())
@@ -334,6 +342,11 @@ class TestComponentMetaValidation(SimpleTestCase):
                 component_meta(
                     configSchema={"type": "object", "properties": {"a": {"type": "string", "pattern": "^a"}}}
                 ),
+                "component_config_schema_invalid",
+            ),
+            (
+                "config_schema_too_deeply_nested",
+                component_meta(configSchema=deeply_nested_config_schema(MAX_CONFIG_SCHEMA_DEPTH + 200)),
                 "component_config_schema_invalid",
             ),
         ]
