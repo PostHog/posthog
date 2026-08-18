@@ -475,20 +475,21 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        renameFilter: async ({ custom_name }, breakpoint) => {
-            if (!values.selectedFilter) {
-                return
+        renameFilter: ({ custom_name }) => {
+            const selectedFilter = values.selectedFilter as LocalFilter | null
+            if (selectedFilter) {
+                const indexByUuid = selectedFilter.uuid
+                    ? values.localFilters.findIndex((filter) => filter.uuid === selectedFilter.uuid)
+                    : -1
+
+                actions.updateFilter({
+                    ...selectedFilter,
+                    index: indexByUuid === -1 ? selectedFilter.order : indexByUuid,
+                    custom_name,
+                } as EntityFilter & {
+                    index: number
+                })
             }
-
-            await breakpoint(100)
-
-            actions.updateFilter({
-                ...values.selectedFilter,
-                index: values.selectedFilter?.order,
-                custom_name,
-            } as EntityFilter & {
-                index: number
-            })
             actions.hideModal()
         },
         hideModal: () => {
