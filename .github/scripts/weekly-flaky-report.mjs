@@ -288,8 +288,7 @@ function quarantineStatusFor(trunkFor, masksCi = TRUNK_MASKS_CI) {
         if (!masksCi) {
             return 'flagged'
         }
-        const quarantinedOn = String(trunk.quarantinedAt || '').slice(0, 10)
-        return quarantinedOn || 'yes'
+        return (trunk.quarantinedAt || '').slice(0, 10) || 'yes'
     }
 }
 

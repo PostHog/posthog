@@ -332,12 +332,12 @@ describe('weekly flaky report', () => {
         const undated = { runner: 'pytest', selector: 'undated.py::test_undated', failed_run_count: 2 }
         const plain = { runner: 'pytest', selector: 'plain.py::test_plain', failed_run_count: 1 }
         const items = [quarantineFile, unparked, trunked, undated, plain]
-        const trunkFor = (item) => {
-            if (item.selector === trunked.selector) {
-                return { quarantinedAt: '2026-07-13T17:12:22.000Z' }
-            }
-            return item.selector === undated.selector ? { quarantinedAt: null } : null
-        }
+        const trunkRows = new Map([
+            [trunked.selector, '2026-07-13T17:12:22.000Z'],
+            [undated.selector, null],
+        ])
+        const trunkFor = (item) =>
+            trunkRows.has(item.selector) ? { quarantinedAt: trunkRows.get(item.selector) } : null
 
         const cells = (masksCi) =>
             tableRows(
