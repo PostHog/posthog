@@ -10,7 +10,11 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.canvas.backend.report_canvas import CanvasGenerationSource, CanvasGenerationState
+from products.canvas.backend.report_canvas import (
+    CanvasGenerationSource,
+    CanvasGenerationSourceUnavailable,
+    CanvasGenerationState,
+)
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice, SuggestedReviewers
 from products.signals.backend.models import (
@@ -362,3 +366,65 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert session.failure_reason == "Builder dependencies are missing."
         assert attempt.status == SignalReportCanvasGeneration.Status.FAILED
         assert attempt.validation_status == SignalReportCanvasGeneration.ValidationStatus.INVALID
+
+    def test_unreadable_source_marks_generation_failed(self) -> None:
+        report = self._report()
+        generation_task_id = uuid.uuid4()
+        generation_run_id = uuid.uuid4()
+        with team_scope(self.team.id):
+            channel = self.channel_model.objects.create(team=self.team, name="general")
+            discussion = self.task_model.objects.create(team=self.team, channel=channel, title="Report")
+            canvas = self.canvas_model.objects.create(team=self.team, channel=channel, name="Report")
+            session = SignalReportCanvas.objects.create(
+                team=self.team,
+                report=report,
+                canvas_id=canvas.id,
+                discussion_task_id=discussion.id,
+                generation_task_id=generation_task_id,
+                generation_status=SignalReportCanvas.GenerationStatus.GENERATING,
+            )
+            attempt = SignalReportCanvasGeneration.objects.create(
+                team=self.team,
+                report=report,
+                status=SignalReportCanvasGeneration.Status.GENERATING,
+                trigger="report_ready",
+                prompt_version="test",
+                input_fingerprint="f" * 64,
+                generation_task_id=generation_task_id,
+                generation_run_id=generation_run_id,
+            )
+        generation = ReportCanvasGeneration(
+            canvas_id=canvas.id,
+            discussion_task_id=discussion.id,
+            generation_task_id=generation_task_id,
+            generation_run_id=generation_run_id,
+            generation_id=attempt.id,
+            fingerprint="f" * 64,
+        )
+
+        with (
+            patch(
+                "products.signals.backend.report_canvas.canvas_api.canvas_generation_result",
+                return_value=CanvasGenerationState(status="ready"),
+            ),
+            patch(
+                "products.signals.backend.report_canvas.canvas_api.canvas_generation_source",
+                side_effect=CanvasGenerationSourceUnavailable,
+            ),
+            patch("products.signals.backend.report_canvas.tasks_facade.record_task_activity_for_users") as notify,
+        ):
+            result = finalize_report_canvas_generation(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                generation=generation,
+            )
+
+        assert result is False
+        session.refresh_from_db()
+        attempt.refresh_from_db()
+        assert session.generation_status == SignalReportCanvas.GenerationStatus.FAILED
+        assert session.failure_reason == "The generated canvas source could not be read."
+        assert attempt.status == SignalReportCanvasGeneration.Status.FAILED
+        assert attempt.validation_status == SignalReportCanvasGeneration.ValidationStatus.INVALID
+        assert attempt.error_category == "output_unavailable"
+        notify.assert_not_called()

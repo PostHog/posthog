@@ -379,6 +379,18 @@ def finalize_report_canvas_generation(
             return None
 
     succeeded = canvas_state.status == "ready"
+    source = None
+    source_failure = False
+    if succeeded:
+        try:
+            source = canvas_api.canvas_generation_source(
+                team_id=team_id,
+                canvas_id=generation.canvas_id,
+                task_id=generation.generation_task_id,
+            )
+        except canvas_api.CanvasGenerationSourceUnavailable:
+            succeeded = False
+            source_failure = True
     session = SignalReportCanvas.objects.for_team(team_id).get(report_id=report_id)
     session.generation_status = (
         SignalReportCanvas.GenerationStatus.READY if succeeded else SignalReportCanvas.GenerationStatus.FAILED
@@ -386,7 +398,11 @@ def finalize_report_canvas_generation(
     session.failure_reason = (
         ""
         if succeeded
-        else canvas_state.failure_reason or "The canvas agent finished without producing a canvas version."
+        else (
+            "The generated canvas source could not be read."
+            if source_failure
+            else canvas_state.failure_reason or "The canvas agent finished without producing a canvas version."
+        )
     )
     if succeeded:
         session.generated_fingerprint = generation.fingerprint
@@ -394,7 +410,10 @@ def finalize_report_canvas_generation(
     report = SignalReport.objects.select_related("team__organization").get(id=report_id, team_id=team_id)
     publishing_enabled = report_canvas_publishing_enabled(report.team)
     if generation.generation_id is not None:
-        attempt = SignalReportCanvasGeneration.objects.for_team(team_id).get(id=generation.generation_id)
+        attempt = SignalReportCanvasGeneration.objects.for_team(team_id).filter(id=generation.generation_id).first()
+    else:
+        attempt = None
+    if attempt is not None:
         completed_at = timezone.now()
         attempt.status = (
             SignalReportCanvasGeneration.Status.READY if succeeded else SignalReportCanvasGeneration.Status.FAILED
@@ -418,12 +437,9 @@ def finalize_report_canvas_generation(
                 if key in run.state
             }
             attempt.error_category = str(run.state.get("error_category") or "")
-        if succeeded:
-            source = canvas_api.canvas_generation_source(
-                team_id=team_id,
-                canvas_id=generation.canvas_id,
-                task_id=generation.generation_task_id,
-            )
+        if source_failure:
+            attempt.error_category = "output_unavailable"
+        if succeeded and source is not None:
             attempt.output_source = json.dumps(source.project, sort_keys=True, ensure_ascii=False)
             attempt.output_storage_key = source.storage_key
             if publishing_enabled:
