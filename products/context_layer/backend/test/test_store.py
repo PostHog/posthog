@@ -1,3 +1,4 @@
+import tempfile
 from pathlib import Path
 
 from posthog.test.base import BaseTest
@@ -180,6 +181,24 @@ class TestContextLayerStore(BaseTest):
         with store.checkout_repo(self.organization.id) as checkout:
             shipped = (checkout.path / "scripts" / "lint").read_text()
             assert shipped == repo_lint._canonical_scripts()["lint"]
+
+    def test_refresh_never_writes_through_a_symlinked_script(self) -> None:
+        store.initialize_repo(self.organization.id)
+        victim = Path(tempfile.mkdtemp()) / "victim.txt"
+        victim.write_text("untouched")
+
+        def symlink_script(root: Path) -> None:
+            lint = root / "scripts" / "lint"
+            lint.unlink()
+            lint.symlink_to(victim)
+
+        store.apply_changes(self.organization.id, message="Symlink the linter", mutate=symlink_script)
+
+        assert victim.read_text() == "untouched"
+        with store.checkout_repo(self.organization.id) as checkout:
+            landed = checkout.path / "scripts" / "lint"
+            assert not landed.is_symlink()
+            assert landed.read_text() == repo_lint._canonical_scripts()["lint"]
 
     def test_checkout_repo_without_config_raises(self) -> None:
         with self.assertRaises(store.RepoNotFoundError):

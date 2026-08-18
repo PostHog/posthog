@@ -249,10 +249,14 @@ def _refresh_canonical_scripts(workdir: Path) -> None:
     as part of the landing commit instead of failing the pinned lint forever.
     """
     scripts_dir = workdir / "scripts"
-    if not scripts_dir.is_dir():
+    if scripts_dir.is_symlink() or not scripts_dir.is_dir():
         return
     for name, content in repo_lint._canonical_scripts().items():
         target = scripts_dir / name
+        if target.is_symlink():
+            # Never write through a link: a checkout could point scripts/lint at
+            # a path writable by the service, and write_text follows symlinks.
+            target.unlink()
         if not target.exists() or target.read_text(encoding="utf-8", errors="replace") != content:
             target.write_text(content, encoding="utf-8")
             target.chmod(0o755)
