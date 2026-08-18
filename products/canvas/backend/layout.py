@@ -336,10 +336,12 @@ def validate_layout_references(team_id: int, user_id: int | None, layout: dict[s
                     )
                 )
         schema = meta.get("configSchema")
-        config = placement.get("config")
-        if schema is not None and config is not None:
+        if schema is not None:
+            # An omitted config is an empty config: a schema that marks fields
+            # required must reject a placement that supplies none, matching how
+            # it already rejects an explicit empty object.
             try:
-                jsonschema.validate(config, schema)
+                jsonschema.validate(placement.get("config") or {}, schema)
             except jsonschema.ValidationError as error:
                 diagnostics.append(
                     diagnostic(
