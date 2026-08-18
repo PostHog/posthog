@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
@@ -30,6 +30,11 @@ const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
         access_key: '',
         access_secret: '',
     },
+}
+
+function apiErrorMessage(error: string, errorObject: unknown, fallback: string): string {
+    const apiError = errorObject instanceof ApiError ? errorObject : undefined
+    return apiError?.detail || apiError?.data?.message || error || fallback
 }
 
 // `credential` is null on tables saved without one (the API only enforces credentials on
@@ -282,6 +287,12 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
                 sourceSceneLogic.findMounted({ id: `self-managed-${props.id}` })?.actions.setBreadcrumbName(table.name)
             }
         },
+        createTableFailure: ({ error, errorObject }) => {
+            lemonToast.error(apiErrorMessage(error, errorObject, 'Failed to create table'))
+        },
+        updateTableFailure: ({ error, errorObject }) => {
+            lemonToast.error(apiErrorMessage(error, errorObject, 'Failed to update table'))
+        },
     })),
     reducers({
         isEditingTable: [
@@ -302,14 +313,12 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
             defaults: { ...NEW_WAREHOUSE_TABLE } as DataWarehouseTable,
             errors: selfManagedTableFormErrors,
             submit: async (tablePayload) => {
-                try {
-                    if (props.id && props.id !== 'new') {
-                        actions.updateTable(tablePayload)
-                    } else {
-                        actions.createTable(tablePayload)
-                    }
-                } catch (e: any) {
-                    lemonToast.error(e.data?.message ?? e.message)
+                // updateTable/createTable are kea-loaders actions; their failures surface through the
+                // *Failure listeners above, not a synchronous throw here.
+                if (props.id && props.id !== 'new') {
+                    actions.updateTable(tablePayload)
+                } else {
+                    actions.createTable(tablePayload)
                 }
             },
         },

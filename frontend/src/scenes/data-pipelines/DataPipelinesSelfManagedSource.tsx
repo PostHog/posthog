@@ -35,18 +35,12 @@ export function DataPipelinesSelfManagedSourceTable({ table, updateTable }: Prop
                             name: table.name,
                             url_pattern: table.url_pattern,
                             format: table.format,
-                            ...(table.credential?.access_key || table.credential?.access_secret
-                                ? {
-                                      credential: {
-                                          ...(table.credential?.access_key
-                                              ? { access_key: table.credential.access_key }
-                                              : {}),
-                                          ...(table.credential?.access_secret
-                                              ? { access_secret: table.credential.access_secret }
-                                              : {}),
-                                      },
-                                  }
-                                : {}),
+                            // Always send the credential so the backend can reject an empty save
+                            // loudly, rather than silently dropping the key and doing nothing.
+                            credential: {
+                                access_key: table.credential?.access_key ?? '',
+                                access_secret: table.credential?.access_secret ?? '',
+                            },
                         })
                     }
                 />

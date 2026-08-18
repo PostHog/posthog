@@ -91,6 +91,26 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "re-upload the file if you manage it yourself), and contact support if it keeps happening."
 )
 
+# Object-store credential and access failures from ClickHouse's s3()/deltaLake() table functions
+# (self-managed warehouse tables) arrive as raw DB::Exceptions. Left raw, a bad access key reads to
+# the customer as "ClickHouse is down". These substrings map the raw messages to plain-language
+# guidance. The self-managed warehouse table model reuses this same mapping on its column-refresh
+# path, so both surfaces stay consistent.
+STORAGE_CREDENTIAL_ERROR_TRANSLATIONS: dict[str, str] = {
+    "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
+    "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
+    # DeltaLake-kernel object_store errors use a different vocabulary than ClickHouse's native S3 errors.
+    "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
+    "Could not list objects in bucket": "Access was denied to the provided bucket. Check that the provided credentials can list this bucket (s3:ListBucket), then try again.",
+}
+
+
+def translate_storage_credential_error(message: str) -> Optional[str]:
+    for needle, friendly in STORAGE_CREDENTIAL_ERROR_TRANSLATIONS.items():
+        if needle in message:
+            return friendly
+    return None
+
 
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     match = STORAGE_FILE_URI_PATTERN.search(err.message)
@@ -111,6 +131,15 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
 
     meta = look_up_clickhouse_error_code_meta(err)
     name = meta.name
+
+    # Object-store credential/access failures reach us under several codes (S3_ERROR, ACCESS_DENIED,
+    # AUTHENTICATION_FAILED, DELTA_KERNEL_ERROR). Match the specific storage messages first so a bad
+    # access key reads as a bad access key on the query path, not as a raw ClickHouse exception.
+    storage_credential_message = translate_storage_credential_error(err.message)
+    if storage_credential_message is not None:
+        return CHQueryErrorStorageCredentials(
+            storage_credential_message, code=err.code, code_name="storage_credentials"
+        )
 
     # Naming convention:
     # - Exceptions starting with ClickHouse inherit from APIException and are not sent to error reporting.
@@ -239,6 +268,12 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
 # Specific error classes we need
 # These exist here and are not dynamically created because they are used in the codebase.
 class CHQueryErrorS3Error(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorStorageCredentials(ExposedCHQueryError):
+    """A self-managed warehouse table's object-store credentials were rejected while reading."""
+
     pass
 
 

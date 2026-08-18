@@ -52,7 +52,7 @@ interface Props {
 
 export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
     const { manualLinkingProvider } = useValues(sourceWizardLogic)
-    const { table } = useValues(selfManagedSourceLogic)
+    const { table, tableLoading } = useValues(selfManagedSourceLogic)
 
     const provider = manualLinkingProvider ?? 'aws'
     const isCsvFormat = table?.format === 'CSV' || table?.format === 'CSVWithNames'
@@ -187,7 +187,12 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
             </div>
             {!!onUpdate && (
                 <div className="flex justify-end">
-                    <LemonButton type="primary" onClick={onUpdate}>
+                    <LemonButton
+                        type="primary"
+                        onClick={onUpdate}
+                        loading={tableLoading}
+                        disabledReason={tableLoading ? 'Saving…' : undefined}
+                    >
                         Save
                     </LemonButton>
                 </div>

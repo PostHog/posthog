@@ -810,6 +810,63 @@ class TestTable(APIBaseTest):
         assert credential.access_key == "original_key"
         assert credential.access_secret == "original_secret"
 
+    def test_update_table_with_empty_credentials_is_rejected(self):
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
+
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="original_key", access_secret="original_secret"
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            credential=credential,
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {"credential": {"access_key": "", "access_secret": ""}},
+        )
+        assert response.status_code == 400
+
+        credential.refresh_from_db()
+        assert credential.access_key == "original_key"
+        assert credential.access_secret == "original_secret"
+
+    def test_update_table_without_credential_key_keeps_existing(self):
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
+
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="original_key", access_secret="original_secret"
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            url_pattern="https://acme-exports.s3.amazonaws.com/old/*.pqt",
+            credential=credential,
+        )
+
+        with (
+            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
+            patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IP),
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+                {"url_pattern": "https://acme-exports.s3.amazonaws.com/new/*.pqt"},
+            )
+
+        assert response.status_code == 200
+
+        table.refresh_from_db()
+        credential.refresh_from_db()
+        assert table.url_pattern == "https://acme-exports.s3.amazonaws.com/new/*.pqt"
+        assert credential.access_key == "original_key"
+        assert credential.access_secret == "original_secret"
+
     def test_update_table_credential_null_rejected(self):
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
 

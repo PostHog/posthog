@@ -400,13 +400,21 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         validated_data = serializer.validated_data
 
         credential_data = validated_data.pop("credential", None)
-        if credential_data:
+        if credential_data is not None:
             access_key = credential_data.get("access_key")
             access_secret = credential_data.get("access_secret")
 
-            if access_key is not None and len(access_key.strip()) == 0:
+            key_blank = not (access_key and access_key.strip())
+            secret_blank = not (access_secret and access_secret.strip())
+
+            # The edit form can't prefill the write-only secret, so a save that leaves both fields
+            # empty would otherwise slip through as a no-op. Require credentials the same way
+            # creation does, so an accidental empty save fails loudly instead of doing nothing.
+            if key_blank and secret_blank:
+                raise serializers.ValidationError("Access key and secret are required")
+            if access_key is not None and key_blank:
                 raise serializers.ValidationError("Access key can't be blank")
-            if access_secret is not None and len(access_secret.strip()) == 0:
+            if access_secret is not None and secret_blank:
                 raise serializers.ValidationError("Access secret can't be blank")
 
             credential = instance.credential

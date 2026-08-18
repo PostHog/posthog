@@ -57,8 +57,52 @@ class TestWrapClickhouseQueryError:
 
     @parameterized.expand(
         [
+            # Object-store credential/access failures arrive under several codes. Whichever code
+            # carries them, the specific message must translate to plain-language guidance so a bad
+            # access key reads as a bad access key on the query path instead of a raw CH exception.
+            (
+                499,
+                "S3_ERROR",
+                "The AWS Access Key Id you provided does not exist",
+                "The Access Key you provided does not exist",
+            ),
+            (
+                516,
+                "AUTHENTICATION_FAILED",
+                "Access Denied: while reading key: exports/data.parquet",
+                "Access was denied when reading a file from the bucket.",
+            ),
+            (
+                742,
+                "DELTA_KERNEL_ERROR",
+                "The operation lacked the necessary privileges to complete",
+                "Access was denied when reading the provided file",
+            ),
+            (
+                497,
+                "ACCESS_DENIED",
+                "Could not list objects in bucket",
+                "Access was denied to the provided bucket.",
+            ),
+        ]
+    )
+    def test_storage_credential_errors_wrap_as_exposed_message(
+        self, code: int, name: str, raw: str, expected: str
+    ) -> None:
+        err = ServerException(f"DB::Exception: {name}: {raw}", code=code)
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert expected in str(wrapped)
+
+    @parameterized.expand(
+        [
             # NETWORK_ERROR (210) is a genuine server-side fault and must not be exposed.
             (210, "NETWORK_ERROR"),
+            # A generic authentication failure with no object-store message stays internal — the
+            # storage-credential translation must not mislabel ClickHouse's own RBAC errors.
+            (516, "AUTHENTICATION_FAILED"),
             # SYNTAX_ERROR (62) stays internal: HogQL validates syntax first, so a raw CH syntax error
             # signals a PostHog SQL-generation bug that belongs in error tracking.
             (62, "SYNTAX_ERROR"),
