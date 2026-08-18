@@ -28,10 +28,9 @@ export interface RailFacetProps {
 export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | null {
     // `facet` comes from the memoized visibleFacets selector, so this identity is stable.
     const logicProps = useMemo(() => ({ id, facet }), [id, facet])
-    const { facetValues, facetValuesLoading, facetSearch } = useValues(facetValuesLogic(logicProps))
+    const { facetValues, facetValuesLoading, facetSearch, collapsed } = useValues(facetValuesLogic(logicProps))
     const { setFacetSearch } = useActions(facetValuesLogic(logicProps))
     const { severityLevels, serviceNames, filterGroup } = useValues(logsViewerFiltersLogic({ id }))
-    const { collapsedFacets } = useValues(facetRailLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
 
     if (hidden) {
@@ -57,7 +56,6 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
     const fetched: FacetOption[] = facetValues.map((r) => ({ value: r.value, label: r.value, count: r.count }))
     const onToggle = (value: string): void => toggleFacetValue(source, value)
     const onToggleCollapsed = (): void => toggleFacetCollapsed(facet.key)
-    const collapsed = collapsedFacets.includes(facet.key)
 
     if (facet.kind === 'fixed') {
         // Fixed value set from config, counts overlaid. Missing values render as a dimmed 0.
