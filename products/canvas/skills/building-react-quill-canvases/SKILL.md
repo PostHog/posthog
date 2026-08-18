@@ -20,10 +20,14 @@ typed-node result reading. Keep that wiring; replace the sample metric and layou
 
 ## Imports
 
-Import only from: `react`, `react-dom`, `react-dom/client`, `@posthog/quill`, `recharts`,
-`lucide-react`, `dayjs`. Anything else — including dynamic `import()`, `require()`, `fetch()`,
-`<script>` tags, or remote code — fails validation. Use `@posthog/quill` for UI, `recharts` for
-charts, `lucide-react` for icons, `dayjs` for dates.
+Use React, Quill, Recharts, Lucide, and Day.js for the standard application shell. The platform
+also admits ten optional libraries for specialized work. Read
+[references/platform-libraries.md](references/platform-libraries.md) before choosing one.
+
+Other bare imports, dynamic `import()`, `require()`, `<script>` tags, and remote code fail
+validation. Direct `fetch()` requires an exact HTTPS origin in `capabilities.network.origins`,
+and works only in the **published** canvas — the edit-mode preview blocks all direct network
+access regardless of declaration, so verify origin-fetching code after publishing, not in preview.
 
 ## Quill component rules
 
@@ -118,3 +122,12 @@ native date input) inside a `Popover` whose trigger is a Quill `Button`. `Popove
 exactly `className="w-auto p-0"` and nothing is added to `DateTimePicker` beyond
 `value`/`onApply`/`onCancel` (it self-sizes; don't pass `compact` or widths). Re-run every query
 when the window changes — see the `querying-canvas-data` skill for feeding it into `dateRange`.
+
+## State and actions
+
+Persisting values across reloads (`ph.state`, with user/shared scopes) and writing into PostHog
+from a button (`ph.actions.invoke`, e.g. filing a task or an annotation) have their own API
+contracts, capability declarations, and gesture rules — read the "Runtime memory" and "PostHog
+writes" sections of the `querying-canvas-data` skill before using either. Wire actions to a
+`Button` `onClick` that disables itself while the call is in flight, and render the returned
+error (they are real PostHog writes, throttled server-side).

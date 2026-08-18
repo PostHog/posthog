@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, cached_property
@@ -9,6 +9,7 @@ from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, Type
 from zoneinfo import ZoneInfo
 
 from django.conf import settings as django_settings
+from django.db import OperationalError
 
 import orjson
 import structlog
@@ -1659,6 +1660,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _calculate(self) -> R:
         raise NotImplementedError()
 
+    def query_status_labels(self) -> list[str] | None:
+        return None
+
     def enqueue_async_calculation(
         self,
         *,
@@ -1697,6 +1701,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
+            labels=self.query_status_labels(),
             refresh_requested=refresh_requested,
             is_query_service=self.is_query_service,
             is_posthog_ai=self.limit_context == LimitContext.POSTHOG_AI,
@@ -2425,11 +2430,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "query": query,
             "team_id": self.team.pk,
             "hogql_modifiers": to_dict(self.modifiers),
-            "products_modifiers": {
-                "revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict(),
-                "marketing_analytics": self.team.marketing_analytics_config.to_cache_key_dict(),
-                "customer_analytics": self.team.customer_analytics_config.to_cache_key_dict(),
-            },
+            "products_modifiers": self._products_modifiers_for_cache(),
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
@@ -2450,6 +2451,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             payload["events_retention_floor_months"] = retention_months
 
         return payload
+
+    def _products_modifiers_for_cache(self) -> dict:
+        # The team-extension configs are loaded lazily and can hit the DB. Under connection-pool
+        # saturation these reads can time out (OperationalError); degrade to a stable "unavailable"
+        # marker instead of 500-ing the whole query. Failures then share one cache namespace,
+        # separate from the successfully-loaded key.
+        def read(name: str, fn: Callable[[], Any]) -> dict | str:
+            try:
+                return fn().to_cache_key_dict()
+            except OperationalError:
+                logger.warning("Failed to read %s for cache key, degrading gracefully", name, exc_info=True)
+                return "unavailable"
+
+        return {
+            "revenue_analytics": read("revenue_analytics_config", lambda: self.team.revenue_analytics_config),
+            "marketing_analytics": read("marketing_analytics_config", lambda: self.team.marketing_analytics_config),
+            "customer_analytics": read("customer_analytics_config", lambda: self.team.customer_analytics_config),
+        }
 
     def _get_property_access_restrictions(self) -> list[tuple[str, int]] | None:
         """Returns a sorted list of restricted (property_name, type) pairs for the current user, or None if no restrictions.

@@ -9,6 +9,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CanvasActionInvokeApi,
+    CanvasActionResultApi,
+    CanvasActionsResponseApi,
+    CanvasAgentRequestApi,
+    CanvasAgentRequestResultApi,
     CanvasApi,
     CanvasBuildActionApi,
     CanvasBuildApi,
@@ -27,12 +32,16 @@ import type {
     CanvasSourcePublishApi,
     CanvasSourcePublishResponseApi,
     CanvasSourceResponseApi,
+    CanvasStateEntryApi,
+    CanvasStateResponseApi,
+    CanvasStateSetApi,
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
     CanvasesBuildsRetrieveParams,
     CanvasesDraftsRetrieveParams,
     CanvasesListParams,
     CanvasesSourceRetrieveParams,
+    CanvasesStateRetrieveParams,
     CanvasesVersionsRetrieveParams,
     PaginatedCanvasDraftListApi,
     PaginatedCanvasListApi,
@@ -145,6 +154,31 @@ export const canvasesDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getCanvasesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getCanvasesActionsInvokeUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/actions/invoke/`
+}
+
+/**
+ * Invoke one registered action verb as the viewer.
+ *
+ * The canvas must declare the verb in capabilities.posthog.actions (the
+ * reviewed permission boundary); the write itself runs with the viewer's
+ * own permissions, exactly as if they acted in the app.
+ */
+export const canvasesActionsInvoke = async (
+    projectId: string,
+    id: string,
+    canvasActionInvokeApi: CanvasActionInvokeApi,
+    options?: RequestInit
+): Promise<CanvasActionResultApi> => {
+    return apiMutator<CanvasActionResultApi>(getCanvasesActionsInvokeUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasActionInvokeApi),
     })
 }
 
@@ -390,6 +424,27 @@ export const canvasesReportErrorCreate = async (
     })
 }
 
+export const getCanvasesRequestAgentCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/request_agent/`
+}
+
+/**
+ * Route a viewer-approved change request to the canvas's authoring task.
+ */
+export const canvasesRequestAgentCreate = async (
+    projectId: string,
+    id: string,
+    canvasAgentRequestApi: CanvasAgentRequestApi,
+    options?: RequestInit
+): Promise<CanvasAgentRequestResultApi> => {
+    return apiMutator<CanvasAgentRequestResultApi>(getCanvasesRequestAgentCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasAgentRequestApi),
+    })
+}
+
 export const getCanvasesRequestFixCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/request_fix/`
 }
@@ -474,6 +529,61 @@ export const canvasesSourceRetrieve = async (
     })
 }
 
+export const getCanvasesStateRetrieveUrl = (projectId: string, id: string, params?: CanvasesStateRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/state/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/state/`
+}
+
+/**
+ * Read the canvas's runtime key-value state (the ph.state store).
+ *
+ * Returns the canvas's shared entries plus the caller's own user-scoped
+ * entries — never another viewer's.
+ */
+export const canvasesStateRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: CanvasesStateRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasStateResponseApi> => {
+    return apiMutator<CanvasStateResponseApi>(getCanvasesStateRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesStateSetUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/state/set/`
+}
+
+/**
+ * Write one key of the canvas's runtime state, or delete it with a null value.
+ */
+export const canvasesStateSet = async (
+    projectId: string,
+    id: string,
+    canvasStateSetApi: CanvasStateSetApi,
+    options?: RequestInit
+): Promise<CanvasStateEntryApi | void> => {
+    return apiMutator<CanvasStateEntryApi | void>(getCanvasesStateSetUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasStateSetApi),
+    })
+}
+
 export const getCanvasesValidateCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/validate/`
 }
@@ -529,6 +639,23 @@ export const canvasesVersionsRetrieve = async (
     options?: RequestInit
 ): Promise<PaginatedCanvasVersionListApi> => {
     return apiMutator<PaginatedCanvasVersionListApi>(getCanvasesVersionsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesActionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/canvases/actions/`
+}
+
+/**
+ * List the action registry: every verb a canvas may declare and invoke.
+ */
+export const canvasesActionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CanvasActionsResponseApi> => {
+    return apiMutator<CanvasActionsResponseApi>(getCanvasesActionsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

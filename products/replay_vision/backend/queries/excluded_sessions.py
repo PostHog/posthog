@@ -29,8 +29,12 @@ from posthog.models import Team
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     CandidateSession,
     ScannerCandidateQuery,
+    WindowedCandidateQuery,
     execute_candidate_query,
 )
+
+# Both fetch candidates with the in-query blocklists off, so both owe the caller this question.
+CandidateQuery = ScannerCandidateQuery | WindowedCandidateQuery
 
 tracer = trace.get_tracer(__name__)
 
@@ -50,7 +54,7 @@ _MAX_IDS_PER_QUERY = 1_000
 def excluded_session_ids(
     *,
     team: Team,
-    candidate_query: ScannerCandidateQuery,
+    candidate_query: CandidateQuery,
     candidates: list[CandidateSession],
     scanner_id: str | None = None,
     seconds_remaining: float | None = None,

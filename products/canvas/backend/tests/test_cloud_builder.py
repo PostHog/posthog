@@ -12,6 +12,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
+from products.canvas.backend.contract import platform_dependencies
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import synthetic_source_project, validate_source_project
 
@@ -89,6 +90,27 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertFalse(manifest["capabilities"]["posthog"]["inlineQueries"])
         self.assertTrue(any(file["path"].endswith(".js") for file in files))
 
+    def test_bundles_the_extended_platform_libraries(self) -> None:
+        source = """
+import { useVirtualizer } from "@tanstack/react-virtual"
+import { useForm } from "react-hook-form"
+import { groupBy } from "lodash-es"
+import ReactMarkdown from "react-markdown"
+import Papa from "papaparse"
+void useVirtualizer
+void useForm
+void groupBy
+void ReactMarkdown
+void Papa
+"""
+
+        project = self._project(source)
+        project["dependencies"] = platform_dependencies()
+        result = run_cloud_builder(project)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+
     def test_runtime_uses_the_document_bound_message_port(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
 
@@ -97,6 +119,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn("event.ports[0]", runtime)
         self.assertIn("port.postMessage", runtime)
         self.assertIn("port?.postMessage", runtime)
+        self.assertIn('agent:{request:(prompt)=>call("agentRequest",{prompt})}', runtime)
         self.assertIn('event.data?.type==="set-comment-highlights"', runtime)
         self.assertIn('CSS.highlights.set("posthog-canvas-comment"', runtime)
         self.assertNotIn("ph-canvas-comment-outline", runtime)
@@ -144,6 +167,44 @@ class TestCanvasCloudBuilder(SimpleTestCase):
                 'if (requests.some((m) => m.payload.hogql === "SELECT expired")) { console.error("expired request was still delivered"); process.exit(1); }',
                 'if (!received.some((m) => m.type === "ready")) { console.error("ready was not posted"); process.exit(1); }',
                 "process.exit(0);",
+            ]
+        )
+
+        process = subprocess.run([node_executable()], input=harness, capture_output=True, text=True, timeout=60)
+
+        self.assertEqual(process.returncode, 0, process.stderr or process.stdout)
+
+    def test_runtime_rejects_pre_connect_action_invocations(self) -> None:
+        # Reads queue until the port connects, but a write queued during module
+        # initialization would fire on connect as the viewer — an on-open task
+        # or annotation the viewer never asked for. Writes must reject instead.
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        harness = "\n".join(
+            [
+                "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
+                "globalThis.window = globalThis;",
+                "globalThis.parent = {};",
+                'globalThis.document = { readyState: "complete", body: {}, head: { appendChild: () => {} }, addEventListener: () => {}, createElement: () => ({}) };',
+                'globalThis.location = { hash: "" };',
+                "globalThis.MutationObserver = class { observe() {} };",
+                "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
+                runtime,
+                "const received = [];",
+                "const port = { postMessage: (m) => received.push(m), addEventListener: () => {}, start: () => {} };",
+                "let rejected = false;",
+                'window.ph.actions.invoke("tasks.create", { title: "on-open" }).catch(() => { rejected = true; });',
+                'for (const fn of listeners.message) fn({ source: parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [port] });',
+                "setImmediate(() => {",
+                'if (!rejected) { console.error("pre-connect action was not rejected"); process.exit(1); }',
+                'if (received.some((m) => m.type === "data-request" && m.method === "actionInvoke")) { console.error("pre-connect action was delivered on connect"); process.exit(1); }',
+                "process.exit(0);",
+                "});",
             ]
         )
 
@@ -374,12 +435,14 @@ bridge.port1.close();
         project = self._project('document.body.textContent = "Hello"')
         project["capabilities"] = {
             "posthog": {"insights": ["abc"], "inlineQueries": False, "captureEvents": ["canvas viewed"]},
-            "network": {"origins": []},
+            "network": {"origins": ["https://api.example.com"]},
         }
 
-        _, manifest, _ = validate_builder_output(run_cloud_builder(project))
+        files, manifest, _ = validate_builder_output(run_cloud_builder(project))
 
         self.assertEqual(manifest["capabilities"], project["capabilities"])
+        html = next(file["content"] for file in files if file["path"] == "index.html")
+        self.assertIn("connect-src https://api.example.com", html)
 
     def test_rejects_unbounded_capabilities(self) -> None:
         project = self._project("")

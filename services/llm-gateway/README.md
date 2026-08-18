@@ -215,6 +215,7 @@ Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, E
 The gateway exposes models consistently across Anthropic Messages, chat/completions, and Responses while choosing their inference provider internally in `src/llm_gateway/inference_routing.py`.
 
 - **GLM 5.2** (`@cf/zai-org/glm-5.2`) can run on Cloudflare Workers AI, Modal, or Baseten.
+- **GLM 5.3** (`zai-org/glm-5.3`) runs only on Baseten and is available to ReviewHog and PostHog Desktop behind the `tasks-glm-baseten-inference` flag. Do not enable the flag until Baseten lists the model and the deployment slug, context window, and contract rate in `model_cost_overrides.py` / `model_registry.py` are confirmed against `inference.baseten.co/v1/models`: the rate is pinned, so a wrong placeholder bills at the wrong price with no automatic correction.
 - **DeepSeek V4 Flash** (`deepseek-ai/deepseek-v4-flash-0731`) runs only on Baseten and is available to ReviewHog and PostHog Desktop (client-gated by the `posthog-code-deepseek-model` flag).
 
 Provider configuration:
@@ -260,6 +261,19 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 | `llma_eval_summary`  | API key only    | gpt-5-mini                 | AI observability eval summary   |
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
+
+`posthog_code` additionally requires a PostHog Desktop entitlement. The OAuth application
+allowlist only proves the token was issued to the Desktop app, which any user can obtain via the
+consent flow, so the gateway also asks Django (`GET /api/code/invites/check-access/`, backed by
+`has_tasks_access`: the `tasks` flag or a redeemed invite) and rejects with
+`403 code_access_required`. Server-minted sandbox tokens (carrying `internal_run:read`) are
+exempt, since their run already passed Django's own gate.
+
+The check fails closed: anything but an explicit `has_access: true` from Django (a 4xx, a 5xx, a
+timeout, a malformed payload) is a denial, since a caller can induce lookup failures by flooding
+cold-cache requests. Grants cache for 15 minutes and denials for 60 seconds, so a Django blip
+locks an entitled user out for at most a minute after their cached grant expires.
+`LLM_GATEWAY_DESKTOP_ACCESS_GATE_ENABLED=false` disables the gate entirely.
 
 ### Adding a new product
 
