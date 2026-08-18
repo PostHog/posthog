@@ -3289,13 +3289,12 @@ describe('BatchWritingPersonStore', () => {
             expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'batch-bound-property')).toBeUndefined()
         })
 
-        it('tracks merge-update cache writes through the batch-bound store', async () => {
-            const batchStore = new BatchBoundPersonsStore(personStore, 0)
-
-            await batchStore.updatePersonForMerge(
+        it('tracks merge-update cache writes made under a batch', async () => {
+            await personStore.updatePersonForMerge(
                 person,
                 { properties: { merge_marker: 'tracked' } },
-                'batch-bound-merge'
+                'batch-bound-merge',
+                0
             )
 
             expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'batch-bound-merge')).toBeDefined()

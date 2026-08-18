@@ -200,7 +200,19 @@
       "captureProduced": true
     },
     {
+      "type": "merge_move_limit_exceeded",
+      "category": "merge",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
       "type": "merge_race_condition",
+      "category": "merge",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
+      "type": "merge_settled_failure",
       "category": "merge",
       "severity": "error",
       "captureProduced": false

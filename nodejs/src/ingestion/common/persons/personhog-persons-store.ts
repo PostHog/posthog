@@ -15,7 +15,7 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
-import { FlushResult, PersonsStore } from './persons-store'
+import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore, PersonsWorld } from './persons-store'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
@@ -358,6 +358,14 @@ export class PersonhogPersonsStore implements PersonsStore {
      * semantics for routed deployments live in the routing store, which
      * never delegates this member. Reaching it is a wiring bug.
      */
+    get world(): PersonsWorld {
+        return 'personhog'
+    }
+
+    mergePersons(_request: MergePersonsRequest, _batchId: number): Promise<MergePersonsResult> {
+        return Promise.reject(new PersonhogPendingRpcError('mergePersons', 'merge saga'))
+    }
+
     inTransaction<T>(_description: string, _transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T> {
         return Promise.reject(new PersonhogPendingRpcError('inTransaction', 'merge saga'))
     }
