@@ -569,6 +569,10 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   publishes the latest completed turn at its reviewed `head_sha` (DB-driven; no Temporal, no sandbox).
 - **Reset local state:** `DEBUG=1 python manage.py reset_review_hog [--dry-run] [--yes]` wipes all ReviewHog rows
   across every team (DEBUG-only; GitHub comments untouched).
+- **Enable inbox reviews for a whole team:** `python manage.py enable_inbox_reviews --team-id <id> [--dry-run]`
+  upserts every active org member's `ReviewUserSettings` with `review_inbox_prs` + `stamphog_review_inbox_prs` on.
+  A deliberate operator action because the per-user default stays off (the budget gate); members who join later
+  keep the default until a re-run.
 - **Lint:** `ruff check products/review_hog/ --fix && ruff format products/review_hog/`
 - **Tests:** the product's `backend:test` script covers **both** `backend/tests` and `backend/reviewer/tests`
   (sandbox calls mocked, fixtures under `reviewer/tests/fixtures/`; persistence/model tests hit the test DB). Verify
