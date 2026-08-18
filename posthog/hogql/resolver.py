@@ -2301,7 +2301,9 @@ class Resolver(CloningVisitor):
                     )
                 return ast.Constant(value=value, type=global_type)
 
-            suggestion_suffix = field_resolution_hint(scope, name, self.context, bare_reference=len(node.chain) == 1)
+            # A name heading a longer chain is probably a table qualifier, so the problem is scoping
+            # and a column list would only distract.
+            suggestion_suffix = field_resolution_hint(scope, name, self.context, list_available=len(node.chain) == 1)
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #

@@ -188,31 +188,31 @@ def field_resolution_hint(
     name: str,
     context: HogQLContext,
     *,
-    bare_reference: bool = True,
+    list_available: bool = True,
     limit: int = 3,
-    max_listed: int = 25,
+    max_listed: int = 30,
 ) -> str:
     """Return the trailing clause for an "Unable to resolve field" error.
 
-    Close matches become "Did you mean: ...?". Otherwise, for a bare column reference in a
-    single-table query, list what the table does expose: a name that is absent rather than
-    misspelled (a column that only exists on the REST API, say) is too far off for a fuzzy match, so
-    it would yield a bare error that costs an extra schema-discovery query to recover from.
+    Close matches become "Did you mean: ...?". Otherwise, when the query reads a single table narrow
+    enough to name in full, list its columns: a name that is absent rather than misspelled (a column
+    that only exists on the REST API, say) is too far off for a fuzzy match, so it would yield a bare
+    error that costs an extra schema-discovery query to recover from.
 
-    `bare_reference` is False when the unresolved name is the first link of a longer chain, where it
-    is probably a table qualifier — then the problem is scoping, and a column list only distracts.
+    Stay quiet past `max_listed` rather than truncating. A partial list does not pay for its length,
+    because the wanted column may sit in the part cut off and the caller still has to go and look.
+    That keeps the entity tables in `system.*`, which are narrow, and leaves wide analytics tables
+    such as `events` with the bare error.
     """
     suggestions = suggest_field_names(scope, name, context, limit=limit)
     if suggestions:
         return f". Did you mean: {', '.join(suggestions)}?"
-    if not bare_reference:
+    if not list_available:
         return ""
 
     candidates = sorted(_single_table_field_names(scope, context))
-    if not candidates:
+    if not candidates or len(candidates) > max_listed:
         return ""
-    if len(candidates) > max_listed:
-        return f". Available fields include: {', '.join(candidates[:max_listed])}, …"
     return f". Available fields: {', '.join(candidates)}"
 
 

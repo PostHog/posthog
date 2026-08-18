@@ -36,15 +36,12 @@ def test_prefers_a_close_match_over_the_full_list() -> None:
     assert "Available fields" not in hint
 
 
-def test_caps_the_list_on_a_wide_table() -> None:
-    hint = _hint(["events"], "definitely_not_a_column")
-
-    assert hint.startswith(". Available fields include: ")
-    assert hint.endswith(", …")
-    listed = hint.removeprefix(". Available fields include: ").removesuffix(", …")
-    assert len(listed.split(", ")) == 25
+def test_silent_on_a_table_too_wide_to_list() -> None:
+    # A truncated list does not pay for its length, so `events` keeps the bare error. This also keeps
+    # the editor's inline expression errors short, since those resolve against a synthetic `events`.
+    assert _hint(["events"], "definitely_not_a_column") == ""
 
 
-def test_silent_for_a_table_qualifier() -> None:
-    # A failed first link of a longer chain is a scoping problem, so a column list only distracts.
-    assert _hint(["system", "insights"], "is_sample", bare_reference=False) == ""
+def test_silent_when_the_caller_declines_the_list() -> None:
+    # A failed table qualifier opts out; see the resolver.
+    assert _hint(["system", "insights"], "is_sample", list_available=False) == ""
