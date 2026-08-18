@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import React from 'react'
@@ -40,7 +40,6 @@ import { onboardingVariantChrome, resolveOnboardingFlowVariant } from 'scenes/on
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -49,7 +48,7 @@ import { AccessControlLevel, AccessControlResourceType, ReplayTabs } from '~/typ
 
 import type { GroupsAccessStatus } from '../../lib/introductions/groupsAccessLogic'
 import type { SceneConfig, SceneExport, SceneParams, SceneProps } from '../../scenes/sceneTypes'
-import type { GroupType, GroupTypeIndex, SavedSessionRecordingPlaylistsResult } from '../../types'
+import type { GroupType, GroupTypeIndex } from '../../types'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
 
@@ -73,8 +72,6 @@ export interface navigation3000LogicValues {
     isCurrentOrganizationUnavailable: boolean // organizationLogic
     activeSceneId: string | null // sceneLogic
     sceneConfig: SceneConfig | null // sceneLogic
-    savedFilters: SavedSessionRecordingPlaylistsResult // sessionRecordingSavedFiltersLogic
-    savedFiltersLoading: boolean // sessionRecordingSavedFiltersLogic
     accordionCollapseMapping: Record<string, boolean>
     activeNavbarItem: SidebarNavbarItem | null
     activeNavbarItemId: string | null
@@ -238,9 +235,7 @@ export interface navigation3000LogicMeta {
                 | import('~/types').DashboardType<
                       import('~/types').QueryBasedInsightModel<import('../../queries/schema').Node<Record<string, any>>>
                   >
-            )[],
-            savedFilters: SavedSessionRecordingPlaylistsResult,
-            savedFiltersLoading: boolean
+            )[]
         ) => NavbarItem[][]
         navbarItemIdMapping: (navbarItems: NavbarItem[][]) => Record<string, NavbarItem>
         sidebarOverslideDirection: (sidebarOverslide: number) => 'max' | 'min' | null
@@ -287,8 +282,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['sceneConfig', 'activeSceneId'],
             navigationLogic,
             ['mobileLayout'],
-            sessionRecordingSavedFiltersLogic,
-            ['savedFilters', 'savedFiltersLoading'],
             organizationLogic,
             ['isCurrentOrganizationUnavailable'],
         ],
@@ -619,12 +612,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             (isNavCollapsedDesktop: boolean, mobileLayout: boolean): boolean => !mobileLayout && isNavCollapsedDesktop,
         ],
         navbarItems: [
-            (s) => [
+            () => [
                 featureFlagLogic.selectors.featureFlags,
                 dashboardsModel.selectors.dashboardsLoading,
                 dashboardsModel.selectors.pinnedDashboards,
-                s.savedFilters,
-                s.savedFiltersLoading,
             ],
             (
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
@@ -636,9 +627,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               import('../../queries/schema').Node<Record<string, any>>
                           >
                       >
-                )[],
-                savedFilters: import('~/types').SavedSessionRecordingPlaylistsResult,
-                savedFiltersLoading: boolean
+                )[]
             ): NavbarItem[][] => {
                 return [
                     [
@@ -747,38 +736,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                 dropdown: {
                                     overlay: (
                                         <LemonMenuOverlay
-                                            items={
-                                                savedFilters.count > 0
-                                                    ? [
-                                                          {
-                                                              title: 'Saved filters',
-                                                              items: savedFilters.results.map((savedFilter) => ({
-                                                                  label:
-                                                                      savedFilter.name ||
-                                                                      savedFilter.derived_name ||
-                                                                      'Unnamed',
-                                                                  to: combineUrl(urls.replay(ReplayTabs.Home), {
-                                                                      savedFilterId: savedFilter.short_id,
-                                                                  }).url,
-                                                              })),
-                                                              footer: savedFiltersLoading && (
-                                                                  <div className="px-2 py-1 text-tertiary">
-                                                                      <Spinner /> Loading…
-                                                                  </div>
-                                                              ),
-                                                          },
-                                                      ]
-                                                    : [
-                                                          {
-                                                              label: 'All recordings',
-                                                              to: urls.replay(ReplayTabs.Home),
-                                                          },
-                                                          {
-                                                              label: 'Saved filters',
-                                                              to: urls.replay(ReplayTabs.Home),
-                                                          },
-                                                      ]
-                                            }
+                                            items={[
+                                                {
+                                                    label: 'All recordings',
+                                                    to: urls.replay(ReplayTabs.Home),
+                                                },
+                                                {
+                                                    label: 'Saved filters',
+                                                    to: urls.replay(ReplayTabs.Home),
+                                                },
+                                            ]}
                                         />
                                     ),
                                     placement: 'bottom-end',

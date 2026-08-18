@@ -186,6 +186,32 @@ describe('the dashboards model', () => {
         })
     })
 
+    describe('load failure', () => {
+        it('flags a failed load and clears the flag on a successful retry', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/': () => [500, {}],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboards()
+            })
+                .toDispatchActions(['loadDashboardsFailure'])
+                .toMatchValues({ dashboardsLoadFailed: true })
+
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/': () => [200, { count: 0, results: [], next: undefined }],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboards()
+            })
+                .toDispatchActions(['loadDashboardsSuccess'])
+                .toMatchValues({ dashboardsLoadFailed: false })
+        })
+    })
+
     describe('updating folders after a move', () => {
         beforeEach(async () => {
             await expectLogic(logic, () => logic.actions.loadDashboards()).toFinishAllListeners()

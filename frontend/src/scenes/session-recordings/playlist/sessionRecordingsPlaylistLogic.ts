@@ -1191,7 +1191,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             false,
             {
                 loadSessionRecordingsFailure: () => true,
-                loadSessionRecordingSuccess: () => false,
+                loadSessionRecordings: () => false,
+                loadSessionRecordingsSuccess: () => false,
                 setFilters: () => false,
                 setAdvancedFilters: () => false,
                 loadNext: () => false,
