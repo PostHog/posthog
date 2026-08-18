@@ -3,7 +3,7 @@ use posthog_cli::{
         args::ReleaseMode,
         content::SourceMapContent,
         inject::{inject_pairs, inject_pairs_legacy},
-        plain::inject::is_javascript_file,
+        plain::inject::{is_javascript_file, is_stylesheet_file},
         source_pairs::SourcePair,
     },
     utils::files::FileSelection,
@@ -64,6 +64,38 @@ fn test_search_without_multiple_files() {
     )
     .expect("Failed to read pairs");
     assert_eq!(pairs.len(), 2);
+}
+
+#[test]
+fn test_stylesheet_pair_is_discoverable_for_cleanup() {
+    let dir = tempfile::tempdir().expect("Failed to create stylesheet fixture directory");
+    let stylesheet_path = dir.path().join("app.css");
+    fs::write(
+        &stylesheet_path,
+        ".app { color: black; }\n/*# sourceMappingURL=app.css.map*/\n",
+    )
+    .expect("Failed to write stylesheet fixture");
+    fs::write(
+        dir.path().join("app.css.map"),
+        r#"{"version":3,"sources":[],"names":[],"mappings":""}"#,
+    )
+    .expect("Failed to write stylesheet sourcemap fixture");
+
+    let selection = FileSelection::from_roots(vec![dir.path().to_path_buf()])
+        .include(vec![])
+        .expect("Failed to select stylesheet fixture");
+    let pairs = posthog_cli::sourcemaps::source_pairs::read_pairs(
+        selection.into_iter().filter(is_stylesheet_file),
+        &None,
+    );
+
+    assert_eq!(pairs.len(), 1);
+    assert_eq!(
+        pairs[0].source.inner.path,
+        stylesheet_path
+            .canonicalize()
+            .expect("Failed to canonicalize stylesheet fixture")
+    );
 }
 
 #[test]

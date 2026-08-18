@@ -103,9 +103,6 @@ const PROVIDER_NAMES: Record<string, string> = {
 const MODEL_FAMILY_ORDER = ["fable", "opus", "sonnet", "haiku"];
 const PROVIDER_PREFIXES = ["anthropic/", "openai/", "google-vertex/"];
 const KNOWN_ACRONYMS = new Set(["gpt", "glm"]);
-const MODEL_CONTEXT_WINDOW_OVERRIDES: Readonly<Record<string, number>> = {
-  "@cf/zai-org/glm-5.2": 1_000_000,
-};
 
 export function getCloudTaskGatewayUrl(posthogHost: string): string {
   const url = new URL(posthogHost);
@@ -151,10 +148,7 @@ export function normalizeGatewayModelsResponse(value: unknown): GatewayModel[] {
     .map((model) => ({
       id: model.id,
       owned_by: model.owned_by ?? "",
-      context_window: Math.max(
-        model.context_window ?? 0,
-        MODEL_CONTEXT_WINDOW_OVERRIDES[model.id] ?? 0,
-      ),
+      context_window: model.context_window ?? 0,
       supports_streaming: model.supports_streaming ?? false,
       supports_vision: model.supports_vision ?? false,
       allowed: model.allowed !== false,
