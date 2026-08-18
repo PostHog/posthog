@@ -505,6 +505,12 @@ def _earliest_date_with_data(
     One request: Google sorts and truncates server-side, so the cost doesn't grow with the range or
     with how much the account holds. That makes it cheap enough to replace guessing how far back to
     reach. Selects only the date, since the rows themselves are fetched by the windowed drain.
+
+    A rejection this can't retry is left to fail the run rather than caught. It was verified against
+    two resources, and the rest carry predicates this repeats verbatim, so a resource-specific
+    rejection is the shape a mistake here would take. Swallowing it would resume the run at the
+    bound, which is the silent truncation this exists to stop -- and it would do so on exactly the
+    re-import that has just wiped the table. A failed run leaves the schema re-runnable.
     """
     query = (
         f"SELECT {incremental_field} FROM {table.name} "
@@ -546,7 +552,7 @@ def google_ads_source(
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
-    db_incremental_field_lookback_seconds: int | None = None,
+    db_incremental_field_last_value_before_lookback: typing.Any = None,
     is_reset: bool = False,
 ) -> SourceResponse:
     """A data warehouse Google Ads source.
@@ -618,19 +624,38 @@ def google_ads_source(
         # the table with that one slice; only incremental pipelines, which land a cursor between
         # runs, take this path.
         if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
+            bound = dt.date.today() - dt.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
+            probed: dt.date | None = None
             if db_incremental_field_last_value is not None:
                 start = _incremental_value_as_date(db_incremental_field_last_value)
-                # The cursor arrives shifted back by the schema's lookback, so the windows before
-                # `charge_from` re-read rows the table already has. They don't count as progress.
-                charge_from = start + dt.timedelta(seconds=db_incremental_field_lookback_seconds or 0)
-            else:
-                # A reset clears the cursor, so this looks like a first sync. The bound would drop
-                # whatever the wiped table held before it, so ask the account where its data begins
-                # instead. A genuine first sync keeps the bound: its rows are billable to import.
-                start = (is_reset and _earliest_date_with_data(service, customer_id, table, incremental_field)) or (
-                    dt.date.today() - dt.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
+                # The cursor arrives shifted back by the schema's lookback, so the windows up to the
+                # cursor itself re-read rows the table already has. They don't count as progress.
+                cursor_before_lookback = (
+                    _incremental_value_as_date(db_incremental_field_last_value_before_lookback)
+                    if db_incremental_field_last_value_before_lookback is not None
+                    else start
                 )
-                charge_from = start
+            elif is_reset:
+                # A reset clears the cursor, so this looks like a first sync. The bound would drop
+                # whatever the wiped table held before it, so ask the account where its data begins.
+                probed = _earliest_date_with_data(service, customer_id, table, incremental_field)
+                start = probed if probed is not None else bound
+                cursor_before_lookback = start
+            else:
+                # A genuine first sync keeps the bound: its rows are billable to import.
+                start = bound
+                cursor_before_lookback = start
+
+            if db_incremental_field_last_value is None:
+                # Where a re-import starts is the thing that went wrong before this fix, and it is
+                # decided per resource, so record which resource resolved what.
+                logger.info(
+                    "google_ads.history_start_resolved",
+                    resource=table.name,
+                    start=start.isoformat(),
+                    is_reset=is_reset,
+                    resolved_from="probe" if probed is not None else "bound",
+                )
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
             end = dt.date.today() + dt.timedelta(days=1)
             landed_new_ground = False
@@ -657,9 +682,9 @@ def google_ads_source(
 
                 # New ground only, so the budget can't stop a run that hasn't moved the cursor, and
                 # an empty window doesn't end the run. The test is `start`, not `window_end`: the
-                # query is `>= start`, so a window merely ending past `charge_from` can still hold
-                # only overlap rows at or before it.
-                if had_data and start > charge_from:
+                # query is `>= start`, so a window merely ending past the cursor can still hold only
+                # overlap rows at or before it.
+                if had_data and start > cursor_before_lookback:
                     landed_new_ground = True
                 first_window = False
                 start = window_end

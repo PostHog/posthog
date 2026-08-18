@@ -255,8 +255,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         processed_incremental_last_value = None
         processed_incremental_earliest_value = None
-        # How much of the value handed to the source is overlap rather than new ground.
-        applied_lookback_seconds = 0
+        # The cursor as stored, before the lookback shift below moves it back.
+        incremental_last_value_before_lookback = None
 
         if reset_pipeline is not True:
             processed_incremental_last_value = process_incremental_value(
@@ -273,15 +273,12 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             # overlap window and catches late or backdated rows. Incremental merge makes the
             # re-read idempotent — append would duplicate, so it's gated to incremental.
             if schema.is_incremental:
-                shifted = apply_incremental_lookback(
+                incremental_last_value_before_lookback = processed_incremental_last_value
+                processed_incremental_last_value = apply_incremental_lookback(
                     processed_incremental_last_value,
                     schema.incremental_field_type,
                     schema.incremental_field_lookback_seconds,
                 )
-                # Only report a shift that happened: the helper is a no-op for a sub-day lookback.
-                if shifted != processed_incremental_last_value:
-                    applied_lookback_seconds = schema.incremental_field_lookback_seconds or 0
-                processed_incremental_last_value = shifted
 
         if schema.should_use_incremental_field:
             await logger.adebug(f"Incremental last value being used is: {processed_incremental_last_value}")
@@ -330,7 +327,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 db_incremental_field_earliest_value=processed_incremental_earliest_value
                 if schema.should_use_incremental_field
                 else None,
-                db_incremental_field_lookback_seconds=applied_lookback_seconds,
+                db_incremental_field_last_value_before_lookback=incremental_last_value_before_lookback,
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,

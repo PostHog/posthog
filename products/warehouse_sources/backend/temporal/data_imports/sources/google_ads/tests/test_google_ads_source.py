@@ -1,6 +1,7 @@
 import re
 import typing
 import datetime as dt
+import itertools
 import collections.abc
 from types import SimpleNamespace
 
@@ -1523,7 +1524,7 @@ class TestGoogleAdsQueryConstruction:
         # re-read data the table has. A run that spends its whole budget on that overlap leaves the
         # cursor where it started and the next run repeats it, so a schema behind by more than its
         # lookback never advances. The budget has to buy new ground even when it's already spent.
-        clock = iter(range(0, 500))
+        clock = itertools.count()
 
         with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
             # A budget of zero: the overlap alone would end the run before any new ground.
@@ -1533,7 +1534,7 @@ class TestGoogleAdsQueryConstruction:
                     should_use_incremental_field=True,
                     # A 2026-05-04 cursor, already shifted back 30 days by the caller.
                     db_incremental_field_last_value=dt.date(2026, 4, 4),
-                    db_incremental_field_lookback_seconds=30 * 86400,
+                    db_incremental_field_last_value_before_lookback=dt.date(2026, 5, 4),
                     incremental_field="segments.date",
                     incremental_field_type=IncrementalFieldType.Date,
                     window_rows=dict.fromkeys(
@@ -1574,7 +1575,7 @@ class TestGoogleAdsQueryConstruction:
         # One second of drain per loop check, against a two-second budget — the budget is spent long
         # before the walk reaches the data past the gap, so only refusing to arm it on the straddle
         # keeps the run going.
-        clock = iter(range(0, 500))
+        clock = itertools.count()
 
         with freeze_time("2026-12-31"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 2):
@@ -1582,7 +1583,7 @@ class TestGoogleAdsQueryConstruction:
                     self._stats_table(),
                     should_use_incremental_field=True,
                     db_incremental_field_last_value=cursor,
-                    db_incremental_field_lookback_seconds=30 * 86400,
+                    db_incremental_field_last_value_before_lookback=dt.date(2026, 5, 4),
                     incremental_field="segments.date",
                     incremental_field_type=IncrementalFieldType.Date,
                     window_rows={**overlap_and_straddle, data_past_gap.isoformat(): 1},
@@ -1631,6 +1632,23 @@ class TestGoogleAdsQueryConstruction:
         assert all("LIMIT 1" not in q for q in queries)
         assert "WHERE segments.date >= '2024-07-17'" in queries[0]
 
+    def test_reset_falls_back_to_the_bound_when_the_account_holds_nothing(self):
+        # An account with no rows for this resource answers the probe with nothing, which still has
+        # to resolve to a date: the walk needs a start either way.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                is_reset=True,
+                earliest_date=None,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        drain = [q for q in queries if "LIMIT 1" not in q]
+        assert "WHERE segments.date >= '2024-07-17'" in drain[0]
+
     def test_full_refresh_report_table_scans_the_full_range_without_windows(self):
         # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from
         # the same backfill date every run and the refresh replaces the whole table with that same
@@ -1657,7 +1675,7 @@ class TestGoogleAdsQueryConstruction:
             (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1 for i in range(40)
         }
         # One second of drain per loop check, against a four-second budget.
-        clock = iter(range(0, 500))
+        clock = itertools.count()
 
         with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 4):

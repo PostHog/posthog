@@ -79,7 +79,6 @@ class SourceResponse:
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
 
 
-# Kept a bare dataclass: every source constructs this, so migrating the decorator is its own change.
 # nosemgrep: prefer-frozen-dataclasses -- shared source contract, grandfathered in the ratchet
 @dataclasses.dataclass
 class SourceInputs:
@@ -97,8 +96,9 @@ class SourceInputs:
     job_id: str
     logger: FilteringBoundLogger
     reset_pipeline: bool
-    # How much of `db_incremental_field_last_value` is lookback overlap rather than new ground.
-    db_incremental_field_lookback_seconds: Optional[int] = None
+    # `db_incremental_field_last_value` as stored, before the lookback shifted it back. Rows at or
+    # before it are overlap the table already holds rather than new ground.
+    db_incremental_field_last_value_before_lookback: Optional[Any] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
     # Multi-schema import context, read by `resolve_source_location`.
