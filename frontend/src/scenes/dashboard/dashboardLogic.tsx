@@ -271,6 +271,7 @@ export interface dashboardLogicValues {
     containerWidth: number | null
     currentLayoutSize: 'sm' | 'xs'
     dashboard: DashboardType<QueryBasedInsightModel> | null
+    dashboardCustomizeMenuOpen: boolean
     dashboardFailedToLoad: boolean
     dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
     dashboardLoadData: {
@@ -424,6 +425,9 @@ export interface dashboardLogicActions {
     }
     cancelEditMode: () => {
         value: true
+    }
+    changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
+        layoutCompaction: DashboardGridCompaction
     }
     clearAddWidgetSelectedTypes: () => {
         value: true
@@ -673,9 +677,6 @@ export interface dashboardLogicActions {
     saveDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
-    changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
-        layoutCompaction: DashboardGridCompaction
-    }
     saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => {
         tileSpacing: DashboardTileSpacing
     }
@@ -718,6 +719,9 @@ export interface dashboardLogicActions {
     }
     setButtonTileId: (buttonTileId: number | 'new' | null) => {
         buttonTileId: number | 'new' | null
+    }
+    setDashboardCustomizeMenuOpen: (open: boolean) => {
+        open: boolean
     }
     setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
@@ -1322,6 +1326,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         triggerDashboardUpdate: (payload) => ({ payload }),
         saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
         saveDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
+        setDashboardCustomizeMenuOpen: (open: boolean) => ({ open }),
         changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
         updateDashboardTags: (tags: string[]) => ({ tags }),
         /** Update page visibility for virtualized rendering. */
@@ -2179,6 +2184,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return false
                 },
+            },
+        ],
+        dashboardCustomizeMenuOpen: [
+            false,
+            {
+                setDashboardCustomizeMenuOpen: (_, { open }) => open,
+                setDashboardMode: () => false,
             },
         ],
         pendingInsertion: [

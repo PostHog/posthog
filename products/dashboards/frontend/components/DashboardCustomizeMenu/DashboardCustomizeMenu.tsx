@@ -55,8 +55,12 @@ const GRID_COMPACTION_OPTIONS: {
 
 export function DashboardCustomizeMenu(): JSX.Element | null {
     const { dashboard, canEditDashboard } = useValues(dashboardLogic)
-    const { changeDashboardGridCompaction, setDashboardTileSpacing, saveDashboardTileSpacing } =
-        useActions(dashboardLogic)
+    const {
+        changeDashboardGridCompaction,
+        setDashboardCustomizeMenuOpen,
+        setDashboardTileSpacing,
+        saveDashboardTileSpacing,
+    } = useActions(dashboardLogic)
     const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
 
     if (!dashboard || !canEditDashboard || !dashboardCustomizationEnabled) {
@@ -77,6 +81,7 @@ export function DashboardCustomizeMenu(): JSX.Element | null {
         if (value === layoutCompaction) {
             return
         }
+        setDashboardCustomizeMenuOpen(false)
         changeDashboardGridCompaction(value)
     }
 

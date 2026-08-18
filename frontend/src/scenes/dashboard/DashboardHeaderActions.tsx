@@ -222,7 +222,8 @@ export function DashboardEditSaveCancelButtons({
 }
 
 export function EditModeActions(): JSX.Element {
-    const { layoutEditMode, tiles } = useValues(dashboardLogic)
+    const { layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
+    const { setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
     const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
 
     return (
@@ -234,6 +235,8 @@ export function EditModeActions(): JSX.Element {
                     items={[{ label: () => <DashboardCustomizeMenu /> }]}
                     closeOnClickInside={false}
                     placement="bottom-end"
+                    visible={dashboardCustomizeMenuOpen}
+                    onVisibilityChange={setDashboardCustomizeMenuOpen}
                 >
                     <LemonButton
                         type="secondary"
