@@ -1,10 +1,15 @@
 import { LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+
 import {
     AlertCalculationInterval,
     ForecastConditionType,
     ForecastConfig,
     ForecastEngineType,
+    ForecastSensitivity,
+    ForecastTargetDirection,
 } from '~/queries/schema/schema-general'
 
 import { maxHorizonForInterval } from 'products/alerts/frontend/logic/forecastReach'
@@ -22,6 +27,31 @@ const HORIZON_UNIT: Record<AlertCalculationInterval, string> = {
 const DEFAULT_HORIZON = 7
 /** Default band width, matching the "Wider" option that fires only on clear deviations. */
 const DEFAULT_INTERVAL_WIDTH = 0.95
+/** Default runway for a new target, comfortably inside the six month reach cap. */
+const DEFAULT_TARGET_DAYS = 90
+
+/** Mirrors _resolve_sensitivity in products/alerts/backend/evaluation/forecast.py. A target has months
+ *  of runway so flapping is the failure mode; a predicted breach exists for lead time, so it keeps the
+ *  point forecast and its firing does not move. */
+export function defaultSensitivity(condition: ForecastConditionType): ForecastSensitivity {
+    return condition === ForecastConditionType.TARGET_BY_DATE
+        ? ForecastSensitivity.BEST_CASE
+        : ForecastSensitivity.FORECAST
+}
+
+/** Seeds the fields a condition needs when the user switches to it, so a target starts with a date
+ *  already in range rather than an empty control the save path would reject. */
+export function withConditionDefaults(config: ForecastConfig, condition: ForecastConditionType): ForecastConfig {
+    if (condition !== ForecastConditionType.TARGET_BY_DATE) {
+        return { ...config, condition }
+    }
+    return {
+        ...config,
+        condition,
+        target_direction: config.target_direction ?? ForecastTargetDirection.AT_LEAST,
+        target_date: config.target_date ?? dayjs().add(DEFAULT_TARGET_DAYS, 'day').format('YYYY-MM-DD'),
+    }
+}
 
 export function getDefaultForecastConfig(): ForecastConfig {
     return {
@@ -50,7 +80,7 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
             <LemonSelect
                 data-attr="alertForm-forecast-condition"
                 value={config.condition}
-                onChange={(condition) => onChange({ ...config, condition })}
+                onChange={(condition) => onChange(withConditionDefaults(config, condition))}
                 options={[
                     {
                         label: 'Predicted to breach threshold',
@@ -63,8 +93,39 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                         tooltip:
                             'Alert when the latest value falls outside the forecasted range. This is a seasonality-aware anomaly check.',
                     },
+                    {
+                        label: 'On track for a target',
+                        value: ForecastConditionType.TARGET_BY_DATE,
+                        tooltip: 'Alert when the metric is projected to miss a number you set by a date you set.',
+                    },
                 ]}
             />
+            {config.condition === ForecastConditionType.TARGET_BY_DATE && (
+                <div className="flex items-center gap-2">
+                    <LemonSelect
+                        data-attr="alertForm-forecast-target-direction"
+                        value={config.target_direction ?? ForecastTargetDirection.AT_LEAST}
+                        onChange={(target_direction) => onChange({ ...config, target_direction })}
+                        options={[
+                            { label: 'at least', value: ForecastTargetDirection.AT_LEAST },
+                            { label: 'at most', value: ForecastTargetDirection.AT_MOST },
+                        ]}
+                    />
+                    <LemonInput
+                        type="number"
+                        className="w-32"
+                        data-attr="alertForm-forecast-target"
+                        value={config.target ?? undefined}
+                        onChange={(target) => onChange({ ...config, target: target ?? undefined })}
+                    />
+                    <span className="whitespace-nowrap">by</span>
+                    <LemonCalendarSelectInput
+                        data-attr="alertForm-forecast-target-date"
+                        value={config.target_date ? dayjs(config.target_date) : null}
+                        onChange={(d) => onChange({ ...config, target_date: d ? d.format('YYYY-MM-DD') : undefined })}
+                    />
+                </div>
+            )}
             {config.condition === ForecastConditionType.FUTURE_BREACH && (
                 <div className="flex items-center gap-2">
                     <span className="whitespace-nowrap">within the next</span>
@@ -83,23 +144,52 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
                 </div>
             )}
             {/* The label and its control wrap as one unit, so the label never strands on the row above. */}
-            <div className="flex items-center gap-2">
-                <span className="text-secondary whitespace-nowrap">Expected range</span>
-                <LemonSegmentedButton
-                    size="small"
-                    data-attr="alertForm-forecast-interval-width"
-                    value={config.interval_width ?? DEFAULT_INTERVAL_WIDTH}
-                    onChange={(interval_width) => onChange({ ...config, interval_width })}
-                    options={[
-                        {
-                            value: 0.8,
-                            label: 'Narrower',
-                            tooltip: 'More sensitive. Fires on smaller deviations, with more noise.',
-                        },
-                        { value: DEFAULT_INTERVAL_WIDTH, label: 'Wider', tooltip: 'Fires only on clear deviations.' },
-                    ]}
-                />
-            </div>
+            {config.condition === ForecastConditionType.BAND_DEVIATION ? (
+                <div className="flex items-center gap-2">
+                    <span className="text-secondary whitespace-nowrap">Expected range</span>
+                    <LemonSegmentedButton
+                        size="small"
+                        data-attr="alertForm-forecast-interval-width"
+                        value={config.interval_width ?? DEFAULT_INTERVAL_WIDTH}
+                        onChange={(interval_width) => onChange({ ...config, interval_width })}
+                        options={[
+                            {
+                                value: 0.8,
+                                label: 'Narrower',
+                                tooltip: 'More sensitive. Fires on smaller deviations, with more noise.',
+                            },
+                            {
+                                value: DEFAULT_INTERVAL_WIDTH,
+                                label: 'Wider',
+                                tooltip: 'Fires only on clear deviations.',
+                            },
+                        ]}
+                    />
+                </div>
+            ) : (
+                /* The band width does not decide when these two fire; which line they read does. */
+                <div className="flex items-center gap-2">
+                    <span className="text-secondary whitespace-nowrap">Alert when</span>
+                    <LemonSegmentedButton
+                        size="small"
+                        data-attr="alertForm-forecast-sensitivity"
+                        value={config.sensitivity ?? defaultSensitivity(config.condition)}
+                        onChange={(sensitivity) => onChange({ ...config, sensitivity })}
+                        options={[
+                            {
+                                value: ForecastSensitivity.FORECAST,
+                                label: 'The forecast says so',
+                                tooltip: 'Warns earlier, and can change its mind while the forecast is uncertain.',
+                            },
+                            {
+                                value: ForecastSensitivity.BEST_CASE,
+                                label: 'Even the best case says so',
+                                tooltip: 'Quieter. Waits until the outcome is no longer avoidable.',
+                            },
+                        ]}
+                    />
+                </div>
+            )}
         </div>
     )
 }

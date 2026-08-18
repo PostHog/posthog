@@ -2,6 +2,7 @@ import {
     AlertCalculationInterval,
     AlertConditionType,
     ForecastConditionType,
+    ForecastTargetDirection,
     ForecastEngineType,
     InsightThresholdType,
 } from '~/queries/schema/schema-general'
@@ -124,6 +125,25 @@ describe('alertFormSchema', () => {
                 },
             })
         ).toEqual({})
+    })
+
+    // A target alert carries its own target value, so the threshold bounds row is not shown and must
+    // not block saving. Only future_breach reads those bounds.
+    it('does not require threshold bounds for a target-by-date forecast', () => {
+        expect(
+            thresholdAlertHasBounds({
+                ...baseAlert,
+                forecast_config: {
+                    type: 'ForecastConfig',
+                    engine: ForecastEngineType.PROPHET,
+                    condition: ForecastConditionType.TARGET_BY_DATE,
+                    target: 100,
+                    target_direction: ForecastTargetDirection.AT_LEAST,
+                    target_date: '2026-12-31',
+                },
+                threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} } },
+            })
+        ).toBe(true)
     })
 
     // A band-deviation forecast scores the actual against the forecast's own uncertainty band, so it
