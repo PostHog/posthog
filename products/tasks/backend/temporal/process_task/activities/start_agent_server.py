@@ -23,6 +23,7 @@ from products.tasks.backend.temporal.metrics import (
     StepTimer,
     record_agent_server_session_init_ms,
     record_boot_total_ms,
+    record_network_enforcement,
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
@@ -190,8 +191,23 @@ class _LaunchParams:
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
-    # Modal enforces egress at the edge (gVisor only), so agentsh is skipped only when it does.
-    return None if (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox) else ctx.allowed_domains
+    if ctx.agentsh_domain_allowlist is not None:
+        return list(ctx.agentsh_domain_allowlist)
+    return ctx.allowed_domains
+
+
+def _network_enforcement_observation(ctx: TaskProcessingContext) -> str:
+    if ctx.allowed_domains is None:
+        return "unrestricted"
+    if ctx.use_modal_network_allowlist:
+        return "modal_requested_sandbox_created_agentsh_ready"
+    return "agentsh_ready"
+
+
+def _record_network_enforcement_observation(ctx: TaskProcessingContext) -> None:
+    runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+    observation = _network_enforcement_observation(ctx)
+    record_network_enforcement("startup_observed", runtime, observation, "success")
 
 
 def _include_personal_mcp_for_task(task: Task) -> bool:
@@ -265,6 +281,8 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
         origin_product=task.origin_product,
         task_agent_key=task.mcp_builtin_agent_key,
+        credential_owner_id=task.mcp_credential_owner_id,
+        allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
@@ -295,12 +313,12 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         )
 
     agentsh_domains = _agentsh_domains_for(ctx)
-    if ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox and ctx.allowed_domains is not None:
+    if ctx.use_modal_network_allowlist and ctx.allowed_domains is not None:
         environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
         emit_agent_log(
             ctx.run_id,
             "debug",
-            f"Enforcing network allowlist for '{environment_name}' via Modal (agentsh disabled)",
+            f"Enforcing network allowlist for '{environment_name}' via Modal and agentsh",
         )
     elif agentsh_domains is not None:
         environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
@@ -473,6 +491,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         ) as ready_timer:
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
 
+        _record_network_enforcement_observation(ctx)
+
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
         activity.logger.info(f"Agent server started at {input.sandbox_url} for task {ctx.task_id}")
 
@@ -571,6 +591,8 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                 _emit_agentsh_log_tail(ctx, sandbox)
             _emit_agent_server_log_tail(ctx, sandbox)
             raise
+
+        _record_network_enforcement_observation(ctx)
 
         emit_agent_log(ctx.run_id, "debug", f"Agent server ready at {input.sandbox_url}")
         activity.logger.info(f"Agent server ready at {input.sandbox_url} for task {ctx.task_id}")

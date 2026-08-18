@@ -280,7 +280,7 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
                     const created = await visionActionsCreate(String(teamId), {
                         // Mirrors the backend provisioning defaults (digest.py) for scanners created before
                         // digests existed, or after the digest was deleted.
-                        name: `Daily digest: ${props.scannerName}`.slice(0, 255),
+                        name: `Featured digest: ${props.scannerName}`.slice(0, 255),
                         scanner: props.scannerId,
                         is_scanner_digest: true,
                         trigger_config: {
@@ -290,7 +290,7 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
                         delivery_config: [],
                     })
                     actions.createDigestSuccess()
-                    lemonToast.success('Daily digest turned on')
+                    lemonToast.success('Featured digest turned on')
                     // Insert the created digest optimistically instead of refetching the list — a refetch
                     // would blank the card (visionActionsLoading true, digest still absent) and flash it.
                     actions.addAction(created)
@@ -299,7 +299,7 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
                     actions.loadLatestRunSuccess(null)
                 } catch (error: any) {
                     actions.createDigestFailure()
-                    lemonToast.error(`Couldn't turn on the daily digest${error?.detail ? `: ${error.detail}` : ''}`)
+                    lemonToast.error(`Couldn't turn on the featured digest${error?.detail ? `: ${error.detail}` : ''}`)
                 }
             },
 

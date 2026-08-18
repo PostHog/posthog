@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 36 enabled ops
+ * PostHog API - MCP 37 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -16203,6 +16203,32 @@ export const ExperimentsResetCreateParams = /* @__PURE__ */ zod.object({
  * Returns 400 if the experiment is not running or is not paused.
  */
 export const ExperimentsResumeCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * The recordings worth watching for this experiment, grouped into cards.
+ *
+ * Each card is one sentence and the recordings that back it: an event one variant did clearly
+ * more than the others, an error signal concentrated in one variant, or a shortcut to a
+ * metric event happening on screen. Every card's count is a count of recordings that actually
+ * exist, so handing its session ids to the recordings list can't come back empty. POST to
+ * take the same throttle and cache posture as the other reads in this family rather than
+ * because it carries a body: it takes no parameters, and it only reads.
+ *
+ * It reports no effect size. Cards carry a direction and a band rather than a rate, a ratio
+ * or a person count: the experiment's results already state magnitudes, computed per person
+ * over the whole run window, and this reads one session per person over a clamped one. Two
+ * numbers for the same event would read as a contradiction, so this surface states none. That
+ * is what lets a card sit on one of the experiment's own metric events, which it names, so a
+ * reader is sent to the results rather than given a second answer.
+ */
+export const ExperimentsSessionEventDeltasCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()

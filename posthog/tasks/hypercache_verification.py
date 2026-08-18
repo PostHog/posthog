@@ -20,6 +20,11 @@ from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter
 
+from posthog.celery_task_names import (
+    VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
+    VERIFY_FLAGS_CACHE_TASK_NAME,
+    VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.storage.hypercache_verifier import TeamBatchFetchError, VerifyTeamFn, _run_verification_for_cache
@@ -199,6 +204,7 @@ def _run_cache_verification(cache_type: CacheType, chunk_size: int) -> None:
     bind=True,
     base=PushGatewayTask,
     ignore_result=True,
+    name=VERIFY_FLAGS_CACHE_TASK_NAME,
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     soft_time_limit=20 * 60,  # 20 min soft limit
     time_limit=25 * 60,  # 25 min hard limit (matches LOCK_TIMEOUT_SECONDS)
@@ -223,6 +229,7 @@ def verify_and_fix_flags_cache_task(self: PushGatewayTask) -> None:
     bind=True,
     base=PushGatewayTask,
     ignore_result=True,
+    name=VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
     queue=CeleryQueue.DEFAULT.value,
     soft_time_limit=20 * 60,  # 20 min soft limit
     time_limit=25 * 60,  # 25 min hard limit (matches LOCK_TIMEOUT_SECONDS)
@@ -247,6 +254,7 @@ def verify_and_fix_team_metadata_cache_task(self: PushGatewayTask) -> None:
     bind=True,
     base=PushGatewayTask,
     ignore_result=True,
+    name=VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     soft_time_limit=25 * 60,  # 25 min soft limit
     time_limit=30 * 60,  # 30 min hard limit (matches FLAG_DEFINITIONS_LOCK_TIMEOUT_SECONDS)

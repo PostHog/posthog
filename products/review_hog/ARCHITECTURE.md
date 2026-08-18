@@ -287,7 +287,12 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    no chunk walk, no file inventory, no summary of the diff, because nobody reads one. Valid `MUST_FIX`/`SHOULD_FIX`
    findings whose line isn't on the diff are still appended as an **"Other findings (outside the changed lines)"**
    section so they aren't silently dropped at publish.
-   `finalize_review_report` stores it as `ReviewReport.report_markdown` and bumps the run watermark.
+   `finalize_review_report` stores it as `ReviewReport.report_markdown` and bumps the run watermark. On
+   publishing runs it **defers the idle write** to the publish stage — the report stays `active` through
+   stage 10, `publish_persisted_review` returns it to `idle` on every outcome, and the failure activity
+   restores rest on a dead run — so the reviews API never reports a completed-but-unpublished turn as at
+   rest (the UI's poll would stop on that snapshot and freeze a wrong "Not published"). Non-publishing
+   runs go `idle` at finalize; `progress_payload` labels the deferred window "finalizing".
 10. **Publish** — `publish_review` (GitHub REST via the gated egress transport, **DB-driven**) reads the body from
     `ReviewReport.report_markdown` and the inline comments from the valid finding/verdict rows (`load_valid_findings`),
     posts a standalone "ReviewHog Alpha 🦔" feedback comment, then a PR review (`event="COMMENT"`, **pinned to the
@@ -320,6 +325,12 @@ session** per chunk via the sibling helpers `start_sandbox_session` / `continue_
 `end_sandbox_session` (one verdict per turn). The sandbox-free counterpart for the gated chunking/dedup calls is
 `run_oneshot_review(...)` in `backend/reviewer/sandbox/direct_llm.py` (same call shape minus
 `repository`/`branch`; one gateway Messages call, structured outputs, no sandbox).
+
+Every sandbox opened here lands in the `posthog-sandbox-self-driving` Modal app rather than the default one,
+because its tasks carry `origin_product=REVIEW_HOG` (see `SELF_DRIVING_ORIGIN_PRODUCTS` in
+`products/tasks/backend/logic/services/sandbox.py`). ReviewHog owns no sandbox code, so this needs nothing here:
+the app is resolved inside the Tasks provisioning activity. Same image and resources as any other run — the split
+only separates the fleet's Modal cost from user-driven runs.
 
 `run_sandbox_review(team_id, user_id, repository, branch, prompt, system_prompt, model_to_validate, step_name) -> Model | None`:
 
@@ -586,7 +597,10 @@ project-wide so any listed review opens. A specific report is linkable at `/code
 targets it, so the param is a permanent contract). The drawer buckets a review's findings into published vs
 below-threshold by the detail's stored `run_urgency_threshold` — the viewer's current setting is only the
 fallback for pre-column rows — and its first tab reads "Published" only when the review actually posted
-(`published_head_sha` set), "Kept" otherwise.
+(`published_head_sha` set), "Kept" otherwise. The scene keeps itself current by polling the reviews
+list — every 10s while a run is in progress or freshly triggered, every 30s otherwise, paused on hidden
+tabs with an immediate refresh on tab return — and a poll response that shows a run finishing also
+refreshes the perspective stats and an open drawer's detail (`reviewHogSettingsLogic`).
 
 ---
 
@@ -622,6 +636,10 @@ fallback for pre-column rows — and its first tab reads "Published" only when t
   "Published" with no not-published banner. Fix: `retrieve` already loads the completed head — expose
   per-turn truth (`published_head_sha == completed_head_sha`) on the detail payload and gate the drawer's
   published flag on it.
+- **TODO — no resolution-stage progress label.** A resolution run holds the report `active` at a
+  published head, where `progress_payload` falls through to a review-stage label ("deduplicating"; the
+  pre-publish window reads "finalizing"). A dedicated `resolving` stage needs the serializer enum, the
+  frontend stage labels, and regenerated types — deliberately left out of the staleness fix.
 - **Alpha maturity** — the published comment still says "ReviewHog Alpha" and asks users to reply
   "valid"/"invalid" (`reviewer/tools/publish_review.py`, the `post_promo` block). Publish is now live
   per-run (the trigger endpoint posts with `publish=true`), so settle the prod wording before real users

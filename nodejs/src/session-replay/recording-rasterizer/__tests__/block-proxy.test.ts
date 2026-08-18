@@ -59,6 +59,21 @@ describe('BlockProxy', () => {
             )
         })
 
+        it('relays the recording_api_token as a bearer token when present', async () => {
+            mockInternalFetch.mockResolvedValue({
+                status: 200,
+                json: jest.fn().mockResolvedValue({ blocks: [] }),
+            })
+
+            const proxy = new BlockProxy(testCfg, mockLog)
+            await proxy.fetchBlocks(baseInput({ recording_api_token: 'minted-token' }))
+
+            expect(mockInternalFetch).toHaveBeenCalledWith(
+                'http://localhost:6738/api/projects/1/recordings/test-session-123/blocks',
+                { headers: { 'X-Internal-Api-Secret': 'test-secret', Authorization: 'Bearer minted-token' } }
+            )
+        })
+
         it('throws RasterizationError on non-ok response', async () => {
             mockInternalFetch.mockResolvedValue({
                 status: 404,
@@ -73,6 +88,11 @@ describe('BlockProxy', () => {
         it.each([
             [500, true],
             [403, false],
+            // 404: a recording still being ingested has no blocks yet, the same race NO_SNAPSHOTS
+            // deliberately keeps retryable.
+            [404, true],
+            [429, true],
+            [401, false],
         ])('marks %i response as retryable=%s', async (status, expectedRetryable) => {
             mockInternalFetch.mockResolvedValue({
                 status,
@@ -111,13 +131,13 @@ describe('BlockProxy', () => {
             }
         }
 
-        async function createProxyWithBlocks(): Promise<BlockProxy> {
+        async function createProxyWithBlocks(input: RasterizeRecordingInput = baseInput()): Promise<BlockProxy> {
             mockInternalFetch.mockResolvedValueOnce({
                 status: 200,
                 json: jest.fn().mockResolvedValue({ blocks }),
             })
             const proxy = new BlockProxy(testCfg, mockLog)
-            await proxy.fetchBlocks(baseInput())
+            await proxy.fetchBlocks(input)
             mockInternalFetch.mockReset()
             return proxy
         }
@@ -146,6 +166,22 @@ describe('BlockProxy', () => {
             expect(blockRequest.respond).toHaveBeenCalledWith(
                 expect.objectContaining({ status: 200, contentType: 'application/jsonl' })
             )
+        })
+
+        it('relays the recording_api_token as a bearer token when present', async () => {
+            const proxy = await createProxyWithBlocks(baseInput({ recording_api_token: 'minted-token' }))
+
+            mockInternalFetch.mockResolvedValue({
+                status: 200,
+                headers: { 'content-type': 'application/jsonl' },
+                text: jest.fn().mockResolvedValue('{"data":"test"}'),
+            })
+
+            await proxy.handleRequest(mockBlockRequest('/__blocks/0') as any, '/__blocks/0')
+
+            expect(mockInternalFetch).toHaveBeenCalledWith(expect.stringContaining('/block?'), {
+                headers: { 'X-Internal-Api-Secret': 'test-secret', Authorization: 'Bearer minted-token' },
+            })
         })
 
         it('returns 404 for out-of-range index', async () => {

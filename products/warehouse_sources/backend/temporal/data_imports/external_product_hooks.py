@@ -14,6 +14,8 @@ import dataclasses
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional
 
+from products.warehouse_sources.backend.facade.contracts import RevenueViewSyncInput
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -69,7 +71,7 @@ def emit_signals_enabled_for(
 
 
 # --- Revenue-analytics view sync ------------------------------------------------------
-RevenueViewSync = Callable[["ExternalDataSchema", "ExternalDataSource"], None]
+RevenueViewSync = Callable[[RevenueViewSyncInput], None]
 _revenue_view_sync: Optional[RevenueViewSync] = None
 
 
@@ -78,10 +80,10 @@ def register_revenue_view_sync(fn: RevenueViewSync) -> None:
     _revenue_view_sync = fn
 
 
-def run_revenue_view_sync(schema: "ExternalDataSchema", source: "ExternalDataSource") -> None:
+def run_revenue_view_sync(sync_input: RevenueViewSyncInput) -> None:
     if _revenue_view_sync is None:
         return
-    _revenue_view_sync(schema, source)
+    _revenue_view_sync(sync_input)
 
 
 # --- Engineering-analytics view sync --------------------------------------------------
@@ -229,6 +231,46 @@ class PersonPropertyBackfillActivityInputs:
             "source_type": self.source_type,
             "schema_name": self.schema_name,
             "trigger": self.trigger,
+        }
+
+
+# --- Data-quality checks gate ---------------------------------------------------------
+
+DataQualityChecksGate = Callable[[int, "str | uuid.UUID"], bool]
+_data_quality_checks_gate: Optional[DataQualityChecksGate] = None
+
+
+def register_data_quality_checks_gate(fn: DataQualityChecksGate) -> None:
+    global _data_quality_checks_gate
+    _data_quality_checks_gate = fn
+
+
+def data_quality_checks_needed_for(team_id: int, table_id: "str | uuid.UUID | None") -> bool:
+    if _data_quality_checks_gate is None or table_id is None:
+        return False
+    return _data_quality_checks_gate(team_id, table_id)
+
+
+@dataclasses.dataclass(frozen=True)
+class DataQualitySuiteTriggerInputs:
+    """Payload the import pipeline sends to the data-quality suite workflow.
+
+    Field names mirror data_quality's ``RunCheckSuiteInputs`` (the workflow is started by
+    registered name, so nothing here imports that product); omitted selector fields fall back to
+    the workflow input's defaults. ``trigger`` stays a plain string for the same reason: the
+    ``SuiteRunTrigger`` enum it decodes into lives on the other side of a one-way dependency.
+    """
+
+    team_id: int
+    trigger: str
+    table_ids: list[str]
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "trigger": self.trigger,
+            "table_ids": self.table_ids,
         }
 
 

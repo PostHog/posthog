@@ -250,16 +250,6 @@ procs:
             layer: Infrastructure
             tech: Docker
 
-    cyclotron-janitor:
-        shell: |-
-            bin/wait-for-docker && \
-            bin/start-rust-service cyclotron-janitor
-        capability: cyclotron
-        ready_pattern: 'Running janitor loop'
-        groups:
-            layer: Processing
-            tech: Rust
-
     ai-gateway:
         shell: 'bin/wait-for-docker && bin/start-ai-gateway'
         capability: ai_gateway
