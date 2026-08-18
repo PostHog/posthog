@@ -10,6 +10,8 @@ import requests
 import structlog
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -61,7 +63,7 @@ class FirebaseResponseTooLargeError(Exception):
     """Raised when a response body exceeds the byte cap for its endpoint."""
 
 
-@dataclasses.dataclass
+@frozen
 class FirebaseResumeConfig:
     """Resume cursor: a Firestore/Identity Platform page token, or a Realtime Database key."""
 
