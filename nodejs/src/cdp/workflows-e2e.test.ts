@@ -657,7 +657,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         // from the Python side by test_hog_flow_conditional_branch_cohort_filter_compiles
         const cohortConditionFilters = (cohortId: number): Record<string, any> => ({
             bytecode: ['_H', 1, 33, cohortId, 32, 'cohort_ids', 1, 1, 2, 'inCohort', 2],
-            cohort_ids: [cohortId],
             properties: [{ key: 'id', type: 'cohort', value: cohortId }],
         })
 

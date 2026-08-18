@@ -198,7 +198,6 @@ describe('action.conditional_branch', () => {
         const cohortConditionFilters = (fn: 'inCohort' | 'notInCohort'): Record<string, any> => ({
             // Same shape the Python compiler emits for `{type: 'cohort', value: 42}` filters
             bytecode: ['_H', 1, 33, COHORT_ID, 32, 'cohort_ids', 1, 1, 2, fn, 2],
-            cohort_ids: [COHORT_ID],
         })
 
         const executeWithRepository = async (

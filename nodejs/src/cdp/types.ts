@@ -58,8 +58,6 @@ export interface HogFunctionFilters {
     properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
     bytecode?: HogBytecode
-    // Cohorts the bytecode's inCohort/notInCohort calls reference; written by posthog/cdp/filters.py
-    cohort_ids?: number[]
 }
 
 export type GroupType = {

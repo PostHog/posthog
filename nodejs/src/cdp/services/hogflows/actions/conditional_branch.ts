@@ -153,8 +153,7 @@ export class ConditionalBranchHandler implements ActionHandler {
     }
 }
 
-// Scans the compiled bytecode rather than trusting filters.cohort_ids, so expression-authored
-// inCohort(...) calls get their membership loaded too
+// Scans the compiled bytecode so expression-authored inCohort(...) calls count too
 function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
     const bytecode = (condition.filters as HogFunctionFilters | null | undefined)?.bytecode
     return Array.isArray(bytecode) && bytecode.some((op) => op === 'inCohort' || op === 'notInCohort')
