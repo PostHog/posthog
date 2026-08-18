@@ -13,9 +13,9 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.schema_enums import IntervalType
 
 from ..facade import api
+from ..facade.api import MAX_DESCRIPTION_LENGTH
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
-from ..logic.validation import MAX_DESCRIPTION_LENGTH
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -152,7 +152,11 @@ class MetricSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         extra_kwargs = {
-            "name": {"help_text": "Identifier-safe run handle, unique per team and reserved forever. Write-once."},
+            "name": {
+                "help_text": "Identifier-safe run handle, unique among the team's live metrics. Renaming or "
+                "deleting a metric frees its name for reuse, and anything referencing the old name (SQL over "
+                "information_schema.metrics, run URLs, links) stops resolving."
+            },
             "source_insight_short_id": {
                 "required": False,
                 "help_text": "Create the metric from this insight's query (snapshotted server-side). "

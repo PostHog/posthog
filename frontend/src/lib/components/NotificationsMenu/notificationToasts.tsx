@@ -6,6 +6,7 @@ import {
     IconCheckCircle,
     IconClock,
     IconComment,
+    IconDatabase,
     IconFlask,
     IconFolder,
     IconNotification,
@@ -27,6 +28,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?
     approval_requested: { Icon: IconCheckCircle, color: 'text-success' },
     approval_resolved: { Icon: IconCheckCircle, color: 'text-success' },
     pipeline_failure: { Icon: IconPlug, color: 'text-danger' },
+    materialization_failure: { Icon: IconDatabase, color: 'text-danger' },
     issue_assigned: { Icon: IconBug, color: 'text-primary' },
     experiment_concluded: { Icon: IconFlask, color: 'text-primary' },
     project_created: { Icon: IconFolder, color: 'text-primary' },
@@ -35,6 +37,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?
     web_analytics_digest: { Icon: IconPieChart, color: 'text-primary' },
     achievement_unlocked: { Icon: IconStar, color: 'text-warning' },
     subscription_nudge: { Icon: IconBell, color: 'text-primary' },
+    data_quality_check_failure: { Icon: IconWarning, color: 'text-danger' },
 }
 
 export function getNotificationIcon(notificationType: string, className: string = 'size-5'): JSX.Element {

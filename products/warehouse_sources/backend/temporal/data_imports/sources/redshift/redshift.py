@@ -24,6 +24,7 @@ from psycopg.adapt import Loader
 from psycopg.pq import TransactionStatus
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -604,6 +605,13 @@ class RedshiftColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
+@frozen
+class DisplayNameIndex:
+    display_by_pair: dict[tuple[str, str], str]
+    schemas: list[str]
+    bare_tables: list[str]
+
+
 class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psycopg.Connection, Any]):
     # `psycopg.Cursor` does not satisfy `_CursorLike` (its `execute`
     # signature uses `params` instead of `args`, and accepts `Query`
@@ -734,7 +742,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return result
 
         selected_schema = normalize_namespace(config.schema)
-        display_by_pair, schemas, bare_tables = self._index_display_names(tables, selected_schema)
+        index = self._index_display_names(tables, selected_schema)
 
         try:
             with conn.cursor() as cursor:
@@ -749,7 +757,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         WHERE tc.table_schema = ANY({schemas})
                         AND tc.table_name = ANY({names})
                         AND tc.constraint_type = 'PRIMARY KEY'
-                    """).format(schemas=sql.Literal(schemas), names=sql.Literal(bare_tables))
+                    """).format(schemas=sql.Literal(index.schemas), names=sql.Literal(index.bare_tables))
                 )
                 rows = cursor.fetchall()
         except Exception as e:
@@ -758,7 +766,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
 
         pks: dict[str, list[str]] = collections.defaultdict(list)
         for table_schema, table_name, column_name in rows:
-            display = display_by_pair.get((table_schema, table_name))
+            display = index.display_by_pair.get((table_schema, table_name))
             if display is not None:
                 pks[display].append(column_name)
         for display, pk_cols in pks.items():
@@ -766,9 +774,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         return result
 
     @staticmethod
-    def _index_display_names(
-        tables: list[str], selected_schema: Optional[str]
-    ) -> tuple[dict[tuple[str, str], str], list[str], list[str]]:
+    def _index_display_names(tables: list[str], selected_schema: Optional[str]) -> DisplayNameIndex:
         """Map `(schema, table)` → display key, plus the distinct schemas and bare table names.
 
         Lets a single batch query (`schema = ANY(...) AND table = ANY(...)`) cover both the
@@ -787,7 +793,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 continue
             display_by_pair[(schema, table)] = display
             schemas.add(schema)
-        return display_by_pair, sorted(schemas), sorted(bare_tables)
+        return DisplayNameIndex(
+            display_by_pair=display_by_pair, schemas=sorted(schemas), bare_tables=sorted(bare_tables)
+        )
 
     def get_row_counts(
         self,
@@ -807,7 +815,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return {}
 
         selected_schema = normalize_namespace(config.schema)
-        display_by_pair, schemas, bare_tables = self._index_display_names(tables, selected_schema)
+        index = self._index_display_names(tables, selected_schema)
 
         result: dict[str, int | None] = {}
         try:
@@ -816,7 +824,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(1000 * 30))  # 30 secs
                 )
 
-                params: dict = {"schemas": schemas, "names": bare_tables}
+                params: dict = {"schemas": index.schemas, "names": index.bare_tables}
                 cursor.execute(
                     """
                     SELECT schema, "table" AS table_name, tbl_rows AS row_count
@@ -826,7 +834,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     params,
                 )
                 for schema_name, table_name, row_count in cursor.fetchall():
-                    display = display_by_pair.get((schema_name, table_name))
+                    display = index.display_by_pair.get((schema_name, table_name))
                     if display is not None:
                         result[display] = int(row_count)
 
@@ -837,7 +845,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 view_pairs = [
                     (schema_name, view_name)
                     for schema_name, view_name in cursor.fetchall()
-                    if (schema_name, view_name) in display_by_pair
+                    if (schema_name, view_name) in index.display_by_pair
                 ]
 
                 if view_pairs:
@@ -854,7 +862,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     ]
                     cursor.execute(sql.SQL(" UNION ALL ").join(view_counts))
                     for schema_name, table_name, row_count in cursor.fetchall():
-                        display = display_by_pair.get((schema_name, table_name))
+                        display = index.display_by_pair.get((schema_name, table_name))
                         if display is not None:
                             result[display] = int(row_count)
         except Exception:
@@ -892,7 +900,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return {}
 
         selected_schema = normalize_namespace(config.schema)
-        display_by_pair, schemas, bare_tables = self._index_display_names(tables, selected_schema)
+        index = self._index_display_names(tables, selected_schema)
         result: dict[str, set[str]] = {table: set() for table in tables}
 
         try:
@@ -904,7 +912,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 # path. Documented behavior: docs.aws.amazon.com/redshift/latest/dg/r_PG_TABLE_DEF.html
                 cursor.execute(
                     sql.SQL("SET search_path TO {schemas}").format(
-                        schemas=sql.SQL(", ").join(sql.Identifier(schema) for schema in schemas)
+                        schemas=sql.SQL(", ").join(sql.Identifier(schema) for schema in index.schemas)
                     )
                 )
                 cursor.execute(
@@ -914,14 +922,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         WHERE schemaname = ANY({schemas})
                           AND tablename = ANY({names})
                           AND sortkey != 0
-                    """).format(schemas=sql.Literal(schemas), names=sql.Literal(bare_tables))
+                    """).format(schemas=sql.Literal(index.schemas), names=sql.Literal(index.bare_tables))
                 )
                 # Group rows by display name so we can classify compound vs interleaved
                 # before deciding which columns count as indexed. Negative sortkey
                 # values are the marker Redshift uses for interleaved sortkeys.
                 rows_by_display: dict[str, list[tuple[str, int]]] = {}
                 for schema_name, table_name, column_name, sortkey_value in cursor.fetchall():
-                    display = display_by_pair.get((schema_name, table_name))
+                    display = index.display_by_pair.get((schema_name, table_name))
                     if display is None:
                         continue
                     rows_by_display.setdefault(display, []).append((column_name, sortkey_value))
@@ -1037,6 +1045,12 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             row = cursor.fetchone()
             return row is not None
         except psycopg.errors.QueryCanceled:
+            raise
+        except psycopg.OperationalError:
+            # A connection-level failure (e.g. the SSL connection dropping mid-query) means the
+            # probe never ran — swallowing it as "no duplicate keys" would be a false negative.
+            # Propagate it so the activity's retry path handles it; these are transient and stay
+            # retryable. Mirrors the equivalent Postgres source.
             raise
         except Exception as e:
             # A Redshift system-requested query abort (error code 1020, "system requested abort")

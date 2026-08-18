@@ -36,6 +36,7 @@ export interface organizationIntegrationsLogicValues {
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
@@ -54,6 +55,7 @@ export interface organizationIntegrationsLogicValues {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         )[]
     ) => IntegrationType[]
     organizationIntegrations: IntegrationType[] | null
@@ -106,6 +108,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -124,6 +127,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -158,6 +162,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -176,6 +181,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     }
@@ -211,6 +217,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -229,6 +236,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
             )[]
         ) => IntegrationType[]
     }

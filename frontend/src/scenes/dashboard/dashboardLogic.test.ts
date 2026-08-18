@@ -15,6 +15,7 @@ import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
@@ -322,6 +323,23 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('inline tile insertion experiment', () => {
+        beforeEach(() => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+        })
+
+        it.each([
+            ['control', false],
+            ['test', true],
+        ])('uses the %s variant', async (variant, expectedEnabled) => {
+            const experimentFlag = FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION_EXPERIMENT
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([experimentFlag], { [experimentFlag]: variant })
+            }).toMatchValues({ inlineTileInsertionEnabled: expectedEnabled })
+        })
+    })
+
     describe('tile layouts', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 5 })
@@ -485,26 +503,59 @@ describe('dashboardLogic', () => {
             expect(logic.values.hasUnsavedColorChanges).toBe(false)
         })
 
-        it('auto-assigns breakdown colors only behind the dashboard colors flag', async () => {
+        it('exiting edit mode via the colors modal save source persists color changes', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
-            const tileInsight = logic.values.dashboard!.tiles.find((t) => !!t.insight)!.insight!
-            const insightWithBreakdowns = {
-                ...tileInsight,
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardInsightColorsModal)
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'x',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                })
+            }).toFinishAllListeners()
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardInsightColorsModal)
+            })
+                .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess'])
+                .toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    breakdown_colors: expect.arrayContaining([
+                        expect.objectContaining({ breakdownValue: 'x', colorToken: 'preset-1' }),
+                    ]),
+                })
+            )
+        })
+
+        it('auto-assigns colors to multi-tile breakdown values only behind the dashboard colors flag', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const [firstInsight, secondInsight] = logic.values
+                .dashboard!.tiles.filter((t) => !!t.insight)
+                .map((t) => t.insight!)
+            const withBreakdowns = (insight: typeof firstInsight, breakdownValues: string[]): typeof firstInsight => ({
+                ...insight,
                 dashboards: [5],
                 dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
-                result: [
-                    { action: { order: 0 }, breakdown_value: ['Chrome'] },
-                    { action: { order: 0 }, breakdown_value: ['Firefox'] },
-                ],
+                result: breakdownValues.map((breakdown_value) => ({
+                    action: { order: 0 },
+                    breakdown_value: [breakdown_value],
+                })),
                 query: {
                     kind: NodeKind.InsightVizNode,
                     source: { kind: NodeKind.TrendsQuery, series: [] },
                 } as InsightVizNode<TrendsQuery>,
-            }
+            })
 
             await expectLogic(logic, () => {
-                dashboardsModel.actions.updateDashboardInsight(insightWithBreakdowns)
+                dashboardsModel.actions.updateDashboardInsight(withBreakdowns(firstInsight, ['Chrome', 'Firefox']))
+                dashboardsModel.actions.updateDashboardInsight(withBreakdowns(secondInsight, ['Chrome']))
             }).toFinishAllListeners()
 
             expect(logic.values.effectiveBreakdownColors).toEqual([])
@@ -513,9 +564,10 @@ describe('dashboardLogic', () => {
                 [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
             })
 
+            // Chrome appears on both tiles; Firefox is unique to one tile and keeps
+            // position-based colors, so it gets no dashboard-wide entry
             expect(logic.values.effectiveBreakdownColors).toEqual([
                 expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' }),
-                expect.objectContaining({ breakdownValue: 'Firefox', colorToken: 'preset-2', source: 'auto' }),
             ])
         })
 
@@ -526,22 +578,24 @@ describe('dashboardLogic', () => {
                 [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
             })
 
-            const tileInsight = logic.values.dashboard!.tiles.find((t) => !!t.insight)!.insight!
+            const tileInsights = logic.values.dashboard!.tiles.filter((t) => !!t.insight).map((t) => t.insight!)
             await expectLogic(logic, () => {
-                dashboardsModel.actions.updateDashboardInsight({
-                    ...tileInsight,
-                    dashboards: [5],
-                    dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
-                    result: [
-                        { action: { order: 0 }, breakdown_value: ['Chrome'] },
-                        { action: { order: 0 }, breakdown_value: ['Firefox'] },
-                        { action: { order: 0 }, breakdown_value: ['Safari'] },
-                    ],
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: { kind: NodeKind.TrendsQuery, series: [] },
-                    } as InsightVizNode<TrendsQuery>,
-                })
+                for (const tileInsight of tileInsights) {
+                    dashboardsModel.actions.updateDashboardInsight({
+                        ...tileInsight,
+                        dashboards: [5],
+                        dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
+                        result: [
+                            { action: { order: 0 }, breakdown_value: ['Chrome'] },
+                            { action: { order: 0 }, breakdown_value: ['Firefox'] },
+                            { action: { order: 0 }, breakdown_value: ['Safari'] },
+                        ],
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: { kind: NodeKind.TrendsQuery, series: [] },
+                        } as InsightVizNode<TrendsQuery>,
+                    })
+                }
                 logic.actions.setDataColorThemeId(123)
             }).toFinishAllListeners()
 
@@ -594,6 +648,74 @@ describe('dashboardLogic', () => {
                 expect.objectContaining({
                     // only the pin — no auto entry materialized from the partially loaded tiles
                     breakdown_colors: [expect.objectContaining({ breakdownValue: 'pinned', colorToken: 'preset-5' })],
+                })
+            )
+        })
+
+        it('keeps shared auto colors when a failed refresh leaves a tile without results', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
+            })
+
+            const [firstInsight, secondInsight] = logic.values
+                .dashboard!.tiles.filter((t) => !!t.insight)
+                .map((t) => t.insight!)
+            const withBreakdownQuery = (
+                insight: typeof firstInsight,
+                breakdownValues: string[] | null
+            ): typeof firstInsight => ({
+                ...insight,
+                dashboards: [5],
+                dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
+                result: breakdownValues
+                    ? breakdownValues.map((breakdown_value) => ({ action: { order: 0 }, breakdown_value }))
+                    : null,
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [],
+                        breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                    },
+                } as InsightVizNode<TrendsQuery>,
+            })
+
+            await expectLogic(logic, () => {
+                // one loaded tile showing the value, one in the state a failed refresh leaves
+                // behind: a breakdown query whose insight never got results, while itemsLoading
+                // settles back to false
+                dashboardsModel.actions.updateDashboardInsight(withBreakdownQuery(firstInsight, ['Chrome', 'Firefox']))
+                dashboardsModel.actions.updateDashboardInsight(withBreakdownQuery(secondInsight, null))
+                // the auto entry an earlier save materialized while both tiles shared 'Chrome'
+                logic.actions.setBreakdownColorConfig({
+                    breakdownValue: 'Chrome',
+                    breakdownType: 'event',
+                    colorToken: 'preset-1',
+                    source: 'auto',
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.itemsLoading).toBe(false)
+            // Chrome only looks single-tile because the failed tile's values are unknown
+            expect(logic.values.effectiveBreakdownColors).toContainEqual(
+                expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' })
+            )
+
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            // the entry survives the save instead of being pruned from the partial tile set
+            expect(api.update).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    breakdown_colors: [
+                        expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' }),
+                    ],
                 })
             )
         })
@@ -1123,6 +1245,72 @@ describe('dashboardLogic', () => {
                     expect(logic.values.hasUnsavedLayoutChanges).toBe(expectedUnsaved)
                 }
             )
+        })
+
+        describe('colors modal cancel', () => {
+            beforeEach(() => {
+                dashboardInsightColorsModalLogic.mount()
+            })
+
+            it('discards color edits and exits edit mode when the modal was opened from view mode', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    dashboardInsightColorsModalLogic.actions.showInsightColorsModal(5)
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardInsightColorsModal)
+                    logic.actions.setBreakdownColorConfig({
+                        breakdownValue: 'x',
+                        breakdownType: 'event',
+                        colorToken: 'preset-1',
+                    })
+                    logic.actions.setDataColorThemeId(123)
+                }).toFinishAllListeners()
+
+                expect(logic.values.hasUnsavedColorChanges).toBe(true)
+
+                await expectLogic(logic, () => {
+                    dashboardInsightColorsModalLogic.actions.cancelColorChanges()
+                }).toFinishAllListeners()
+
+                expect(dashboardInsightColorsModalLogic.values.isOpen).toBe(false)
+                expect(logic.values.dashboardMode).toBeNull()
+                expect(logic.values.hasUnsavedColorChanges).toBe(false)
+                expect(logic.values.dataColorThemeId).toBe(logic.values.dashboard?.data_color_theme_id ?? null)
+            })
+
+            it('reverts only the modal color edits and stays in edit mode when edit mode predates the modal', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    logic.actions.setDates('-7d', null)
+                    logic.actions.setBreakdownColorConfig({
+                        breakdownValue: 'x',
+                        breakdownType: 'event',
+                        colorToken: 'preset-1',
+                    })
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    dashboardInsightColorsModalLogic.actions.showInsightColorsModal(5)
+                    logic.actions.setBreakdownColorConfig({
+                        breakdownValue: 'y',
+                        breakdownType: 'event',
+                        colorToken: 'preset-2',
+                    })
+                }).toFinishAllListeners()
+
+                await expectLogic(logic, () => {
+                    dashboardInsightColorsModalLogic.actions.cancelColorChanges()
+                }).toFinishAllListeners()
+
+                expect(dashboardInsightColorsModalLogic.values.isOpen).toBe(false)
+                expect(logic.values.dashboardMode).toBe(DashboardMode.Edit)
+                expect(logic.values.effectiveEditBarFilters.date_from).toBe('-7d')
+                expect(logic.values.temporaryBreakdownColors).toEqual([
+                    expect.objectContaining({ breakdownValue: 'x', colorToken: 'preset-1' }),
+                ])
+            })
         })
     })
 
@@ -2334,6 +2522,30 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboard'])
         })
+
+        it('reloads when an external rename lands before the tile is in state', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.renameInsightSuccess({
+                    ...insight800(),
+                    short_id: 'not_already_on_the_dashboard' as InsightShortId,
+                    dashboard_tiles: [{ id: 1, dashboard_id: 9 }],
+                })
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['loadDashboard'])
+        })
+
+        it('does not reload when an external rename targets a different dashboard only', async () => {
+            const loadDashboardSpy = jest.spyOn(logic.actions, 'loadDashboard')
+            await expectLogic(logic, () => {
+                insightsModel.actions.renameInsightSuccess({
+                    ...insight800(),
+                    short_id: 'not_already_on_the_dashboard' as InsightShortId,
+                    dashboard_tiles: [{ id: 1, dashboard_id: 10 }],
+                })
+            }).toFinishAllListeners()
+            expect(loadDashboardSpy).not.toHaveBeenCalled()
+        })
     })
 
     describe('text tiles', () => {
@@ -2410,6 +2622,73 @@ describe('dashboardLogic', () => {
 
             updateSpy.mockRestore()
             lemonToastErrorSpy.mockRestore()
+        })
+    })
+
+    describe('insight tiles', () => {
+        let lemonToastInfoSpy: jest.SpiedFunction<typeof lemonToast.info>
+        let lemonToastDismissSpy: jest.SpiedFunction<typeof lemonToast.dismiss>
+        let lemonDialogOpenSpy: jest.SpiedFunction<typeof LemonDialog.open>
+
+        beforeEach(async () => {
+            lemonToastInfoSpy = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
+            lemonToastDismissSpy = jest.spyOn(lemonToast, 'dismiss').mockImplementation(() => undefined)
+            lemonDialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => undefined)
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            lemonToastInfoSpy.mockRestore()
+            lemonToastDismissSpy.mockRestore()
+            lemonDialogOpenSpy.mockRestore()
+        })
+
+        it('offers to delete a removed insight and explains its other dashboard usage', async () => {
+            const { fireEvent, render } = await import('@testing-library/react')
+            const reportDeleteClicked = jest.spyOn(
+                eventUsageLogic.actions,
+                'reportDashboardInsightDeleteAfterRemovalClicked'
+            )
+            const insightTile = logic.values.insightTiles[0]
+            const insight = insightTile.insight!
+
+            await expectLogic(logic, () => {
+                logic.actions.removeTile({
+                    ...insightTile,
+                    insight: {
+                        ...insight,
+                        dashboard_tiles: [
+                            ...(insight.dashboard_tiles || []),
+                            { id: 999, dashboard_id: 8, deleted: true },
+                        ],
+                    },
+                })
+            }).toFinishAllListeners()
+
+            const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
+            const { getByText } = render(toastContent)
+            fireEvent.click(getByText('Delete insight everywhere'))
+            expect(reportDeleteClicked).toHaveBeenCalledWith(1)
+            expect(lemonToastDismissSpy).not.toHaveBeenCalled()
+
+            const dialogProps = lemonDialogOpenSpy.mock.calls.at(-1)?.[0]
+            expect(dialogProps).toEqual(
+                expect.objectContaining({ title: 'Delete insight everywhere?', shouldAwaitSubmit: true })
+            )
+            if (!dialogProps) {
+                throw new Error('Delete dialog did not open')
+            }
+
+            const { container, getByText: getDialogText } = render(dialogProps.description)
+            expect(getDialogText('This insight is also used on:')).not.toBeNull()
+            expect(container.querySelector('a')?.getAttribute('href')).toMatch(/\/dashboard\/6$/)
+            expect(
+                getDialogText('This deletes the insight and removes it from every dashboard. You can undo this action.')
+            ).not.toBeNull()
+
+            reportDeleteClicked.mockRestore()
         })
     })
 

@@ -1,4 +1,5 @@
 import { buildPrOutput, mergePrUrls, readPrUrls } from "@posthog/shared";
+import { buildPosthogPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   createAcpConnection,
   type InProcessAcpConnection,
@@ -14,7 +15,6 @@ import {
 import { PostHogAPIClient, type TaskRunUpdate } from "./posthog-api";
 import { SessionLogWriter } from "./session-log-writer";
 import type { AgentConfig, TaskExecutionOptions } from "./types";
-import { buildGatewayPropertyHeaderRecord } from "./utils/gateway";
 import { Logger } from "./utils/logger";
 
 export class Agent {
@@ -89,6 +89,7 @@ export class Agent {
       const models = await fetchModelsList({
         gatewayUrl: gatewayConfig.gatewayUrl,
         authToken: gatewayConfig.apiKey,
+        projectId: this.posthogApiConfig?.projectId,
       });
       const gatewayCodexModels = models.filter((model) => {
         if (isBlockedModelId(model.id)) return false;
@@ -122,6 +123,13 @@ export class Agent {
             anthropicAuthToken: gatewayConfig.apiKey,
             openaiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
             openaiApiKey: gatewayConfig.apiKey,
+            // Thread the selected project explicitly so the session scopes to it
+            // rather than the shared POSTHOG_PROJECT_ID global, which a
+            // concurrent session start can clobber.
+            posthogProjectId:
+              this.posthogApiConfig?.projectId != null
+                ? String(this.posthogApiConfig.projectId)
+                : undefined,
           }
         : undefined;
 
@@ -150,7 +158,7 @@ export class Agent {
               reasoningEffort: options.reasoningEffort,
               developerInstructions: options.developerInstructions,
               httpHeaders: taskId
-                ? buildGatewayPropertyHeaderRecord({ $ai_session_id: taskId })
+                ? buildPosthogPropertyHeaderRecord({ $ai_session_id: taskId })
                 : undefined,
               additionalDirectories: options.additionalDirectories,
             }

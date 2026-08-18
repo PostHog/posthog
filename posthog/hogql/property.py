@@ -54,6 +54,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
+from posthog.dataclasses import frozen
 from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
@@ -76,14 +77,21 @@ from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by
 PERSON_METADATA_FIELDS = {"created_at"}
 
 
-def parse_semver(value: str) -> tuple[str, str, str]:
+@frozen
+class SemverParts:
+    major: str
+    minor: str
+    patch: str
+
+
+def parse_semver(value: str) -> SemverParts:
     """
-    Parse a semver string into (major, minor, patch) components.
+    Parse a semver string into major, minor and patch components.
 
     - Strips pre-release suffixes (e.g., -alpha.1)
     - Defaults missing components to "0" (e.g., 1.0 -> 1.0.0)
 
-    Returns tuple of strings for direct use in version string construction.
+    Components stay strings for direct use in version string construction.
     Raises ValueError if parsing fails.
     """
     # Strip pre-release suffix (everything after first hyphen)
@@ -100,7 +108,7 @@ def parse_semver(value: str) -> tuple[str, str, str]:
     # Validate they're actually integers
     int(major), int(minor), int(patch)
 
-    return (major, minor, patch)
+    return SemverParts(major=major, minor=minor, patch=patch)
 
 
 # Anchored, strict-semver validator used to gate semver comparisons. We can't rely on
@@ -172,12 +180,12 @@ def _tilde_bounds(value: str) -> tuple[str, str]:
     ~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)
     ~1 means >=1.0.0 <2.0.0 (bare major: allows minor+patch changes)
     """
-    major, minor, patch = parse_semver(value)
+    v = parse_semver(value)
     parts = value.split("-")[0].split(".")
     if len(parts) < 2:
-        return f"{major}.0.0", f"{int(major) + 1}.0.0"
-    next_minor = str(int(minor) + 1)
-    return f"{major}.{minor}.{patch}", f"{major}.{next_minor}.0"
+        return f"{v.major}.0.0", f"{int(v.major) + 1}.0.0"
+    next_minor = str(int(v.minor) + 1)
+    return f"{v.major}.{v.minor}.{v.patch}", f"{v.major}.{next_minor}.0"
 
 
 def _caret_bounds(value: str) -> tuple[str, str]:
@@ -188,15 +196,15 @@ def _caret_bounds(value: str) -> tuple[str, str]:
     ^0.0.3 means >=0.0.3 <0.0.4
     The leftmost non-zero component determines the upper bound.
     """
-    major, minor, patch = parse_semver(value)
-    lower_bound = f"{major}.{minor}.{patch}"
+    v = parse_semver(value)
+    lower_bound = f"{v.major}.{v.minor}.{v.patch}"
 
-    if int(major) > 0:
-        upper_bound = f"{int(major) + 1}.0.0"
-    elif int(minor) > 0:
-        upper_bound = f"0.{int(minor) + 1}.0"
+    if int(v.major) > 0:
+        upper_bound = f"{int(v.major) + 1}.0.0"
+    elif int(v.minor) > 0:
+        upper_bound = f"0.{int(v.minor) + 1}.0"
     else:
-        upper_bound = f"0.0.{int(patch) + 1}"
+        upper_bound = f"0.0.{int(v.patch) + 1}"
 
     return lower_bound, upper_bound
 

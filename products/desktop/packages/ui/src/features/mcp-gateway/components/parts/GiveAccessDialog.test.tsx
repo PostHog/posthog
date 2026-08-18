@@ -65,6 +65,26 @@ const secondAccount: McpServiceAccount = {
   handle: "posthog-docs",
 };
 
+function agentShare(accountId: string, userId: number) {
+  return {
+    service_account_id: accountId,
+    user: {
+      id: userId,
+      uuid: `user-${userId}`,
+      first_name: "",
+      last_name: "",
+      email: `user-${userId}@example.com`,
+      hedgehog_config: null,
+    },
+    scope: "personal",
+    name: "Agent",
+    handle: "agent",
+    status: "active",
+    last_active_at: null,
+    granted_by: null,
+  } as McpGatewayServer["agents"][number];
+}
+
 describe("GiveAccessDialog", () => {
   it("only offers allow or block when configuring an agent", async () => {
     const user = userEvent.setup();
@@ -74,6 +94,7 @@ describe("GiveAccessDialog", () => {
           open
           server={server}
           accounts={[account]}
+          currentUserId={7}
           toolPolicies={[toolPolicy]}
           pending={false}
           onClose={vi.fn()}
@@ -102,6 +123,7 @@ describe("GiveAccessDialog", () => {
           open
           server={server}
           accounts={[account]}
+          currentUserId={7}
           toolPolicies={[toolPolicy]}
           pending={false}
           onClose={vi.fn()}
@@ -122,6 +144,7 @@ describe("GiveAccessDialog", () => {
             open={open}
             server={server}
             accounts={[account]}
+            currentUserId={7}
             toolPolicies={[toolPolicy]}
             pending={false}
             onClose={vi.fn()}
@@ -150,6 +173,7 @@ describe("GiveAccessDialog", () => {
           open
           server={server}
           accounts={[account, secondAccount]}
+          currentUserId={7}
           toolPolicies={[toolPolicy]}
           pending={false}
           onClose={vi.fn()}
@@ -168,9 +192,77 @@ describe("GiveAccessDialog", () => {
 
     expect(screen.getByRole("radio", { name: "Blocked" })).not.toBeChecked();
     await user.click(screen.getByRole("button", { name: "Share access" }));
-    expect(onGrant).toHaveBeenCalledWith("agent-2", [
-      { tool_name: "search_pages", policy_state: "approved" },
-    ]);
+    expect(onGrant).toHaveBeenCalledWith(
+      "agent-2",
+      [{ tool_name: "search_pages", policy_state: "approved" }],
+      "personal",
+    );
+  });
+
+  it("passes the chosen team scope through the grant", async () => {
+    const user = userEvent.setup();
+    const onGrant = vi.fn();
+    render(
+      <Theme>
+        <GiveAccessDialog
+          open
+          server={server}
+          accounts={[account]}
+          currentUserId={7}
+          toolPolicies={[toolPolicy]}
+          pending={false}
+          onClose={vi.fn()}
+          onGrant={onGrant}
+        />
+      </Theme>,
+    );
+
+    screen.getByRole("combobox").focus();
+    await user.keyboard("{ArrowDown}{Enter}");
+    await user.click(screen.getByRole("radio", { name: "All team agents" }));
+    await user.click(screen.getByRole("button", { name: "Share access" }));
+
+    expect(onGrant).toHaveBeenCalledWith(
+      "agent-1",
+      [{ tool_name: "search_pages", policy_state: "approved" }],
+      "team",
+    );
+  });
+
+  // Several members may back the same agent side by side, so a teammate's
+  // share must not remove the agent from the caller's picker.
+  it("filters out only the agents the caller already shared with", async () => {
+    const user = userEvent.setup();
+    const onGrant = vi.fn();
+    render(
+      <Theme>
+        <GiveAccessDialog
+          open
+          server={{
+            ...server,
+            agents: [agentShare("agent-1", 7), agentShare("agent-2", 8)],
+          }}
+          accounts={[account, secondAccount]}
+          currentUserId={7}
+          toolPolicies={[toolPolicy]}
+          pending={false}
+          onClose={vi.fn()}
+          onGrant={onGrant}
+        />
+      </Theme>,
+    );
+
+    // agent-1 is already backed by the caller, so the first offered agent is
+    // agent-2 even though a teammate already shared it.
+    screen.getByRole("combobox").focus();
+    await user.keyboard("{ArrowDown}{Enter}");
+    await user.click(screen.getByRole("button", { name: "Share access" }));
+
+    expect(onGrant).toHaveBeenCalledWith(
+      "agent-2",
+      [{ tool_name: "search_pages", policy_state: "approved" }],
+      "personal",
+    );
   });
 
   it("shows a spinner and prevents closing while access is being shared", () => {
@@ -181,6 +273,7 @@ describe("GiveAccessDialog", () => {
           open
           server={server}
           accounts={[account]}
+          currentUserId={7}
           toolPolicies={[]}
           pending
           onClose={onClose}
