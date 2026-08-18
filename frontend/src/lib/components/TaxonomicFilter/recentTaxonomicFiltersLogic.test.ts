@@ -1,5 +1,5 @@
 import { initKeaTests } from '~/test/init'
-import { PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { LogPropertyFilter, PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     MAX_RECENT_FILTERS,
@@ -529,6 +529,61 @@ describe('recentTaxonomicFiltersLogic', () => {
             expect(emailRecords[1].propertyFilter).toMatchObject(complete)
             // Oldest event was evicted to make room for the selectingKeyOnly entry that followed the complete one.
             expect(filters.find((f) => f.value === 'event-0')).toBeUndefined()
+        })
+    })
+
+    describe('logs message search', () => {
+        // The Logs query bar builds the property filter itself and records it, and taxonomicFilterLogic
+        // separately records the same selection without a value. Both write under groupType Logs / value
+        // 'message' — the key, since the Logs group's getValue returns option.key — so they collide on the
+        // same record, and the guards above keep the complete one whichever order they land in.
+        const messageContainsFoobar: LogPropertyFilter = {
+            key: 'message',
+            value: 'foobar',
+            operator: PropertyOperator.IContains,
+            type: PropertyFilterType.Log,
+        }
+
+        it('keeps the searched value when the value-less record follows the complete one', () => {
+            logic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Logs,
+                groupName: 'Logs',
+                value: 'message',
+                item: { name: 'Search log message for "foobar"' },
+                propertyFilter: messageContainsFoobar,
+            })
+            logic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Logs,
+                groupName: 'Logs',
+                value: 'message',
+                item: { name: 'Search log message for "foobar"' },
+            })
+
+            expect(logic.values.recentFilters).toHaveLength(1)
+            expect(logic.values.recentFilterItems).toHaveLength(1)
+            // Re-selecting this from "Recent" restores `message contains foobar`, not a bare `message`.
+            expect((logic.values.recentFilterItems[0] as any)._recentContext.propertyFilter).toMatchObject(
+                messageContainsFoobar
+            )
+        })
+
+        it('keeps one entry per searched term rather than collapsing onto the message key', () => {
+            logic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Logs,
+                groupName: 'Logs',
+                value: 'message',
+                item: { name: 'Search log message for "foobar"' },
+                propertyFilter: messageContainsFoobar,
+            })
+            logic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Logs,
+                groupName: 'Logs',
+                value: 'message',
+                item: { name: 'Search log message for "baz"' },
+                propertyFilter: { ...messageContainsFoobar, value: 'baz' },
+            })
+
+            expect(logic.values.recentFilters.map((f) => f.propertyFilter?.value)).toEqual(['baz', 'foobar'])
         })
     })
 })
