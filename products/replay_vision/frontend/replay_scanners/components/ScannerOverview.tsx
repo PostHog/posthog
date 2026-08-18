@@ -9,6 +9,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { creditsToUsd, formatCreditsRange } from '../../utils/credits'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
 import { ScannerInsightsChart } from './ScannerInsightsChart'
@@ -256,29 +257,32 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
     }
     const freeformAllowed = !!scanner.scanner_config.allow_freeform_tags
     const fixedEmpty = hasActiveOverviewFilters
-        ? 'No fixed-vocabulary tags match the current filter.'
-        : 'No fixed-vocabulary tags emitted yet.'
+        ? 'No configured categories match the current filter.'
+        : 'No configured categories emitted yet.'
     const freeformEmpty = hasActiveOverviewFilters
-        ? 'No freeform tags match the current filter.'
-        : 'No freeform tags emitted yet.'
+        ? 'No freeform categories match the current filter.'
+        : 'No freeform categories emitted yet.'
 
     const cohortAction = (tag: string): JSX.Element => (
         <LemonButton
+            type="secondary"
             size="xsmall"
             icon={<IconPeople />}
-            tooltip={`Save users tagged "${tag}" in the last 30 days as a cohort`}
+            tooltip={`Save users in category "${tag}" from the last 30 days as a cohort`}
             onClick={() => saveAffectedCohort(tag)}
             loading={affectedCohortLoading && savingCohortTag === tag}
             disabledReason={
                 affectedCohortLoading && savingCohortTag !== tag ? 'Another cohort is being created' : undefined
             }
             data-attr="vision-save-tag-cohort"
-        />
+        >
+            Save as cohort
+        </LemonButton>
     )
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <OverviewPanel title="Top fixed tags" subtitle="from configured vocabulary" fill>
+            <OverviewPanel title="Top configured categories" subtitle="from the categories you defined" fill>
                 <RankedTermList
                     ranked={fixedRanked}
                     loading={overviewStatsApiLoading}
@@ -289,8 +293,8 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
             </OverviewPanel>
 
             <OverviewPanel
-                title="Top freeform tags"
-                subtitle={freeformAllowed ? 'outside configured vocabulary' : 'disabled'}
+                title="Top freeform categories"
+                subtitle={freeformAllowed ? 'outside the categories you defined' : 'disabled'}
                 disabled={!freeformAllowed}
                 fill
             >
@@ -304,8 +308,9 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                     />
                 ) : (
                     <div className="text-muted text-sm">
-                        Freeform tags are disabled for this scanner, so the model can only pick from your configured
-                        vocabulary. Enable "Allow freeform tags" in the scanner config to let it propose new ones.
+                        Freeform categories are disabled for this scanner, so the model can only pick from the
+                        categories you defined. Enable "Allow freeform categories" in the scanner config to let it
+                        propose new ones.
                     </div>
                 )}
             </OverviewPanel>
@@ -431,10 +436,57 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
     )
 }
 
+// The interstitial a just-created scanner shows instead of the filters + charts, whose "no matching
+// events" empty state would wrongly suggest the user's setup is broken while the first sweep runs.
+// It also hides the overview's reload buttons, so when the background checks keep failing it has to
+// surface that itself and offer a retry.
+function FirstScanPendingPanel({ scannerId }: { scannerId: string }): JSX.Element {
+    const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { firstScanCheckFailing, overviewStatsApiLoading } = useValues(scannerOverviewLogic({ scannerId }))
+    const { loadOverviewStats } = useActions(scannerOverviewLogic({ scannerId }))
+    return (
+        <div
+            className="border rounded bg-surface-primary p-6 flex flex-col items-center gap-2 text-center"
+            data-attr="vision-first-scan-pending"
+        >
+            {!firstScanCheckFailing && <Spinner className="text-2xl" />}
+            <div className="font-semibold">First scan in progress</div>
+            <div className="text-muted text-sm max-w-md">
+                {firstScanCheckFailing
+                    ? "We couldn't check for results. We'll keep retrying, or you can retry now."
+                    : 'This scanner picks up new recordings on a schedule. Results usually appear within 15 minutes.'}
+            </div>
+            {firstScanCheckFailing && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    loading={overviewStatsApiLoading}
+                    onClick={() => loadOverviewStats()}
+                    data-attr="vision-first-scan-pending-retry"
+                >
+                    Retry
+                </LemonButton>
+            )}
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={() => setActiveTab(ReplayScannerTab.OnDemand)}
+                data-attr="vision-first-scan-pending-scan-now"
+            >
+                Scan a recording now
+            </LemonButton>
+        </div>
+    )
+}
+
 export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { firstScanPending } = useValues(scannerOverviewLogic({ scannerId }))
     if (!scanner) {
         return null
+    }
+    if (firstScanPending) {
+        return <FirstScanPendingPanel scannerId={scannerId} />
     }
     const scannerType: ScannerType = scanner.scanner_type
     const typeOverview =

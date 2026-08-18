@@ -873,6 +873,7 @@ export interface SandboxEnvironmentWriteApi {
     network_access_level?: NetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
+     * @maxItems 100
      * @items.maxLength 255
      */
     allowed_domains?: string[]
@@ -911,6 +912,7 @@ export interface PatchedSandboxEnvironmentWriteApi {
     network_access_level?: NetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
+     * @maxItems 100
      * @items.maxLength 255
      */
     allowed_domains?: string[]
@@ -1648,6 +1650,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `image_builder` - Image Builder
  * * `loop` - Loop
  * * `mcp_analytics` - MCP Analytics
+ * * `signals_chat` - Signals Chat
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -1670,6 +1673,7 @@ export const OriginProductEnumApi = {
     ImageBuilder: 'image_builder',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
+    SignalsChat: 'signals_chat',
 } as const
 
 /**
@@ -1708,7 +1712,8 @@ export interface TaskCreateApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
-     * * `mcp_analytics` - MCP Analytics */
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1851,7 +1856,8 @@ export interface TaskWriteApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
-     * * `mcp_analytics` - MCP Analytics */
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1979,7 +1985,8 @@ export interface PatchedTaskWriteApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
-     * * `mcp_analytics` - MCP Analytics */
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2762,6 +2769,15 @@ export interface TaskStagedArtifactPrepareUploadResponseApi {
 export interface TaskStagedArtifactsPrepareUploadResponseApi {
     /** Prepared staged uploads for the requested artifacts */
     artifacts: TaskStagedArtifactPrepareUploadResponseApi[]
+}
+
+export interface TaskUsageResponseApi {
+    /** Estimated model cost attributed to this task in US dollars. */
+    token_cost_usd: number
+    /** Estimated cloud compute cost attributed to this task in US dollars. */
+    compute_cost_usd: number
+    /** Estimated total cost attributed to this task in US dollars. */
+    total_cost_usd: number
 }
 
 export interface PaginatedTaskRunDetailDTOListApi {

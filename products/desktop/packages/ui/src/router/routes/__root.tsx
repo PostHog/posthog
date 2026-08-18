@@ -5,11 +5,7 @@ import {
 } from "@phosphor-icons/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { Button, ButtonGroup } from "@posthog/quill";
-import {
-  BILLING_FLAG,
-  PROJECT_BLUEBIRD_FLAG,
-  SYNC_CLOUD_TASKS_FLAG,
-} from "@posthog/shared";
+import { BILLING_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
 import { DeepLinkApprovalModal } from "@posthog/ui/features/agent-applications/components/DeepLinkApprovalModal";
@@ -34,6 +30,7 @@ import {
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useShareLinkInterceptor } from "@posthog/ui/features/canvas/hooks/useShareLinkInterceptor";
 import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
 import { CommandSearchBar } from "@posthog/ui/features/command/CommandSearchBar";
@@ -117,12 +114,6 @@ function RootLayout() {
   // Width of the Channels sidebar below — used to right-align the back/forward
   // buttons in the title bar with the sidebar's (and project switcher's) right edge.
   const channelsSidebarWidth = useChannelsSidebarStore((state) => state.width);
-  // Suppress the title-bar width transition during a live drag so it tracks
-  // the sidebar frame-for-frame; when the sidebar toggles open/closed, both
-  // animate with the same curve (see ResizableSidebar).
-  const sidebarIsResizing = useChannelsSidebarStore(
-    (state) => state.isResizing,
-  );
   // Forward availability isn't exposed by the router (and history.length counts
   // pre-app entries, so it can't be compared to __TSR_index). Track the newest
   // index we've reached: only a PUSH wipes the forward stack, so it resets the
@@ -204,7 +195,6 @@ function RootLayout() {
   const queryClient = useQueryClient();
   const reconcilingTaskIds = useRef<Set<string>>(new Set());
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
-  const syncCloudTasksEnabled = useFeatureFlag(SYNC_CLOUD_TASKS_FLAG);
   // "PostHog Web" is a channels-world affordance — show it only while the user
   // is actually seeing channels (toggle on, which itself requires the flag).
   const bluebirdEnabled = useFeatureFlag(
@@ -241,6 +231,7 @@ function RootLayout() {
   useCanvasDeepLink();
   useChannelDeepLink();
   useLoopDeepLink();
+  useShareLinkInterceptor();
   const approvalDeepLink = useApprovalDeepLink();
   useSetupDiscovery();
   useNewTaskDeepLink();
@@ -249,7 +240,6 @@ function RootLayout() {
   // task cache populates the route automatically.
 
   useEffect(() => {
-    if (!syncCloudTasksEnabled) return;
     if (!tasks || !workspaces || !workspacesFetched) return;
     const missing = tasks.filter(
       (t) =>
@@ -277,15 +267,7 @@ function RootLayout() {
         for (const id of missingIds) reconcilingTaskIds.current.delete(id);
         log.warn("Failed to reconcile cloud workspaces", err);
       });
-  }, [
-    syncCloudTasksEnabled,
-    tasks,
-    workspaces,
-    workspacesFetched,
-    queryClient,
-    hostClient,
-    trpc,
-  ]);
+  }, [tasks, workspaces, workspacesFetched, queryClient, hostClient, trpc]);
 
   // Flags resolve asynchronously — flag-gated routes below wait for this
   // before redirecting away from a restored route the user can't access.
@@ -341,8 +323,10 @@ function RootLayout() {
           onOpenChange={(open) => (open ? null : closeShortcutsSheet())}
         />
         <GlobalEventHandlers
+          allTasks={tasks ?? []}
           onToggleCommandMenu={toggleCommandMenu}
           onToggleShortcutsSheet={toggleShortcutsSheet}
+          visualTaskOrder={visualTaskOrder}
         />
         {/* The settings shell has never mounted the tab strip, so nothing here
             was stopping Cmd+W from closing the window. */}
@@ -387,11 +371,6 @@ function RootLayout() {
               // without Window Controls Overlay.
               paddingLeft: isMac ? "env(titlebar-area-x, 78px)" : "78px",
               width: sidebarOpen ? channelsSidebarWidth : undefined,
-              // Same curve/duration as ResizableSidebar's SLIDE_EASING so the
-              // title bar tracks the sidebar edge.
-              transition: sidebarIsResizing
-                ? "none"
-                : "width 0.2s cubic-bezier(0, 0, 0.2, 1)",
             }}
           >
             <Flex align="center" gap="2" className="no-drag">
@@ -515,8 +494,10 @@ function RootLayout() {
           onOpenChange={(open) => (open ? null : closeShortcutsSheet())}
         />
         <GlobalEventHandlers
+          allTasks={tasks ?? []}
           onToggleCommandMenu={toggleCommandMenu}
           onToggleShortcutsSheet={toggleShortcutsSheet}
+          visualTaskOrder={visualTaskOrder}
         />
         {/* Renders nothing — owns ⌘1-9 under the channels layout. Mounted here
             rather than in the switcher, which only exists once a channel is

@@ -37,6 +37,8 @@ import type { AccountNotebookApi } from 'products/customer_analytics/frontend/ge
 import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggle'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountBillingLogic } from './accountBillingLogic'
+import { AccountEmailThreadsExpansion } from './AccountEmailThreadsExpansion'
+import { accountEmailThreadsLogic } from './accountEmailThreadsLogic'
 import { accountLinksLogic } from './accountLinksLogic'
 import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
 import { accountMeetingsLogic } from './accountMeetingsLogic'
@@ -180,6 +182,7 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountOpportunitiesLogic({ accountId }))
     useMountedLogic(accountSummariesLogic({ accountId }))
     useMountedLogic(accountSupportTicketsLogic({ accountId }))
+    useMountedLogic(accountEmailThreadsLogic({ accountId }))
     useMountedLogic(accountMeetingsLogic({ accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -356,6 +359,11 @@ export function AccountNotebooksExpansion({
                                 key: 'support_tickets',
                                 label: 'Support tickets',
                                 content: <AccountSupportTicketsExpansion accountId={accountId} />,
+                            },
+                            {
+                                key: 'email_threads',
+                                label: 'Email threads',
+                                content: <AccountEmailThreadsExpansion accountId={accountId} />,
                             },
                             // Flag-gated here (not just inside the component) so the tab label hides too.
                             !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {

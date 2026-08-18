@@ -208,8 +208,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
     '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
+    '/replay-vision/:id/budget': ['ReplayVisionScannerEditor', 'replayVisionScannerBudget'],
     '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/code-review': ['CodeReview', 'codeReview'],
@@ -226,6 +228,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/community-skills': ['CommunitySkills', 'communitySkills'],
     '/skills/:name': ['Skill', 'skill'],
     '/stamphog': ['Stamphog', 'stamphog'],
+    '/stamphog/runs': ['StamphogRuns', 'stamphogRuns'],
+    '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
     '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
     '/streamlit-apps': ['StreamlitApps', 'streamlitApps'],
     '/streamlit-apps/new': ['StreamlitAppEdit', 'streamlitAppNew'],
@@ -870,6 +874,8 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
+    StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
+    StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
     StreamlitApps: { name: 'Streamlit apps', projectBased: true },
     StreamlitApp: { name: 'Streamlit app', projectBased: true },
     StreamlitAppEdit: { name: 'Edit Streamlit app', projectBased: true },
@@ -1395,8 +1401,10 @@ export const productUrls = {
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     replayVisionTemplates: (): string => '/replay-vision/new/template',
     replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
+    replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
     replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
@@ -1425,6 +1433,8 @@ export const productUrls = {
     ): string => combineUrl(`/skills/${name}`, params).url,
     communitySkills: (): string => '/community-skills',
     stamphog: (): string => '/stamphog',
+    stamphogRuns: (): string => '/stamphog/runs',
+    stamphogDigests: (): string => '/stamphog/digests',
     stamphogCallback: (): string => '/stamphog/install/callback',
     streamlitApps: (): string => '/streamlit-apps',
     streamlitApp: (id: string): string => `/streamlit-apps/${id}`,
@@ -1797,6 +1807,58 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
     },
 ]
+
+/** This const is auto-generated, as is the whole file */
+export type ProductTreePath =
+    | 'AI gateway'
+    | 'Apps'
+    | 'Business knowledge'
+    | 'Clusters'
+    | 'Code review'
+    | 'Customer analytics'
+    | 'Dashboards'
+    | 'Data catalog'
+    | 'Data warehouse'
+    | 'Datasets'
+    | 'Early access features'
+    | 'Endpoints'
+    | 'Engineering analytics'
+    | 'Error tracking'
+    | 'Evaluations'
+    | 'Experiments'
+    | 'Feature flags'
+    | 'Heatmaps'
+    | 'Identity matching'
+    | 'Inbox'
+    | 'Links'
+    | 'Live Debugger'
+    | 'LLM analytics'
+    | 'Logs'
+    | 'Marketing analytics'
+    | 'MCP analytics'
+    | 'MCP servers'
+    | 'Metrics'
+    | 'Notebooks'
+    | 'Playground'
+    | 'Product analytics'
+    | 'Product tours'
+    | 'Prompts'
+    | 'Pulse'
+    | 'Replay vision'
+    | 'Session replay'
+    | 'Skills'
+    | 'SQL editor'
+    | 'Support'
+    | 'Surveys'
+    | 'Taggers'
+    | 'Tasks'
+    | 'Toolbar'
+    | 'Tracing'
+    | 'User research'
+    | 'Visual review'
+    | 'Web analytics'
+    | 'Web scripts'
+    | 'Workflows'
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [

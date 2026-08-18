@@ -21,6 +21,33 @@ export function channelDisplayName(name: string | null): string | null {
   return name === PERSONAL_CHANNEL_NAME ? PERSONAL_CHANNEL_LABEL : name;
 }
 
+function isPersonalChannelLabel(
+  name: string,
+  channelType?: "public" | "personal",
+): boolean {
+  return channelType !== undefined
+    ? channelType === "personal"
+    : name === PERSONAL_CHANNEL_NAME || name === PERSONAL_CHANNEL_LABEL;
+}
+
+export function channelDisplayLabel(
+  name: string,
+  channelType?: "public" | "personal",
+): string {
+  return isPersonalChannelLabel(name, channelType)
+    ? PERSONAL_CHANNEL_LABEL
+    : `#${channelDisplayName(name)}`;
+}
+
+export function channelDisplayReference(
+  name: string,
+  channelType?: "public" | "personal",
+): string {
+  return isPersonalChannelLabel(name, channelType)
+    ? "your personal space"
+    : `#${channelDisplayName(name)}`;
+}
+
 // A channel's name is used verbatim as its server-side filesystem path segment,
 // so it must be directory-safe: lowercase letters, numbers, and hyphens only.
 export const CHANNEL_NAME_PATTERN = /^[a-z0-9-]+$/;

@@ -121,6 +121,7 @@ import type {
     TaskSummariesRequestApi,
     TaskThreadMessageDTOApi,
     TaskThreadMessageWriteApi,
+    TaskUsageResponseApi,
     TaskWriteApi,
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
@@ -1565,6 +1566,25 @@ export const tasksStagedArtifactsPrepareUploadCreate = async (
     )
 }
 
+export const getTasksUsageRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/usage/`
+}
+
+/**
+ * Return estimated model and cloud compute costs attributed to a task.
+ * @summary Get task usage
+ */
+export const tasksUsageRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskUsageResponseApi> => {
+    return apiMutator<TaskUsageResponseApi>(getTasksUsageRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getTasksRunsListUrl = (projectId: string, taskId: string, params?: TasksRunsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1878,6 +1898,26 @@ export const tasksRunsCancelCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunCancelRequestApi),
+    })
+}
+
+export const getTasksRunsClearConversationCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/clear_conversation/`
+}
+
+/**
+ * Record a `/clear` boundary in a finished run's log so the next run in the chain starts with an empty conversation. Its checkpoints, artifacts, and visible history are unaffected. Only for a finished run: an active one has an agent that owns the clear, so send `/clear` to it as an ordinary message instead.
+ * @summary Clear conversation history
+ */
+export const tasksRunsClearConversationCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsClearConversationCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

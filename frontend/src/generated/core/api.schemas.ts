@@ -225,6 +225,8 @@ export interface IdentityProviderConfigApi {
     readonly updated_at: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml: boolean
+    /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
+    readonly saml_relay_state: string
     /**
      * SAML IdP entity ID (issuer).
      * @maxLength 512
@@ -292,6 +294,8 @@ export interface PatchedIdentityProviderConfigApi {
     readonly updated_at?: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml?: boolean
+    /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
+    readonly saml_relay_state?: string
     /**
      * SAML IdP entity ID (issuer).
      * @maxLength 512
