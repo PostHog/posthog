@@ -1,8 +1,8 @@
 import { dayjs } from 'lib/dayjs'
 
-import { AlertState } from '~/queries/schema/schema-general'
+import { AlertState, ForecastConditionType } from '~/queries/schema/schema-general'
 
-import type { AlertCheck, AlertCheckDelivery } from './types'
+import type { AlertCheck, AlertCheckDelivery, AlertType } from './types'
 
 export enum AlertsTab {
     INSIGHTS = 'insights',
@@ -106,4 +106,15 @@ export function isFailedDelivery(check: AlertCheck): boolean {
     }
     // Gated on an investigation: no dispatch has run yet, so there is nothing to blame.
     return check.investigation_status !== 'pending' && check.investigation_status !== 'running'
+}
+
+/** A target alert that reached its date is finished, not switched off. The backend disables it there
+ *  rather than adding an AlertState, so both halves are required: a user can also disable one by hand
+ *  before its date, which is a different thing and must not read as finished. */
+export function isTargetDatePassed(alert: AlertType, today: Date): boolean {
+    const config = alert.forecast_config
+    if (config?.condition !== ForecastConditionType.TARGET_BY_DATE || !config.target_date) {
+        return false
+    }
+    return !alert.enabled && new Date(config.target_date) < today
 }
