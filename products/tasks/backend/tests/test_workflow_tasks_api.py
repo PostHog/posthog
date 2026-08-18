@@ -226,6 +226,17 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert replay.json()["run_id"] == first.json()["run_id"]
         assert Task.objects.filter(hog_flow_id=self.hog_flow.id).count() == 1
 
+    def test_replaying_an_idempotency_key_at_the_in_flight_limit_returns_the_existing_task(self) -> None:
+        # The first create's own queued run fills a limit of 1, so resolving the replay must
+        # not go through the in-flight guard, or a legitimate retry would 409.
+        first = self._post({"idempotency_key": "invocation-1", "max_parallel_tasks": 1})
+        replay = self._post({"idempotency_key": "invocation-1", "max_parallel_tasks": 1})
+
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+        assert replay.status_code == status.HTTP_200_OK, replay.json()
+        assert replay.json()["id"] == first.json()["id"]
+        assert Task.objects.filter(hog_flow_id=self.hog_flow.id).count() == 1
+
     @parameterized.expand([("with_repository", True), ("without_repository", False)])
     def test_pr_creation_follows_the_repository(self, _name: str, with_repository: bool) -> None:
         body: dict = {}

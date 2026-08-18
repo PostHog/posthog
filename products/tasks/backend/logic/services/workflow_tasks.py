@@ -66,6 +66,15 @@ def create_workflow_task(
     `max_parallel_tasks` runs in flight. A repeated `origin_key` returns the existing task
     with `created=False` instead of creating a second one.
     """
+    # Resolve a replay before the guards below so a retry still returns its task even while
+    # the workflow sits at its in-flight limit or a requested connector has since gone
+    # inactive. The guards only gate genuinely new work. The atomic create's IntegrityError
+    # path still covers concurrent first requests that both miss this lookup.
+    if origin_key is not None:
+        existing = Task.objects.filter(team_id=team.id, origin_key=origin_key).first()
+        if existing is not None:
+            return _existing_task_dto(existing)
+
     _validate_connectors(team.id, owner_id, mcp_installation_ids)
 
     in_flight = TaskRun.objects.filter(
@@ -112,16 +121,15 @@ def create_workflow_task(
     except IntegrityError:
         if origin_key is None:
             raise
-        existing = Task.objects.get(team_id=team.id, origin_key=origin_key)
-        existing_run = existing.latest_run
-        return contracts.WorkflowTaskDTO(
-            task_id=existing.id,
-            run_id=existing_run.id if existing_run is not None else None,
-            created=False,
-        )
+        return _existing_task_dto(Task.objects.get(team_id=team.id, origin_key=origin_key))
 
     run = task.latest_run
     return contracts.WorkflowTaskDTO(task_id=task.id, run_id=run.id if run is not None else None, created=True)
+
+
+def _existing_task_dto(task: Task) -> contracts.WorkflowTaskDTO:
+    run = task.latest_run
+    return contracts.WorkflowTaskDTO(task_id=task.id, run_id=run.id if run is not None else None, created=False)
 
 
 def _validate_connectors(team_id: int, owner_id: int, mcp_installation_ids: list[str] | None) -> None:
