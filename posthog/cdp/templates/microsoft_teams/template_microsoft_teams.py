@@ -11,12 +11,20 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     category=["Customer Success"],
     code_language="hog",
     code="""
-if (not match(inputs.webhookUrl, '^https://[^/]+.logic.azure.com:443/workflows/[^/]+/triggers/manual/paths/invoke?.*') and
-    not match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+') and
-    not match(inputs.webhookUrl, '^https://[^/]+.powerautomate.com/[^/]+') and
-    not match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+') and
-    not match(inputs.webhookUrl, '^https://[^/]+.environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/(.*/)?workflows/.*')) {
-    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...), or Power Platform environment format (https://<tenant>.environment.api.powerplatform.com:443/powerautomate/automations/direct/[<cluster>/]workflows/...)')
+let validUrl := (
+    match(inputs.webhookUrl, '^https://[^/]+.logic.azure.com(:443)?/workflows/[^/]+/triggers/[^/]+/paths/invoke?.*') or
+    match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+') or
+    match(inputs.webhookUrl, '^https://[^/]+.powerautomate.com/[^/]+') or
+    match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+') or
+    match(inputs.webhookUrl, '^https://[^/]+.environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/(.*/)?workflows/.*')
+);
+
+if (not validUrl) {
+    let knownHost := match(inputs.webhookUrl, '^https://[^/]*(logic.azure.com|webhook.office.com|powerautomate.com|flow.microsoft.com|environment.api.powerplatform.com)');
+    if (knownHost) {
+        throw Error('We recognized the Microsoft Teams host, but not the URL path. Check that you copied the full webhook URL from Power Automate or Teams, including the path after the host.')
+    }
+    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...), or Power Platform environment format (https://<tenant>.environment.api.powerplatform.com/powerautomate/automations/direct/[<cluster>/]workflows/...)')
 }
 
 let res := fetch(inputs.webhookUrl, {
