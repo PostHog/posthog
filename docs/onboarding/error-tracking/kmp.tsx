@@ -8,6 +8,19 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
 
     const installSteps = getKMPSteps(ctx)
 
+    const enableExceptionAutocaptureStep: StepDefinition = {
+        title: 'Enable exception autocapture in PostHog',
+        badge: 'required',
+        content: (
+            <Markdown>
+                In your project's [Error Tracking
+                settings](https://app.posthog.com/settings/project-error-tracking#exception-autocapture), enable
+                **Enable exception autocapture**. This project setting acts as a server-side kill switch, so the SDK
+                does not automatically capture exceptions when it is disabled.
+            </Markdown>
+        ),
+    }
+
     const exceptionAutocaptureStep: StepDefinition = {
         title: 'Set up exception autocapture',
         badge: 'recommended',
@@ -94,7 +107,7 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
         ),
     }
 
-    return [...installSteps, exceptionAutocaptureStep, manualCaptureStep, verifyStep]
+    return [...installSteps, enableExceptionAutocaptureStep, exceptionAutocaptureStep, manualCaptureStep, verifyStep]
 }
 
 export const KMPErrorTrackingInstallation = createInstallation(getKMPErrorTrackingSteps)
