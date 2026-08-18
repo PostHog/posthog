@@ -56,6 +56,11 @@ class HeadMovedError(ContextLayerStoreError):
     """The head sha moved underneath a landing writer, twice."""
 
 
+class PurgeIncompleteError(ContextLayerStoreError):
+    """A purge rewrote the history but could not remove every old bundle, so
+    sensitive content may still be readable in object storage."""
+
+
 class LintFailedError(ContextLayerStoreError):
     def __init__(self, errors: list[str]) -> None:
         super().__init__("wiki structure lint failed: " + "; ".join(errors))
@@ -79,8 +84,12 @@ class CommitAuthor:
 SYSTEM_AUTHOR = CommitAuthor(name=COMMITTER_NAME, email=COMMITTER_EMAIL)
 
 
+def bundle_prefix(organization_id: uuid.UUID | str) -> str:
+    return f"{BUNDLE_KEY_PREFIX}/{organization_id}/bundles/"
+
+
 def bundle_key(organization_id: uuid.UUID | str, head_sha: str) -> str:
-    return f"{BUNDLE_KEY_PREFIX}/{organization_id}/bundles/{head_sha}.bundle"
+    return f"{bundle_prefix(organization_id)}{head_sha}.bundle"
 
 
 def _lock_key(organization_id: uuid.UUID | str) -> str:
@@ -174,6 +183,29 @@ def _upload_bundle(organization_id: uuid.UUID | str, head_sha: str, workdir: Pat
     bundle_path = workdir.parent / f"{head_sha}.bundle"
     _run_git(["bundle", "create", str(bundle_path), "--all"], cwd=workdir)
     object_storage.write_from_file(bundle_key(organization_id, head_sha), str(bundle_path))
+
+
+def _prune_bundles_except(organization_id: uuid.UUID | str, keep_head: str) -> None:
+    """Delete every stored bundle for the organization except `keep_head`'s.
+
+    Each landed head keeps its own bundle, so old bundles hold the history a
+    purge is meant to erase. This must run while holding the writer lock, with
+    `keep_head` read under that lock, so it never deletes the live head's bundle.
+    Anything short of a clean listing and delete raises, so a purge never reports
+    success while old bundles remain readable.
+    """
+    keep_key = bundle_key(organization_id, keep_head)
+    existing = object_storage.list_objects(bundle_prefix(organization_id))
+    if existing is None:
+        raise PurgeIncompleteError(f"could not list bundles to purge for organization {organization_id}")
+    stale = [key for key in existing if key != keep_key]
+    if not stale:
+        return
+    failed = object_storage.delete_objects(stale)
+    if failed:
+        raise PurgeIncompleteError(
+            f"could not delete {len(failed)} old bundle(s) while purging organization {organization_id}"
+        )
 
 
 def _clone_from_bundle(bundle_path: Path, workdir: Path) -> None:
@@ -292,14 +324,26 @@ def apply_changes(
 
 
 def purge_repo_history(organization_id: uuid.UUID | str, *, message: str = "Purge wiki history") -> str:
-    """Rewrite the wiki to a single commit holding the current tree, dropping
-    all history. The escape hatch for sensitive content committed by mistake."""
+    """Rewrite the wiki to a single commit holding the current tree and delete
+    every old bundle, so no dropped history survives in object storage. The
+    escape hatch for sensitive content committed by mistake.
+
+    Raises `PurgeIncompleteError` if the rewrite lands but an old bundle cannot
+    be removed, so a caller never treats a partial purge as done.
+    """
 
     def reinitialize_history(root: Path) -> None:
         shutil.rmtree(root / ".git")
         _run_git(["init", "--quiet", "--initial-branch", DEFAULT_BRANCH, str(root)], cwd=root)
 
-    return apply_changes(organization_id, message=message, mutate=reinitialize_history)
+    apply_changes(organization_id, message=message, mutate=reinitialize_history)
+    # Re-take the lock and prune against the head as it stands now: another writer
+    # may have landed on top of the rewritten tree, and only the current head's
+    # bundle must survive.
+    with repo_writer_lock(organization_id):
+        head_sha = get_config(organization_id).head_sha
+        _prune_bundles_except(organization_id, head_sha)
+        return head_sha
 
 
 def get_bundle_presigned_url(organization_id: uuid.UUID | str, *, expiration_seconds: int = 300) -> str:

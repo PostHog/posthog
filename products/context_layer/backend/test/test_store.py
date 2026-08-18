@@ -29,6 +29,42 @@ class TestRepoWriterLock(SimpleTestCase):
         assert client.eval.called
 
 
+class TestPruneBundles(SimpleTestCase):
+    ORG = "11111111-1111-1111-1111-111111111111"
+
+    def test_deletes_stale_bundles_and_never_the_kept_head(self) -> None:
+        keep = "a" * 40
+        stale = ["b" * 40, "c" * 40]
+        listed = [store.bundle_key(self.ORG, sha) for sha in [keep, *stale]]
+
+        with patch.object(store, "object_storage") as storage:
+            storage.list_objects.return_value = listed
+            storage.delete_objects.return_value = []
+            store._prune_bundles_except(self.ORG, keep)
+
+        storage.list_objects.assert_called_once_with(store.bundle_prefix(self.ORG))
+        deleted = storage.delete_objects.call_args.args[0]
+        assert set(deleted) == {store.bundle_key(self.ORG, sha) for sha in stale}
+        assert store.bundle_key(self.ORG, keep) not in deleted
+
+    def test_raises_when_a_bundle_delete_fails(self) -> None:
+        keep = "a" * 40
+        stale_key = store.bundle_key(self.ORG, "d" * 40)
+
+        with patch.object(store, "object_storage") as storage:
+            storage.list_objects.return_value = [store.bundle_key(self.ORG, keep), stale_key]
+            storage.delete_objects.return_value = [stale_key]
+            with self.assertRaises(store.PurgeIncompleteError):
+                store._prune_bundles_except(self.ORG, keep)
+
+    def test_raises_and_deletes_nothing_when_listing_unavailable(self) -> None:
+        with patch.object(store, "object_storage") as storage:
+            storage.list_objects.return_value = None
+            with self.assertRaises(store.PurgeIncompleteError):
+                store._prune_bundles_except(self.ORG, "a" * 40)
+            storage.delete_objects.assert_not_called()
+
+
 @override_settings(OBJECT_STORAGE_ENABLED=True)
 class TestContextLayerStore(BaseTest):
     def setUp(self) -> None:
