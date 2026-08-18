@@ -1013,6 +1013,128 @@ class TestValuesReports:
         )
 
 
+class TestReportVariants:
+    def test_series_report_carries_interval_and_expands_each_bucket_into_a_row(self, monkeypatch: Any) -> None:
+        # Series reports return each statistic as an array aligned to a top-level date_times list;
+        # keeping the arrays nested would leave the table unqueryable and collapse the weekly rows.
+        # Klaviyo also 400s a series report missing the interval, so the body must carry it.
+        captured: dict[str, Any] = {}
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                captured["body"] = json_body
+                return {
+                    "data": {
+                        "attributes": {
+                            "results": [
+                                {
+                                    "groupings": {
+                                        "campaign_id": "C1",
+                                        "campaign_message_id": "CM1",
+                                        "send_channel": "email",
+                                    },
+                                    "statistics": {"opens": [1, 2]},
+                                }
+                            ],
+                            "date_times": ["2026-01-05T00:00:00+00:00", "2026-01-12T00:00:00+00:00"],
+                        }
+                    },
+                    "links": {},
+                }
+            return {"data": [{"id": "M_ORDER", "attributes": {"name": "Placed Order"}}], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        rows = [
+            row
+            for table in get_rows(
+                api_key="pk_test",
+                endpoint="campaign_series_reports",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+            for row in table.to_pylist()
+        ]
+
+        assert captured["body"]["data"]["attributes"]["interval"] == "weekly"
+        assert rows == [
+            {
+                "campaign_id": "C1",
+                "campaign_message_id": "CM1",
+                "send_channel": "email",
+                "date_time": "2026-01-05T00:00:00+00:00",
+                "opens": 1,
+                "timeframe_key": "last_365_days",
+                "conversion_metric_id": "M_ORDER",
+            },
+            {
+                "campaign_id": "C1",
+                "campaign_message_id": "CM1",
+                "send_channel": "email",
+                "date_time": "2026-01-12T00:00:00+00:00",
+                "opens": 2,
+                "timeframe_key": "last_365_days",
+                "conversion_metric_id": "M_ORDER",
+            },
+        ]
+
+    @parameterized.expand(
+        [
+            ("form_values_reports", "form-values-report", "/form-values-reports", ["form_id"]),
+            ("segment_values_reports", "segment-values-report", "/segment-values-reports", None),
+        ]
+    )
+    def test_form_and_segment_reports_omit_the_conversion_metric_and_its_lookup(
+        self, endpoint: str, report_type: str, path: str, expected_group_by: list[str] | None
+    ) -> None:
+        # Form and segment reports don't accept a conversion_metric_id; sending one (or the group_by
+        # segment reports also reject) 400s the request, and resolving one would cost a needless
+        # /metrics walk on every sync.
+        captured: dict[str, Any] = {}
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            if json_body is not None:
+                captured["body"] = json_body
+            return {"data": {"attributes": {"results": []}}, "links": {}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+        attributes = captured["body"]["data"]["attributes"]
+        assert captured["body"]["data"]["type"] == report_type
+        assert "conversion_metric_id" not in attributes
+        assert fetched_urls == [f"https://a.klaviyo.com/api{path}"]
+        if expected_group_by is None:
+            assert "group_by" not in attributes
+        else:
+            assert attributes["group_by"] == expected_group_by
+
+    @parameterized.expand(
+        [
+            ("campaign_series_reports",),
+            ("flow_series_reports",),
+            ("form_series_reports",),
+            ("segment_series_reports",),
+        ]
+    )
+    def test_series_reports_key_on_the_time_bucket(self, endpoint: str) -> None:
+        # Without date_time in the primary key, the ~52 weekly rows per grouping collapse to one on
+        # merge, silently discarding the whole time series.
+        assert "date_time" in KLAVIYO_ENDPOINTS[endpoint].primary_keys
+
+
 class TestEndpointRequestParams:
     @parameterized.expand(
         [
