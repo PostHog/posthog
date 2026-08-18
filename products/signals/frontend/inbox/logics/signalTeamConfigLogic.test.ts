@@ -196,6 +196,47 @@ describe('signalTeamConfigLogic', () => {
         expect(logic.values.draftMaxReportsPerDay).toBe(7)
     })
 
+    it('stays out of the updating state during a background tab-return refresh', async () => {
+        let getCount = 0
+        let resolveRefresh: (() => void) | undefined
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/config/': async () => {
+                    getCount += 1
+                    if (getCount > 1) {
+                        // Hold the refresh GET open so its in-flight state can be observed.
+                        await new Promise<void>((resolve) => {
+                            resolveRefresh = resolve
+                        })
+                    }
+                    return [
+                        200,
+                        {
+                            id: 'cfg-1',
+                            autostart_enabled: true,
+                            default_autostart_priority: 'P4',
+                            autostart_base_branches: {},
+                        },
+                    ]
+                },
+            },
+        })
+        initKeaTests()
+        logic = signalTeamConfigLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // jsdom's visibilityState is 'visible', so this dispatch is a return-to-tab.
+        document.dispatchEvent(new Event('visibilitychange'))
+        // The refresh GET is now in flight, but it is a load, not a save, so the controls stay enabled.
+        await waitFor(() => expect(logic.values.teamConfigLoading).toBe(true))
+        expect(logic.values.teamConfigUpdating).toBe(false)
+
+        resolveRefresh?.()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.teamConfigUpdating).toBe(false)
+    })
+
     it('treats a cleared (NaN) daily limit input as unlimited', async () => {
         await mountWith({})
         logic.actions.setDraftMaxReportsPerDay(5)

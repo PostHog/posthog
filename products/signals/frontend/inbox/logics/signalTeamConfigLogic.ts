@@ -30,6 +30,7 @@ export interface signalTeamConfigLogicValues {
     draftBaseBranchRepo: string
     draftMaxReportsPerDay: number | null
     maxReportsPerDay: number | null
+    patchesInFlight: number
     reportsGeneratedToday: number
     saveMaxReportsPerDayDisabledReason: string | null
     teamConfig: SignalTeamConfig | null
@@ -123,7 +124,7 @@ export interface signalTeamConfigLogicMeta {
         maxReportsPerDay: (teamConfig: SignalTeamConfig | null) => number | null
         reportsGeneratedToday: (teamConfig: SignalTeamConfig | null) => number
         dailyReportLimitReached: (teamConfig: SignalTeamConfig | null) => boolean
-        teamConfigUpdating: (teamConfigLoading: boolean, teamConfig: SignalTeamConfig | null) => boolean
+        teamConfigUpdating: (patchesInFlight: number) => boolean
         saveMaxReportsPerDayDisabledReason: (
             draftMaxReportsPerDay: number | null,
             maxReportsPerDay: number | null
@@ -231,6 +232,17 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 clearDraftBaseBranch: () => '',
             },
         ],
+        // A save is in flight while this is above zero. Tracked explicitly rather than read off
+        // teamConfigLoading, because that flag also flips for the initial load and the background
+        // tab-return refresh (both plain GETs), neither of which should disable the save controls.
+        patchesInFlight: [
+            0,
+            {
+                patchTeamConfig: (state: number) => state + 1,
+                patchTeamConfigSuccess: (state: number) => Math.max(0, state - 1),
+                patchTeamConfigFailure: (state: number) => Math.max(0, state - 1),
+            },
+        ],
         // The daily-limit input's draft. Seeded from the server once on first load (see the
         // loadTeamConfigSuccess listener) and re-anchored only when its own save settles, so saving
         // an unrelated setting on this shared singleton logic never wipes an unsaved edit.
@@ -278,13 +290,10 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
             (s) => [s.teamConfig],
             (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.daily_report_limit_reached === true,
         ],
-        // One loader serves both the initial fetch and every patch, so what separates them is whether
-        // there's already a config on screen to be updating.
-        teamConfigUpdating: [
-            (s) => [s.teamConfigLoading, s.teamConfig],
-            (teamConfigLoading: boolean, teamConfig: SignalTeamConfig | null): boolean =>
-                teamConfigLoading && teamConfig !== null,
-        ],
+        // True only while a save (patch) is in flight. Deliberately not derived from teamConfigLoading:
+        // the shared loader also raises that flag for the initial load and the background tab-return
+        // refresh, and neither should disable the save controls or show a "Saving changes" state.
+        teamConfigUpdating: [(s) => [s.patchesInFlight], (patchesInFlight: number): boolean => patchesInFlight > 0],
         // Doubles as the save button's tooltip, same single-statement pattern as
         // addBaseBranchOverrideDisabledReason below.
         saveMaxReportsPerDayDisabledReason: [
