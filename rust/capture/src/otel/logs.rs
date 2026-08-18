@@ -28,16 +28,6 @@ pub fn count_records(request: &ExportLogsServiceRequest) -> usize {
         .sum()
 }
 
-pub fn count_evaluation_records(request: &ExportLogsServiceRequest) -> usize {
-    request
-        .resource_logs
-        .iter()
-        .flat_map(|resource_logs| &resource_logs.scope_logs)
-        .flat_map(|scope_logs| &scope_logs.log_records)
-        .filter(|record| record.event_name == EVALUATION_EVENT_NAME)
-        .count()
-}
-
 pub fn expand_into_events(
     request: &ExportLogsServiceRequest,
     request_fallback_distinct_id: &str,
@@ -96,7 +86,10 @@ fn evaluation_event(
         .map(str::trim)
         .filter(|label| !label.is_empty())
         .map(str::to_string);
-    let result_value = attributes.get(SCORE_VALUE).and_then(Value::as_f64);
+    let result_value = attributes
+        .get(SCORE_VALUE)
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite());
     if result_label.is_none() && result_value.is_none() {
         return None;
     }
