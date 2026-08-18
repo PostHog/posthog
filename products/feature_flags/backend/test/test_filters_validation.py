@@ -7,6 +7,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import ErrorDetail
 
 from products.feature_flags.backend.api.feature_flag import _reject_serde_unsafe_filters
+from products.feature_flags.backend.api.filters_schema import FeatureFlagFiltersSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.filters_validation import (
     CROSS_FIELD_CHECKS,
@@ -233,6 +234,34 @@ class TestFiltersValidation(SimpleTestCase):
         }
         violations = collect_cross_field_violations(filters)
         assert [violation.path for violation in violations] == ["groups[1].properties[1].value"]
+
+    # Validated filters are stored and then served verbatim to SDKs, and the .NET and Java
+    # clients type rollout percentages as int, so 100 must not come back as 100.0.
+    @parameterized.expand(
+        [
+            ("int_stays_int", 100, 100, int),
+            ("whole_float_narrows_to_int", 100.0, 100, int),
+            ("fraction_stays_float", 33.33, 33.33, float),
+            ("zero_stays_int", 0, 0, int),
+        ]
+    )
+    def test_rollout_percentage_keeps_whole_numbers_as_ints(
+        self, _name: str, stored: float, expected: float, expected_type: type
+    ) -> None:
+        serializer = FeatureFlagFiltersSerializer(
+            data={
+                "groups": [{"properties": [], "rollout_percentage": stored, "variant": None}],
+                "multivariate": _multivariate(("a", stored)),
+            },
+            context={},
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        group_rollout = serializer.validated_data["groups"][0]["rollout_percentage"]
+        variant_rollout = serializer.validated_data["multivariate"]["variants"][0]["rollout_percentage"]
+        assert group_rollout == expected
+        assert type(group_rollout) is expected_type
+        assert type(variant_rollout) is expected_type
 
     def test_flatten_structural_errors_strips_indices_in_rule_id(self) -> None:
         errors = {
