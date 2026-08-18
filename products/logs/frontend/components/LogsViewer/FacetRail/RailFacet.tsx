@@ -4,14 +4,9 @@ import { useMemo } from 'react'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { Facet, FacetOption } from './Facet'
+import { facetFilterTarget, facetSelection } from './facetFilters'
 import { facetRailLogic } from './facetRailLogic'
-import {
-    FacetConfig,
-    FacetFilterKey,
-    logFilterExclusions,
-    mergeSelectedIntoOptions,
-    resourceAttributeSelection,
-} from './facets'
+import { FacetConfig, mergeSelectedIntoOptions } from './facets'
 import { facetValuesLogic } from './facetValuesLogic'
 
 export interface RailFacetProps {
@@ -30,7 +25,7 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
     const logicProps = useMemo(() => ({ id, facet }), [id, facet])
     const { facetValues, facetValuesLoading, facetSearch, collapsed } = useValues(facetValuesLogic(logicProps))
     const { setFacetSearch } = useActions(facetValuesLogic(logicProps))
-    const { severityLevels, serviceNames, filterGroup } = useValues(logsViewerFiltersLogic({ id }))
+    const { filterGroup } = useValues(logsViewerFiltersLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
 
     if (hidden) {
@@ -38,20 +33,9 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
     }
 
     const { source } = facet
-    const selectedByKey: Record<FacetFilterKey, string[]> = {
-        severityLevels: severityLevels ?? [],
-        serviceNames: serviceNames ?? [],
-    }
-    // Selection: column facets read includes from their dedicated filter field and exclusions
-    // from the is_not log filter under their exclusionKey (when they have one);
-    // resource-attribute facets read their log_resource_attribute filters, both polarities.
-    const { included: selected, excluded } =
-        source.type === 'resourceAttribute'
-            ? resourceAttributeSelection(filterGroup, source.key)
-            : {
-                  included: selectedByKey[source.filterKey],
-                  excluded: source.exclusionKey ? logFilterExclusions(filterGroup, source.exclusionKey) : [],
-              }
+    // Both polarities come from the facet's own filters in the group, which is also what the chips
+    // bar renders, so a checkbox can't show a state the filter bar contradicts.
+    const { included: selected, excluded } = facetSelection(filterGroup, facetFilterTarget(source))
     // Values + counts come from the cross-filtered endpoint.
     const fetched: FacetOption[] = facetValues.map((r) => ({ value: r.value, label: r.value, count: r.count }))
     const onToggle = (value: string): void => toggleFacetValue(source, value)

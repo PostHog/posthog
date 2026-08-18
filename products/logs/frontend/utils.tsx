@@ -6,19 +6,64 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
+import {
+    FacetFilterTarget,
+    SERVICE_NAME_FILTER,
+    SEVERITY_LEVEL_FILTER,
+    facetSelection,
+} from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 
-export function formatFilterGroupValues(filterGroup: Record<string, any> | undefined): string[] {
+/**
+ * A level or service selection reaches a summary in one of two shapes: the legacy dedicated field
+ * (saved views, alerts and persisted filter history written before the selection moved into
+ * filterGroup) or the `exact` log filter the viewer writes now. Read both, so an old entry and a new
+ * one summarize identically.
+ */
+function columnSelection(filters: Record<string, any>, legacyField: string, target: FacetFilterTarget): string[] {
+    const legacy = filters[legacyField]
+    if (Array.isArray(legacy) && legacy.length > 0) {
+        return legacy as string[]
+    }
+    return facetSelection(filters.filterGroup, target).included
+}
+
+/** The severity levels a filters object selects, from either shape. */
+export function summarySeverityLevels(filters: Record<string, any>): string[] {
+    return columnSelection(filters, 'severityLevels', SEVERITY_LEVEL_FILTER)
+}
+
+/** The service names a filters object selects, from either shape. */
+export function summaryServiceNames(filters: Record<string, any>): string[] {
+    return columnSelection(filters, 'serviceNames', SERVICE_NAME_FILTER)
+}
+
+/**
+ * One `key=value` string per property filter in the group. `skipIncludes` drops the `exact` filters
+ * under the given targets, for callers that summarize those selections under their own label.
+ */
+export function formatFilterGroupValues(
+    filterGroup: Record<string, any> | undefined,
+    skipIncludes: FacetFilterTarget[] = []
+): string[] {
     const group = filterGroup?.values?.[0]
     if (!group || !('values' in group)) {
         return []
     }
 
-    return group.values.filter(isValidPropertyFilter).map((filter: AnyPropertyFilter) => {
-        const key = filter.key || '?'
-        const value = Array.isArray(filter.value) ? filter.value.join(', ') : String(filter.value ?? '')
-        const truncatedValue = value.length > 15 ? `${value.slice(0, 15)}...` : value
-        return `${key}=${truncatedValue}`
-    })
+    const isSkipped = (filter: AnyPropertyFilter): boolean =>
+        'operator' in filter &&
+        filter.operator === PropertyOperator.Exact &&
+        skipIncludes.some((target) => filter.type === target.type && filter.key === target.key)
+
+    return group.values
+        .filter(isValidPropertyFilter)
+        .filter((filter: AnyPropertyFilter) => !isSkipped(filter))
+        .map((filter: AnyPropertyFilter) => {
+            const key = filter.key || '?'
+            const value = Array.isArray(filter.value) ? filter.value.join(', ') : String(filter.value ?? '')
+            const truncatedValue = value.length > 15 ? `${value.slice(0, 15)}...` : value
+            return `${key}=${truncatedValue}`
+        })
 }
 
 export interface FiltersSummaryLine {
@@ -34,20 +79,22 @@ export function getFiltersSummaryLines(filters: Record<string, any>): FiltersSum
         lines.push({ label: 'Date range', value: label })
     }
 
-    if (filters.severityLevels?.length) {
+    const severityLevels = summarySeverityLevels(filters)
+    if (severityLevels.length > 0) {
         lines.push({
             label: 'Severity',
-            value: filters.severityLevels.map((l: string) => capitalizeFirstLetter(l)).join(', '),
+            value: severityLevels.map((l: string) => capitalizeFirstLetter(l)).join(', '),
         })
     }
 
-    if (filters.serviceNames?.length) {
+    const serviceNames = summaryServiceNames(filters)
+    if (serviceNames.length > 0) {
         const maxDisplayed = 3
-        const displayed = filters.serviceNames.slice(0, maxDisplayed)
-        const remaining = filters.serviceNames.length - displayed.length
+        const displayed = serviceNames.slice(0, maxDisplayed)
+        const remaining = serviceNames.length - displayed.length
         const serviceText = displayed.join(', ')
         lines.push({
-            label: filters.serviceNames.length === 1 ? 'Service' : 'Services',
+            label: serviceNames.length === 1 ? 'Service' : 'Services',
             value: remaining > 0 ? `${serviceText} +${remaining} more` : serviceText,
         })
     }
@@ -57,7 +104,9 @@ export function getFiltersSummaryLines(filters: Record<string, any>): FiltersSum
         lines.push({ label: 'Search', value: `"${truncated}"` })
     }
 
-    const attributeFilters = formatFilterGroupValues(filters.filterGroup)
+    // Skips the two `exact` log filters the Severity and Service lines above already cover, so a
+    // group-stored selection isn't reported twice. Exclusions still show here.
+    const attributeFilters = formatFilterGroupValues(filters.filterGroup, [SEVERITY_LEVEL_FILTER, SERVICE_NAME_FILTER])
     if (attributeFilters.length > 0) {
         lines.push({
             label: attributeFilters.length === 1 ? 'Filter' : 'Filters',

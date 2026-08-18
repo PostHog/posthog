@@ -180,8 +180,6 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                         query: {
                             ...target,
                             dateRange: values.utcDateRange,
-                            severityLevels: values.filters.severityLevels ?? [],
-                            serviceNames: values.filters.serviceNames ?? [],
                             searchTerm: values.filters.searchTerm || undefined,
                             facetSearch: values.facetSearch || undefined,
                             filterGroup,
@@ -229,8 +227,6 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                     currentTeamId,
                     utcDateRange,
                     searchTerm: filters.searchTerm,
-                    severityLevels: filters.severityLevels,
-                    serviceNames: filters.serviceNames,
                     queryFilterGroup,
                     personId,
                 }),

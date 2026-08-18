@@ -5,6 +5,11 @@ import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+import {
+    SERVICE_NAME_FILTER,
+    SEVERITY_LEVEL_FILTER,
+    facetSelection,
+} from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsPatternsCreate, logsPatternsDiffCreate } from 'products/logs/frontend/generated/api'
 import type {
@@ -89,6 +94,11 @@ describe('logsPatternsLogic', () => {
     let logic: ReturnType<typeof logsPatternsLogic.build>
     let filtersLogic: ReturnType<typeof logsViewerFiltersLogic.build>
 
+    const selectedLevels = (): string[] =>
+        facetSelection(filtersLogic.values.filters.filterGroup, SEVERITY_LEVEL_FILTER).included
+    const selectedServices = (): string[] =>
+        facetSelection(filtersLogic.values.filters.filterGroup, SERVICE_NAME_FILTER).included
+
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
@@ -107,9 +117,7 @@ describe('logsPatternsLogic', () => {
 
         expect(mockCreate).toHaveBeenCalledWith(
             expect.any(String),
-            expect.objectContaining({
-                query: expect.objectContaining({ severityLevels: [], serviceNames: [] }),
-            })
+            expect.objectContaining({ query: expect.objectContaining({ filterGroup: expect.anything() }) })
         )
     })
 
@@ -135,8 +143,8 @@ describe('logsPatternsLogic', () => {
         )
         // The pivot also scopes by everything the sample saw — service_name and severity
         // prune the scan the body regex can't, and multi-value IN filters narrow just as well.
-        expect(filtersLogic.values.filters.serviceNames).toEqual(['auth', 'api'])
-        expect(filtersLogic.values.filters.severityLevels).toEqual(['error', 'warn'])
+        expect(selectedServices()).toEqual(['auth', 'api'])
+        expect(selectedLevels()).toEqual(['error', 'warn'])
         expect(configLogic.values.viewMode).toBe('logs')
 
         // A filter that could silently exclude matching lines must be withheld: a services
@@ -147,8 +155,8 @@ describe('logsPatternsLogic', () => {
             services: ['auth', 'api', 'db', 'kafka'],
             severity_counts: { error: 2, notice: 1 },
         })
-        expect(filtersLogic.values.filters.serviceNames).toEqual(['auth', 'api'])
-        expect(filtersLogic.values.filters.severityLevels).toEqual(['error', 'warn'])
+        expect(selectedServices()).toEqual(['auth', 'api'])
+        expect(selectedLevels()).toEqual(['error', 'warn'])
     })
 
     it('viewMatchingLogs falls back to an icontains literal filter when the regex was withheld', async () => {
@@ -195,7 +203,7 @@ describe('logsPatternsLogic', () => {
 
         mockDiffCreate.mockClear()
         await expectLogic(logic, () => {
-            filtersLogic.actions.setServiceNames(['auth'])
+            filtersLogic.actions.setFilters({ serviceNames: ['auth'] })
         }).toDispatchActions(['loadDiffSuccess'])
         expect(mockDiffCreate).toHaveBeenCalledTimes(1)
         expect(mockCreate).toHaveBeenCalledTimes(1) // only the original mount load
@@ -294,12 +302,22 @@ describe('logsPatternsLogic', () => {
         mockCreate.mockClear()
 
         await expectLogic(logic, () => {
-            filtersLogic.actions.setSeverityLevels(['error'])
-        }).toDispatchActions(['setSeverityLevels', 'loadPatterns', 'loadPatternsSuccess'])
+            filtersLogic.actions.setFilters({ severityLevels: ['error'] })
+        }).toDispatchActions(['setFilters', 'loadPatterns', 'loadPatternsSuccess'])
 
         expect(mockCreate).toHaveBeenLastCalledWith(
             expect.any(String),
-            expect.objectContaining({ query: expect.objectContaining({ severityLevels: ['error'] }) })
+            expect.objectContaining({
+                query: expect.objectContaining({
+                    filterGroup: expect.objectContaining({
+                        values: [
+                            expect.objectContaining({
+                                values: [expect.objectContaining({ key: 'severity_level', value: ['error'] })],
+                            }),
+                        ],
+                    }),
+                }),
+            })
         )
     })
 

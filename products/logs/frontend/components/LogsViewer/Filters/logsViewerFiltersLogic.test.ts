@@ -1,14 +1,24 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { FilterLogicalOperator } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
+import {
+    SERVICE_NAME_FILTER,
+    SEVERITY_LEVEL_FILTER,
+    facetSelection,
+} from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 
 import { logsViewerFiltersLogic } from './logsViewerFiltersLogic'
 
 describe('logsViewerFiltersLogic', () => {
     let logic: ReturnType<typeof logsViewerFiltersLogic.build>
+
+    const selectedLevels = (built = logic): string[] =>
+        facetSelection(built.values.filters.filterGroup, SEVERITY_LEVEL_FILTER).included
+    const selectedServices = (built = logic): string[] =>
+        facetSelection(built.values.filters.filterGroup, SERVICE_NAME_FILTER).included
 
     beforeEach(() => {
         initKeaTests()
@@ -24,8 +34,6 @@ describe('logsViewerFiltersLogic', () => {
         it.each([
             ['setDateRange', 'dateRange', { date_from: '-24h', date_to: null }],
             ['setSearchTerm', 'searchTerm', 'error message'],
-            ['setSeverityLevels', 'severityLevels', ['error', 'warn']],
-            ['setServiceNames', 'serviceNames', ['api', 'worker']],
             [
                 'setFilterGroup',
                 'filterGroup',
@@ -41,11 +49,11 @@ describe('logsViewerFiltersLogic', () => {
 
         it('preserves other filters when setting a single filter', async () => {
             logic.actions.setSearchTerm('first')
-            logic.actions.setSeverityLevels(['error'])
+            logic.actions.setDateRange({ date_from: '-24h', date_to: null })
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.filters.searchTerm).toBe('first')
-            expect(logic.values.filters.severityLevels).toEqual(['error'])
+            expect(logic.values.filters.dateRange).toEqual({ date_from: '-24h', date_to: null })
         })
     })
 
@@ -58,7 +66,7 @@ describe('logsViewerFiltersLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.filters.searchTerm).toBe('existing search')
-            expect(logic.values.filters.severityLevels).toEqual(['error', 'warn'])
+            expect(selectedLevels()).toEqual(['error', 'warn'])
         })
 
         it('applies all filters when fully specified', async () => {
@@ -75,9 +83,41 @@ describe('logsViewerFiltersLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setFilters(newFilters)
-            }).toMatchValues({
-                filters: newFilters,
-            })
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.dateRange).toEqual(newFilters.dateRange)
+            expect(logic.values.filters.searchTerm).toBe('test query')
+            expect(selectedLevels()).toEqual(['info', 'debug'])
+            expect(selectedServices()).toEqual(['frontend'])
+        })
+
+        // The level/service fields are an input channel; a caller that hands them over gets a chip in
+        // the filter bar, which is the same state the facet rail reads.
+        it('folds a level and service selection into the filterGroup', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ severityLevels: ['error'], serviceNames: ['api'] })
+            }).toFinishAllListeners()
+
+            expect((logic.values.filters.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([
+                {
+                    key: 'severity_level',
+                    type: PropertyFilterType.Log,
+                    operator: PropertyOperator.Exact,
+                    value: ['error'],
+                },
+                { key: 'service_name', type: PropertyFilterType.Log, operator: PropertyOperator.Exact, value: ['api'] },
+            ])
+        })
+
+        it('clears a folded selection when handed the field empty', async () => {
+            logic.actions.setFilters({ serviceNames: ['api'] })
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ serviceNames: [] })
+            }).toFinishAllListeners()
+
+            expect(selectedServices()).toEqual([])
         })
     })
 
@@ -139,7 +179,7 @@ describe('logsViewerFiltersLogic', () => {
             await expectLogic(initialLogic).toFinishAllListeners()
 
             expect(initialLogic.values.filters.searchTerm).toBe('session_id:abc')
-            expect(initialLogic.values.filters.severityLevels).toEqual(['error'])
+            expect(selectedLevels(initialLogic)).toEqual(['error'])
             // other filters remain at defaults
             expect(initialLogic.values.filters.dateRange).toEqual({ date_from: '-1h', date_to: null })
 
@@ -152,7 +192,7 @@ describe('logsViewerFiltersLogic', () => {
             await expectLogic(plainLogic).toFinishAllListeners()
 
             expect(plainLogic.values.filters.searchTerm).toBe('')
-            expect(plainLogic.values.filters.severityLevels).toEqual([])
+            expect(selectedLevels(plainLogic)).toEqual([])
 
             plainLogic.unmount()
         })
@@ -176,7 +216,7 @@ describe('logsViewerFiltersLogic', () => {
             await expectLogic(builtLogic).toFinishAllListeners()
 
             expect(builtLogic.values.filters.searchTerm).toBe('second')
-            expect(builtLogic.values.filters.severityLevels).toEqual(['warn'])
+            expect(selectedLevels(builtLogic)).toEqual(['warn'])
 
             builtLogic.unmount()
         })
@@ -195,8 +235,8 @@ describe('logsViewerFiltersLogic', () => {
             await expectLogic(builtLogic).toFinishAllListeners()
 
             expect(builtLogic.values.filters.searchTerm).toBe('')
-            expect(builtLogic.values.filters.severityLevels).toEqual([])
-            expect(builtLogic.values.filters.serviceNames).toEqual([])
+            expect(selectedLevels(builtLogic)).toEqual([])
+            expect(selectedServices(builtLogic)).toEqual([])
 
             builtLogic.unmount()
         })
