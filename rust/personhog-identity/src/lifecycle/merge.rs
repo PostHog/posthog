@@ -137,6 +137,11 @@ pub struct MergeOutcome {
 pub struct MergeSourceRecord {
     pub distinct_id: String,
     pub outcome: String,
+    /// The person this verdict speaks about, when one was resolved.
+    /// Defaulted so op rows written before this field existed still
+    /// deserialize during a mixed-fleet roll; those replay as `None`.
+    #[serde(default)]
+    pub person_id: Option<i64>,
 }
 
 pub const OUTCOME_MERGED: &str = "merged";
@@ -232,7 +237,7 @@ struct ClaimRecord {
 
 /// The fence snapshot persisted per source row (`sealed`), and the exact
 /// inputs the fold and the committed release replay from. `created_at` is
-/// in the unit `Person.created_at` carries (epoch seconds today).
+/// in the unit `Person.created_at` carries (epoch milliseconds).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SealedSnapshot {
     version: i64,
@@ -1739,6 +1744,7 @@ fn outcome_from_dispositions(
             MergeSourceRecord {
                 distinct_id: d.distinct_id.clone(),
                 outcome: outcome.to_string(),
+                person_id: d.person_id,
             }
         })
         .collect();

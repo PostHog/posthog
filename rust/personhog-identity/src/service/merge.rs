@@ -5,10 +5,13 @@
 //! machinery only through [`MergeOpExecutor`], handing over a frozen
 //! request and receiving a terminal op row.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use futures::stream::{self, StreamExt};
+
 use chrono::{DateTime, Utc};
+use personhog_common::properties::sanitize_for_jsonb;
 use serde_json::Value;
 use tonic::Status;
 
@@ -21,10 +24,12 @@ use crate::leader::PropertyWriter;
 use crate::lifecycle::engine::OpRow;
 use crate::lifecycle::merge::{
     record_outcome_count, MergeOpExecutor, MergeOutcome, MergeRequest, MergeSourceEntry,
-    OP_TYPE_MERGE, OUTCOME_ERROR, OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON,
+    MergeSourceRecord, OP_TYPE_MERGE, OUTCOME_ERROR, OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON,
     OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT, OUTCOME_SKIPPED_MOVE_LIMIT,
 };
-use crate::lifecycle::validation::{is_distinct_id_illegal, validate_merge_persons};
+use crate::lifecycle::validation::{
+    is_distinct_id_illegal, is_distinct_id_oversized, validate_merge_persons,
+};
 use crate::storage::{AttachOutcome, IdentityStorage, Person, PersonStub, StubOutcome};
 
 /// Handler-decided outcomes that never reach the saga.
@@ -32,6 +37,14 @@ const OUTCOME_SKIPPED_ILLEGAL: &str = "skipped_illegal";
 const OUTCOME_ATTACHED: &str = "attached";
 
 const MERGE_SOURCES_PER_CALL: &str = "personhog_identity_merge_sources_per_call";
+const PAYLOAD_NUL_SANITIZED_TOTAL: &str = "personhog_identity_merge_payload_nul_sanitized_total";
+const PAYLOAD_NUMBERS_CLAMPED_TOTAL: &str =
+    "personhog_identity_merge_payload_numbers_clamped_total";
+const CARRIED_WRITES: &str = "personhog_identity_merge_carried_writes_total";
+
+/// Carried writes go to distinct persons, so they have no ordering between
+/// them; the bound is on leader connections, not correctness.
+const CARRIED_WRITE_CONCURRENCY: usize = 8;
 
 /// The full MergePersons flow, owned by the identity side of the crate.
 pub struct MergeEntrance {
@@ -62,8 +75,25 @@ impl MergeEntrance {
     ) -> Result<MergePersonsResponse, Status> {
         let (op_id, move_limit) = validate_merge_persons(&request)?;
         common_metrics::histogram(MERGE_SOURCES_PER_CALL, &[], request.sources.len() as f64);
-        let event_set = parse_json_map(&request.event_set, "event_set")?;
-        let event_set_once = parse_json_map(&request.event_set_once, "event_set_once")?;
+        let mut event_set = parse_json_map(&request.event_set, "event_set")?;
+        let mut event_set_once = parse_json_map(&request.event_set_once, "event_set_once")?;
+        // The frozen op row and the retry comparisons live in jsonb
+        // round-trip space: what Postgres hands back must equal what was
+        // written, or the freeze insert fails outright (NUL) and every
+        // retry is rejected as a different request (rewritten numbers).
+        // sanitize_for_jsonb is that canonical form — the leader applies
+        // the same one when the properties land, so nothing downstream
+        // sees a value the sync plane didn't.
+        let mut stats = sanitize_for_jsonb(&mut event_set);
+        let once_stats = sanitize_for_jsonb(&mut event_set_once);
+        stats.nul_strings += once_stats.nul_strings;
+        stats.clamped_numbers += once_stats.clamped_numbers;
+        if stats.nul_strings > 0 {
+            common_metrics::inc(PAYLOAD_NUL_SANITIZED_TOTAL, &[], stats.nul_strings);
+        }
+        if stats.clamped_numbers > 0 {
+            common_metrics::inc(PAYLOAD_NUMBERS_CLAMPED_TOTAL, &[], stats.clamped_numbers);
+        }
         let original = merge_original(&request, &event_set, &event_set_once);
 
         // Attach-first: classification below is time-dependent (a retry
@@ -77,7 +107,7 @@ impl MergeEntrance {
         if let Some(row) = self.ops.find(op_id).await? {
             if row.op_type != OP_TYPE_MERGE
                 || row.team_id != request.team_id
-                || row.request.get("original") != Some(&original)
+                || !same_merge(row.request.get("original"), &original)
             {
                 return Err(Status::failed_precondition(format!(
                     "op_id {op_id} was already used for a different request"
@@ -86,7 +116,9 @@ impl MergeEntrance {
             let frozen = row.request.clone();
             let row = self.ops.execute(op_id, row.team_id, &frozen).await?;
             let delivered = self.deliver_aborted_writes(&request, &row).await?;
-            return merge_response(&row, delivered);
+            // A replay reproduces a recorded outcome without re-applying
+            // anything, carried operations included, so it names none.
+            return merge_response(&row, delivered, Vec::new());
         }
 
         // Classify: resolve everything once on the primary, settle what
@@ -101,6 +133,17 @@ impl MergeEntrance {
                 .iter()
                 .map(|s| (request.team_id, s.source_distinct_id.clone())),
         );
+        // Carried distinct ids resolve here rather than in a call of their
+        // own, so the person an operation lands on is the person this call
+        // classified against.
+        let named: HashSet<&str> = keys.iter().map(|(_, did)| did.as_str()).collect();
+        let extra: Vec<(i64, String)> = request
+            .carried_operations
+            .iter()
+            .filter(|entry| !named.contains(entry.distinct_id.as_str()))
+            .map(|entry| (request.team_id, entry.distinct_id.clone()))
+            .collect();
+        keys.extend(extra);
         let resolved = self
             .storage
             .resolve_distinct_ids(&keys)
@@ -113,12 +156,21 @@ impl MergeEntrance {
             None => self.establish_target(&request, &resolved).await?,
         };
 
+        // Before classification reaches the saga, so no source is fenced
+        // yet and every write is still accepted.
+        let carried_applied = self
+            .apply_carried_operations(&request, &resolved, &target_person)
+            .await;
+
         let mut inline_results: HashMap<String, String> = HashMap::new();
         let mut attach: Vec<String> = Vec::new();
         let mut saga_sources: Vec<MergeSourceEntry> = Vec::new();
         for source in &request.sources {
             let did = &source.source_distinct_id;
-            if is_distinct_id_illegal(did) {
+            // Oversized ids share the illegal settlement: they cannot
+            // exist in the varchar(400) column, so they can never resolve
+            // — and attaching one would fail the insert.
+            if is_distinct_id_illegal(did) || is_distinct_id_oversized(did) {
                 inline_results.insert(did.clone(), OUTCOME_SKIPPED_ILLEGAL.to_string());
                 continue;
             }
@@ -202,12 +254,16 @@ impl MergeEntrance {
                             .unwrap_or(OUTCOME_ERROR),
                     )
                     .into(),
+                    // This arm runs only when no source reached the saga,
+                    // so nothing was destroyed and there is no id to report.
+                    source_person_id: None,
                 })
                 .collect();
             return Ok(MergePersonsResponse {
                 op_id: op_id.to_string(),
                 survivor: Some(pushed.unwrap_or_else(|| target_person.into())),
                 results,
+                carried_applied,
             });
         }
 
@@ -230,7 +286,112 @@ impl MergeEntrance {
 
         let row = self.ops.execute(op_id, request.team_id, &frozen).await?;
         let delivered = self.deliver_aborted_writes(&request, &row).await?;
-        merge_response(&row, delivered)
+        merge_response(&row, delivered, carried_applied)
+    }
+
+    /// Apply the caller's buffered operations to the persons their distinct
+    /// ids resolve to, and answer which ones landed.
+    ///
+    /// A failure here does not fail the merge. The echo is the whole
+    /// contract: a caller keeps everything this does not name and sends it
+    /// the ordinary way, where the merge's own precedence rules still
+    /// govern the result. Failing the call instead would turn a property
+    /// write's bad day into a merge that never happens.
+    async fn apply_carried_operations(
+        &self,
+        request: &MergePersonsRequest,
+        resolved: &HashMap<(i64, String), Person>,
+        target: &Person,
+    ) -> Vec<String> {
+        let updates: Vec<(String, UpdatePersonPropertiesRequest)> = request
+            .carried_operations
+            .iter()
+            .filter_map(|entry| {
+                // The target may have been established a moment ago, so it
+                // is the one distinct id the resolution map can miss.
+                let person_id = if entry.distinct_id == request.target_distinct_id {
+                    Some(target.id)
+                } else {
+                    resolved
+                        .get(&(request.team_id, entry.distinct_id.clone()))
+                        .map(|person| person.id)
+                }?;
+                // The caller buffered these ops for a specific person; the
+                // distinct id may have been repointed by another pod since.
+                // Applying to whoever owns the id now would misdirect the
+                // write and the echo would make the caller discard it, so a
+                // mismatch skips: unechoed, the caller keeps the ops and its
+                // own flush path delivers them with the person-not-found
+                // handling that path already has.
+                if let Some(expected) = entry.expected_person_id {
+                    if expected != person_id {
+                        // The only signal this path emits: the skip is
+                        // deliberately unechoed, so without the counter a
+                        // cross-pod repoint would be invisible.
+                        common_metrics::inc(
+                            CARRIED_WRITES,
+                            &[("outcome".to_string(), "skipped_person_moved".to_string())],
+                            1,
+                        );
+                        return None;
+                    }
+                }
+                Some((
+                    entry.distinct_id.clone(),
+                    UpdatePersonPropertiesRequest {
+                        team_id: request.team_id,
+                        person_id,
+                        event_name: entry.event_name.clone(),
+                        set_properties: entry.set_properties.clone(),
+                        set_once_properties: entry.set_once_properties.clone(),
+                        unset_properties: entry.unset_properties.clone(),
+                        is_identified: entry.is_identified,
+                        last_seen_at: entry.last_seen_at,
+                    },
+                ))
+            })
+            .collect();
+        let results: Vec<_> = stream::iter(updates.into_iter().map(|(did, update)| {
+            let writer = Arc::clone(&self.property_writer);
+            async move { (did, writer.update_person_properties(update).await) }
+        }))
+        .buffer_unordered(CARRIED_WRITE_CONCURRENCY)
+        .collect()
+        .await;
+
+        let mut applied = Vec::with_capacity(results.len());
+        for (distinct_id, result) in results {
+            match result {
+                Ok(_) => {
+                    common_metrics::inc(
+                        CARRIED_WRITES,
+                        &[("outcome".to_string(), "applied".to_string())],
+                        1,
+                    );
+                    applied.push(distinct_id)
+                }
+                Err(status) => {
+                    // Labelled by code so an expected fence bounce is
+                    // separable from a leader in trouble; this counter is
+                    // the only signal, since the failure is swallowed.
+                    common_metrics::inc(
+                        CARRIED_WRITES,
+                        &[
+                            ("outcome".to_string(), "failed".to_string()),
+                            ("code".to_string(), status.code().to_string()),
+                        ],
+                        1,
+                    );
+                    tracing::warn!(
+                        team_id = request.team_id,
+                        distinct_id = %distinct_id,
+                        error = %status,
+                        "carried operations not applied; the caller still holds them"
+                    );
+                }
+            }
+        }
+        applied
     }
 
     /// An aborted saga never folds, so the merge event's writes (its
@@ -461,6 +622,38 @@ fn merge_original(
     })
 }
 
+/// Fields that describe how a merge runs rather than which merge it is.
+///
+/// `created_at` comes from the event's timestamp, which ingestion derives
+/// from the wall clock when the event carries none, so two deliveries of one
+/// event legitimately disagree on it. Holding a retry to it would answer
+/// FAILED_PRECONDITION for a merge that already ran, and that error is not
+/// retryable. `move_limit` is deliberately NOT stripped: the client folds it
+/// into the op id, so calls with different limits are different ops, and a
+/// same-id call with a different recorded limit is a genuine mismatch.
+const MERGE_PARAMETERS: [&str; 1] = ["created_at"];
+
+/// Whether a retry is describing the merge the recorded op performed.
+///
+/// Compared on identity only. The full original is still what gets stored,
+/// so a pod running the previous release keeps comparing it the way it
+/// always did and a roll needs no coordination.
+fn same_merge(recorded: Option<&Value>, incoming: &Value) -> bool {
+    let strip = |value: &Value| {
+        let mut copy = value.clone();
+        if let Some(map) = copy.as_object_mut() {
+            for key in MERGE_PARAMETERS {
+                map.remove(key);
+            }
+        }
+        copy
+    };
+    match recorded {
+        Some(recorded) => strip(recorded) == strip(incoming),
+        None => false,
+    }
+}
+
 fn outcome_enum(outcome: &str) -> MergeSourceOutcome {
     match outcome {
         OUTCOME_MERGED => MergeSourceOutcome::Merged,
@@ -501,6 +694,7 @@ fn survivor_to_proto(survivor: &Value, team_id: i64) -> ProtoPerson {
 fn merge_response(
     row: &OpRow,
     delivered: Option<ProtoPerson>,
+    carried_applied: Vec<String>,
 ) -> Result<MergePersonsResponse, Status> {
     let Some(outcome) = &row.outcome else {
         return Err(Status::internal(format!(
@@ -510,10 +704,10 @@ fn merge_response(
     };
     let outcome: MergeOutcome = serde_json::from_value(outcome.clone())
         .map_err(|e| Status::internal(format!("op {} outcome is malformed: {e}", row.op_id)))?;
-    let saga_results: HashMap<&str, &str> = outcome
+    let saga_results: HashMap<&str, &MergeSourceRecord> = outcome
         .results
         .iter()
-        .map(|r| (r.distinct_id.as_str(), r.outcome.as_str()))
+        .map(|r| (r.distinct_id.as_str(), r))
         .collect();
     let inline_results: HashMap<String, String> = row
         .request
@@ -545,14 +739,23 @@ fn merge_response(
     let results = original_sources
         .iter()
         .map(|did| {
+            let record = saga_results.get(did.as_str());
             let outcome = inline_results
                 .get(did)
                 .map(String::as_str)
-                .or_else(|| saga_results.get(did.as_str()).copied())
+                .or_else(|| record.map(|r| r.outcome.as_str()))
                 .unwrap_or(OUTCOME_ERROR);
             MergeSourceResult {
                 source_distinct_id: did.clone(),
                 outcome: outcome_enum(outcome).into(),
+                // Only a merged source names a person, because only that
+                // person is permanently gone. Every other verdict either
+                // destroys nothing or names one still live — including
+                // noop_same_person, whose id is the survivor's.
+                source_person_id: match outcome {
+                    OUTCOME_MERGED => record.and_then(|r| r.person_id),
+                    _ => None,
+                },
             }
         })
         .collect();
@@ -565,5 +768,6 @@ fn merge_response(
             .map(|s| survivor_to_proto(s, row.team_id))
             .or(delivered),
         results,
+        carried_applied,
     })
 }
