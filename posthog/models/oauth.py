@@ -652,6 +652,40 @@ def find_oauth_refresh_token(token: str) -> OAuthRefreshToken | None:
         return None
 
 
+def live_oauth_access_tokens(user: "User") -> models.QuerySet[OAuthAccessToken]:
+    """Access tokens an application can still present as `user`."""
+    return OAuthAccessToken.objects.filter(user=user, application__isnull=False, expires__gt=timezone.now())
+
+
+def live_oauth_refresh_tokens(user: "User") -> models.QuerySet[OAuthRefreshToken]:
+    """Refresh tokens an application can still exchange for a new access token as `user`.
+
+    Unrevoked is the whole test. DOT's `validate_refresh_token` checks the token value, the
+    `revoked` timestamp, and the client, and never compares `created` against
+    REFRESH_TOKEN_EXPIRE_SECONDS; that setting only drives the `clear_expired` cleanup job. So a
+    refresh token whose access token lapsed hours ago still mints a new one on demand, which
+    means it has to count as standing access anywhere we answer "who can act as this user".
+    """
+    return OAuthRefreshToken.objects.filter(user=user, revoked__isnull=True)
+
+
+def has_live_third_party_oauth_access(user: "User") -> bool:
+    """Whether any non-first-party application can act as `user` right now.
+
+    Refresh tokens have to be counted here, because a provisioning partner holds one for the life
+    of the connection and owns no live access token at all between refreshes. Checking access
+    tokens alone would therefore report no access for a partner that has full standing access.
+
+    First-party applications are excluded because they are PostHog's own surfaces, so a token from
+    one is not the third-party access this answers about.
+    """
+    return OAuthApplication.objects.filter(
+        Q(id__in=live_oauth_access_tokens(user).values("application_id"))
+        | Q(id__in=live_oauth_refresh_tokens(user).values("application_id")),
+        is_first_party=False,
+    ).exists()
+
+
 def revoke_oauth_session(
     access_token: OAuthAccessToken | None = None, refresh_token: OAuthRefreshToken | None = None
 ) -> None:
