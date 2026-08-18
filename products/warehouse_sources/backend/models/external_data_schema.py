@@ -960,48 +960,34 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.update_sync_type_config_for_reset_pipeline()
 
     def stash_backfill_floor(self) -> None:
-        """Record where this table's data starts, before something wipes it.
+        """Record where this table's data starts. Call before a wipe: it reads the synced data.
 
-        Wiping clears the incremental cursor, so the next run looks like a first sync. A source that
-        bounds a first sync (Google Ads windows back from a default number of days) would then
-        restart from that default instead of the range the table already covered, dropping
-        everything older than it without saying so. The floor lets such a source resume the walk
-        where the old data started.
-
-        Call this before the wipe: it reads the synced data.
+        A wipe clears the cursor, so the next run looks like a first sync. A source that bounds a
+        first sync restarts from its own default window rather than the range this table held,
+        dropping everything older without saying so.
         """
-        incremental_field = self.incremental_field
-        if self.table is None or not incremental_field:
+        field = self.incremental_field
+        if self.table is None or not field:
             return
 
-        column = self._resolve_synced_column(incremental_field)
+        # An incremental field is named as the source's API exposes it, which is not always the
+        # synced column: Google Ads reports `segments.date` and lands `segments_date`. Give up
+        # rather than guess when neither spelling is there.
+        columns = self.table.columns or {}
+        column = next((c for c in (field, field.replace(".", "_")) if c in columns), None)
         if column is None:
             return
 
-        floor_json = self._incremental_value_as_json(self.table.get_min_value_for_column(column))
-        if floor_json is None:
+        value = self._incremental_value_as_json(self.table.get_min_value_for_column(column))
+        if value is None:
             return
 
-        # Keyed by field so a later incremental_field change can't hand a source a floor that was
-        # measured against a different column.
-        floor = {"field": incremental_field, "value": floor_json}
-        # Written both ways on purpose: the merge persists it for callers that don't save afterwards
-        # (the pipeline's reset path), and the in-memory copy keeps it from being dropped by callers
-        # that do save a whole config later (delete_table).
-        self.sync_type_config["backfill_floor"] = floor
-        update_sync_type_config_keys(self.id, self.team_id, updates={"backfill_floor": floor})
-
-    def _resolve_synced_column(self, incremental_field: str) -> str | None:
-        # An incremental field names the field as the source's API exposes it, which is not always
-        # the synced column: Google Ads reports `segments.date` but lands it as `segments_date`.
-        # Resolve against the columns actually present rather than assuming either spelling, and
-        # give up instead of guessing when neither is there.
-        columns = (self.table.columns if self.table else None) or {}
-        for candidate in (incremental_field, incremental_field.replace(".", "_")):
-            if candidate in columns:
-                return candidate
-
-        return None
+        # Merged rather than saved off this instance, which the pipeline holds from before the run
+        # linked the table. Keyed by field so a later change of incremental_field can't hand a
+        # source a floor measured against a different column.
+        self.sync_type_config = update_sync_type_config_keys(
+            self.id, self.team_id, updates={"backfill_floor": {"field": field, "value": value}}
+        )
 
     @property
     def backfill_floor_value(self) -> IncrementalFieldValue:

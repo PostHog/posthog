@@ -255,8 +255,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         processed_incremental_last_value = None
         processed_incremental_earliest_value = None
-        # How much of the value handed to the source is overlap, so a source that budgets its work
-        # per run can tell re-read from new ground. Stays 0 unless the lookback is actually applied.
+        # How much of the value handed to the source is overlap rather than new ground.
         applied_lookback_seconds = 0
 
         if reset_pipeline is not True:
@@ -279,6 +278,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     schema.incremental_field_type,
                     schema.incremental_field_lookback_seconds,
                 )
+                # Only report a shift that happened: the helper is a no-op for a sub-day lookback.
                 if shifted != processed_incremental_last_value:
                     applied_lookback_seconds = schema.incremental_field_lookback_seconds or 0
                 processed_incremental_last_value = shifted

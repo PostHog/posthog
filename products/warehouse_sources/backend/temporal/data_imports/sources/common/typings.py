@@ -95,11 +95,10 @@ class SourceInputs:
     job_id: str
     logger: FilteringBoundLogger
     reset_pipeline: bool
-    # Where this schema's data started before it was last deleted. Sources that bound a first sync
-    # read this so a re-import resumes at the old range instead of their own default window.
+    # Where this schema's data started before it was last wiped, for a source that bounds a first
+    # sync and would otherwise re-import from its own default window.
     db_backfill_floor_value: Optional[Any] = None
-    # How much of `db_incremental_field_last_value` is lookback overlap rather than new ground. A
-    # source that budgets its work per run reads this so the overlap doesn't consume that budget.
+    # How much of `db_incremental_field_last_value` is lookback overlap rather than new ground.
     db_incremental_field_lookback_seconds: Optional[int] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None

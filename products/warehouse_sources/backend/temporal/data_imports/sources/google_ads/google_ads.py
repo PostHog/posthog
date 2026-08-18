@@ -72,12 +72,11 @@ GOOGLE_ADS_HOST = "googleads.googleapis.com"
 # catch-up speed against per-run size.
 GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS = 7
 
-# The per-run budget is wall time rather than a count of windows. A window is anywhere from empty to
-# a full day of rows, so a count has to be set for the widest one and then throttles every table to
-# it: five windows is 35 days a run, which leaves a table years behind needing weeks of runs. Time
-# measures what the budget exists to bound. It is sized well under the activity's start_to_close
-# timeout, with room for the load side of the run, and it caps how long one schema's backfill holds a
-# slot on a shared worker. A caught-up table still stops after its single tail window.
+# The per-run budget is wall time, not a count of windows. A window is anywhere from empty to a full
+# day of rows, so a count has to be set for the widest one and then throttles every table to it: five
+# windows is 35 days a run, which leaves a table years behind needing weeks of runs. This sits well
+# under the activity's start_to_close timeout and caps how long one schema's backfill holds a slot on
+# a shared worker.
 GOOGLE_ADS_MAX_DRAIN_SECONDS = 10 * 60
 
 # How far back a *first* sync starts its windowed drain. A first sync has no cursor to start from,
@@ -595,18 +594,12 @@ def google_ads_source(
         if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
             if db_incremental_field_last_value is not None:
                 start = _incremental_value_as_date(db_incremental_field_last_value)
-                # The cursor arrives already shifted back by the schema's lookback so late edits are
-                # re-read. Those windows cover data the table has, so charging them to the per-run
-                # budget spends the run re-reading the overlap: a 30-day lookback against a 5-window,
-                # 7-day budget leaves 5 days of forward progress, and a schema that is behind crawls
-                # instead of catching up. Traverse them, but only charge windows that reach past the
-                # cursor, for the same reason empty windows aren't charged.
+                # The cursor arrives shifted back by the schema's lookback, so the windows before
+                # `charge_from` re-read rows the table already has. They don't count as progress.
                 charge_from = start + dt.timedelta(seconds=db_incremental_field_lookback_seconds or 0)
             elif db_backfill_floor_value is not None:
-                # Re-import of a table that already held history: the cursor is gone but the range
-                # it covered is known, so walk from there. Without this the backfill bound below
-                # would silently drop everything older than it, which a re-import was never asked
-                # to do.
+                # Re-import of a table that held history: the cursor is gone but the range it
+                # covered is known, so walk from there rather than from the bound below.
                 start = _incremental_value_as_date(db_backfill_floor_value)
                 charge_from = start
             else:
@@ -616,16 +609,13 @@ def google_ads_source(
             end = dt.date.today() + dt.timedelta(days=1)
             landed_new_ground = False
             first_window = True
-            # Measured from here rather than from the activity's start, so the budget covers the
-            # drain and not the schema fetch before it. The load side pulls this generator, so the
-            # elapsed reading includes writing each window out, which is the cost worth bounding.
+            # The load side pulls this generator, so elapsed covers writing each window out too.
             drain_started = time.monotonic()
 
             while start < end:
-                # The budget can only end a run that has already imported a window past the cursor.
-                # A run is handed a cursor shifted back by the schema's lookback, and spending the
-                # whole budget re-reading that overlap would leave the cursor where it started, for
-                # the next run to repeat forever.
+                # Only a run that already imported a window past the cursor can stop on the budget.
+                # Spending it all on the lookback overlap would leave the cursor where it started,
+                # for the next run to repeat forever.
                 if landed_new_ground and time.monotonic() - drain_started >= GOOGLE_ADS_MAX_DRAIN_SECONDS:
                     break
 
