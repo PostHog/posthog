@@ -68,7 +68,8 @@ The presentation step can also author `charts` — query nodes the inbox draws o
 
 The caller activity passes `has_business_knowledge=True` when the team's business knowledge product is both feature-flagged on and has at least one READY source (via `products.business_knowledge.backend.logic.is_available_for_team`). When true, the research prompt includes a `## Business knowledge` block that instructs the agent to search the team's curated knowledge base via MCP tools.
 
-`has_replay_signals` is derived here rather than passed in: `run_multi_turn_research` checks the signals it already holds for a `session_id` in `extra` (`_has_replay_signals`), so no Temporal payload changes.
+`has_replay_signals` is derived here rather than passed in: `run_multi_turn_research` checks the signals it already holds for a Replay Vision finding (`replay_vision`/`scanner_finding`, via `_has_replay_signals`), so no Temporal payload changes.
+It keys on the source, not a bare `session_id`: session_replay/session_problem signals also carry a `session_id`, but their offset is a clock string relative to the session start and they have no `recording_start_time`, so the block's anchor arithmetic does not apply to them.
 When true, the research prompt includes a `## Attributing a session recording moment to code` block — the anchor arithmetic (`recording_start_time + start_time`), the ranking of what the events around that instant carry, and a pointer to the `correlating-recordings-to-code` skill that holds the queries.
 The block is conditional because it costs tokens on every report, and it only helps a report whose signals point at a moment rather than a file.
 

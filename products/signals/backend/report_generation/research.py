@@ -20,6 +20,7 @@ from products.signals.backend.artefact_schemas import (
 
 # Dependency-light on purpose (see its module docstring): safe to import here without dragging
 # `posthog.schema` onto the research path.
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
@@ -394,8 +395,17 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
 
 
 def _has_replay_signals(signals: list[SignalData]) -> bool:
-    """Whether any signal points at a moment in a session recording, so attribution guidance is worth its tokens."""
-    return any(signal.extra.get("session_id") for signal in signals)
+    """Whether any signal is a Replay Vision finding, so attribution guidance is worth its tokens.
+
+    Gated on the source, not a bare `session_id`: session_replay/session_problem signals also carry a
+    `session_id`, but their offset is a clock string relative to the session start and they have no
+    `recording_start_time`, so the block's `recording_start_time + start_time` anchor does not apply.
+    """
+    return any(
+        signal.source_product == SignalSourceProduct.REPLAY_VISION
+        and signal.source_type == SignalSourceType.SCANNER_FINDING
+        for signal in signals
+    )
 
 
 _RESEARCH_PREAMBLE = """You are a research agent investigating a signal report for the PostHog codebase.

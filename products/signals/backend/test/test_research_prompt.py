@@ -14,12 +14,12 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.temporal.types import SignalData
 
 
-def _make_signal(extra: dict) -> SignalData:
+def _make_signal(extra: dict, source_product: str = "conversations", source_type: str = "ticket") -> SignalData:
     return SignalData(
         signal_id="sig-1",
         content="Thing is broken",
-        source_product="conversations",
-        source_type="ticket",
+        source_product=source_product,
+        source_type=source_type,
         source_id="t-1",
         weight=1.0,
         timestamp=datetime(2026, 4, 1, 12, 0, 0),
@@ -94,17 +94,23 @@ class TestBuildInitialResearchPrompt:
     # The block only pays for itself on reports that carry a recording moment, and it is the only
     # thing that tells the agent a moment is convertible to a file at all. Shipping it on every
     # report taxes the fleet-wide path; dropping it from replay reports puts the agent back to
-    # guessing a file from prose.
+    # guessing a file from prose. It must key on the source, not a bare `session_id`:
+    # session_replay/session_problem signals also carry a `session_id` but cannot honor the block's
+    # `recording_start_time + start_time` anchor, so they must not trigger it.
     @pytest.mark.parametrize(
-        "extra, expected_present",
+        "source_product, source_type, expected_present",
         [
-            ({"session_id": "0195b2c1-0000-7000-8000-000000000000"}, True),
-            ({}, False),
-            ({"session_id": ""}, False),
+            ("replay_vision", "scanner_finding", True),
+            ("session_replay", "session_problem", False),
+            ("conversations", "ticket", False),
         ],
     )
-    def test_replay_attribution_block_presence(self, extra, expected_present):
-        signal = _make_signal(extra)
+    def test_replay_attribution_block_presence(self, source_product, source_type, expected_present):
+        signal = _make_signal(
+            {"session_id": "0195b2c1-0000-7000-8000-000000000000"},
+            source_product=source_product,
+            source_type=source_type,
+        )
         prompt = build_initial_research_prompt(signal, 1, has_replay_signals=_has_replay_signals([signal]))
         assert ("## Attributing a session recording moment to code" in prompt) == expected_present
         assert ("correlating-recordings-to-code" in prompt) == expected_present
