@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
+from products.signals.backend.facade.api import SignalSourceSliceOutcomes, get_outcomes_for_signal_source_slice
+from products.signals.backend.implementation_pr import ImplementationPr
+from products.signals.backend.models import SignalReport
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
     SignalSourceReference,
+    fetch_signal_stats_for_source_slice,
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
 )
@@ -34,6 +40,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         report_id: str,
         source_product: str,
         inserted_at: datetime,
+        source_type: str = "some_type",
         deleted: bool = False,
         content: str = "the signal content",
         skill_name: str | None = None,
@@ -47,7 +54,7 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         metadata: dict = {
             "report_id": report_id,
             "source_product": source_product,
-            "source_type": "some_type",
+            "source_type": source_type,
             "source_id": f"src-{document_id}",
             "deleted": deleted,
         }
@@ -402,3 +409,82 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
         signals = fetch_signals_for_report_sync(self.team, "rA")
 
         assert [s["content"] for s in signals] == ["new text"]
+
+
+class TestFetchSignalStatsForSourceSlice(_SignalEmbeddingsTestBase):
+    def test_counts_only_the_slice_and_skips_deleted_latest_versions(self) -> None:
+        # Guards the extra_equals pushdown and the argMax dedup: a broken JSON path would leak other
+        # scanners' signals into the count, and filtering beside the argMax would raise on the alias.
+        self._emit_version(
+            document_id="d1", report_id="rA", source_product="errors", inserted_at=self.base, extra={"scanner_id": "sA"}
+        )
+        self._emit_version(
+            document_id="d2", report_id="", source_product="errors", inserted_at=self.base, extra={"scanner_id": "sA"}
+        )
+        # Latest version deleted: must drop out of the count entirely.
+        self._emit_version(
+            document_id="d3", report_id="rA", source_product="errors", inserted_at=self.base, extra={"scanner_id": "sA"}
+        )
+        self._emit_version(
+            document_id="d3",
+            report_id="rA",
+            source_product="errors",
+            inserted_at=self.base + timedelta(hours=1),
+            deleted=True,
+            extra={"scanner_id": "sA"},
+        )
+        # Other scanner and other source product: outside the slice.
+        self._emit_version(
+            document_id="d4", report_id="rB", source_product="errors", inserted_at=self.base, extra={"scanner_id": "sB"}
+        )
+        self._emit_version(
+            document_id="d5", report_id="rC", source_product="replay", inserted_at=self.base, extra={"scanner_id": "sA"}
+        )
+        self._emit_version(
+            document_id="d6",
+            report_id="rD",
+            source_product="errors",
+            source_type="other_type",
+            inserted_at=self.base,
+            extra={"scanner_id": "sA"},
+        )
+
+        stats = fetch_signal_stats_for_source_slice(
+            self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
+        )
+
+        assert stats.signal_count == 2
+        assert stats.report_ids == ["rA"]
+
+
+class TestGetOutcomesForSignalSourceSlice(_SignalEmbeddingsTestBase):
+    def test_counts_only_live_reports_and_dedupes_shared_prs(self) -> None:
+        # Guards the CH-to-Postgres handoff: malformed ids, missing rows, and soft-deleted reports
+        # must not inflate the report count, and two reports sharing a task's PR count it once.
+        existing = SignalReport.objects.create(team=self.team, title="report", summary="s")
+        sibling = SignalReport.objects.create(team=self.team, title="sibling", summary="s")
+        soft_deleted = SignalReport.objects.create(
+            team=self.team, title="gone", summary="s", status=SignalReport.Status.DELETED
+        )
+        for index, report_id in enumerate(
+            [str(existing.id), str(sibling.id), str(soft_deleted.id), str(uuid.uuid4()), "not-a-uuid"]
+        ):
+            self._emit_version(
+                document_id=f"d{index}",
+                report_id=report_id,
+                source_product="errors",
+                inserted_at=self.base,
+                extra={"scanner_id": "sA"},
+            )
+
+        shared_pr = ImplementationPr(url="https://github.com/o/r/pull/1", merged=True)
+        with patch(
+            "products.signals.backend.implementation_pr.fetch_implementation_pr_state_for_reports",
+            return_value={str(existing.id): shared_pr, str(sibling.id): shared_pr},
+        ) as mock_prs:
+            outcomes = get_outcomes_for_signal_source_slice(
+                team=self.team, source_product="errors", source_type="some_type", extra_equals={"scanner_id": "sA"}
+            )
+
+        assert outcomes == SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=1, merged_pr_count=1)
+        assert sorted(mock_prs.call_args.args[0]) == sorted([str(existing.id), str(sibling.id)])
