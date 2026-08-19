@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -123,6 +125,51 @@ describe('inboxReportDetailLogic', () => {
             expect(prChecksRequests).toBe(3)
             expect(logic.values.prChecksBackedOff).toBe(true)
             expect(logic.values.prChecksError).toBeTruthy()
+        })
+    })
+
+    describe('report diff error', () => {
+        const COMMIT_ARTEFACT = {
+            id: 'artefact-1',
+            type: 'commit',
+            created_at: '2026-08-19T00:00:00Z',
+            content: { repository: 'example/repo', branch: 'feature', commit_sha: 'abc123f', message: 'm' },
+        }
+        const DIFF_DETAIL =
+            "Branch 'feature' or repository 'example/repo' was not found on GitHub — the branch may have been deleted or merged away."
+
+        let logic: ReturnType<typeof inboxReportDetailLogic.build>
+        let toastError: jest.SpyInstance
+
+        beforeEach(() => {
+            toastError = jest.spyOn(lemonToast, 'error')
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [COMMIT_ARTEFACT] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': [],
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/:artefactId/diff/': () => [
+                        404,
+                        { detail: DIFF_DETAIL },
+                    ],
+                },
+            })
+            initKeaTests()
+            silenceKeaLoadersErrors()
+            logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            resumeKeaLoadersErrors()
+            toastError.mockRestore()
+        })
+
+        it('surfaces the server reason in the panel and does not toast', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.reportDiffError).toBe(DIFF_DETAIL)
+            expect(toastError).not.toHaveBeenCalled()
         })
     })
 })

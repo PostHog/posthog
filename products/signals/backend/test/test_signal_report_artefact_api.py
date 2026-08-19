@@ -1449,7 +1449,7 @@ class TestSignalReportCommitDiff(APIBaseTest):
         )
         response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "commit artefacts" in response.json()["error"]
+        assert "commit artefacts" in response.json()["detail"]
 
     @parameterized.expand(
         [
@@ -1493,6 +1493,8 @@ class TestSignalReportCommitDiff(APIBaseTest):
 
         response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        # The reason rides under `detail` so the client surfaces it instead of a generic "URL not found".
+        assert "was not found on GitHub" in response.json()["detail"]
 
     def test_diff_maps_upstream_failure_to_502(self):
         report = self._create_report()

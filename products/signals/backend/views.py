@@ -3566,7 +3566,7 @@ class SignalReportArtefactViewSet(
         artefact = cast(SignalReportArtefact, self.get_object())
         if artefact.type != SignalReportArtefact.ArtefactType.COMMIT:
             return Response(
-                {"error": f"Diffs are only available for commit artefacts, not '{artefact.type}'."},
+                {"detail": f"Diffs are only available for commit artefacts, not '{artefact.type}'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
@@ -3580,7 +3580,7 @@ class SignalReportArtefactViewSet(
         branch = content.get("branch")
         if not repository or not branch:
             return Response(
-                {"error": "Artefact is missing a repository or branch."},
+                {"detail": "Artefact is missing a repository or branch."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -3595,7 +3595,7 @@ class SignalReportArtefactViewSet(
             return github_rate_limited_response(e)
         if github is None:
             return Response(
-                {"error": f"No GitHub integration can access '{repository}'."},
+                {"detail": f"No GitHub integration can access '{repository}'."},
                 status=status.HTTP_404_NOT_FOUND,
             )
         try:
@@ -3613,7 +3613,7 @@ class SignalReportArtefactViewSet(
                 branch=branch,
             )
             return Response(
-                {"error": "GitHub could not produce the diff for this branch."},
+                {"detail": "GitHub could not produce the diff for this branch."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         if not result.get("success"):
@@ -3623,7 +3623,7 @@ class SignalReportArtefactViewSet(
             if result.get("status_code") == 404:
                 return Response(
                     {
-                        "error": f"Branch '{branch}' or repository '{repository}' was not found on GitHub — "
+                        "detail": f"Branch '{branch}' or repository '{repository}' was not found on GitHub — "
                         "the branch may have been deleted or merged away."
                     },
                     status=status.HTTP_404_NOT_FOUND,
@@ -3635,7 +3635,7 @@ class SignalReportArtefactViewSet(
                 status_code=result.get("status_code"),
             )
             return Response(
-                {"error": "GitHub could not produce the diff for this branch."},
+                {"detail": "GitHub could not produce the diff for this branch."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         return Response(

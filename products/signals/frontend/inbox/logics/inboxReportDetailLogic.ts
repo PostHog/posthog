@@ -785,14 +785,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setFeedbackNoteSubmitting: (_, { submitting }) => submitting,
             },
         ],
-        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
-        // compare usually means the branch was merged, deleted, or force-rewritten away.
+        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). Prefer the
+        // server's reason (it names the missing branch and repository); fall back when GitHub gave none. A
+        // failed compare usually means the branch was merged, deleted, or force-rewritten away.
         reportDiffError: [
             null as string | null,
             {
                 loadReportDiff: () => null,
                 loadReportDiffSuccess: () => null,
-                loadReportDiffFailure: () =>
+                loadReportDiffFailure: (_, { error, errorObject }) =>
+                    errorObject?.detail ||
+                    error ||
                     "Couldn't load the diff. The branch may have been merged, deleted, or rewritten.",
             },
         ],
