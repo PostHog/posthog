@@ -132,6 +132,8 @@ function App({ devToolbar }: AppProps) {
                 queryFn: () => authenticatedClient.getTaskChannels(),
                 staleTime: 60_000,
               }),
+            provisionDefaultTaskChannels: () =>
+              authenticatedClient.provisionDefaultTaskChannels(),
           },
         );
         if (firstRun) {

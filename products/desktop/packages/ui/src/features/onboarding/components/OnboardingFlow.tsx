@@ -18,7 +18,6 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
-import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/ConnectGitHubStep";
@@ -83,14 +82,16 @@ export function OnboardingFlow() {
     (state) => state.setLastUsedWorkspaceMode,
   );
   const apiClient = useOptionalAuthenticatedClient();
-  const { data: currentUser } = useCurrentUser({ client: apiClient });
 
-  // Best-effort: make the onboarding repo pick the default for the personal
-  // space, and for #general only while the team has not configured one. The
-  // fetch also lazily provisions both spaces and primes the channel cache the
+  // Best-effort: provision the default spaces and make the onboarding repo
+  // pick their default repo — the personal space always, #general only when
+  // this call just created it. The response also seeds the channel cache the
   // first-run landing reads right after.
   const assignRepoToSpaces = async (): Promise<void> => {
-    if (!selectedCloudRepo || !apiClient) return;
+    if (!apiClient) return;
+    const provisioned = await apiClient.provisionDefaultTaskChannels();
+    queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, provisioned.channels);
+    if (!selectedCloudRepo) return;
     // Fetched directly: the integrations store only fills once the main app's
     // hooks mount, which has not happened during onboarding.
     const integrations = await queryClient.fetchQuery({
@@ -106,14 +107,9 @@ export function OnboardingFlow() {
     // user-level-only GitHub connection cannot set a space default. The task
     // input still prefills from the last-used cloud repository there.
     if (integrationId == null) return;
-    const channels = await queryClient.fetchQuery({
-      queryKey: TASK_CHANNELS_QUERY_KEY,
-      queryFn: () => apiClient.getTaskChannels(),
-      staleTime: 60_000,
-    });
     for (const channelId of planSpaceRepoAssignments(
-      channels,
-      currentUser?.uuid ?? null,
+      provisioned.channels,
+      provisioned.general_created,
     )) {
       await apiClient.updateTaskChannelRepositories(channelId, integrationId, [
         selectedCloudRepo,
