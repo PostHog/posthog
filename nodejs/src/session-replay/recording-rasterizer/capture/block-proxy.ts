@@ -45,15 +45,35 @@ export class BlockProxy {
         this.sessionId = input.session_id
         this.recordingApiToken = input.recording_api_token ?? ''
 
-        const url = `${this.cfg.recordingApiBaseUrl}/api/projects/${input.team_id}/recordings/${input.session_id}/blocks`
-        const resp = await internalFetch(url, {
-            headers: this.authHeaders(),
-        })
+        // Encoded: the fetch client normalizes the URL, so a raw session id containing `../`
+        // would repoint the request at another team's recording.
+        const url = `${this.cfg.recordingApiBaseUrl}/api/projects/${input.team_id}/recordings/${encodeURIComponent(
+            input.session_id
+        )}/blocks`
+        let resp
+        try {
+            resp = await internalFetch(url, {
+                headers: this.authHeaders(),
+            })
+        } catch (err) {
+            // Connection-level failures (recording-api rollout, DNS blip) would otherwise surface as
+            // UNKNOWN; they are the most retryable failure this call has.
+            throw new RasterizationError(
+                `Failed to fetch block listing: ${(err as Error)?.message ?? String(err)}`,
+                true,
+                'BLOCK_LISTING_FAILED',
+                err
+            )
+        }
         if (resp.status < 200 || resp.status >= 300) {
             const body = await resp.text()
+            // 404 stays retryable because a recording still being ingested has no blocks yet, the
+            // same race the player's NO_SNAPSHOTS handling deliberately keeps retryable. 408/429
+            // are transient by definition. Remaining 4xx (auth, bad request) cannot heal on retry.
+            const retryable = resp.status >= 500 || [404, 408, 429].includes(resp.status)
             throw new RasterizationError(
                 `Failed to fetch block listing: ${resp.status} - ${body}`,
-                resp.status >= 500,
+                retryable,
                 'BLOCK_LISTING_FAILED'
             )
         }
@@ -85,7 +105,7 @@ export class BlockProxy {
                 decompress: 'true',
             })
             const apiBase = `${this.cfg.recordingApiBaseUrl}/api/projects`
-            const url = `${apiBase}/${this.teamId}/recordings/${this.sessionId}/block?${params}`
+            const url = `${apiBase}/${this.teamId}/recordings/${encodeURIComponent(this.sessionId)}/block?${params}`
             const resp = await internalFetch(url, {
                 headers: this.authHeaders(),
             })

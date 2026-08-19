@@ -32,6 +32,13 @@ import {
 import { InsightActorsView, type InsightActorsData } from 'products/product_analytics/mcp/apps'
 import { SessionRecordingView, type SessionRecordingData } from 'products/replay/mcp/apps'
 import {
+    InlineScanView,
+    VisionObservationListView,
+    type InlineScanData,
+    type VisionObservationData,
+    type VisionObservationListData,
+} from 'products/replay_vision/mcp/apps'
+import {
     SurveyListView,
     SurveyStatsView,
     SurveyView,
@@ -325,6 +332,50 @@ function TraceSpanListContent({ data, app }: { data: TraceSpanListData; app: App
     return <TraceSpanListView data={data} onSpanClick={handleClick} />
 }
 
+function VisionObservationListContent({
+    data,
+    app,
+}: {
+    data: VisionObservationListData
+    app: App | null
+}): JSX.Element {
+    const fallbackToChat = useCallback(
+        (name: string) => {
+            app?.sendMessage({
+                role: 'user',
+                content: [{ type: 'text', text: `Show me the details for observation "${name}"` }],
+            })
+        },
+        [app]
+    )
+
+    const handleClick = useCallback(
+        async (item: VisionObservationData): Promise<VisionObservationData | null> => {
+            if (!app) {
+                fallbackToChat(item.id)
+                return null
+            }
+            try {
+                const result = await app.callServerTool({
+                    name: 'vision-observations-retrieve',
+                    arguments: { id: item.id },
+                })
+                if (result.isError || !result.structuredContent) {
+                    fallbackToChat(item.id)
+                    return null
+                }
+                return result.structuredContent as unknown as VisionObservationData
+            } catch {
+                fallbackToChat(item.id)
+                return null
+            }
+        },
+        [app, fallbackToChat]
+    )
+
+    return <VisionObservationListView data={data} onVisionObservationClick={handleClick} />
+}
+
 function WorkflowListContent({ data, app }: { data: WorkflowListData; app: App | null }): JSX.Element {
     const fallbackToChat = useCallback(
         (name: string) => {
@@ -378,6 +429,7 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     'feature-flag': ({ data }) => <FeatureFlagView flag={data as FeatureFlagData} />,
     'feature-flag-list': ({ data, app }) => <FeatureFlagListContent data={data as FeatureFlagListData} app={app} />,
     'feature-flag-testing': ({ data }) => <FeatureFlagTestingView flag={data as FeatureFlagTestingData} />,
+    'inline-scan': ({ data }) => <InlineScanView data={data as InlineScanData} />,
     'insight-actors': ({ data, openLink }) => (
         <InsightActorsView data={data as InsightActorsData} openLink={openLink} />
     ),
@@ -391,6 +443,9 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     'survey-stats': ({ data }) => <SurveyStatsView data={data as SurveyStatsData} />,
     'trace-span': ({ data }) => <TraceSpanView data={data as TraceSpanData} />,
     'trace-span-list': ({ data, app }) => <TraceSpanListContent data={data as TraceSpanListData} app={app} />,
+    'vision-observation-list': ({ data, app }) => (
+        <VisionObservationListContent data={data as VisionObservationListData} app={app} />
+    ),
     workflow: ({ data }) => <WorkflowView workflow={data as WorkflowData} />,
     'workflow-list': ({ data, app }) => <WorkflowListContent data={data as WorkflowListData} app={app} />,
 }

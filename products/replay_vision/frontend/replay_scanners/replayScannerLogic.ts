@@ -17,6 +17,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
@@ -29,10 +30,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import type { RecordingsQuery } from '~/queries/schema/schema-general'
 
 import {
     visionScannersAffectedCohortCreate,
     visionScannersCreate,
+    visionScannersDraftCreate,
     visionScannersEstimateCreate,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
@@ -43,6 +46,7 @@ import {
 } from '../generated/api'
 import { ObservationStatusEnumApi, ObservationTriggerEnumApi } from '../generated/api.schemas'
 import type {
+    DraftScannerResponseApi,
     EstimateResponseApi,
     ObservationStatsApi,
     ReplayObservationApi,
@@ -68,12 +72,15 @@ import {
     reconcileVariantKeys,
     replaceExperimentExposureFilter,
 } from './experimentTargeting'
+import { consumeGoalDraftIntent } from './goalDraftIntent'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     SCANNER_EDITOR_STEPS,
     firstErroredScannerStep,
     scannerEditorSceneLogic,
     scannerStepUrl,
+    scannerStepUrlWithParams,
+    UNVALIDATED_SCANNER_STEPS,
 } from './scannerEditorSceneLogic'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
@@ -81,6 +88,7 @@ import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
     MAX_CREDIT_LIMIT,
     ScannerConfig,
+    defaultScannerName,
     ScannerFormValues,
     ScannerType,
     ReplayScanner,
@@ -289,6 +297,9 @@ export interface replayScannerLogicValues {
     durationValidationError: string | null
     estimateRequestVersion: number
     experimentContext: ExperimentScannerContext | null
+    goalDraft: DraftScannerResponseApi | null
+    goalDraftInput: string
+    goalDraftLoading: boolean
     hasActiveObservationFilters: boolean
     hasObservationsInFlight: boolean
     hasUnsavedChanges: boolean
@@ -335,7 +346,6 @@ export interface replayScannerLogicValues {
     scannerValidationErrors: DeepPartialMap<ScannerFormValues, ValidationErrorType>
     showScannerErrors: boolean
     sidePanelContext: SidePanelSceneContext | null
-    submitIntent: 'advance' | 'save'
     tagSuggestions: TagSuggestionApi[]
     tagSuggestionsLoading: boolean
     togglingEnabled: boolean
@@ -370,6 +380,27 @@ export interface replayScannerLogicActions {
     }
     dismissTagSuggestions: () => {
         value: true
+    }
+    draftScannerFromGoal: (goal: string) => {
+        goal: string
+    }
+    draftScannerFromGoalFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    draftScannerFromGoalSuccess: (
+        goalDraft: DraftScannerResponseApi | null,
+        payload?: {
+            goal: string
+        }
+    ) => {
+        goalDraft: DraftScannerResponseApi | null
+        payload?: {
+            goal: string
+        }
     }
     loadObservationStats: () => {
         value: true
@@ -499,6 +530,9 @@ export interface replayScannerLogicActions {
     scannerSaved: (scanner: ScannerFormValues) => {
         scanner: ScannerFormValues
     }
+    scannerWatermarkRefreshed: (scanner: ReplayScanner) => {
+        scanner: ReplayScanner
+    }
     setChartDateRange: (
         dateFrom: string | null,
         dateTo: string | null
@@ -511,6 +545,9 @@ export interface replayScannerLogicActions {
     }
     setExperimentVariantKeys: (variantKeys: string[]) => {
         variantKeys: string[]
+    }
+    setGoalDraftInput: (goal: string) => {
+        goal: string
     }
     setObservationBackfillFilter: (value: string | null) => {
         value: string | null
@@ -568,9 +605,6 @@ export interface replayScannerLogicActions {
     }
     setScannerValues: (values: DeepPartial<ScannerFormValues>) => {
         values: DeepPartial<ScannerFormValues>
-    }
-    setSubmitIntent: (intent: 'advance' | 'save') => {
-        intent: 'advance' | 'save'
     }
     startFromTemplate: (templateKey: string | null) => {
         templateKey: string | null
@@ -675,6 +709,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScanner: true,
         loadScannerSuccess: (scanner: ScannerFormValues) => ({ scanner }),
         loadScannerFailure: true,
+        // Background refetches use this instead of loadScannerSuccess, which also resets the form,
+        // originalScanner, and submitIntent, and can refire the observation loads.
+        scannerWatermarkRefreshed: (scanner: ReplayScanner) => ({ scanner }),
         setExperimentContext: (context: ExperimentScannerContext | null) => ({ context }),
         setExperimentVariantKeys: (variantKeys: string[]) => ({ variantKeys }),
         detachExperimentContext: true,
@@ -683,13 +720,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         startFromTemplate: (templateKey: string | null) => ({ templateKey }),
         discardScannerDraft: true,
         setScannerDraftSavedAt: (savedAt: number | null) => ({ savedAt }),
-        setSubmitIntent: (intent: 'save' | 'advance') => ({ intent }),
         // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
         scannerSaved: (scanner: ScannerFormValues) => ({ scanner }),
         appendClassifierTags: (tags: string[]) => ({ tags }),
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
+        draftScannerFromGoal: (goal: string) => ({ goal }),
+        setGoalDraftInput: (goal: string) => ({ goal }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -741,9 +779,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         copyAllObservationsFinished: true,
     }),
 
-    forms(({ props, values, actions }) => ({
+    forms(({ props, actions }) => ({
         scanner: {
-            defaults: newScanner(props.id === 'new' ? currentTemplateKey() : null),
+            defaults: newScanner(
+                props.id === 'new' ? currentTemplateKey() : null,
+                teamLogic.findMounted()?.values.currentTeam?.name
+            ),
             errors: (scanner: ScannerFormValues) => {
                 // API-loaded scanners never carry the UI-only toggle, so fall back to whether a limit is set.
                 const creditLimitEnabled = scanner.credit_limit_enabled ?? scanner.credit_limit != null
@@ -754,11 +795,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (scanner.scanner_type === 'classifier') {
                     const tags = scanner.scanner_config.tags ?? []
                     if (tags.length === 0) {
-                        configErrors.tags = 'Add at least one tag to the vocabulary'
+                        configErrors.tags = 'Add at least one category'
                     } else if (tags.some((t) => !t.trim())) {
-                        configErrors.tags = "Tags can't be blank"
+                        configErrors.tags = "Categories can't be blank"
                     } else if (new Set(tags.map((t) => t.trim().toLowerCase())).size !== tags.length) {
-                        configErrors.tags = 'Tags must be unique'
+                        configErrors.tags = 'Categories must be unique'
                     }
                 }
                 if (scanner.scanner_type === 'scorer') {
@@ -775,7 +816,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                 }
                 return {
-                    name: !scanner.name?.trim() ? 'Name is required' : undefined,
                     sampling_rate:
                         scanner.sampling_rate > 0 && scanner.sampling_rate <= 1
                             ? undefined
@@ -794,14 +834,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
             submit: async (scanner: ScannerFormValues) => {
-                // Advance to the next visible step instead of persisting, when the footer asked to (intent
-                // 'advance') or a new scanner submitted mid-wizard via Enter on any non-final step.
-                const steps = scannerEditorSceneLogic.findMounted()?.values.visibleSteps ?? SCANNER_EDITOR_STEPS
+                // A non-final step only ever offers "Next", so any submit there advances rather than persisting.
+                // Enter would otherwise save an existing scanner and leave the wizard from the middle of it.
                 const currentStep = scannerEditorSceneLogic.findMounted()?.values.step ?? 'configure'
-                const nextStep = steps[steps.indexOf(currentStep) + 1]
-                if (nextStep && (values.submitIntent === 'advance' || values.isNew)) {
-                    actions.setSubmitIntent('save')
-                    router.actions.push(scannerStepUrl(nextStep, props.id))
+                const nextStep = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(currentStep) + 1]
+                if (nextStep) {
+                    router.actions.push(scannerStepUrlWithParams(nextStep, props.id, router.values.searchParams))
                     return
                 }
                 const teamId = teamLogic.values.currentTeamId
@@ -809,15 +847,22 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     return
                 }
                 // credit_limit_enabled is UI-only form state; the API payload carries only credit_limit itself.
-                const { credit_limit_enabled: _creditLimitEnabled, ...apiScanner } = scanner
+                const { credit_limit_enabled: _creditLimitEnabled, ...rest } = scanner
+                // The name is optional in the UI but required by the API, so an emptied one falls back.
+                const apiScanner = {
+                    ...rest,
+                    name:
+                        rest.name?.trim() || defaultScannerName(teamLogic.values.currentTeam?.name, rest.scanner_type),
+                }
                 const body = apiScanner.query == null ? omitQuery(apiScanner) : apiScanner
                 try {
                     if (props.id === 'new') {
                         const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
                         actions.scannerSaved(scanner)
                         router.actions.replace(urls.replayVision(response.id))
-                        // First results are minutes away on the schedule — hand off to the instant on-demand tab.
-                        lemonToast.success('Scanner created', {
+                        // First scheduled results are minutes away, so the copy matches the Overview's
+                        // pending panel and the button hands off to the instant on-demand tab.
+                        lemonToast.success('Scanner created. First scan in progress.', {
                             button: {
                                 label: 'Scan a recording now',
                                 action: () => router.actions.push(`${urls.replayVision(response.id)}?tab=on-demand`),
@@ -831,6 +876,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         router.actions.push(urls.replayVision(props.id))
                     }
                 } catch (error: any) {
+                    // A duplicate name is the one field error the details step can fix, so route back to it.
+                    if (error.attr === 'name' && error.detail) {
+                        actions.setScannerManualErrors({ name: error.detail })
+                        router.actions.push(urls.replayVisionScannerDetails(props.id))
+                        lemonToast.error(error.detail)
+                        throw error
+                    }
                     lemonToast.error(`Failed to save scanner${error.detail ? `: ${error.detail}` : ''}`)
                     throw error
                 }
@@ -872,6 +924,19 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 },
             },
         ],
+        goalDraft: [
+            null as DraftScannerResponseApi | null,
+            {
+                // Errors surface through draftScannerFromGoalFailure; kea-loaders dispatches it for us.
+                draftScannerFromGoal: async ({ goal }) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || !goal.trim()) {
+                        return values.goalDraft
+                    }
+                    return await visionScannersDraftCreate(String(teamId), { goal: goal.trim() })
+                },
+            },
+        ],
         tagSuggestions: [
             [] as TagSuggestionApi[],
             {
@@ -907,6 +972,23 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 setScannerDraftSavedAt: (_, { savedAt }) => savedAt,
             },
         ],
+        // The "tell PostHog AI what you want to accomplish" textarea on the template step.
+        goalDraftInput: [
+            '',
+            {
+                setGoalDraftInput: (_, { goal }) => goal,
+                // Cleared once a draft or a template pick consumed it, so a stale goal doesn't linger.
+                draftScannerFromGoalSuccess: () => '',
+                startFromTemplate: () => '',
+            },
+        ],
+        // A template pick replaces the drafted form, so its rationale no longer describes the config.
+        goalDraft: [
+            null as DraftScannerResponseApi | null,
+            {
+                startFromTemplate: () => null,
+            },
+        ],
         // Which tag's cohort is being created, so tag rows can show a per-row spinner.
         savingCohortTag: [
             null as string | null,
@@ -916,6 +998,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 saveAffectedCohortFailure: () => null,
             },
         ],
+        scanner: {
+            // Only the sweep watermark lands, so a background refresh can't clobber unsaved form edits.
+            scannerWatermarkRefreshed: (state: ReplayScanner, { scanner }: { scanner: ReplayScanner }) =>
+                state ? { ...state, last_swept_at: scanner.last_swept_at } : scanner,
+        },
         experimentContext: [
             null as ExperimentScannerContext | null,
             {
@@ -989,13 +1076,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScanner: () => true,
                 loadScannerSuccess: () => false,
                 loadScannerFailure: () => false,
-            },
-        ],
-        submitIntent: [
-            'save' as 'save' | 'advance',
-            {
-                setSubmitIntent: (_, { intent }) => intent,
-                loadScannerSuccess: () => 'save' as 'save' | 'advance',
             },
         ],
         tagSuggestions: {
@@ -1377,10 +1457,22 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (error?.message !== 'Validation Failed') {
                     return
                 }
-                const erroredStep = firstErroredScannerStep(values.scannerValidationErrors)
                 const currentStep = scannerEditorSceneLogic.findMounted()?.values.step
+                // Enter submits the whole form, so leaving a step that validates nothing must behave like
+                // its Next button: move on, rather than red-flag fields the user has not reached yet.
+                if (currentStep && UNVALIDATED_SCANNER_STEPS.includes(currentStep)) {
+                    const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(currentStep) + 1]
+                    if (next) {
+                        router.actions.push(scannerStepUrlWithParams(next, props.id, router.values.searchParams))
+                    }
+                    return
+                }
+                const erroredStep = firstErroredScannerStep({
+                    ...values.scannerValidationErrors,
+                    duration: values.durationValidationError,
+                })
                 if (erroredStep && erroredStep !== currentStep) {
-                    router.actions.push(scannerStepUrl(erroredStep, props.id))
+                    router.actions.push(scannerStepUrlWithParams(erroredStep, props.id, router.values.searchParams))
                 }
                 // Yield so the step change renders before scrollToFormError looks for `.Field--error`.
                 await Promise.resolve()
@@ -1399,11 +1491,27 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // strip the param so the URL matches what the user actually gets.
                     const templateKey =
                         !draft && urlTemplateKey && findScannerTemplate(urlTemplateKey) ? urlTemplateKey : null
+                    const teamName = teamLogic.findMounted()?.values.currentTeam?.name
                     const experimentParams = parseExperimentScannerParams(router.values.searchParams)
+                    const goalParam =
+                        typeof router.values.searchParams.goal === 'string'
+                            ? router.values.searchParams.goal.trim()
+                            : ''
+                    // Consumed unconditionally on every wizard entry: whichever prefill path wins
+                    // below, a hand-off armed by the nudge must not stay usable for the rest of
+                    // the tab session, where a later ?goal= link would auto-start a draft and
+                    // spend the user's AI allowance without fresh intent.
+                    const handedOffGoal = consumeGoalDraftIntent()?.trim() ?? ''
+                    // Prefill precedence: an experiment deep link, then an explicit ?filters=
+                    // query (both carry fully built state), then a saved draft, then the
+                    // free-text goal. A URL carrying both ?filters= and ?goal= deterministically
+                    // takes the filters and drops the goal.
+                    const hasFiltersPrefill = 'filters' in router.values.searchParams
                     // Strip the params the wizard has now consumed so a reload doesn't re-run the prefill
                     // over the user's edits: an unknown template that fell back to from-scratch (a valid
-                    // template stays), and the experiment deep-link params. One replace covers both and
-                    // preserves the URL hash, which a second back-to-back replace would drop.
+                    // template stays), the experiment deep-link params, and the goal param. One replace
+                    // covers all of them and preserves the URL hash, which a second back-to-back replace
+                    // would drop.
                     const nextParams = { ...router.values.searchParams }
                     if (urlTemplateKey && !templateKey) {
                         delete nextParams.template
@@ -1412,6 +1520,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         delete nextParams.experiment
                         delete nextParams.variants
                         delete nextParams.exposure
+                    }
+                    if (nextParams.goal !== undefined) {
+                        delete nextParams.goal
                     }
                     if (Object.keys(nextParams).length !== Object.keys(router.values.searchParams).length) {
                         router.actions.replace(router.values.location.pathname, nextParams, router.values.hashParams)
@@ -1428,7 +1539,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                 variantKeys: reconcileVariantKeys(experiment, experimentParams.variantKeys),
                                 useExposureFallback: experimentParams.useExposureFallback,
                             }
-                            const prefilled = prefillScannerForExperiment(newScanner(templateKey), context)
+                            const prefilled = prefillScannerForExperiment(newScanner(templateKey, teamName), context)
                             // Set the context only after the prefill is built, so a throw inside it
                             // doesn't leave a dangling context that the next startFromTemplate re-applies.
                             actions.setExperimentContext(context)
@@ -1437,7 +1548,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             // Clear any context a partial run left set before surfacing the failure.
                             actions.setExperimentContext(null)
                             lemonToast.error("Couldn't load the experiment. Set recording filters manually instead.")
-                            actions.loadScannerSuccess(newScanner(templateKey))
+                            actions.loadScannerSuccess(newScanner(templateKey, teamName))
                         } finally {
                             cache.restoringDraft = false
                         }
@@ -1445,13 +1556,25 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     cache.restoringDraft = true
                     try {
-                        actions.loadScannerSuccess(newScanner(templateKey))
+                        actions.loadScannerSuccess(newScanner(templateKey, teamName))
                         if (draft) {
                             actions.setScannerValues(draft.scanner)
                             actions.setScannerDraftSavedAt(draft.savedAt)
                         }
                     } finally {
                         cache.restoringDraft = false
+                    }
+                    // The goal prefills the AI box; the draft only auto-starts for the in-player
+                    // nudge's sessionStorage hand-off (which carries the goal so the free text
+                    // never enters the URL), and never over a saved draft. A crafted external
+                    // ?goal= link can therefore neither spend the user's AI allowance nor
+                    // overwrite saved work without an explicit click.
+                    const goal = handedOffGoal || goalParam
+                    if (goal && !hasFiltersPrefill) {
+                        actions.setGoalDraftInput(goal)
+                        if (handedOffGoal && !draft) {
+                            actions.draftScannerFromGoal(handedOffGoal)
+                        }
                     }
                     return
                 }
@@ -1502,12 +1625,61 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (!current) {
                     return
                 }
+                const teamName = teamLogic.values.currentTeam?.name
+                // Only re-derive a name the user never edited, so a typed name always survives a type change.
+                const keepsDefaultName =
+                    !current.name?.trim() || current.name === defaultScannerName(teamName, current.scanner_type)
                 actions.resetScanner({
                     ...current,
+                    name: keepsDefaultName ? defaultScannerName(teamName, scannerType) : current.name,
                     scanner_type: scannerType,
                     scanner_config: defaultConfigForType(scannerType),
                 } as ScannerFormValues)
                 persistDraft()
+            },
+
+            // Fires on request rather than result, so failed drafts still count as entering the AI path.
+            draftScannerFromGoal: ({ goal }) => {
+                posthog.capture('replay_vision_scanner_creation_started', {
+                    creation_method: 'ai',
+                    template_key: null,
+                    // The goal is customer text, so only its length is captured.
+                    goal_length: goal.trim().length,
+                })
+            },
+
+            // A successful AI draft seeds the wizard form, then the configure step opens for review.
+            draftScannerFromGoalSuccess: ({ goalDraft }) => {
+                if (!goalDraft) {
+                    return
+                }
+                // The model call can take a while; if the user picked a template or navigated away
+                // meanwhile, their newer state wins and the stale draft is dropped. The box lives on
+                // the template step and the zero-scanner empty state, so both count as still there.
+                const pathname = router.values.location.pathname
+                if (
+                    !pathname.endsWith(urls.replayVisionScannerTemplate('new')) &&
+                    !pathname.endsWith(urls.replayVision())
+                ) {
+                    return
+                }
+                actions.resetScanner(newScanner(null, teamLogic.values.currentTeam?.name))
+                // Applied as form values (not baked into the reset) so the draft persists like hand-edited
+                // input and survives a reload of the configure step.
+                actions.setScannerValues({
+                    name: goalDraft.name,
+                    description: goalDraft.description,
+                    scanner_type: goalDraft.scanner_type as ScannerType,
+                    scanner_config: goalDraft.scanner_config as ScannerConfig,
+                    // The drafted session filter (when the goal mapped to real screens or events); the
+                    // triggers step shows it for review like any hand-picked filter.
+                    ...(goalDraft.query ? { query: goalDraft.query as RecordingsQuery } : {}),
+                })
+                router.actions.push(urls.replayVisionScannerDetails('new'))
+            },
+
+            draftScannerFromGoalFailure: ({ errorObject }) => {
+                lemonToast.error(`Couldn't draft a scanner${errorObject?.detail ? `: ${errorObject.detail}` : ''}`)
             },
 
             // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.
@@ -1549,11 +1721,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 persistDraft()
             },
             startFromTemplate: ({ templateKey }) => {
+                // Counterpart of the AI capture, so the creation funnel can split by path.
+                posthog.capture('replay_vision_scanner_creation_started', {
+                    creation_method: templateKey ? 'template' : 'scratch',
+                    template_key: templateKey,
+                })
                 clearScannerDraft()
                 actions.setScannerDraftSavedAt(null)
                 // An experiment prefill (targeted query, scoped name) has to survive the template
                 // reset, so re-apply it when the wizard was entered from an experiment.
-                const base = newScanner(templateKey)
+                const base = newScanner(templateKey, teamLogic.values.currentTeam?.name)
                 const context = values.experimentContext
                 actions.resetScanner(context ? prefillScannerForExperiment(base, context) : base)
             },
@@ -1943,7 +2120,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             lemonToast.info('Draft saved', {
                 button: {
                     label: 'Resume',
-                    action: () => router.actions.push(urls.replayVisionScannerConfigure('new')),
+                    action: () => router.actions.push(urls.replayVisionScannerDetails('new')),
                     dataAttr: 'vision-draft-resume-toast',
                 },
             })
@@ -1972,9 +2149,8 @@ export type ObservationsUrlParams = Partial<Record<(typeof TABLE_URL_PARAM_KEYS)
 /** The step URLs of a scanner's editor wizard. */
 function scannerEditorPaths(scannerId: string): string[] {
     return [
-        urls.replayVisionScannerTemplate(scannerId),
-        urls.replayVisionScannerConfigure(scannerId),
-        urls.replayVisionScannerTriggers(scannerId),
+        ...SCANNER_EDITOR_STEPS.map((step) => scannerStepUrl(step, scannerId)),
+        // Retired step: the redirect off it must not trip the unsaved-changes guard.
         urls.replayVisionScannerSelfDriving(scannerId),
     ]
 }

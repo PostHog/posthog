@@ -28,6 +28,7 @@ const fetchRouter = vi.hoisted(() =>
 import {
   type CloudTaskEngine,
   createCloudTaskEngine,
+  MAX_SSE_RECONNECT_ATTEMPTS,
 } from "./cloud-task-engine";
 
 const mockAuthService = {
@@ -3212,7 +3213,10 @@ describe("CloudTaskEngine", () => {
       retryable: true,
     });
 
-    expect(mockStreamFetch.mock.calls.length).toBeGreaterThan(2);
+    expect(mockStreamFetch.mock.calls.length).toBe(
+      1 + MAX_SSE_RECONNECT_ATTEMPTS,
+    );
+    expect(mockStreamTokenFetch.mock.calls.length).toBe(1);
     const streamCallsAtFailure = mockStreamFetch.mock.calls.length;
     await vi.advanceTimersByTimeAsync(60_000);
     expect(mockStreamFetch.mock.calls.length).toBe(streamCallsAtFailure);

@@ -4,6 +4,7 @@ import { z } from "zod";
 const fileToChannel = z.object({
   id: z.string(),
   name: z.string(),
+  channelType: z.enum(["public", "personal"]).optional(),
   starred: z.boolean().optional(),
 });
 

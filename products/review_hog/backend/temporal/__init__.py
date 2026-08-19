@@ -11,6 +11,7 @@ from products.review_hog.backend.temporal.activities import (
     load_validation_skill_activity,
     post_status_comment_activity,
     publish_review_activity,
+    remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
     select_perspectives_activity,
@@ -26,7 +27,11 @@ from products.review_hog.backend.temporal.outcomes_activities import (
     discover_outcome_teams_activity,
 )
 from products.review_hog.backend.temporal.outcomes_workflow import ClassifyFindingOutcomesWorkflow
-from products.review_hog.backend.temporal.resolution import ResolvePRWorkflow, resolve_threads_activity
+from products.review_hog.backend.temporal.resolution import (
+    ResolvePRWorkflow,
+    fail_resolution_activity,
+    resolve_threads_activity,
+)
 from products.review_hog.backend.temporal.workflow import (
     ReviewPerspectivesWorkflow,
     ReviewPRWorkflow,
@@ -57,6 +62,7 @@ ACTIVITIES = [
     validate_chunk_activity,
     build_body_activity,
     publish_review_activity,
+    remove_trigger_label_activity,
     post_status_comment_activity,
     finalize_status_comment_activity,
     fail_status_comment_activity,
@@ -66,4 +72,5 @@ ACTIVITIES = [
     discover_outcome_teams_activity,
     classify_team_outcomes_activity,
     resolve_threads_activity,
+    fail_resolution_activity,
 ]

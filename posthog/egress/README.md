@@ -104,6 +104,18 @@ Response handling — what to do on a 403/429 — stays with the caller: `raise_
 The model-coupled `GitHubIntegrationBase.api_request` layers the installation-token lifecycle (proactive refresh, 401 refresh-retry, rate-limit raising, per-instance `source` attribution) on top — hold an integration, call that; hold a bare token, call `github_request`.
 Raw `requests` calls against `api.github.com` are blocked by the `github-api-calls-go-through-egress` semgrep rule (`.semgrep/devex-rules/`), so new callers land on one of these two paths by construction.
 
+Slack Web API calls use `SlackWebClient` (and `SlackAsyncWebClient` where needed) from `slack/` so
+request volume, method, status, source, and workspace are recorded consistently. Slack applies Web API
+limits per method, workspace, and app, with additional special limits such as per-channel message
+posting. Installation age and Marketplace status can also change the limits for history methods.
+Slack does not return remaining-budget headers, so Slack egress records each HTTP attempt and the
+app-and-method-specific `Retry-After` from 429 responses. It does not proactively limit requests.
+Callers continue to own reactive retries.
+
+Incoming webhooks and interactivity `response_url` calls are not Slack Web API calls. Their secret URL is
+the budget identity, and persisting or labeling by it would expose credentials. Keep their error handling
+with the caller rather than assigning them to a shared workspace bucket.
+
 ## The one identity rule
 
 Everything keys on the **budget owner in the external API's own id space** — for GitHub the App **installation id**, because that is what GitHub meters.

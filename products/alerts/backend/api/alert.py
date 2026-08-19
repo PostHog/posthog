@@ -58,6 +58,7 @@ from posthog.tasks.alerts.utils import (
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.destination_configs import DestinationType
 from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
@@ -217,10 +218,47 @@ class ThresholdSerializer(serializers.ModelSerializer):
         return data
 
 
+def _destination_deliveries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Only Slack names its own channel; the rest repeat a bare type name, so carry the hog
+    # function id to tell two apart — never the webhook URL, which is the credential.
+    labelled = []
+    for row in rows:
+        label = row.get("target") or "Destination"
+        target_id = row.get("target_id")
+        if target_id and row.get("template") != DestinationType.SLACK.value:
+            label = f"{label} · {target_id[-4:]}"
+        labelled.append({**row, "display_label": label})
+    return labelled
+
+
+class AlertDeliverySerializer(serializers.Serializer):
+    channel = serializers.CharField(help_text="Delivery channel: 'email' or 'hog_function' (destinations).")
+    target = serializers.CharField(help_text="Email address, or destination name, that received the notification.")
+    target_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Hog function ID, for destination deliveries. Null for email."
+    )
+    template = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Destination template: 'slack', 'discord', 'webhook', or 'teams'. Null for email.",
+    )
+    status = serializers.CharField(help_text="Delivery status. Always 'accepted', for a confirmed send.")
+    at = serializers.DateTimeField(allow_null=True, help_text="When the delivery was recorded.")
+    display_label = serializers.CharField(
+        help_text="Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack #eng-alerts'."
+    )
+
+
 class AlertCheckSerializer(serializers.ModelSerializer):
     targets_notified = serializers.SerializerMethodField()
     investigation_notebook_short_id = serializers.SerializerMethodField(
         help_text="Short ID of the Notebook produced by the investigation agent, when the agent ran for this check."
+    )
+    deliveries = serializers.SerializerMethodField(
+        allow_null=True,
+        help_text="Destinations that accepted this check's notification, one record per destination "
+        "(channel, target, status, at). Null when no delivery receipt was recorded, which covers "
+        "checks that notified nobody and checks predating delivery receipts.",
     )
 
     class Meta:
@@ -242,6 +280,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "investigation_notebook_short_id",
             "notification_sent_at",
             "notification_suppressed_by_agent",
+            "deliveries",
         ]
         read_only_fields = fields
 
@@ -251,6 +290,24 @@ class AlertCheckSerializer(serializers.ModelSerializer):
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
         notebook = instance.investigation_notebook
         return notebook.short_id if notebook is not None else None
+
+    @extend_schema_field(AlertDeliverySerializer(many=True))
+    def get_deliveries(self, instance: AlertCheck) -> list[dict[str, Any]] | None:
+        if not instance.has_delivery_receipts:
+            return None
+        notified = instance.targets_notified or {}
+        accepted_at = instance.notification_sent_at.isoformat() if instance.notification_sent_at else None
+        emails = [
+            {
+                "channel": "email",
+                "target": email,
+                "status": "accepted",
+                "at": accepted_at,
+                "display_label": f"Email: {email}",
+            }
+            for email in notified.get("users") or []
+        ]
+        return emails + _destination_deliveries(notified.get("destinations") or [])
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):

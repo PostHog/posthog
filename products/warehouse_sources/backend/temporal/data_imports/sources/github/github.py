@@ -5,7 +5,7 @@ import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import pyarrow as pa
 import requests
@@ -299,6 +299,12 @@ def _is_repository_too_large_for_code_frequency(response: requests.Response) -> 
     except (ValueError, TypeError):
         message = response.text or ""
     return isinstance(message, str) and "fewer than 10000 commits" in message.lower()
+
+
+def _is_topics_endpoint(page_url: str) -> bool:
+    """The repository topics endpoint (/repos/{owner}/{repo}/topics). Matched on the URL path so a
+    repository literally named `topics`, or a query string, can't be mistaken for it."""
+    return urlsplit(page_url).path.endswith("/topics")
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -869,6 +875,15 @@ def _fetch_page(
 
     if _is_repository_too_large_for_code_frequency(response):
         raise GithubRepositoryTooLargeError()
+
+    # GitHub answers 422 on /repos/{owner}/{repo}/topics for some repositories rather than an empty
+    # {"names": []} body. Topics are optional repository metadata, so one repository's 422 there
+    # must not fail its whole schema the way a generic 422 does — sync zero rows, the same benign
+    # skip as a switched-off feature. A genuinely broken connection still fails loudly on the
+    # repository's other tables (401/403/404), so skipping topics here cannot hide it.
+    if response.status_code == 422 and _is_topics_endpoint(page_url):
+        logger.info(f"Github: topics not available for this repository, syncing zero rows: url={page_url}")
+        raise GithubResourceUnavailableError(_github_error_message(response))
 
     # An org-scoped endpoint 404s when the repo owner is a user (no org) or the token lacks org
     # access. Signal it so the caller syncs zero rows rather than failing the schema — a benign skip

@@ -616,6 +616,7 @@ fn issue_snapshot(issue: &Issue) -> IssueSnapshot {
         name: issue.name.clone(),
         description: issue.description.clone(),
         status: issue.status.to_string(),
+        severity: issue.severity.clone(),
         created_at: issue.created_at,
     }
 }

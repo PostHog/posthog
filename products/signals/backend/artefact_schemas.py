@@ -209,7 +209,9 @@ class SuggestedReviewerEntry(BaseModel):
     def github_login_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
-        return v
+        # Strip on the way in: read-time enrichment and autostart look logins up with
+        # `login.lower()` and no strip, so a padded login would persist but never match.
+        return v.strip()
 
 
 class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):

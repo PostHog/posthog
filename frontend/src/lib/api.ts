@@ -100,6 +100,7 @@ import {
     DataModelingNode,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryIncrementalCheck,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
@@ -390,6 +391,11 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    // A no-content response must not depend on reading its body: some engines (in our telemetry,
+    // overwhelmingly WebKit) reject `.text()` on an empty body rather than resolving to "".
+    if (response.status === 204 || response.status === 205 || response.body === null) {
+        return null
+    }
     let text: string
     try {
         text = await response.text()
@@ -680,6 +686,10 @@ export class ApiRequest {
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
         return this.pluginConfigs(teamId).addPathComponent(id)
+    }
+
+    public pipelineFrontendAppsConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('pipeline_frontend_apps_configs')
     }
 
     public hog(teamId?: TeamType['id']): ApiRequest {
@@ -3605,7 +3615,9 @@ const api = {
     },
 
     organizationMembers: {
-        async list(params: ListOrganizationMembersParams = {}): Promise<PaginatedResponse<OrganizationMemberType>> {
+        async list(
+            params: ListOrganizationMembersParams = {}
+        ): Promise<CountedPaginatedResponse<OrganizationMemberType>> {
             return await new ApiRequest().organizationMembers().withQueryString(params).get()
         },
 
@@ -3883,6 +3895,15 @@ const api = {
                     : notebookShortId
                       ? new ApiRequest().notebookSharingPassword(notebookShortId, passwordId).delete()
                       : null
+        },
+    },
+
+    // Site apps still backed by a plugin rather than a hog function. The web scripts scene
+    // lists these alongside hog functions, so anything deciding whether a project has web
+    // scripts has to count them too.
+    pipelineFrontendAppsConfigs: {
+        async list(params: { limit?: number } = {}): Promise<CountedPaginatedResponse<PluginConfigTypeNew>> {
+            return await new ApiRequest().pipelineFrontendAppsConfigs().withQueryString(params).get()
         },
     },
 
@@ -5154,9 +5175,6 @@ const api = {
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
-        async analyzeSessions(): Promise<Record<string, any>> {
-            return await new ApiRequest().signalReports().withAction('analyze_sessions').create()
-        },
         async get(id: SignalReport['id']): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).get()
         },
@@ -5690,8 +5708,19 @@ const api = {
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
-        async run(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
-            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run').create()
+        async run(viewId: DataWarehouseSavedQuery['id'], fullRefresh?: boolean): Promise<void> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('run')
+                .create({ data: { full_refresh: !!fullRefresh } })
+        },
+        async checkIncremental(data: {
+            query: string
+            incremental_key?: string
+            unique_key?: string[]
+            lookback_seconds?: number
+        }): Promise<DataWarehouseSavedQueryIncrementalCheck> {
+            return await new ApiRequest().dataWarehouseSavedQueries().withAction('check_incremental').create({ data })
         },
         async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()

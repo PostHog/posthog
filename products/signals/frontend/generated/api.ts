@@ -41,6 +41,8 @@ import type {
     RecordStructuredOutputResponseApi,
     RememberRequestApi,
     ReportSignalsResponseApi,
+    ScoutChatTaskApi,
+    ScoutChatTaskCreateApi,
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
     ScoutMetadataApi,
@@ -619,7 +621,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains).
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
@@ -716,6 +718,27 @@ export const signalsScoutCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalScoutCreateApi),
+    })
+}
+
+export const getSignalsScoutChatTasksCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/chat_tasks/`
+}
+
+/**
+ * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; the response carries the task id to navigate to.
+ * @summary Start a scout chat task
+ */
+export const signalsScoutChatTasksCreate = async (
+    projectId: string,
+    scoutChatTaskCreateApi: ScoutChatTaskCreateApi,
+    options?: RequestInit
+): Promise<ScoutChatTaskApi> => {
+    return apiMutator<ScoutChatTaskApi>(getSignalsScoutChatTasksCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutChatTaskCreateApi),
     })
 }
 

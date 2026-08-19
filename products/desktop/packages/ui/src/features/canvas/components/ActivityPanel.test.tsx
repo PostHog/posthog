@@ -53,7 +53,7 @@ vi.mock("@posthog/ui/features/canvas/components/TaskCommentsList", () => ({
   TaskCommentsList: () => <div>comments body</div>,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ChannelFeedView", () => ({
-  TaskCard: () => <div>task card</div>,
+  TaskSummaryRow: () => <div>task summary</div>,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ThreadPanel", () => ({
   AgentStatusLine: () => <div>agent status</div>,
@@ -147,41 +147,24 @@ describe("ActivityPanel", () => {
     expect(screen.getByText("timeline body")).toBeTruthy();
   });
 
-  // A focus left over from an earlier visit must not hijack the panel, and the
-  // panel is reused across tasks without remounting.
-  it("does not open comments for a focus that predates the task", () => {
-    useCommentNavigationStore
-      .getState()
-      .requestCommentFocus(
-        "task-2",
-        { scope: "task_artifact", itemId: "artifact-1" },
-        "comment-1",
-      );
-    const { rerender } = renderPanel("task-1");
-
-    rerender(
-      <ActivityPanel
-        taskId="task-2"
-        channelId="channel-1"
-        task={{ ...task, id: "task-2" }}
-        showTaskSummary={false}
-      />,
-    );
-
-    expect(screen.getByText("timeline body")).toBeTruthy();
-  });
-
-  it("keeps a fresh focus request when the panel switches tasks", () => {
-    const { rerender } = renderPanel("task-1");
-    act(() =>
+  // A request nobody has shown yet is outstanding whenever it was written, and
+  // the click that picks a thread often precedes the surface that can show it.
+  it.each([
+    { name: "before the panel rendered the task", beforeMount: true },
+    { name: "while the panel was on another task", beforeMount: false },
+  ])("opens comments for a request made $name", ({ beforeMount }) => {
+    const request = () =>
       useCommentNavigationStore
         .getState()
         .requestCommentFocus(
           "task-2",
           { scope: "task_artifact", itemId: "artifact-1" },
           "comment-1",
-        ),
-    );
+        );
+
+    if (beforeMount) request();
+    const { rerender } = renderPanel("task-1");
+    if (!beforeMount) act(request);
 
     rerender(
       <ActivityPanel
@@ -193,6 +176,12 @@ describe("ActivityPanel", () => {
     );
 
     expect(screen.getByText("comments body")).toBeTruthy();
+    // Acknowledged on the way, so the request is spent rather than reopening
+    // comments over every later surface that reads it.
+    expect(
+      useCommentNavigationStore.getState().focusByTask["task-2"]
+        ?.openCommentsTab,
+    ).toBe(false);
   });
 
   // Only the timeline reads bottom-up; the thread lists put what matters on top.

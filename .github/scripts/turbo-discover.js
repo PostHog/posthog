@@ -707,11 +707,16 @@ const allProductSet = new Set(allProducts)
 
 let products
 let runLegacy
+// Why runLegacy was set, so ci-backend's test selection can tell a direct legacy edit
+// (which the diff-based selector handles) from an inferred product->legacy cascade
+// (which it cannot see). Empty when runLegacy is false.
+let runLegacyReason = ''
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
     products = allProducts
     runLegacy = true
+    runLegacyReason = 'legacy_changed'
 } else {
     const isolatedProducts = getIsolatedProducts(contractTasks)
     const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
@@ -728,6 +733,7 @@ if (legacyChanged) {
         )
         products = allProducts
         runLegacy = true
+        runLegacyReason = 'non_isolated_product'
     } else if (affectedProducts.length > 0) {
         // Only isolated products changed — check whether their contract surface was affected
         const affectedProductSet = new Set(affectedProducts)
@@ -737,6 +743,7 @@ if (legacyChanged) {
         if (affectedContracts.length > 0) {
             console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
             runLegacy = true
+            runLegacyReason = 'contract_cascade'
             const tachGraph = loadTachModuleGraph()
             if (tachGraph === null) {
                 // Fail toward over-testing, like the quarantine loaders above: without the
@@ -771,6 +778,7 @@ if (legacyChanged) {
             console.error(`Schema diff unavailable (${impact.reason}) — falling back to all products + Django`)
             products = allProducts
             runLegacy = true
+            runLegacyReason = 'schema'
         } else {
             if (impact.kind === 'impacting') {
                 console.error(`Schema-affected products: ${JSON.stringify(impact.affectedProducts)}`)
@@ -785,6 +793,7 @@ if (legacyChanged) {
             }
             // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
             runLegacy = true
+            runLegacyReason = 'schema'
         }
     }
 }
@@ -803,11 +812,13 @@ if (quarantinedProducts.size > 0) {
     products = dropProducts(products, allProducts, quarantinedProducts, 'Quarantined products (mode: skip)')
 }
 
-// Un-quarantining must re-run the suite. Today the ci-backend `legacy` paths-
-// filter already forces a full run on any PR touching the quarantine file, so
-// this diff against the merge base rarely changes the outcome — it is the
-// backstop that keeps product re-runs correct if that coarse trigger is ever
-// narrowed (Turbo itself never sees .test_quarantine.json as a product input).
+// Un-quarantining must re-run the suite. The ci-backend `legacy` paths-filter still
+// pulls every product into the matrix on any PR touching the quarantine file, so this
+// diff against the merge base rarely changes the outcome — it is the backstop that
+// keeps product re-runs correct if that coarse trigger is ever narrowed (Turbo itself
+// never sees .test_quarantine.json as a product input). Django's side of the same
+// invariant is carried by FULL_RUN_PATTERNS in the backend test selector, since a
+// legacy diff no longer implies a full Django run on its own.
 if (process.env.TURBO_SCM_BASE) {
     const baseQuarantined = loadBaseQuarantinedSkipProducts(process.env.TURBO_SCM_BASE, todayISO)
     const allProductSet = new Set(allProducts)
@@ -822,7 +833,7 @@ if (process.env.TURBO_SCM_BASE) {
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
-console.error(`Run legacy (Django): ${runLegacy}`)
+console.error(`Run legacy (Django): ${runLegacy}${runLegacyReason ? ` (${runLegacyReason})` : ''}`)
 
 const durations = loadTestDurations()
 
@@ -832,6 +843,7 @@ const djangoShards = buildDjangoShards(durations)
 const result = {
     matrix: buildMatrix(products, durations),
     run_legacy: runLegacy,
+    run_legacy_reason: runLegacyReason,
     django_shards: djangoShards,
 }
 // eslint-disable-next-line no-console

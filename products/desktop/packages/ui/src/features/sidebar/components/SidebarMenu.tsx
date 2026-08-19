@@ -223,11 +223,14 @@ function SidebarMenuComponent() {
             allPinned,
             runningCount: bulkActions.runningCount,
             stopsCloudSandbox: bulkActions.stopsCloudSandbox,
-            channels: bulkActions.channels.map(({ id, name, starred }) => ({
-              id,
-              name,
-              starred,
-            })),
+            channels: bulkActions.channels.map(
+              ({ id, name, channelType, starred }) => ({
+                id,
+                name,
+                channelType,
+                starred,
+              }),
+            ),
           });
         if (!result.action) return;
 
@@ -467,7 +470,9 @@ function SidebarMenuComponent() {
     >
       <MarqueeOverlay rect={marquee} />
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-        <Flex direction="column" className="gap-px px-2 pb-2">
+        {/* Full height, so the space under the last row still belongs to the
+            list. That space is where an unpin drag is released. */}
+        <Flex direction="column" className="min-h-full gap-px px-2 pb-2">
           {sidebarData.isLoading ? (
             <SidebarItem
               depth={0}

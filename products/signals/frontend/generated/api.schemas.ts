@@ -105,6 +105,44 @@ export interface ReportChartApi {
 }
 
 /**
+ * * `pending` - Pending
+ * * `generating` - Generating
+ * * `ready` - Ready
+ * * `failed` - Failed
+ */
+export type SignalReportCanvasGenerationStatusEnumApi =
+    (typeof SignalReportCanvasGenerationStatusEnumApi)[keyof typeof SignalReportCanvasGenerationStatusEnumApi]
+
+export const SignalReportCanvasGenerationStatusEnumApi = {
+    Pending: 'pending',
+    Generating: 'generating',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `managed` - Managed
+ * * `collaborative` - Collaborative
+ */
+export type CollaborationModeEnumApi = (typeof CollaborationModeEnumApi)[keyof typeof CollaborationModeEnumApi]
+
+export const CollaborationModeEnumApi = {
+    Managed: 'managed',
+    Collaborative: 'collaborative',
+} as const
+
+export interface SignalReportCanvasApi {
+    readonly canvas_id: string
+    readonly discussion_task_id: string
+    /** @nullable */
+    readonly generation_task_id: string | null
+    readonly generation_status: SignalReportCanvasGenerationStatusEnumApi
+    readonly collaboration_mode: CollaborationModeEnumApi
+    readonly failure_reason: string
+    readonly updated_at: string
+}
+
+/**
  * * `pr_incorrect` - PR incorrect
  * * `pr_not_useful` - PR not useful
  * * `duplicate` - Duplicate
@@ -203,6 +241,8 @@ export interface SignalReportApi {
     readonly artefact_count: number
     /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
     readonly charts: readonly ReportChartApi[]
+    /** The persistent canvas and shared discussion created for this report, when available. */
+    readonly canvas_session: SignalReportCanvasApi | null
     /**
      * P0–P4 from the latest priority judgment artefact (when present).
      * @nullable
@@ -839,6 +879,8 @@ export interface GithubIssueSignalExtraApi {
     updated_at: string
     locked: boolean
     state: string
+    author_login?: string | null
+    author_association?: string | null
 }
 
 export interface LinearIssueSignalExtraApi {
@@ -2072,6 +2114,33 @@ export interface SignalScoutCreateResponseApi {
     created: boolean
     skill: SignalScoutSkillSummaryApi
     config: SignalScoutConfigApi
+}
+
+/**
+ * * `author_scout` - author_scout
+ * * `fleet_overview` - fleet_overview
+ * * `recent_signals` - recent_signals
+ */
+export type ChatTypeEnumApi = (typeof ChatTypeEnumApi)[keyof typeof ChatTypeEnumApi]
+
+export const ChatTypeEnumApi = {
+    AuthorScout: 'author_scout',
+    FleetOverview: 'fleet_overview',
+    RecentSignals: 'recent_signals',
+} as const
+
+export interface ScoutChatTaskCreateApi {
+    /** Which scout chat to start: `author_scout` (guided scout authoring), `fleet_overview` (health of the scout fleet), or `recent_signals` (walk through recently emitted signals). The prompt template is owned server-side.
+     *
+     * * `author_scout` - author_scout
+     * * `fleet_overview` - fleet_overview
+     * * `recent_signals` - recent_signals */
+    chat_type: ChatTypeEnumApi
+}
+
+export interface ScoutChatTaskApi {
+    /** The created chat task. Open it on the task detail page to continue. */
+    task_id: string
 }
 
 /**
@@ -3639,6 +3708,8 @@ export interface FleetFindingsSummaryApi {
     authored_report_count: number
     /** Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists) and excluding reports also authored within that set (authoring supersedes an edit; a report whose authoring run falls outside the cap counts as edited). */
     edited_report_count: number
+    /** Number of scout runs created in the window, whether or not they produced output. Unlike the report tallies it is not capped, so it is the fleet's activity over the same span the output counts describe. */
+    run_count: number
     /**
      * ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back to run creation), or null when nothing was produced in the window.
      * @nullable
@@ -3826,7 +3897,6 @@ export const SignalSourceConfigSourceProductEnumApi = {
 
 /**
  * * `session_analysis_cluster` - Session analysis cluster
- * * `evaluation` - Evaluation
  * * `evaluation_report` - Evaluation report
  * * `issue` - Issue
  * * `ticket` - Ticket
@@ -3849,7 +3919,6 @@ export type SignalSourceConfigSourceTypeEnumApi =
 
 export const SignalSourceConfigSourceTypeEnumApi = {
     SessionAnalysisCluster: 'session_analysis_cluster',
-    Evaluation: 'evaluation',
     EvaluationReport: 'evaluation_report',
     Issue: 'issue',
     Ticket: 'ticket',
@@ -3868,12 +3937,18 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     CiDurationRegression: 'ci_duration_regression',
 } as const
 
+/**
+ * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+ */
+export type SignalSourceConfigApiConfig = { [key: string]: unknown }
+
 export interface SignalSourceConfigApi {
     readonly id: string
     source_product: SignalSourceConfigSourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
-    config?: unknown
+    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+    config?: SignalSourceConfigApiConfig
     readonly created_at: string
     readonly updated_at: string
     /** @nullable */
@@ -3889,12 +3964,18 @@ export interface PaginatedSignalSourceConfigListApi {
     results: SignalSourceConfigApi[]
 }
 
+/**
+ * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+ */
+export type PatchedSignalSourceConfigApiConfig = { [key: string]: unknown }
+
 export interface PatchedSignalSourceConfigApi {
     readonly id?: string
     source_product?: SignalSourceConfigSourceProductEnumApi
     source_type?: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
-    config?: unknown
+    /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+    config?: PatchedSignalSourceConfigApiConfig
     readonly created_at?: string
     readonly updated_at?: string
     /** @nullable */

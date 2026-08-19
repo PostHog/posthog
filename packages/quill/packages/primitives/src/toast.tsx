@@ -216,7 +216,22 @@ function AnchoredToastViewport(): React.ReactElement {
                                     <ToastCard
                                         toastTitle={t.title}
                                         toastDescription={t.description}
+                                        action={
+                                            t.data?.action
+                                                ? {
+                                                      label: t.data.action.label,
+                                                      onClick: () => {
+                                                          manager.close(t.id)
+                                                          t.data?.action?.onClick()
+                                                      },
+                                                  }
+                                                : undefined
+                                        }
+                                        onDismiss={t.data?.action ? () => manager.close(t.id) : undefined}
                                         className={cn(
+                                            // the viewport is a zero-width fixed box, so without this the card
+                                            // collapses to its longest word
+                                            'w-max max-w-[320px]',
                                             'data-[starting-style]:opacity-0 data-[starting-style]:scale-95',
                                             'data-[ending-style]:opacity-0 data-[ending-style]:scale-95',
                                             'transition-[opacity,transform] duration-200 ease-out'

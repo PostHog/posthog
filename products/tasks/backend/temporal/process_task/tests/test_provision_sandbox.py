@@ -6,14 +6,19 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from products.tasks.backend.logic.services.sandbox import ExecutionResult
+from products.tasks.backend.constants import TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG
+from products.tasks.backend.exceptions import SandboxNetworkPolicyError
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
+from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     CheckoutBranchInSandboxInput,
     CheckoutBranchInSandboxOutput,
     PrepareSandboxForRepositoryOutput,
+    _apply_modal_network_policy,
     _build_environment_variables,
     _build_sandbox_tags,
+    _is_blobless_signals_clone_enabled,
     _to_modal_domain_allowlist,
     checkout_branch_in_sandbox,
 )
@@ -104,6 +109,38 @@ def test_build_sandbox_tags_drops_none_values():
     assert all(isinstance(value, str) for value in tags.values())
 
 
+@pytest.mark.parametrize(
+    ("origin_product", "flag_result", "expected"),
+    [
+        (Task.OriginProduct.SIGNAL_REPORT, True, True),
+        (Task.OriginProduct.SIGNAL_REPORT, False, False),
+        (Task.OriginProduct.ERROR_TRACKING, True, False),
+    ],
+)
+def test_blobless_clone_only_applies_to_enabled_signal_tasks(mocker, origin_product, flag_result, expected):
+    feature_enabled = mocker.patch(f"{_PROVISION}.posthoganalytics.feature_enabled", return_value=flag_result)
+
+    assert _is_blobless_signals_clone_enabled(_context(origin_product=origin_product)) is expected
+
+    if origin_product == Task.OriginProduct.SIGNAL_REPORT:
+        feature_enabled.assert_called_once_with(
+            TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
+            distinct_id="distinct-id",
+            groups={"organization": "org-uuid"},
+            group_properties={"organization": {"id": "org-uuid"}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    else:
+        feature_enabled.assert_not_called()
+
+
+def test_blobless_clone_fails_closed_when_flag_evaluation_fails(mocker):
+    mocker.patch(f"{_PROVISION}.posthoganalytics.feature_enabled", side_effect=RuntimeError("unavailable"))
+
+    assert _is_blobless_signals_clone_enabled(_context(origin_product=Task.OriginProduct.SIGNAL_REPORT)) is False
+
+
 # All four SANDBOX_*_URL settings are pinned: they feed the enforced allowlist
 # outside DEBUG, so a developer's environment value (an ngrok SANDBOX_API_URL)
 # would otherwise leak into these exact-equality expectations.
@@ -126,7 +163,7 @@ def test_build_sandbox_tags_drops_none_values():
             ["*.posthog.com", "api.anthropic.com"],
         ),
         (
-            ["github.com", "localhost", "host.docker.internal", "registry.npmjs.org"],
+            ["github.com", "registry.npmjs.org"],
             ["github.com", "registry.npmjs.org", "*.posthog.com", "api.anthropic.com"],
         ),
         (
@@ -185,6 +222,75 @@ def test_to_modal_domain_allowlist_rejects_malformed_settings_host(hostname):
 def test_to_modal_domain_allowlist_still_admits_hyphenated_host():
     # Guards against over-rejecting: hyphens inside a label are legal.
     assert "ai-gateway.dev.posthog.dev" in _to_modal_domain_allowlist([])
+
+
+def test_restricted_vm_cannot_bypass_modal_network_flag() -> None:
+    config = SandboxConfig(name="restricted-vm", vm_runtime=True)
+    context = _context(
+        allowed_domains=["example.com"],
+        agentsh_domain_allowlist=["example.com", "api.posthog.com"],
+        modal_domain_allowlist=["example.com", "api.posthog.com"],
+        network_policy_fingerprint="policy-hash",
+        use_modal_vm_sandbox=True,
+        use_modal_network_allowlist=False,
+    )
+
+    with pytest.raises(SandboxNetworkPolicyError) as error:
+        _apply_modal_network_policy(config, context, use_vm_sandbox=True)
+
+    assert error.value.non_retryable is True
+    assert config.outbound_domain_allowlist is None
+
+
+def test_restricted_vm_applies_compiled_modal_policy() -> None:
+    config = SandboxConfig(name="restricted-vm", vm_runtime=True)
+    context = _context(
+        allowed_domains=[],
+        agentsh_domain_allowlist=["api.posthog.com"],
+        modal_domain_allowlist=["api.posthog.com"],
+        network_policy_fingerprint="policy-hash",
+        use_modal_vm_sandbox=True,
+        use_modal_network_allowlist=True,
+    )
+
+    _apply_modal_network_policy(config, context, use_vm_sandbox=True)
+
+    assert config.outbound_domain_allowlist == ["api.posthog.com"]
+    assert config.network_policy_fingerprint == "policy-hash"
+
+
+@override_settings(DEBUG=False)
+def test_restricted_vm_recompiles_modal_policy_for_legacy_context() -> None:
+    config = SandboxConfig(name="restricted-vm", vm_runtime=True)
+    context = _context(
+        allowed_domains=["example.com"],
+        use_modal_vm_sandbox=True,
+        use_modal_network_allowlist=True,
+    )
+
+    _apply_modal_network_policy(config, context, use_vm_sandbox=True)
+
+    assert config.outbound_domain_allowlist is not None
+    assert "example.com" in config.outbound_domain_allowlist
+    assert "*.posthog.com" in config.outbound_domain_allowlist
+    assert "api.anthropic.com" in config.outbound_domain_allowlist
+    assert config.network_policy_fingerprint is not None
+
+
+@override_settings(DEBUG=False)
+def test_restricted_vm_rejects_invalid_legacy_context() -> None:
+    config = SandboxConfig(name="restricted-vm", vm_runtime=True)
+    context = _context(
+        allowed_domains=["https://example.com/path"],
+        use_modal_vm_sandbox=True,
+        use_modal_network_allowlist=True,
+    )
+
+    with pytest.raises(SandboxNetworkPolicyError) as error:
+        _apply_modal_network_policy(config, context, use_vm_sandbox=True)
+
+    assert error.value.non_retryable is True
+    assert config.outbound_domain_allowlist is None
 
 
 @patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
