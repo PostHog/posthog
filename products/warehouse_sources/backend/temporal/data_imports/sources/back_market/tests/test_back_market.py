@@ -20,9 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.back_marke
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.back_market.settings import BACK_MARKET_ENDPOINTS
 
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the back_market module.
+# Both _client_config (main sync) and validate_credentials build their own tracked session
+# (capture=False, since orders carry buyer PII) via make_tracked_session in the back_market module.
 BACK_MARKET_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.back_market.back_market.make_tracked_session"
 )
@@ -177,7 +176,7 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 
 class TestBackMarketSourceOrders:
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BACK_MARKET_SESSION_PATCH)
     def test_paginates_until_next_is_falsy(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(
@@ -193,7 +192,7 @@ class TestBackMarketSourceOrders:
         assert [r["order_id"] for r in rows] == ["1", "2", "3"]
         assert session.send.call_count == 2
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BACK_MARKET_SESSION_PATCH)
     def test_auth_is_framework_token_auth_carrying_raw_token(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response(None, [{"order_id": "1"}])])
@@ -204,7 +203,7 @@ class TestBackMarketSourceOrders:
         assert isinstance(auth, BackMarketTokenAuth)
         assert auth.token == "secret"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BACK_MARKET_SESSION_PATCH)
     def test_incremental_field_selection_sets_matching_query_param(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response(None, [{"order_id": "1"}])])
@@ -225,7 +224,7 @@ class TestBackMarketSourceOrders:
         assert snapshots[0]["params"]["date_creation"] == "2026-01-01 00:00:00"
         assert "date_modification" not in snapshots[0]["params"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BACK_MARKET_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response(None, [{"order_id": "3"}])])
@@ -234,7 +233,7 @@ class TestBackMarketSourceOrders:
 
         assert snapshots[0]["params"]["page"] == 3
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BACK_MARKET_SESSION_PATCH)
     def test_saves_state_after_yielding_a_page_with_more_remaining(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response("more", [{"order_id": "1"}]), _response(None, [{"order_id": "2"}])])
@@ -244,7 +243,7 @@ class TestBackMarketSourceOrders:
 
         manager.save_state.assert_called_once_with(BackMarketResumeConfig(next_page=2))
 
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BACK_MARKET_SESSION_PATCH)
     def test_no_state_saved_once_exhausted(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response(None, [{"order_id": "1"}])])
@@ -256,7 +255,7 @@ class TestBackMarketSourceOrders:
 
 
 class TestBackMarketSourceListings:
-    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(BACK_MARKET_SESSION_PATCH)
     def test_full_refresh_ignores_incremental_flag(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response(None, [{"listing_id": "1"}])])

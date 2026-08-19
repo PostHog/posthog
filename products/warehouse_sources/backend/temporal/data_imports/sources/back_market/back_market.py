@@ -117,6 +117,10 @@ def _client_config(api_token: str) -> ClientConfig:
         "headers": {"Accept": "application/json"},
         "auth": BackMarketTokenAuth(token=api_token),
         "paginator": BackMarketPaginator(),
+        # capture=False: `orders` responses carry buyer PII (names, shipping addresses) that the
+        # name-based scrubbers can't recognise, so keep raw bodies out of HTTP sample capture even
+        # where an operator enables it for this source. Requests stay metered and logged either way.
+        "session": make_tracked_session(redact_values=(api_token,), capture=False),
     }
 
 
@@ -209,9 +213,14 @@ def back_market_source(
 
 
 def validate_credentials(api_token: str) -> tuple[bool, int | None]:
-    """Probe Back Market's `/orders` endpoint to confirm the token is genuine."""
+    """Probe Back Market's `/orders` endpoint to confirm the token is genuine.
+
+    `capture=False`: the probe's response body is real order data (buyer/shipping details),
+    so keep it out of HTTP sample capture even where an operator enables it — the probe stays
+    metered and logged either way.
+    """
     return validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_token,)),
+        lambda: make_tracked_session(redact_values=(api_token,), capture=False),
         f"{BASE_URL}/orders",
         headers={"Authorization": f"Basic {api_token}", "Accept": "application/json"},
     )
