@@ -111,7 +111,11 @@ def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight 
 def _viewable_queryset(
     user_access_control: UserAccessControl, queryset: QuerySet, resource: APIScopeObject
 ) -> QuerySet:
-    viewable = user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+    # Pass the resource explicitly: filter_queryset_by_access_level returns the queryset unfiltered
+    # for a model it cannot map to one.
+    viewable = user_access_control.filter_queryset_by_access_level(
+        queryset, include_all_if_admin=True, resource=resource
+    )
     if user_access_control.is_organization_admin or user_access_control.has_resource_access(resource):
         return viewable
     # filter_queryset_by_access_level narrows a resource-wide deny only when the caller also holds an
@@ -447,7 +451,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         user_access_control = self.context["view"].user_access_control
         for field in ("dashboard", "insight"):
             target = attrs.get(field) or getattr(existing, field, None)
-            if target is not None:
+            # A soft-deleted target renders nothing, and the read filter keeps its subscription
+            # reachable so the creator can turn the row off. Checking access here would reject that
+            # write, and the field's queryset excludes deleted rows, so this cannot select a new one.
+            if target is not None and not target.deleted:
                 _require_viewer_access(user_access_control, target, field)
 
         if existing is None:
@@ -719,11 +726,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if unusable_ids:
                 if team_insights.count() != len(selected_ids):
                     raise ValidationError(
-                        {
-                            "dashboard_export_insights": [
-                                "Some insights do not belong to your team or do no longer exist."
-                            ]
-                        }
+                        {"dashboard_export_insights": ["Some insights are not in your team, or no longer exist."]}
                     )
                 raise ValidationError(
                     {
@@ -746,6 +749,24 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 raise ValidationError(
                     {"dashboard_export_insights": [f"{len(invalid_ids)} invalid insight(s) selected."]}
                 )
+            return
+
+        # No selection left on the row, which means the delivery renders every live tile. Rows in
+        # this shape predate the selection requirement above, so the tiles are what needs checking.
+        live_tile_insights = Insight.objects.filter(
+            team_id=self.context["team_id"],
+            id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
+        )
+        user_access_control = self.context["view"].user_access_control
+        if _blocked_target_ids(user_access_control, live_tile_insights, "insight").exists():
+            raise ValidationError(
+                {
+                    "dashboard": [
+                        "Viewer access to every insight on this dashboard is required. "
+                        "Ask an admin for access, or select only the insights you can view."
+                    ]
+                }
+            )
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
         request = self.context["request"]
@@ -964,6 +985,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 def _blocked_target_ids(
     user_access_control: UserAccessControl, queryset: QuerySet, resource: APIScopeObject
 ) -> QuerySet:
+    if user_access_control.has_resource_access(resource):
+        # Without a resource-wide deny, only an object the caller was explicitly denied can be
+        # blocked, and those ids are already resolved in memory. Narrowing to them keeps this off
+        # the team's whole insight or dashboard table on every request.
+        denied_ids = user_access_control.blocked_resource_ids_by_scope.get(resource, frozenset())
+        queryset = queryset.filter(id__in=denied_ids)
     return queryset.exclude(id__in=_viewable_queryset(user_access_control, queryset, resource).values("id")).values(
         "id"
     )
@@ -992,9 +1019,13 @@ def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int
     dashboards = Dashboard.objects_including_soft_deleted if surface == "delivery" else Dashboard.objects
     tiles = DashboardTile.objects_including_soft_deleted if surface == "delivery" else DashboardTile.objects
 
+    team_dashboards = dashboards.filter(team_id=team_id)
     blocked_insights = _blocked_target_ids(user_access_control, insights.filter(team_id=team_id), "insight")
-    blocked_dashboards = _blocked_target_ids(user_access_control, dashboards.filter(team_id=team_id), "dashboard")
-    dashboards_with_blocked_tiles = tiles.filter(dashboard__team_id=team_id, insight_id__in=blocked_insights).values(
+    blocked_dashboards = _blocked_target_ids(user_access_control, team_dashboards, "dashboard")
+    # Scope the tiles through team_dashboards. A `dashboard__team_id` lookup would skip the rewrite
+    # that RootTeamQuerySet applies to a literal team_id, and an environment's id matches no
+    # dashboard directly, so the rule would silently match nothing.
+    dashboards_with_blocked_tiles = tiles.filter(dashboard__in=team_dashboards, insight_id__in=blocked_insights).values(
         "dashboard_id"
     )
 
@@ -1237,8 +1268,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 if not self.user_access_control.check_access_level_for_object(dashboard, "viewer"):
                     raise exceptions.PermissionDenied("You do not have access to this dashboard.")
                 tile_insight_ids = DashboardTile.objects.filter(
-                    dashboard_id=dashboard_id,
-                    dashboard__team_id=self.team_id,
+                    dashboard=dashboard,
                     insight_id__isnull=False,
                     insight__deleted=False,
                 ).values_list("insight_id", flat=True)

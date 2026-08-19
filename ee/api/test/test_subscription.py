@@ -664,7 +664,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "dashboard_export_insights"
-        assert "do not belong to your team" in response.json()["detail"]
+        assert "not in your team" in response.json()["detail"]
 
     def test_can_create_slack_subscription_with_valid_integration(self):
         integration = Integration.objects.create(team=self.team, kind="slack", config={})
@@ -3357,7 +3357,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
                 "an insight from another team, which outranks the access error",
                 "_create_selecting_an_insight_from_another_team",
                 "dashboard_export_insights",
-                "do not belong to your team",
+                "not in your team",
             ),
         ]
     )
@@ -3413,19 +3413,33 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         self._assert_visibility(subscription, sees_subscription=True, sees_deliveries=True)
 
-    @parameterized.expand([("insight",), ("dashboard",)])
-    def test_subscription_on_a_soft_deleted_target_can_still_be_turned_off(self, target_field):
-        # Nothing renders from it any more, but the owner still has to be able to switch it off.
-        if target_field == "insight":
-            target: Insight | Dashboard = Insight.objects.create(
-                team=self.team, filters={"events": [{"id": "$pageview"}]}
-            )
-        else:
-            target = Dashboard.objects.create(team=self.team, name="Old dashboard")
-        subscription = self._subscription_for(**{target_field: target})
+    @parameterized.expand([("an open insight", False), ("a restricted insight", True)])
+    def test_subscription_on_a_soft_deleted_target_can_still_be_turned_off(self, _name, restricted):
+        # Nothing renders from it any more, but the owner still has to be able to switch it off, and
+        # PATCH is the only off switch. The restricted case is the one the read filter keeps visible
+        # on purpose, so rejecting its write would leave the row on and unreachable.
+        target = self.restricted_insight if restricted else self.open_insight
+        subscription = self._subscription_for(insight=target)
         target.deleted = True
         target.save(update_fields=["deleted"])
 
         response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", {"deleted": True})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_repointing_an_empty_selection_at_a_restricted_tile_is_rejected(self):
+        # Rows without a selection predate the rule requiring one, and they render every live tile.
+        # Re-pointing one at a dashboard holding a restricted tile would render and deliver it.
+        subscription = self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight))
+        target_dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+            {"dashboard": target_dashboard.id, "target_value": "attacker@example.com"},
+        )
+
+        body = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
+        assert body["attr"] == "dashboard", body
+        assert "Viewer access to every insight on this dashboard" in body["detail"], body
+        self.mock_temporal_client.start_workflow.assert_not_called()
