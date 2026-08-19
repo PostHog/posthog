@@ -7,12 +7,85 @@ use std::time::Duration;
 
 use axum::body::Body;
 use bytes::{BufMut, Bytes, BytesMut};
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use tracing::warn;
 
 use crate::api::CaptureError;
 
 const METRIC_BODY_READ_TIMEOUT: &str = "capture_body_read_timeout_total";
+const METRIC_REJECTED_BODY_DRAIN: &str = "capture_rejected_body_drain_total";
+
+/// Outcome of draining a request body we have already decided to reject.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrainOutcome {
+    /// The body was consumed in full, so the rejection can be written on a
+    /// connection the client can keep using.
+    Drained,
+    /// We stopped early: the budget ran out, the client stalled, or the stream
+    /// broke. The connection is torn down and the client may see a reset
+    /// instead of our status code.
+    Abandoned,
+}
+
+impl DrainOutcome {
+    fn as_metric_tag(&self) -> &'static str {
+        match self {
+            DrainOutcome::Drained => "drained",
+            DrainOutcome::Abandoned => "abandoned",
+        }
+    }
+}
+
+/// Read and discard the rest of a request body we have already decided to reject.
+///
+/// Hyper cannot complete a keep-alive HTTP/1.1 response while the request body is
+/// still unread; it tears the connection down instead, and the client sees a reset
+/// rather than our status code. Consuming the remainder first lets the rejection be
+/// delivered normally.
+///
+/// The read is bounded by `budget` bytes and by the same per-chunk timeout as the
+/// main read, so a client cannot make us read indefinitely just to be told no. Only
+/// rejection paths reach this, so it costs nothing on the happy path.
+pub async fn drain_rejected_body<S>(
+    stream: &mut S,
+    budget: usize,
+    chunk_timeout: Option<Duration>,
+    path: &str,
+) -> DrainOutcome
+where
+    S: Stream<Item = Result<Bytes, axum::Error>> + Unpin,
+{
+    let mut remaining = budget;
+    let outcome = loop {
+        let chunk_result = match chunk_timeout {
+            Some(timeout) => match tokio::time::timeout(timeout, stream.next()).await {
+                Ok(result) => result,
+                // Client stopped sending; waiting longer only holds the connection open.
+                Err(_elapsed) => break DrainOutcome::Abandoned,
+            },
+            None => stream.next().await,
+        };
+
+        match chunk_result {
+            Some(Ok(chunk)) => match remaining.checked_sub(chunk.len()) {
+                Some(left) => remaining = left,
+                None => break DrainOutcome::Abandoned,
+            },
+            // The stream broke while we discarded it, so the connection is already gone.
+            Some(Err(_)) => break DrainOutcome::Abandoned,
+            None => break DrainOutcome::Drained,
+        }
+    };
+
+    metrics::counter!(
+        METRIC_REJECTED_BODY_DRAIN,
+        "path" => path.to_string(),
+        "outcome" => outcome.as_metric_tag(),
+    )
+    .increment(1);
+
+    outcome
+}
 
 /// Extract body bytes from a streaming Body with a per-chunk timeout.
 ///
@@ -57,6 +130,10 @@ pub async fn extract_body_with_timeout(
             Some(Ok(chunk)) => {
                 // Check size limit before appending
                 if buf.len() + chunk.len() > payload_size_limit {
+                    // Consume what is left so the 413 reaches the client rather than a
+                    // connection reset. Bounded by the size we were willing to accept
+                    // in the first place.
+                    drain_rejected_body(&mut stream, payload_size_limit, chunk_timeout, path).await;
                     return Err(CaptureError::EventTooBig(format!(
                         "Request body exceeds limit of {payload_size_limit} bytes"
                     )));
@@ -84,9 +161,75 @@ mod tests {
     use axum::body::Body;
     use bytes::Bytes;
     use futures::stream;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
     const TEST_CHUNK_SIZE_KB: usize = 256;
+
+    /// A stream of `count` ten-byte chunks that records how many were pulled.
+    fn counted_chunks(
+        count: usize,
+    ) -> (
+        impl Stream<Item = Result<Bytes, axum::Error>> + Unpin,
+        Arc<AtomicUsize>,
+    ) {
+        let pulled = Arc::new(AtomicUsize::new(0));
+        let counter = pulled.clone();
+        let chunks: Vec<Result<Bytes, axum::Error>> = (0..count)
+            .map(|_| Ok(Bytes::from_static(b"0123456789")))
+            .collect();
+        let stream = Box::pin(stream::iter(chunks).inspect(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }));
+        (stream, pulled)
+    }
+
+    #[tokio::test]
+    async fn drain_rejected_body_consumes_the_whole_stream() {
+        let (mut stream, pulled) = counted_chunks(3);
+
+        let outcome = drain_rejected_body(&mut stream, 1024, None, "/test").await;
+
+        assert_eq!(outcome, DrainOutcome::Drained);
+        assert_eq!(pulled.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn drain_rejected_body_stops_once_the_budget_is_spent() {
+        let (mut stream, pulled) = counted_chunks(10);
+
+        // Budget of 25 bytes covers two ten-byte chunks; the third overruns it.
+        let outcome = drain_rejected_body(&mut stream, 25, None, "/test").await;
+
+        assert_eq!(outcome, DrainOutcome::Abandoned);
+        assert_eq!(pulled.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn drain_rejected_body_gives_up_on_a_stalled_client() {
+        let chunks: Vec<Result<Bytes, axum::Error>> = vec![Ok(Bytes::from_static(b"partial"))];
+        let mut stream = Box::pin(stream::iter(chunks).chain(stream::pending()));
+
+        let outcome =
+            drain_rejected_body(&mut stream, 1024, Some(Duration::from_millis(50)), "/test").await;
+
+        assert_eq!(outcome, DrainOutcome::Abandoned);
+    }
+
+    #[tokio::test]
+    async fn extract_body_drains_an_oversize_body_before_rejecting() {
+        // Four ten-byte chunks against a 25-byte limit: the third trips it, and the
+        // fourth must still be pulled so hyper can deliver the 413 on a live
+        // connection instead of resetting.
+        let (stream, pulled) = counted_chunks(4);
+        let body = Body::from_stream(stream);
+
+        let result = extract_body_with_timeout(body, 25, None, TEST_CHUNK_SIZE_KB, "/test").await;
+
+        assert!(matches!(result, Err(CaptureError::EventTooBig(_))));
+        assert_eq!(pulled.load(Ordering::SeqCst), 4);
+    }
 
     #[tokio::test]
     async fn test_extract_body_no_timeout() {
