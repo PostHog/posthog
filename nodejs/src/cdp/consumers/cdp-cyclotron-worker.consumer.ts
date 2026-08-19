@@ -61,7 +61,7 @@ export class CdpCyclotronWorker<
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationHogFunction[]> {
         const loadedInvocations: CyclotronJobInvocationHogFunction[] = []
-        const failedInvocations: CyclotronJobInvocation[] = []
+        const failedInvocations: { invocation: CyclotronJobInvocation; errorKind: string; error: string }[] = []
 
         await Promise.all(
             invocations.map(async (item) => {
@@ -71,7 +71,11 @@ export class CdpCyclotronWorker<
                         id: item.functionId,
                     })
 
-                    failedInvocations.push(item)
+                    failedInvocations.push({
+                        invocation: item,
+                        errorKind: 'function_not_found',
+                        error: 'The function could not be found, so this invocation was skipped.',
+                    })
 
                     return
                 }
@@ -81,7 +85,13 @@ export class CdpCyclotronWorker<
                         id: item.functionId,
                     })
 
-                    failedInvocations.push(item)
+                    failedInvocations.push({
+                        invocation: item,
+                        errorKind: hogFunction.deleted ? 'function_deleted' : 'function_disabled',
+                        error: hogFunction.deleted
+                            ? 'The function was deleted, so this invocation was skipped.'
+                            : 'The function was disabled, so this invocation was skipped.',
+                    })
 
                     return
                 }
@@ -100,7 +110,11 @@ export class CdpCyclotronWorker<
                         tags: { functionId: item.functionId, teamId: String(item.teamId) },
                     })
 
-                    failedInvocations.push(item)
+                    failedInvocations.push({
+                        invocation: item,
+                        errorKind: 'malformed_invocation',
+                        error: 'The invocation data was malformed, so it was skipped.',
+                    })
 
                     return
                 }
@@ -133,7 +147,20 @@ export class CdpCyclotronWorker<
             })
         )
 
-        await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
+        if (failedInvocations.length) {
+            // Record the terminal lifecycle row BEFORE dequeuing (same ordering as the
+            // janitor's poison-pill recovery). Dropping the job without one leaves the
+            // invocation stuck 'running' in the runs UI and permanently un-rerunnable.
+            await Promise.all(
+                failedInvocations.map(({ invocation, errorKind, error }) =>
+                    this.invocationResultsService.invocationResultsRowsService.recordTerminalFailureDurably(
+                        invocation,
+                        { errorKind, error }
+                    )
+                )
+            )
+            await this.cyclotronJobQueue.dequeueInvocations(failedInvocations.map((x) => x.invocation))
+        }
 
         return loadedInvocations
     }

@@ -251,11 +251,22 @@ describe('CdpCyclotronWorker', () => {
             const dequeueInvocationsSpy = jest
                 .spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
                 .mockResolvedValue(undefined)
+            const recordTerminalFailureSpy = jest
+                .spyOn(
+                    processor['invocationResultsService'].invocationResultsRowsService,
+                    'recordTerminalFailureDurably'
+                )
+                .mockResolvedValue(true)
             const invocation = createExampleInvocation(fn, globals)
             invocation.functionId = new UUIDT().toString()
             const results = await processor.processInvocations([invocation])
             expect(results).toEqual([])
             expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation])
+            // Without a terminal lifecycle row the runs UI shows the invocation as running forever
+            expect(recordTerminalFailureSpy).toHaveBeenCalledWith(
+                invocation,
+                expect.objectContaining({ errorKind: 'function_not_found' })
+            )
         })
 
         it.each([['project'], ['event']] as const)(
@@ -264,6 +275,12 @@ describe('CdpCyclotronWorker', () => {
                 const dequeueInvocationsSpy = jest
                     .spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
                     .mockResolvedValue(undefined)
+                const recordTerminalFailureSpy = jest
+                    .spyOn(
+                        processor['invocationResultsService'].invocationResultsRowsService,
+                        'recordTerminalFailureDurably'
+                    )
+                    .mockResolvedValue(true)
 
                 const malformed = createExampleInvocation(fn, globals)
                 delete (malformed.state.globals as any)[field]
@@ -272,10 +289,23 @@ describe('CdpCyclotronWorker', () => {
 
                 expect(results).toEqual([])
                 expect(dequeueInvocationsSpy).toHaveBeenCalledWith([malformed])
+                expect(recordTerminalFailureSpy).toHaveBeenCalledWith(
+                    malformed,
+                    expect.objectContaining({ errorKind: 'malformed_invocation' })
+                )
             }
         )
 
         it('should skip a loaded function if it is disabled', async () => {
+            const dequeueInvocationsSpy = jest
+                .spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
+                .mockResolvedValue(undefined)
+            const recordTerminalFailureSpy = jest
+                .spyOn(
+                    processor['invocationResultsService'].invocationResultsRowsService,
+                    'recordTerminalFailureDurably'
+                )
+                .mockResolvedValue(true)
             const fn2 = await insertHogFunction(
                 hub.postgres,
                 team.id,
@@ -286,9 +316,16 @@ describe('CdpCyclotronWorker', () => {
                     enabled: false,
                 })
             )
+            const invocation2 = createExampleInvocation(fn2, globals)
 
-            const results = await processor['loadHogFunctions']([createExampleInvocation(fn2, globals)])
+            const results = await processor['loadHogFunctions']([invocation2])
             expect(results).toEqual([])
+            expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation2])
+            // A rerun of a disabled function would otherwise be silently dropped and stuck 'running'
+            expect(recordTerminalFailureSpy).toHaveBeenCalledWith(
+                invocation2,
+                expect.objectContaining({ errorKind: 'function_disabled' })
+            )
         })
 
         describe('e2e lag metrics tracking', () => {
