@@ -178,7 +178,6 @@ class Task(DeletedMetaFields, models.Model):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
-        AUTOMATION = "automation", "Automation"
         SLACK = "slack", "Slack"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
@@ -1388,7 +1387,7 @@ def bump_task_activity_on_thread_message(sender, instance: "TaskThreadMessage", 
 @receiver(post_save, sender=Task)
 def project_task_created_activity(sender, instance: Task, created: bool, **kwargs) -> None:
     """Seed the creator's activity row. A signal rather than a facade call because tasks are
-    created from several paths (API, automations, the sandbox warm path) and every one of them
+    created from several paths (API, loops, the sandbox warm path) and every one of them
     should show up in its creator's feed."""
     if created and instance.created_by_id is not None:
         TaskActivity.record(
@@ -1521,118 +1520,6 @@ class ChannelStar(TeamScopedRootMixin):
         constraints = [
             models.UniqueConstraint(fields=["channel", "user"], name="unique_channel_star_per_user"),
         ]
-
-
-class TaskAutomationManager(models.Manager):
-    def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .select_related(
-                "task",
-                "task__team",
-                "task__created_by",
-                "task__github_integration",
-                "task__github_user_integration",
-                "last_task_run",
-                "last_task_run__task",
-            )
-        )
-
-
-class TaskAutomationQuerySet(models.QuerySet):
-    def with_task_context(self):
-        return self.select_related(
-            "task",
-            "task__team",
-            "task__created_by",
-            "task__github_integration",
-            "task__github_user_integration",
-            "last_task_run",
-            "last_task_run__task",
-        )
-
-
-class TaskAutomation(models.Model):
-    class RunStatus(models.TextChoices):
-        SUCCESS = "success", "Success"
-        FAILED = "failed", "Failed"
-        RUNNING = "running", "Running"
-
-    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    cron_expression = models.CharField(max_length=100)
-    timezone = models.CharField(max_length=128, default="UTC")
-    template_id = models.CharField(max_length=255, null=True, blank=True)
-    enabled = models.BooleanField(default=True)
-    task = models.OneToOneField(Task, on_delete=models.CASCADE, related_name="automation")
-    last_task_run = models.ForeignKey("TaskRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    last_error = models.TextField(null=True, blank=True)
-    created_at = models.DateTimeField(default=django_timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    objects = TaskAutomationManager()
-
-    class Meta:
-        db_table = "posthog_task_automation"
-        ordering = ["task__title", "-created_at"]
-
-    def __str__(self):
-        return self.name
-
-    @property
-    def schedule_id(self) -> str:
-        return f"task-automation-{self.id}"
-
-    @property
-    def team(self) -> Team:
-        return self.task.team
-
-    @property
-    def team_id(self) -> int:
-        return self.task.team_id
-
-    @property
-    def created_by(self) -> User | None:
-        return self.task.created_by
-
-    @property
-    def created_by_id(self) -> int | None:
-        return self.task.created_by_id
-
-    @property
-    def name(self) -> str:
-        return self.task.title
-
-    @property
-    def prompt(self) -> str:
-        return self.task.description
-
-    @property
-    def repository(self) -> str | None:
-        return self.task.repository
-
-    @property
-    def github_integration(self) -> Integration | None:
-        return self.task.github_integration
-
-    @property
-    def github_integration_id(self) -> int | None:
-        return self.task.github_integration_id
-
-    @property
-    def last_run_at(self) -> datetime | None:
-        return self.last_task_run.created_at if self.last_task_run else None
-
-    @property
-    def last_run_status(self) -> str | None:
-        if self.last_task_run is None:
-            return None
-        if self.last_task_run.status == TaskRun.Status.COMPLETED:
-            return self.RunStatus.SUCCESS
-        if self.last_task_run.status in [TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]:
-            return self.RunStatus.FAILED
-        return self.RunStatus.RUNNING
 
 
 class Loop(ModelActivityMixin, TeamScopedRootMixin):
