@@ -54,7 +54,7 @@ from posthog.api.openapi_parameters import make_filters_override_param, make_var
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
-from posthog.api.streaming import sse_streaming_response
+from posthog.api.streaming import retry_on_broken_connection, sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
@@ -411,14 +411,18 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         tile.layouts = json.loads(tile.layouts)
 
     try:
-        tile_data: dict = DashboardTileSerializer(tile, many=False, context=tile_context).data
+        tile_data: dict = retry_on_broken_connection(
+            lambda: DashboardTileSerializer(tile, many=False, context=tile_context).data
+        )
         return order, tile_data
     except Exception:
         if not tile.insight:
             raise
         logger.exception("Error serializing dashboard tile", tile_id=tile.id)
         try:
-            tile_data = DashboardTileErrorSerializer(tile, context=tile_context).data
+            tile_data = retry_on_broken_connection(
+                lambda: DashboardTileErrorSerializer(tile, context=tile_context).data
+            )
         except Exception:
             logger.exception("Error serializing dashboard tile error fallback", tile_id=tile.id)
             tile_data = {"id": tile.id}
@@ -2625,7 +2629,7 @@ class DashboardsViewSet(
 
         # Prepare metadata with initial tiles
         metadata_serializer = DashboardMetadataSerializer(dashboard, context=context)
-        metadata_data = metadata_serializer.data
+        metadata_data = retry_on_broken_connection(lambda: metadata_serializer.data)
 
         # Create serializer context for tiles. Tiles are rendered with SafeJSONRenderer below,
         # so raw cached results (orjson.Fragment) are safe even though the negotiated renderer
@@ -2639,18 +2643,19 @@ class DashboardsViewSet(
             }
         )
 
-        # Get tiles with proper prefetch
-        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(*tile_insight_prefetches())
-
         layout_size = self._get_layout_size_from_request(request)
 
-        sorted_tiles = sorted(
-            tiles,
-            key=lambda tile: (
-                tile.layouts.get(layout_size, {}).get("y", 100),
-                tile.layouts.get(layout_size, {}).get("x", 100),
-            ),
-        )
+        def _load_sorted_tiles() -> list[DashboardTile]:
+            tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(*tile_insight_prefetches())
+            return sorted(
+                tiles,
+                key=lambda tile: (
+                    tile.layouts.get(layout_size, {}).get("y", 100),
+                    tile.layouts.get(layout_size, {}).get("x", 100),
+                ),
+            )
+
+        sorted_tiles = retry_on_broken_connection(_load_sorted_tiles)
 
         # Async generator that handles progressive tile serialization and streaming
         async def async_tile_stream_generator() -> AsyncGenerator[bytes]:

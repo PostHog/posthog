@@ -7,6 +7,7 @@ from typing import cast
 import pytest
 from unittest import mock
 
+from django.db import OperationalError
 from django.http import StreamingHttpResponse
 from django.http.response import HttpResponseBase
 from django.test import override_settings
@@ -18,6 +19,7 @@ from posthog.api import streaming
 from posthog.api.streaming import (
     _instrument_stream,
     _try_reserve_stream_slot,
+    retry_on_broken_connection,
     sse_streaming_response,
     streaming_response,
 )
@@ -71,6 +73,43 @@ class TestSSEStreamingResponse:
         assert response.headers["Cache-Control"] == "no-cache"
         assert response.headers["X-Accel-Buffering"] == "no"
         assert response.headers["X-Custom"] == "1"
+
+
+class TestRetryOnBrokenConnection:
+    def test_returns_result_without_reconnecting_when_operation_succeeds(self):
+        with mock.patch("posthog.api.streaming.connections") as connections:
+            result = retry_on_broken_connection(lambda: "ok")
+        assert result == "ok"
+        connections.all.assert_not_called()
+
+    def test_reconnects_and_retries_once_after_a_dead_connection(self):
+        idle = mock.Mock(in_atomic_block=False)
+        operation = mock.Mock(side_effect=[OperationalError("server closed the connection"), "ok"])
+        with mock.patch("posthog.api.streaming.connections") as connections:
+            connections.all.return_value = [idle]
+            result = retry_on_broken_connection(operation)
+        assert result == "ok"
+        assert operation.call_count == 2
+        idle.close.assert_called_once()
+
+    def test_does_not_retry_inside_an_open_transaction(self):
+        in_transaction = mock.Mock(in_atomic_block=True)
+        operation = mock.Mock(side_effect=OperationalError("server closed the connection"))
+        with mock.patch("posthog.api.streaming.connections") as connections:
+            connections.all.return_value = [in_transaction]
+            with pytest.raises(OperationalError):
+                retry_on_broken_connection(operation)
+        assert operation.call_count == 1
+        in_transaction.close.assert_not_called()
+
+    def test_propagates_when_the_reconnect_also_fails(self):
+        idle = mock.Mock(in_atomic_block=False)
+        operation = mock.Mock(side_effect=OperationalError("server closed the connection"))
+        with mock.patch("posthog.api.streaming.connections") as connections:
+            connections.all.return_value = [idle]
+            with pytest.raises(OperationalError):
+                retry_on_broken_connection(operation)
+        assert operation.call_count == 2
 
 
 def _sync_content(response: HttpResponseBase) -> Iterator[bytes]:

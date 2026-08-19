@@ -3,11 +3,12 @@ import random
 import asyncio
 import threading
 from collections import deque
-from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Generator, Iterable, Iterator
+from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Callable, Generator, Iterable, Iterator
 from http import HTTPStatus
+from typing import TypeVar
 
 from django.conf import settings
-from django.db import connections
+from django.db import InterfaceError, OperationalError, connections
 from django.http import HttpResponse, StreamingHttpResponse
 
 from prometheus_client import Counter, Gauge, Histogram
@@ -274,6 +275,35 @@ def _release_request_connections() -> None:
     for conn in connections.all(initialized_only=True):
         if not conn.in_atomic_block:
             conn.close()
+
+
+_T = TypeVar("_T")
+
+
+def retry_on_broken_connection(operation: Callable[[], _T]) -> _T:
+    """Run a read-only DB operation, reconnecting once if the connection died.
+
+    PostHog runs with ``CONN_MAX_AGE = 0``, so Django drops connections at request
+    boundaries but never re-checks one mid-request. When a long-lived tile stream
+    is still reading Postgres and the connection goes away (server restart,
+    pgbouncer timeout, network blip), the next ORM read raises and nothing
+    reconnects it. This closes the dead connection and retries the operation once
+    on a fresh one, so a single connection loss no longer fails the whole read.
+    ``CONN_HEALTH_CHECKS`` cannot cover this: with ``CONN_MAX_AGE = 0`` connections
+    never persist across a boundary, and a health check does not catch a connection
+    that dies part-way through a request.
+
+    Only for idempotent reads: the operation can run twice, so never wrap a write.
+    A retry is skipped inside an atomic block, where reconnecting corrupts the open
+    transaction.
+    """
+    try:
+        return operation()
+    except (InterfaceError, OperationalError):
+        if any(conn.in_atomic_block for conn in connections.all(initialized_only=True)):
+            raise
+        _release_request_connections()
+        return operation()
 
 
 def streaming_response(
