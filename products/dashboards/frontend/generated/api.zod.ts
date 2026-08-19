@@ -154,6 +154,15 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of quick filter IDs associated with this dashboard'),
+        grid_spacing: zod
+            .enum(['tight', 'condensed', 'standard', 'relaxed', 'wide'])
+            .describe(
+                '\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            )
+            .optional()
+            .describe(
+                'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -201,6 +210,15 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of quick filter IDs associated with this dashboard'),
+        grid_spacing: zod
+            .enum(['tight', 'condensed', 'standard', 'relaxed', 'wide'])
+            .describe(
+                '\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            )
+            .optional()
+            .describe(
+                'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -315,6 +333,15 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of quick filter IDs associated with this dashboard.'),
+        grid_spacing: zod
+            .enum(['tight', 'condensed', 'standard', 'relaxed', 'wide'])
+            .describe(
+                '\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            )
+            .optional()
+            .describe(
+                'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            ),
         tiles: zod
             .array(
                 zod.object({
@@ -3288,6 +3315,15 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of quick filter IDs associated with this dashboard'),
+        grid_spacing: zod
+            .enum(['tight', 'condensed', 'standard', 'relaxed', 'wide'])
+            .describe(
+                '\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            )
+            .optional()
+            .describe(
+                'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -3331,6 +3367,15 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of quick filter IDs associated with this dashboard'),
+        grid_spacing: zod
+            .enum(['tight', 'condensed', 'standard', 'relaxed', 'wide'])
+            .describe(
+                '\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            )
+            .optional()
+            .describe(
+                'Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n\* `tight` - tight\n\* `condensed` - condensed\n\* `standard` - standard\n\* `relaxed` - relaxed\n\* `wide` - wide'
+            ),
         use_template: zod
             .string()
             .optional()
