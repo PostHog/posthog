@@ -1,6 +1,7 @@
-import dataclasses
 from datetime import date, timedelta
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudability.settings import (
     ANOMALIES_LOOKBACK_DAYS,
@@ -22,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
-@dataclasses.dataclass
+@frozen
 class CloudabilityResumeConfig:
     cursor: str
 
