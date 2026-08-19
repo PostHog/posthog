@@ -5,5 +5,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
-class BloomerangSourceConfig(config.Config):
+class ProfoundSourceConfig(config.Config):
     api_key: str
