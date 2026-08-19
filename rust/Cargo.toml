@@ -39,9 +39,6 @@ members = [
   "feature-flags",
   "flags-consumer",
   "hypercache-server",
-  "cyclotron-core",
-  "cyclotron-node",
-  "cyclotron-janitor",
   "replay-anonymizer",
   "replay-anonymizer-node",
   "cymbal",
@@ -157,7 +154,6 @@ chrono = { version = "0.4.44", features = ["default", "serde"] }
 chrono-tz = "0.10.1"
 dashmap = "6.1"
 envconfig = "0.10.0"
-eyre = "0.6.9"
 flate2 = "1.0"
 futures = { version = "0.3.29" }
 futures-timer = "3.0"

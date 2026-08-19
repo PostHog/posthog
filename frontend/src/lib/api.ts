@@ -688,6 +688,10 @@ export class ApiRequest {
         return this.pluginConfigs(teamId).addPathComponent(id)
     }
 
+    public pipelineFrontendAppsConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('pipeline_frontend_apps_configs')
+    }
+
     public hog(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('hog')
     }
@@ -3891,6 +3895,15 @@ const api = {
                     : notebookShortId
                       ? new ApiRequest().notebookSharingPassword(notebookShortId, passwordId).delete()
                       : null
+        },
+    },
+
+    // Site apps still backed by a plugin rather than a hog function. The web scripts scene
+    // lists these alongside hog functions, so anything deciding whether a project has web
+    // scripts has to count them too.
+    pipelineFrontendAppsConfigs: {
+        async list(params: { limit?: number } = {}): Promise<CountedPaginatedResponse<PluginConfigTypeNew>> {
+            return await new ApiRequest().pipelineFrontendAppsConfigs().withQueryString(params).get()
         },
     },
 
