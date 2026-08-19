@@ -488,6 +488,19 @@ class TestResolver(BaseTest):
                 resolve_types(self._select(query), self.context, dialect="clickhouse")
             self.assertIn("Unable to resolve field:", str(e.exception))
 
+    def test_bad_column_on_subquery_alias_is_exposed_error(self):
+        # A typo'd column on an aliased sub-select is user input, so it must raise the exposed
+        # QueryError (not an internal ResolutionError that would be captured as error tracking noise).
+        with self.assertRaises(QueryError) as e:
+            resolve_types(
+                self._select("SELECT t.z FROM (SELECT event AS y FROM events) AS t"),
+                self.context,
+                dialect="clickhouse",
+            )
+        message = str(e.exception)
+        self.assertIn("Field z not found on query with alias t", message)
+        self.assertIn("Available columns: y", message)
+
     def test_unresolved_field_type(self):
         query = "SELECT x"
         # raises with ClickHouse

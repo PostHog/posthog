@@ -494,7 +494,11 @@ class SelectQueryAliasType(Type):
         if self.select_query_type.has_child(name, context):
             return FieldType(name=name, table_type=self)
 
-        raise ResolutionError(f"Field {name} not found on query with alias {self.alias}")
+        columns = self.select_query_type.columns
+        if not columns and isinstance(self.select_query_type, SelectSetQueryType):
+            columns = self.select_query_type.types[0].columns
+        available = ", ".join(sorted(columns.keys()))
+        raise QueryError(f"Field {name} not found on query with alias {self.alias}. Available columns: {available}")
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.select_query_type.has_child(name, context)
@@ -722,7 +726,7 @@ class FieldType(Type):
             constant_type = self.resolve_constant_type(context)
             if isinstance(constant_type, (StringJSONType, StringArrayType)):
                 return PropertyType(chain=[name], field_type=self)
-            raise ResolutionError(f'Can not access property "{name}" on field "{self.name}".')
+            raise QueryError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
@@ -730,7 +734,7 @@ class FieldType(Type):
         if isinstance(database_field, StructDatabaseField):
             return PropertyType(chain=[name], field_type=self)
 
-        raise ResolutionError(
+        raise QueryError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
 
