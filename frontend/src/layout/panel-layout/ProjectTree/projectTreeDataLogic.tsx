@@ -45,7 +45,9 @@ import {
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
 import { FEATURE_FLAGS } from '~/lib/constants'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { recentItemsModel } from '~/models/recentItemsModel'
 import type { ProductTreePath } from '~/products'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
@@ -866,6 +868,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             actions.removeQueuedAction(action)
                             actions.deleteSavedItem(action.item)
                             const deletionSummary = deletionResult?.deleted ?? []
+                            for (const entry of deletionSummary) {
+                                if (entry.ref) {
+                                    actions.deleteTypeAndRef(entry.type, entry.ref)
+                                }
+                            }
                             const countsByType = new Map<string, number>()
                             for (const entry of deletionSummary) {
                                 countsByType.set(entry.type, (countsByType.get(entry.type) ?? 0) + 1)
@@ -907,6 +914,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                   }
                                                   // Signal non-sidebar consumers (the dashboards tree) to refetch.
                                                   actions.restoredItems()
+                                                  recentItemsModel.findMounted()?.actions.loadRecents()
+                                                  if (undoableEntries.some((entry) => entry.type === 'dashboard')) {
+                                                      dashboardsModel.findMounted()?.actions.loadDashboards()
+                                                  }
                                                   const restoreCountsByType = new Map<string, number>()
                                                   for (const entry of undoableEntries) {
                                                       restoreCountsByType.set(
@@ -1753,6 +1764,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 actions.addLoadedUsers(items.users)
             }
             actions.addLoadedResults(items as any as SearchResults)
+        },
+        deleteTypeAndRef: ({ type, ref }) => {
+            recentItemsModel.findMounted()?.actions.itemDeleted(type, ref)
+            if (type === 'dashboard') {
+                dashboardsModel.findMounted()?.actions.delayedDeleteDashboard(Number(ref))
+            }
         },
         deleteItem: async ({ item, projectTreeLogicKey }) => {
             if (isGroupViewShortcut(item) && values.featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
