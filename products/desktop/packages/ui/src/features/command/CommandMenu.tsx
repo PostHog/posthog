@@ -235,6 +235,12 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   );
   const [query, setQuery] = useState("");
   const [remoteQuery, setRemoteQuery] = useState("");
+  // The legacy title search only ever surfaces while the palette is browsing
+  // (see `showRemoteSearch` below). The feed-query `mode` that decides that is
+  // derived further down, after this debounce, so the effect reads the latest
+  // value through a ref instead — a filter query must not start a search whose
+  // results the palette then throws away.
+  const remoteSearchAllowedRef = useRef(true);
   const { repoPath } = useFileSearchContext();
   const canSearchFiles = !!repoPath;
   const openFilePicker = useFileSearchStore((state) => state.openPicker);
@@ -249,7 +255,10 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       setRemoteQuery("");
       return;
     }
-    const timer = window.setTimeout(() => setRemoteQuery(trimmed), delay);
+    const timer = window.setTimeout(
+      () => setRemoteQuery(remoteSearchAllowedRef.current ? trimmed : ""),
+      delay,
+    );
     return () => window.clearTimeout(timer);
   }, [open, query]);
 
@@ -710,6 +719,13 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     shownCount,
     hasRepairs,
   } = feedQuery;
+
+  // Keep the debounce's gate in step with the condition that decides whether
+  // the remote search is even rendered, so the two can't drift.
+  useEffect(() => {
+    const browsing = mode === "browsing" || mode === "completingKey";
+    remoteSearchAllowedRef.current = browsing && !scope;
+  }, [mode, scope]);
 
   const sections = useMemo(() => {
     const browsing = mode === "browsing" || mode === "completingKey";
