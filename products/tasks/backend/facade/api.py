@@ -4651,9 +4651,13 @@ def _list_tasks_queryset(
         )[:1]
         qs = qs.annotate(_latest_run_ci_status=Subquery(latest_run_ci_status)).filter(_latest_run_ci_status=ci_status)
 
-    # Pins are per-user, so "pinned" means the requesting user's pins.
+    # Pins are per-user, so "pinned" means the requesting user's pins — and
+    # without a user (service callers) nothing is pinned.
     if str(filters.get("pinned")).lower() == "true":
-        qs = qs.filter(Exists(TaskPin.objects.filter(task=OuterRef("pk"), user_id=user_id)))
+        if user_id is None:
+            qs = qs.none()
+        else:
+            qs = qs.filter(Exists(TaskPin.objects.filter(task=OuterRef("pk"), user_id=user_id)))
 
     commented_by = filters.get("commented_by")
     if commented_by:

@@ -21,6 +21,7 @@ class TestTaskListFilterMatrix(TestCase):
     peter: ClassVar[User]
     adam: ClassVar[User]
     tasks: ClassVar[dict[str, Task]]
+    channel: ClassVar[Channel]
 
     @classmethod
     def setUpTestData(cls):
