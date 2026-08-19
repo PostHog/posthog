@@ -104,7 +104,7 @@ def clever_source(
             # Clever responses carry student, guardian, and staff PII (names, DOBs, contact
             # info, addresses) that the name-based sample scrubbers aren't guaranteed to catch,
             # so keep raw bodies out of HTTP sample capture even where an operator enables it.
-            "session": make_tracked_session(capture=False, redact_values=(bearer_token,)),
+            "capture": False,
         },
         "resource_defaults": {
             "write_disposition": {
