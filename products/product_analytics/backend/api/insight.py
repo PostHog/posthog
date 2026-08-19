@@ -2792,7 +2792,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
     def _set_test_account_filter_on_batch(self, insight_ids: Sequence[int], *, enabled: bool) -> dict[str, int]:
         counts = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": 0}
-        insights = list(Insight.objects.filter(id__in=insight_ids))
+        insights = list(Insight.objects.filter(id__in=insight_ids, team__project_id=self.team.project_id))
         if self.user_access_control:
             self.user_access_control.preload_object_access_controls(cast(list, insights))
 

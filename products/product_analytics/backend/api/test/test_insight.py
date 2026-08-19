@@ -5370,6 +5370,31 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         legacy.refresh_from_db()
         self.assertTrue(legacy.filters["filter_test_accounts"])
 
+    def test_leaves_insights_in_other_projects_alone(self) -> None:
+        mine = self._create_query_insight(filter_test_accounts=False)
+        _, other_project_team = Project.objects.create_with_team(
+            organization=self.organization, initiating_user=self.user
+        )
+        theirs = Insight.objects.create(
+            team=other_project_team,
+            name="Theirs",
+            saved=True,
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "filterTestAccounts": False,
+                },
+            },
+        )
+
+        response = self._bulk_set(True)
+
+        self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 0})
+        self.assertTrue(self._reloaded_source(mine)["filterTestAccounts"])
+        self.assertFalse(self._reloaded_source(theirs)["filterTestAccounts"])
+
     def test_records_the_change_in_the_activity_log(self) -> None:
         insight = self._create_query_insight()
 
