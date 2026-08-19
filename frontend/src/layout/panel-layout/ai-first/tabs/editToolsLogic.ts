@@ -159,10 +159,14 @@ export const editToolsLogic = kea<editToolsLogicType>([
                     )
                 } catch (error) {
                     console.error('Failed to save tool changes:', error)
-                    // Revert to the pre-save state locally. A refetch would also fail while the
-                    // backend is down, leaving the unsaved changes on screen as if they had saved.
+                    // Restore only the batched paths to their pre-save membership, keeping any
+                    // concurrent change to other products from the sidebar. A refetch would also
+                    // fail while the backend is down and leave the unsaved changes looking saved.
                     // The pending toggles stay in `localToggles`, so the retry can reapply them.
-                    actions.loadCustomProductsSuccess(previousProducts)
+                    const toggledPaths = new Set(entries.map(([toolPath]) => toolPath))
+                    const others = values.customProducts.filter((item) => !toggledPaths.has(item.product_path))
+                    const restored = previousProducts.filter((item) => toggledPaths.has(item.product_path))
+                    actions.loadCustomProductsSuccess([...others, ...restored])
                     lemonToast.error('Failed to save some changes.', {
                         button: {
                             label: 'Try again',
