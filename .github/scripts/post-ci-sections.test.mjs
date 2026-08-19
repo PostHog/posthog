@@ -42,23 +42,35 @@ describe('CI report section builders', () => {
 
     for (const testCase of [
         {
-            name: 'marks the universal lane red',
+            name: 'describes the universal lane',
             input: { impactedTargets: ['py:core', 'fe:core'], isUniversal: true },
-            expectedStatus: 'fail',
+            expected: {
+                status: 'fail',
+                summary: 'universal lane',
+                body: 'This PR affects every lane, so Trunk will merge it on its own.',
+            },
         },
         {
-            name: 'marks a backend Python lane yellow',
-            input: { impactedTargets: ['py:product:surveys'], isUniversal: false },
-            expectedStatus: 'warn',
+            name: 'describes the backend Python lane',
+            input: { impactedTargets: ['py:product:surveys', 'fe:product:surveys'], isUniversal: false },
+            expected: {
+                status: 'warn',
+                summary: 'backend Python lane',
+                body: 'Affected targets: `py:product:surveys`, `fe:product:surveys`. This lane runs backend Python tests. Trunk may merge this PR in parallel with PRs that do not share any of these targets.',
+            },
         },
         {
-            name: 'marks other lanes green',
+            name: 'describes a non-backend lane',
             input: { impactedTargets: ['fe:core'], isUniversal: false },
-            expectedStatus: 'ok',
+            expected: {
+                status: 'ok',
+                summary: 'non-backend lane',
+                body: 'Affected target: `fe:core`. This lane does not run backend Python tests. Trunk may merge this PR in parallel with PRs that do not share this target.',
+            },
         },
     ]) {
         it(testCase.name, () => {
-            assert.equal(buildTrunkLaneSection(testCase.input).status, testCase.expectedStatus)
+            assert.deepEqual(buildTrunkLaneSection(testCase.input), testCase.expected)
         })
     }
 

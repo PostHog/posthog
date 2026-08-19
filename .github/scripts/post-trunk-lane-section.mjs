@@ -12,22 +12,19 @@ export function buildTrunkLaneSection({ impactedTargets, isUniversal }) {
         return {
             status: 'fail',
             summary: 'universal lane',
-            body: 'This PR is assigned to the universal lane. Trunk will merge it on its own.',
+            body: 'This PR affects every lane, so Trunk will merge it on its own.',
         }
     }
 
-    if (impactedTargets.some((target) => target.startsWith('py:'))) {
-        return {
-            status: 'warn',
-            summary: 'runs backend Python tests',
-            body: 'This PR is assigned to a lane that runs backend Python tests.',
-        }
-    }
+    const targets = impactedTargets.map((target) => `\`${target}\``).join(', ')
+    const targetLabel = impactedTargets.length === 1 ? 'Affected target' : 'Affected targets'
+    const sharedTargetLabel = impactedTargets.length === 1 ? 'this target' : 'any of these targets'
+    const runsBackendPythonTests = impactedTargets.some((target) => target.startsWith('py:'))
 
     return {
-        status: 'ok',
-        summary: 'does not run backend Python tests',
-        body: 'This PR is assigned to a lane that does not run backend Python tests.',
+        status: runsBackendPythonTests ? 'warn' : 'ok',
+        summary: runsBackendPythonTests ? 'backend Python lane' : 'non-backend lane',
+        body: `${targetLabel}: ${targets}. This lane ${runsBackendPythonTests ? 'runs' : 'does not run'} backend Python tests. Trunk may merge this PR in parallel with PRs that do not share ${sharedTargetLabel}.`,
     }
 }
 
