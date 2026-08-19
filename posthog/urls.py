@@ -47,6 +47,7 @@ from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
+from posthog.web_bot_auth import http_message_signatures_directory
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.canvas.backend.artifacts import canvas_artifact
@@ -672,6 +673,7 @@ urlpatterns = [
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
+    opt_slash_path(".well-known/http-message-signatures-directory", http_message_signatures_directory),
     # auth
     opt_slash_path("logout", authentication.logout, name="logout"),
     path(

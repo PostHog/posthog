@@ -36,6 +36,7 @@ import {
   isPersistedOptionSupported,
   isRateLimitError,
   isTransientUpstreamError,
+  leadingSlashCommand,
   mergeConfigOptions,
   type OptimisticItem,
   type PermissionRequest,
@@ -100,7 +101,9 @@ import {
   resolveAllowAlwaysUpgradeMode,
 } from "./permissionResponse";
 import {
+  collapseSupersededToolCallUpdates,
   convertStoredEntriesToEvents,
+  createConversationClearedEvents,
   createUserShellExecuteEvent,
   extractPromptText,
   getStoredLogEventPosition,
@@ -121,6 +124,19 @@ const LOCAL_SESSION_RECONNECT_BACKOFF = {
   initialDelayMs: 1_000,
   maxDelayMs: 5_000,
 };
+const CLOUD_SUBSCRIPTION_RECOVERY_BACKOFF = {
+  initialDelayMs: 1_000,
+  maxDelayMs: 30_000,
+};
+/**
+ * Recovery keeps retrying past this point (a later attempt can still succeed,
+ * e.g. after the main process finishes restarting), but from here on the
+ * session shows the retryable error banner instead of stalling silently.
+ */
+const CLOUD_SUBSCRIPTION_RECOVERY_NOTIFY_ATTEMPTS = 3;
+const CLOUD_SUBSCRIPTION_ERROR_TITLE = "Stream connection lost";
+const CLOUD_SUBSCRIPTION_ERROR_MESSAGE =
+  "Lost connection to the cloud run. Reconnecting…";
 const LOCAL_SESSION_RECOVERY_MESSAGE =
   "Lost connection to the agent. Reconnecting…";
 const LOCAL_SESSION_RECOVERY_FAILED_MESSAGE =
@@ -199,6 +215,34 @@ const SESSION_EVENT_EVICT_GRACE_MS = 20_000;
  */
 const OPEN_TAIL_BYTES = 1_500_000;
 
+/**
+ * Staggered repaint attempts after a cloud `/clear`. The persisted run log is
+ * S3-backed, so a read immediately after the boundary POST can miss the
+ * append; the budget stays small so an explicit user action never waits long.
+ */
+const CLEAR_REPAINT_ATTEMPT_DELAYS_MS = [0, 250, 750];
+
+/**
+ * Whether the thread already ends at a `/clear` boundary. The backend appends
+ * the boundary pair at the log tail, but this scans the last few events
+ * rather than only the very last one so the check survives a backend that
+ * ever writes the pair in a different order or adds a trailing entry after
+ * it. The window stays small so an ancestor run's old boundary, buried
+ * mid-log, cannot satisfy it.
+ */
+function endsAtConversationClearedBoundary(events: AcpMessage[]): boolean {
+  return events
+    .slice(-3)
+    .some(
+      (event) =>
+        isJsonRpcNotification(event.message) &&
+        isNotification(
+          event.message.method,
+          POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED,
+        ),
+    );
+}
+
 class GitHubAuthorizationRequiredForCloudHandoffError extends Error {
   constructor(
     message = "Connect GitHub before continuing this task in cloud.",
@@ -259,6 +303,14 @@ interface CloudTaskWatcher {
   bufferedResumeUpdates: CloudTaskUpdatePayload[];
   processCloudUpdate: (update: CloudTaskUpdatePayload) => void;
   subscription: { unsubscribe: () => void };
+  /** Bumped on every attach, so a replaced subscription's late callbacks are ignored. */
+  subscriptionGeneration: number;
+  subscriptionRecoveryAttempts: number;
+  subscriptionRecoveryTimeoutId: ReturnType<typeof setTimeout> | null;
+  subscriptionRecoveryInFlight: boolean;
+  /** An error that arrived mid-recovery, retried once that recovery settles. */
+  subscriptionRecoveryQueued: boolean;
+  subscriptionErrorSurfaced: boolean;
   onStatusChange?: () => void;
 }
 
@@ -2732,7 +2784,7 @@ export class SessionService {
     const batches = this.pendingSessionEvents;
     this.pendingSessionEvents = new Map();
     for (const [taskRunId, events] of batches) {
-      for (const acpMsg of events) {
+      for (const acpMsg of collapseSupersededToolCallUpdates(events)) {
         this.applySessionEvent(taskRunId, acpMsg);
       }
     }
@@ -2744,7 +2796,7 @@ export class SessionService {
     const events = this.pendingSessionEvents.get(taskRunId);
     if (!events) return;
     this.pendingSessionEvents.delete(taskRunId);
-    for (const acpMsg of events) {
+    for (const acpMsg of collapseSupersededToolCallUpdates(events)) {
       this.applySessionEvent(taskRunId, acpMsg);
     }
   }
@@ -4457,6 +4509,18 @@ export class SessionService {
     }
 
     if (isTerminalStatus(session.cloudStatus)) {
+      // `/clear` is handled by the agent, not the model, so resuming would spin a
+      // whole sandbox to clear a conversation the next run rebuilds from the log
+      // anyway. The backend records the boundary against this run instead, but only
+      // when the agent understands it. An older one ignores the marker and resumes the
+      // conversation it was meant to retire, so an ordinary resume is the honest
+      // degradation: the clear doesn't happen, and nothing claims it did.
+      if (
+        leadingSlashCommand(transport.messageText) === "/clear" &&
+        session.conversationClear
+      ) {
+        return this.clearCloudConversation(session);
+      }
       // If the agent never booted (no `run_started`), resuming spins another
       // sandbox that hits the same provisioning failure — surface the error
       // instead of looping.
@@ -4719,8 +4783,9 @@ export class SessionService {
     try {
       const session = this.d.store.getSessionByTaskId(taskId);
       if (!session?.isCloud || session.messageQueue.length === 0) return;
-      // Terminal cloud runs route through `resumeCloudRun`, which spins a
-      // new run and consumes the prompt itself — so dispatch is fine.
+      // Terminal cloud runs are fine to dispatch: they route through
+      // `resumeCloudRun` (a new run that consumes the prompt), or through
+      // `clearCloudConversation` for a /clear on a clear-capable run.
       // Otherwise gate on the agent-ready handshake (`run_started` flips
       // status to "connected") to avoid racing with `sendInitialTaskMessage`.
       const isTerminal = isTerminalStatus(session.cloudStatus);
@@ -4766,6 +4831,62 @@ export class SessionService {
     } finally {
       this.dispatchingCloudQueues.delete(taskId);
     }
+  }
+
+  /**
+   * Records the `/clear` boundary against a finished run and repaints the
+   * thread from the updated log.
+   */
+  private async clearCloudConversation(
+    session: AgentSession,
+  ): Promise<{ stopReason: string }> {
+    const current = this.d.store.getSessions()[session.taskRunId];
+    if (endsAtConversationClearedBoundary(current?.events ?? [])) {
+      // A previous clear already recorded and painted the boundary, and a
+      // finished run's thread only grows through another clear, so a repeat
+      // has nothing to record or repaint.
+      return { stopReason: "end_turn" };
+    }
+    const client = await this.d.getAuthenticatedClient();
+    if (!client) {
+      throw new Error("Authentication required for cloud commands");
+    }
+    this.d.log.info("Clearing cloud conversation", {
+      taskId: session.taskId,
+      taskRunId: session.taskRunId,
+    });
+    await client.clearTaskRunConversation(session.taskId, session.taskRunId);
+    // The backend appended the boundary pair to this run's log, so repaint
+    // from the log rather than fabricating the frames locally. Log-derived
+    // copies carry the backend's timestamps, which is what lets a later
+    // resume's hydration reconcile them away; a fabricated copy stamped with
+    // the local clock never matches and renders the pair twice. The log read
+    // can lag the append (or a stale in-flight hydration can win the memo),
+    // so give the repaint a few staggered attempts before giving up.
+    for (const delayMs of CLEAR_REPAINT_ATTEMPT_DELAYS_MS) {
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      await this.hydrateCloudTaskSessionFromLogs(
+        session.taskId,
+        session.taskRunId,
+        session.logUrl,
+        undefined,
+        session.cloudStatus,
+      );
+      const repainted = this.d.store.getSessions()[session.taskRunId];
+      if (endsAtConversationClearedBoundary(repainted?.events ?? [])) {
+        return { stopReason: "end_turn" };
+      }
+    }
+    // The log never showed the boundary within the retry budget. Paint
+    // locally so the clear is still visible; this copy can duplicate after a
+    // later resume, so it stays strictly a fallback.
+    this.d.store.appendEvents(
+      session.taskRunId,
+      createConversationClearedEvents(Date.now()),
+    );
+    return { stopReason: "end_turn" };
   }
 
   private async resumeCloudRun(
@@ -6333,38 +6454,23 @@ export class SessionService {
       bufferedResumeUpdates: [],
       processCloudUpdate,
       subscription: { unsubscribe: () => undefined },
+      subscriptionGeneration: 0,
+      subscriptionRecoveryAttempts: 0,
+      subscriptionRecoveryTimeoutId: null,
+      subscriptionRecoveryInFlight: false,
+      subscriptionRecoveryQueued: false,
+      subscriptionErrorSurfaced: false,
       onStatusChange,
     };
     this.cloudTaskWatchers.set(taskId, watcher);
 
     // Subscribe before starting the main-process watcher so the first replayed
     // SSE/log burst cannot race ahead of the renderer subscription.
-    watcher.subscription = this.d.trpc.cloudTask.onUpdate.subscribe(
-      { taskId, runId },
-      {
-        onData: (update: CloudTaskUpdatePayload) => {
-          const activeWatcher = this.cloudTaskWatchers.get(taskId);
-          if (!activeWatcher || activeWatcher.runId !== runId) {
-            return;
-          }
-          if (activeWatcher.bufferResumeUpdates) {
-            activeWatcher.bufferedResumeUpdates.push(update);
-            return;
-          }
-          activeWatcher.processCloudUpdate(update);
-        },
-        onError: (err: unknown) =>
-          this.d.log.error("Cloud task subscription error", { taskId, err }),
-        onComplete: () => {
-          if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
-            return;
-          }
-          this.d.log.warn(
-            "Cloud task subscription ended without an error, updates stop until the task is reopened",
-            { taskId, runId },
-          );
-        },
-      },
+    watcher.subscription = this.attachCloudTaskSubscription(
+      taskId,
+      runId,
+      startToken,
+      watcher.subscriptionGeneration,
     );
 
     if (shouldHydrateSession) {
@@ -7056,6 +7162,213 @@ export class SessionService {
     return watcher?.runId === runId && watcher.startToken === startToken;
   }
 
+  private attachCloudTaskSubscription(
+    taskId: string,
+    runId: string,
+    startToken: number,
+    generation: number,
+  ): { unsubscribe: () => void } {
+    // Recovery replaces the subscription while the watcher stays current, so
+    // the generation is what tells a live handler from one belonging to the
+    // subscription we just discarded.
+    const isCurrentSubscription = () =>
+      this.isCurrentCloudTaskWatcher(taskId, runId, startToken) &&
+      this.cloudTaskWatchers.get(taskId)?.subscriptionGeneration === generation;
+
+    return this.d.trpc.cloudTask.onUpdate.subscribe(
+      { taskId, runId },
+      {
+        onData: (update: CloudTaskUpdatePayload) => {
+          const activeWatcher = this.cloudTaskWatchers.get(taskId);
+          if (!activeWatcher || activeWatcher.runId !== runId) {
+            return;
+          }
+          activeWatcher.subscriptionRecoveryAttempts = 0;
+          if (activeWatcher.bufferResumeUpdates) {
+            activeWatcher.bufferedResumeUpdates.push(update);
+            return;
+          }
+          activeWatcher.processCloudUpdate(update);
+        },
+        onError: (err: unknown) => {
+          if (!isCurrentSubscription()) return;
+          this.d.log.error("Cloud task subscription error", { taskId, err });
+          this.scheduleCloudSubscriptionRecovery(taskId, runId);
+        },
+        onComplete: () => {
+          if (!isCurrentSubscription()) return;
+          // A completion that passes the guard is host transport teardown
+          // (a committed navigation sweeping the transport's operations, not
+          // the run finishing — our own teardown deletes the watcher before
+          // unsubscribing): recover just like an error, or updates stop until
+          // an app reload.
+          this.d.log.warn("Cloud task subscription ended without an error", {
+            taskId,
+            runId,
+          });
+          this.scheduleCloudSubscriptionRecovery(taskId, runId);
+        },
+      },
+    );
+  }
+
+  /**
+   * The tRPC subscription carrying cloud updates died (an error in the host
+   * stream, or transport teardown). Without recovery the transcript silently
+   * stops advancing until an app reload rebuilds the subscription — none of
+   * the existing recovery triggers fire, because the session never reaches an
+   * error status. Rebuild both sides here: a fresh subscription, plus a watch
+   * call whose snapshot replay backfills whatever was missed while the
+   * channel was down (the dead subscription's server-side teardown may also
+   * have unwatched, and thereby stopped, the main-process watcher).
+   */
+  private scheduleCloudSubscriptionRecovery(
+    taskId: string,
+    runId: string,
+  ): void {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    if (!watcher || watcher.runId !== runId) return;
+    // A running recovery already rebuilds the subscription. Queue the failure
+    // for it to retry rather than starting a second, overlapping recovery: the
+    // main-process watcher is reference counted, so two watch calls against one
+    // teardown leave it running forever.
+    if (watcher.subscriptionRecoveryInFlight) {
+      watcher.subscriptionRecoveryQueued = true;
+      return;
+    }
+    if (watcher.subscriptionRecoveryTimeoutId) return;
+
+    const delay = getBackoffDelay(
+      watcher.subscriptionRecoveryAttempts,
+      CLOUD_SUBSCRIPTION_RECOVERY_BACKOFF,
+    );
+    watcher.subscriptionRecoveryTimeoutId = setTimeout(() => {
+      watcher.subscriptionRecoveryTimeoutId = null;
+      void this.recoverCloudSubscription(taskId, runId);
+    }, delay);
+  }
+
+  private async recoverCloudSubscription(
+    taskId: string,
+    runId: string,
+  ): Promise<void> {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    if (!watcher || watcher.runId !== runId) return;
+    const startToken = watcher.startToken;
+
+    watcher.subscriptionRecoveryAttempts += 1;
+    watcher.subscriptionRecoveryInFlight = true;
+    watcher.subscriptionRecoveryQueued = false;
+    // Bump the generation before unsubscribing: a transport that completes
+    // the old subscription synchronously on unsubscribe would otherwise pass
+    // the generation guard and queue a recovery against itself, forever.
+    watcher.subscriptionGeneration += 1;
+    watcher.subscription.unsubscribe();
+    watcher.subscription = this.attachCloudTaskSubscription(
+      taskId,
+      runId,
+      startToken,
+      watcher.subscriptionGeneration,
+    );
+
+    try {
+      await this.d.trpc.cloudTask.watch.mutate({
+        taskId,
+        runId,
+        apiHost: watcher.apiHost,
+        teamId: watcher.teamId,
+        resumeFromEntryCount: watcher.resumeFromEntryCount,
+      });
+
+      // Same compensation as the initial watch path: if teardown won while this
+      // watch request was in flight, the main-process watcher is now running
+      // with no renderer subscriber, so unwatch it.
+      if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
+        await this.d.trpc.cloudTask.unwatch.mutate({ taskId, runId });
+        return;
+      }
+
+      this.d.log.info("Cloud task subscription recovered", {
+        taskId,
+        attempts: watcher.subscriptionRecoveryAttempts,
+      });
+      this.clearCloudSubscriptionRecoveryError(taskId, runId);
+    } catch (err) {
+      if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) return;
+      this.d.log.warn("Cloud task subscription recovery failed", {
+        taskId,
+        attempt: watcher.subscriptionRecoveryAttempts,
+        err,
+      });
+      this.maybeSurfaceCloudSubscriptionError(taskId, runId);
+      watcher.subscriptionRecoveryQueued = true;
+    } finally {
+      watcher.subscriptionRecoveryInFlight = false;
+      // Either this attempt failed, or the rebuilt subscription died while the
+      // watch call was still in flight. Both mean the stream is still down.
+      if (
+        watcher.subscriptionRecoveryQueued &&
+        this.isCurrentCloudTaskWatcher(taskId, runId, startToken)
+      ) {
+        watcher.subscriptionRecoveryQueued = false;
+        this.scheduleCloudSubscriptionRecovery(taskId, runId);
+      }
+    }
+  }
+
+  private maybeSurfaceCloudSubscriptionError(
+    taskId: string,
+    runId: string,
+  ): void {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    if (!watcher || watcher.runId !== runId) return;
+    if (watcher.subscriptionErrorSurfaced) return;
+    if (
+      watcher.subscriptionRecoveryAttempts <
+      CLOUD_SUBSCRIPTION_RECOVERY_NOTIFY_ATTEMPTS
+    ) {
+      return;
+    }
+    const session = this.d.store.getSessions()[runId];
+    if (!session || session.status === "error") return;
+
+    watcher.subscriptionErrorSurfaced = true;
+    this.d.store.updateSession(runId, {
+      status: "error",
+      errorTitle: CLOUD_SUBSCRIPTION_ERROR_TITLE,
+      errorMessage: CLOUD_SUBSCRIPTION_ERROR_MESSAGE,
+      errorRetryable: true,
+      isPromptPending: false,
+    });
+  }
+
+  private clearCloudSubscriptionRecoveryError(
+    taskId: string,
+    runId: string,
+  ): void {
+    const watcher = this.cloudTaskWatchers.get(taskId);
+    if (!watcher || watcher.runId !== runId) return;
+    if (!watcher.subscriptionErrorSurfaced) return;
+
+    watcher.subscriptionErrorSurfaced = false;
+    const session = this.d.store.getSessions()[runId];
+    // Only clear the banner this recovery raised: a real task error can land
+    // (over the rebuilt subscription) before the watch call resolves, and
+    // wiping it would hide the actual failure.
+    if (
+      session?.status !== "error" ||
+      session.errorTitle !== CLOUD_SUBSCRIPTION_ERROR_TITLE
+    ) {
+      return;
+    }
+    this.d.store.updateSession(runId, {
+      status: "disconnected",
+      errorTitle: undefined,
+      errorMessage: undefined,
+      errorRetryable: undefined,
+    });
+  }
+
   /**
    * Fully stop a cloud task watcher. The tRPC subscription unwatches from the
    * main process in its finally handler; the in-flight watch path below sends a
@@ -7066,6 +7379,10 @@ export class SessionService {
     if (!watcher) return;
 
     this.cloudTaskWatchers.delete(taskId);
+    if (watcher.subscriptionRecoveryTimeoutId) {
+      clearTimeout(watcher.subscriptionRecoveryTimeoutId);
+      watcher.subscriptionRecoveryTimeoutId = null;
+    }
     watcher.subscription.unsubscribe();
     this.cloudLogGapReconciler.forgetDeficiency(watcher.runId);
   }

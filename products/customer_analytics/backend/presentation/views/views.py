@@ -44,6 +44,7 @@ from posthog.permissions import (
     get_authenticator_scopes,
     is_service_auth,
 )
+from posthog.rate_limit import RunSavedQueryRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
@@ -97,14 +98,20 @@ _OBJECT_READ_LEVEL = "viewer"
 _OBJECT_WRITE_LEVEL = "editor"
 
 
+# The warehouse resources a person/group-property source can bind to: the import source behind a
+# table, or a materialized view. Each needs its own API-token scope folded into the object check.
+_WAREHOUSE_SCOPE_GATED_RESOURCES = frozenset({"external_data_source", "warehouse_view"})
+
+
 class _WarehouseScopeGatedAccessControl:
-    """Wraps ``UserAccessControl`` so object-level ``external_data_source`` access additionally
-    requires the request token to carry the matching ``external_data_source`` scope (``read`` for
-    viewer, ``write`` for editor). Person-property sources gate all warehouse read/write through
-    ``check_access_level_for_object`` on the linked ``external_data_source``, so folding the token
-    scope in here enforces the cross-resource scope on every path without threading it through the
-    facade. Session auth (no token scopes) and ``*`` tokens are unaffected — API scopes never gate
-    session requests, which stay RBAC-only. Everything else delegates to the wrapped instance."""
+    """Wraps ``UserAccessControl`` so object-level warehouse access additionally requires the request
+    token to carry the matching scope for that resource (``read`` for viewer, ``write`` for editor) —
+    ``external_data_source`` for a table binding, ``warehouse_view`` for a view binding.
+    Person-property sources gate all warehouse read/write through ``check_access_level_for_object`` on
+    the bound warehouse object, so folding the token scope in here enforces the cross-resource scope on
+    every path without threading it through the facade. Session auth (no token scopes) and ``*`` tokens
+    are unaffected — API scopes never gate session requests, which stay RBAC-only. Everything else
+    delegates to the wrapped instance."""
 
     def __init__(self, inner: UserAccessControl, token_scopes: list[str]) -> None:
         self._inner = inner
@@ -120,16 +127,17 @@ class _WarehouseScopeGatedAccessControl:
 
     def _token_lacks_scope_for(self, obj: Any, required_level: Any) -> bool:
         scopes = self._token_scopes
-        if "*" in scopes or model_to_resource(obj) != "external_data_source":
+        resource = model_to_resource(obj)
+        if "*" in scopes or resource not in _WAREHOUSE_SCOPE_GATED_RESOURCES:
             return False
-        if "external_data_source:write" in scopes:
+        if f"{resource}:write" in scopes:
             return False  # write implies read, so it satisfies both viewer and editor
-        return not (required_level == "viewer" and "external_data_source:read" in scopes)
+        return not (required_level == "viewer" and f"{resource}:read" in scopes)
 
 
 def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
-    """The view's ``UserAccessControl``, additionally gating ``external_data_source`` object access on
-    the request token's warehouse scope. A no-op for session/other non-token auth (no token scopes)."""
+    """The view's ``UserAccessControl``, additionally gating warehouse object access on the request
+    token's scope for that resource. A no-op for session/other non-token auth (no token scopes)."""
     scopes = get_authenticator_scopes(getattr(view.request, "successful_authenticator", None))
     if scopes is None:
         return view.user_access_control
@@ -805,6 +813,22 @@ def _account_relationship_definition_write_fields(validated, raw_data: dict) -> 
     return fields
 
 
+class CustomPropertySourceSyncThrottle(RunSavedQueryRateThrottle):
+    """A manual sync starts a real warehouse run — a billable import for a table binding, a
+    materialization for a view. Keying on the bound warehouse object instead of the mapping puts a
+    view-bound sync in the same bucket as the canonical saved-query run endpoint, so a caller can't
+    exceed that view's run limit by pointing two mappings at it (or by using this route instead)."""
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        source_id = view.kwargs.get("pk", "")
+        if team_id and source_id:
+            binding_id = api.get_custom_property_source_binding_id(team_id, source_id)
+            if binding_id:
+                return self.cache_format % {"scope": self.scope, "ident": f"{team_id}_{binding_id}"}
+        return super().get_cache_key(request, view)
+
+
 class CustomPropertySourceViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -948,11 +972,11 @@ class CustomPropertySourceViewSet(
         request=None,
         responses={202: CustomPropertySyncTriggerResponseSerializer},
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, throttle_classes=[CustomPropertySourceSyncThrottle])
     def sync(self, request: Request, *args, **kwargs) -> Response:
-        """Person and group sources only: trigger the underlying warehouse schema's sync now. This
-        re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
-        off it."""
+        """Person and group sources only: run what this source reads now — an import for a table
+        binding (a real, billable warehouse sync), a materialization for a view binding. The
+        incremental person/group-property update runs off that run."""
         self._guard_group_source(request, self.kwargs["pk"])
         try:
             triggered = api.trigger_person_property_sync(
@@ -960,7 +984,7 @@ class CustomPropertySourceViewSet(
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
-        except api.WarehouseSyncPausedError as e:
+        except (api.WarehouseSyncPausedError, api.ViewNotSyncableError) as e:
             return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if not triggered:
             raise ValidationError("This action is only available for enabled person- or group-property sources.")

@@ -50,6 +50,15 @@ from products.tasks.backend.storage import append_jsonl_object
 
 logger = structlog.get_logger(__name__)
 
+
+def execute_after_commit(callback: Callable[[], object]) -> None:
+    """Run commit side effects immediately in tests, where TestCase never commits its wrapper transaction."""
+    if settings.TEST:
+        callback()
+    else:
+        transaction.on_commit(callback)
+
+
 LogLevel = Literal["debug", "info", "warn", "error"]
 MCPBuiltInAgentKey = Literal["support", "scout"]
 MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
@@ -178,7 +187,6 @@ class Task(DeletedMetaFields, models.Model):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
-        AUTOMATION = "automation", "Automation"
         SLACK = "slack", "Slack"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
@@ -504,26 +512,30 @@ class Task(DeletedMetaFields, models.Model):
             state=state,
             branch=branch,
         )
-        task_run.publish_stream_state_event()
-        observe_task_run_created(task_run)
-        self.capture_event(
-            "task_run_created",
-            {
-                "run_id": str(task_run.id),
-                "mode": mode,
-                "environment": task_run.environment,
-                # The bare `environment` property gets clobbered by the analytics client's
-                # deployment-environment super-property, so ship the run's local/cloud value
-                # under an unclobbered name too — as TaskRun.capture_event already does.
-                "run_environment": task_run.environment,
-                "is_resume": is_resume,
-                "has_pending_message": has_pending,
-                # Loop attribution: this event uses Task.capture_event (not TaskRun's),
-                # so carry it from the run state the same way TaskRun.capture_event does.
-                "loop_id": state.get("loop_id"),
-                "loop_trigger_id": state.get("loop_trigger_id"),
-            },
-        )
+
+        def emit_created_events() -> None:
+            task_run.publish_stream_state_event()
+            observe_task_run_created(task_run)
+            self.capture_event(
+                "task_run_created",
+                {
+                    "run_id": str(task_run.id),
+                    "mode": mode,
+                    "environment": task_run.environment,
+                    # The bare `environment` property gets clobbered by the analytics client's
+                    # deployment-environment super-property, so ship the run's local/cloud value
+                    # under an unclobbered name too — as TaskRun.capture_event already does.
+                    "run_environment": task_run.environment,
+                    "is_resume": is_resume,
+                    "has_pending_message": has_pending,
+                    # Loop attribution: this event uses Task.capture_event (not TaskRun's),
+                    # so carry it from the run state the same way TaskRun.capture_event does.
+                    "loop_id": state.get("loop_id"),
+                    "loop_trigger_id": state.get("loop_trigger_id"),
+                },
+            )
+
+        execute_after_commit(emit_created_events)
         return task_run
 
     @property
@@ -956,7 +968,11 @@ class Task(DeletedMetaFields, models.Model):
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
     ) -> "Task":
-        from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
+        from products.tasks.backend.logic.services.workflow_dispatch import (
+            WorkflowDispatchOptions,
+            enqueue_or_start_workflow,
+        )
+        from products.tasks.backend.temporal.client import _normalize_slack_context
 
         task, extra_state = Task._build_task(
             team=team,
@@ -1009,36 +1025,28 @@ class Task(DeletedMetaFields, models.Model):
                 "workflow_id_prefix": workflow_id_prefix,
             }
 
-        task_run = task.create_run(mode=mode, extra_state=run_extra_state or None, branch=branch)
+        with transaction.atomic():
+            task_run = task.create_run(mode=mode, extra_state=run_extra_state or None, branch=branch)
 
-        if start_workflow:
-            # Defer the fire-and-forget workflow start until the creating transaction commits.
-            # Otherwise, when create_and_run runs inside a transaction.atomic() block, the
-            # workflow's first activity can read the TaskRun before its row is visible and fail.
-            # on_commit runs the callback immediately in autocommit mode, so non-atomic callers
-            # are unaffected. If the callback is lost (process recycled in the commit->callback
-            # window, or an earlier on_commit hook raising), the run stays QUEUED — the periodic
-            # reconciler re-dispatches it from the persisted pending_dispatch above.
-            run_id = str(task_run.id)
-            team_id = task.team.id
-            task_id = str(task.id)
-
-            observe_task_run_dispatch_callback(task_run, phase="scheduled")
-
-            def _dispatch() -> None:
-                observe_task_run_dispatch_callback(task_run, phase="fired")
-                execute_task_processing_workflow(
-                    task_id=task_id,
-                    run_id=run_id,
-                    team_id=team_id,
-                    user_id=user_id,
-                    create_pr=create_pr,
-                    slack_thread_context=slack_thread_context,
-                    posthog_mcp_scopes=posthog_mcp_scopes,
-                    workflow_id_prefix=workflow_id_prefix,
+            if start_workflow:
+                # Defer the fire-and-forget workflow start until the creating transaction commits.
+                # Otherwise, when create_and_run runs inside a transaction.atomic() block, the
+                # workflow's first activity can read the TaskRun before its row is visible and fail.
+                # on_commit runs the callback immediately in autocommit mode, so non-atomic callers
+                # are unaffected. If the callback is lost (process recycled in the commit->callback
+                # window, or an earlier on_commit hook raising), the run stays QUEUED — the periodic
+                # reconciler re-dispatches it from the persisted pending_dispatch above.
+                execute_after_commit(lambda: observe_task_run_dispatch_callback(task_run, phase="scheduled"))
+                enqueue_or_start_workflow(
+                    task_run,
+                    options=WorkflowDispatchOptions(
+                        user_id=user_id,
+                        create_pr=create_pr,
+                        slack_thread_context=_normalize_slack_context(slack_thread_context),
+                        posthog_mcp_scopes=posthog_mcp_scopes,
+                        workflow_id_prefix=workflow_id_prefix,
+                    ),
                 )
-
-            transaction.on_commit(_dispatch)
 
         return task
 
@@ -1388,7 +1396,7 @@ def bump_task_activity_on_thread_message(sender, instance: "TaskThreadMessage", 
 @receiver(post_save, sender=Task)
 def project_task_created_activity(sender, instance: Task, created: bool, **kwargs) -> None:
     """Seed the creator's activity row. A signal rather than a facade call because tasks are
-    created from several paths (API, automations, the sandbox warm path) and every one of them
+    created from several paths (API, loops, the sandbox warm path) and every one of them
     should show up in its creator's feed."""
     if created and instance.created_by_id is not None:
         TaskActivity.record(
@@ -1521,118 +1529,6 @@ class ChannelStar(TeamScopedRootMixin):
         constraints = [
             models.UniqueConstraint(fields=["channel", "user"], name="unique_channel_star_per_user"),
         ]
-
-
-class TaskAutomationManager(models.Manager):
-    def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .select_related(
-                "task",
-                "task__team",
-                "task__created_by",
-                "task__github_integration",
-                "task__github_user_integration",
-                "last_task_run",
-                "last_task_run__task",
-            )
-        )
-
-
-class TaskAutomationQuerySet(models.QuerySet):
-    def with_task_context(self):
-        return self.select_related(
-            "task",
-            "task__team",
-            "task__created_by",
-            "task__github_integration",
-            "task__github_user_integration",
-            "last_task_run",
-            "last_task_run__task",
-        )
-
-
-class TaskAutomation(models.Model):
-    class RunStatus(models.TextChoices):
-        SUCCESS = "success", "Success"
-        FAILED = "failed", "Failed"
-        RUNNING = "running", "Running"
-
-    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    cron_expression = models.CharField(max_length=100)
-    timezone = models.CharField(max_length=128, default="UTC")
-    template_id = models.CharField(max_length=255, null=True, blank=True)
-    enabled = models.BooleanField(default=True)
-    task = models.OneToOneField(Task, on_delete=models.CASCADE, related_name="automation")
-    last_task_run = models.ForeignKey("TaskRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    last_error = models.TextField(null=True, blank=True)
-    created_at = models.DateTimeField(default=django_timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    objects = TaskAutomationManager()
-
-    class Meta:
-        db_table = "posthog_task_automation"
-        ordering = ["task__title", "-created_at"]
-
-    def __str__(self):
-        return self.name
-
-    @property
-    def schedule_id(self) -> str:
-        return f"task-automation-{self.id}"
-
-    @property
-    def team(self) -> Team:
-        return self.task.team
-
-    @property
-    def team_id(self) -> int:
-        return self.task.team_id
-
-    @property
-    def created_by(self) -> User | None:
-        return self.task.created_by
-
-    @property
-    def created_by_id(self) -> int | None:
-        return self.task.created_by_id
-
-    @property
-    def name(self) -> str:
-        return self.task.title
-
-    @property
-    def prompt(self) -> str:
-        return self.task.description
-
-    @property
-    def repository(self) -> str | None:
-        return self.task.repository
-
-    @property
-    def github_integration(self) -> Integration | None:
-        return self.task.github_integration
-
-    @property
-    def github_integration_id(self) -> int | None:
-        return self.task.github_integration_id
-
-    @property
-    def last_run_at(self) -> datetime | None:
-        return self.last_task_run.created_at if self.last_task_run else None
-
-    @property
-    def last_run_status(self) -> str | None:
-        if self.last_task_run is None:
-            return None
-        if self.last_task_run.status == TaskRun.Status.COMPLETED:
-            return self.RunStatus.SUCCESS
-        if self.last_task_run.status in [TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]:
-            return self.RunStatus.FAILED
-        return self.RunStatus.RUNNING
 
 
 class Loop(ModelActivityMixin, TeamScopedRootMixin):
@@ -2122,6 +2018,30 @@ class TaskRun(models.Model):
                 state.update(updates)
 
         return cls.mutate_state_atomic(run_id, _mutator)
+
+    @classmethod
+    def update_output_atomic(
+        cls,
+        run_id: str | uuid.UUID,
+        *,
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge output updates against the latest persisted row output.
+
+        Output is written from several independent places (the agent server, the
+        PR webhook backstop, the CI follow-up snapshot), so an unlocked
+        read-modify-write could resurrect keys another writer already changed.
+        Skips the save when nothing changes, so pollers don't churn ``updated_at``.
+        """
+        with transaction.atomic():
+            locked_task_run = cls.objects.select_for_update().get(id=run_id)
+            output = dict(locked_task_run.output or {})
+            merged = {**output, **updates}
+            if merged == output:
+                return output
+            locked_task_run.output = merged
+            locked_task_run.save(update_fields=["output", "updated_at"])
+            return merged
 
     @classmethod
     def clear_sandbox_connection_state_atomic(
@@ -2657,6 +2577,51 @@ class TaskRun(models.Model):
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
+
+
+class TaskWorkflowDispatch(TeamScopedRootMixin):
+    class Kind(models.TextChoices):
+        CREATE = "create", "create"
+        RESTART = "restart", "restart"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "pending"
+        CLAIMED = "claimed", "claimed"
+        ACCEPTED = "accepted", "accepted"
+        DEAD = "dead", "dead"
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False)
+    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="workflow_dispatches", db_index=False)
+    workflow_id = models.CharField(max_length=512)
+    dispatch_kind = models.CharField(max_length=16, choices=Kind.choices)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    attempt_count = models.PositiveIntegerField(default=0)
+    enqueued_at = models.DateTimeField(default=django_timezone.now)
+    next_attempt_at = models.DateTimeField(default=django_timezone.now)
+    claimed_by = models.CharField(max_length=128, blank=True, default="")
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_taskworkflowdispatch"
+        constraints = [
+            models.UniqueConstraint(fields=["task_run", "dispatch_kind"], name="uniq_dispatch_per_run_kind"),
+            models.CheckConstraint(
+                name="accepted_at_iff_accepted",
+                condition=models.Q(status="accepted", accepted_at__isnull=False)
+                | (~models.Q(status="accepted") & models.Q(accepted_at__isnull=True)),
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["next_attempt_at"], condition=models.Q(status="pending"), name="twd_pending_due"),
+            models.Index(fields=["lease_expires_at"], condition=models.Q(status="claimed"), name="twd_claimed_lease"),
+            models.Index(fields=["team", "created_at"], name="twd_team_created"),
+        ]
 
 
 class TaskArtifact(TeamScopedRootMixin, UUIDModel):

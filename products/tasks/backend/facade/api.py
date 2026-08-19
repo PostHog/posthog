@@ -61,9 +61,11 @@ from posthog.utils import absolute_uri
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
+    CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
     PI_CLOUD_RUNTIME_FEATURE_FLAG,
+    PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     TASK_SESSION_MAX_SIZE_BYTES,
     get_required_model_flag,
@@ -100,7 +102,6 @@ from products.tasks.backend.models import (
     Task,
     TaskActivity,
     TaskArtifact,
-    TaskAutomation,
     TaskClientProvenance,
     TaskCommentActivity,
     TaskPin,
@@ -179,7 +180,6 @@ __all__ = [
     "create_sandbox_environment",
     "create_channel_task",
     "create_task",
-    "create_task_automation",
     "create_task_without_run",
     "create_shared_channel_task_without_run",
     "create_task_run_connection_token",
@@ -191,7 +191,6 @@ __all__ = [
     "delete_sandbox_environment",
     "ensure_personal_channel_id",
     "ensure_sandbox_custom_image_builder_task",
-    "delete_task_automation",
     "edit_task_run_living_artifact",
     "enqueue_comment_activity_retry",
     "complete_idle_local_task_run",
@@ -210,7 +209,6 @@ __all__ = [
     "get_stale_prewarmed_queued_task_run_ids",
     "get_stale_terminal_prewarmed_task_run_ids",
     "get_stale_queued_task_run_ids",
-    "get_task_automation",
     "get_task_detail",
     "get_task_id_for_run",
     "get_task_run",
@@ -231,7 +229,6 @@ __all__ = [
     "list_sandbox_custom_images",
     "list_sandbox_environments",
     "sandbox_custom_images_enabled",
-    "list_task_automations",
     "list_task_run_living_artifacts",
     "list_task_repositories",
     "list_task_runs",
@@ -253,7 +250,6 @@ __all__ = [
     "resolve_slack_thread_context",
     "resume_task_run_in_cloud",
     "run_task",
-    "run_task_automation_now",
     "send_cancel",
     "select_repository_for_message",
     "set_task_run_output",
@@ -280,7 +276,6 @@ __all__ = [
     "retrieve_task_comment",
     "update_sandbox_environment",
     "update_task",
-    "update_task_automation",
     "update_task_run",
     "update_task_run_state",
     "upsert_internal_sandbox_env",
@@ -1994,180 +1989,6 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
     return True
 
 
-# --- Task automations (presentation CRUD) ---
-# Visibility mirrors the task-run visibility filter traversed via the automation's ``task`` FK
-# (creator, legacy unowned tasks, and signals-pipeline tasks). Most read fields proxy off the
-# linked ``Task``; the schedule (Temporal) is kept in sync from inside the write functions.
-
-
-def _task_automation_to_dto(automation: TaskAutomation) -> contracts.TaskAutomationDTO:
-    return contracts.TaskAutomationDTO(
-        id=automation.id,
-        name=automation.name,
-        prompt=automation.prompt,
-        repository=automation.repository,
-        github_integration=automation.github_integration_id,
-        cron_expression=automation.cron_expression,
-        timezone=automation.timezone,
-        template_id=automation.template_id,
-        enabled=automation.enabled,
-        last_run_at=automation.last_run_at,
-        last_run_status=automation.last_run_status,
-        last_task_id=str(automation.task_id),
-        last_task_run_id=str(automation.last_task_run_id) if automation.last_task_run_id else None,
-        last_error=automation.last_error,
-        created_at=automation.created_at,
-        updated_at=automation.updated_at,
-    )
-
-
-def _visible_task_automations(team_id: int, user_id: int | None):
-    return TaskAutomation.objects.filter(task__team_id=team_id, task__deleted=False).filter(
-        task_run_visibility_q(user_id)
-    )
-
-
-def list_task_automations(team_id: int, user_id: int | None) -> list[contracts.TaskAutomationDTO]:
-    """Automations for the team visible to the user, ordered by task title then newest first."""
-    automations = _visible_task_automations(team_id, user_id).order_by("task__title", "-created_at")
-    return [_task_automation_to_dto(automation) for automation in automations]
-
-
-def get_task_automation(
-    automation_id: str | UUID, team_id: int, user_id: int | None
-) -> contracts.TaskAutomationDTO | None:
-    """A single automation visible to the user. Returns ``None`` if not found/visible."""
-    automation = _visible_task_automations(team_id, user_id).filter(pk=automation_id).first()
-    return _task_automation_to_dto(automation) if automation is not None else None
-
-
-def create_task_automation(
-    team_id: int,
-    user_id: int | None,
-    *,
-    name: str,
-    prompt: str,
-    repository: str,
-    github_integration_id: int | None = None,
-    cron_expression: str,
-    timezone: str = "UTC",
-    template_id: str | None = None,
-    enabled: bool = True,
-) -> contracts.TaskAutomationDTO:
-    """Create an automation (and its backing task) and sync its Temporal schedule.
-
-    Falls back to the team's default GitHub integration when none is supplied, mirroring the
-    original serializer behavior.
-    """
-    if github_integration_id is None:
-        default_integration = Integration.objects.filter(team_id=team_id, kind="github").first()
-        github_integration_id = default_integration.id if default_integration else None
-
-    with transaction.atomic():
-        task = Task.objects.create(
-            team_id=team_id,
-            created_by_id=user_id,
-            title=name,
-            description=prompt,
-            origin_product=Task.OriginProduct.AUTOMATION,
-            repository=repository,
-            github_integration_id=github_integration_id,
-        )
-        automation = TaskAutomation.objects.create(
-            task=task,
-            cron_expression=cron_expression,
-            timezone=timezone,
-            template_id=template_id,
-            enabled=enabled,
-        )
-
-    _sync_automation_schedule(automation)
-    return _task_automation_to_dto(automation)
-
-
-def update_task_automation(
-    automation_id: str | UUID, team_id: int, user_id: int | None, **fields
-) -> contracts.TaskAutomationDTO | None:
-    """Partially update a visible automation (and its backing task) and re-sync its schedule.
-
-    Returns ``None`` if the automation is not found/visible. The ``github_integration_id``
-    key (when present) updates the backing task's GitHub integration.
-    """
-    automation = _visible_task_automations(team_id, user_id).filter(pk=automation_id).first()
-    if automation is None:
-        return None
-
-    task_field_map = {
-        "name": "title",
-        "prompt": "description",
-        "repository": "repository",
-        "github_integration_id": "github_integration_id",
-    }
-    task_updates = {task_field_map[key]: fields.pop(key) for key in list(fields) if key in task_field_map}
-
-    with transaction.atomic():
-        for key, value in fields.items():
-            setattr(automation, key, value)
-        automation.save()
-
-        if task_updates:
-            task = automation.task
-            fields_to_update = []
-            for field, value in task_updates.items():
-                if getattr(task, field) != value:
-                    setattr(task, field, value)
-                    fields_to_update.append(field)
-            if fields_to_update:
-                fields_to_update.append("updated_at")
-                task.save(update_fields=fields_to_update)
-
-    _sync_automation_schedule(automation)
-    return _task_automation_to_dto(automation)
-
-
-def delete_task_automation(automation_id: str | UUID, team_id: int, user_id: int | None) -> bool:
-    """Delete a visible automation and its Temporal schedule. Returns whether a row was deleted."""
-    automation = _visible_task_automations(team_id, user_id).filter(pk=automation_id).first()
-    if automation is None:
-        return False
-
-    from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
-        delete_automation_schedule,
-    )
-
-    delete_automation_schedule(automation)
-    automation.delete()
-    return True
-
-
-def run_task_automation_now(
-    automation_id: str | UUID, team_id: int, user_id: int | None
-) -> contracts.TaskAutomationDTO | None:
-    """Trigger an automation run immediately and return the refreshed automation DTO.
-
-    Returns ``None`` if the automation is not found/visible.
-    """
-    automation = _visible_task_automations(team_id, user_id).filter(pk=automation_id).first()
-    if automation is None:
-        return None
-
-    from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
-        run_task_automation,
-    )
-
-    run_task_automation(str(automation.id))
-    automation.refresh_from_db()
-    return _task_automation_to_dto(automation)
-
-
-def _sync_automation_schedule(automation: TaskAutomation) -> None:
-    from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
-        sync_automation_schedule,
-    )
-
-    sync_automation_schedule(automation)
-
-
 # --- Task runs (presentation lifecycle) ---
 # Every function takes ids/primitives and returns a TaskRunDetailDTO (or a small result),
 # moving all ORM access and Temporal/Slack/S3 orchestration behind the facade. Visibility on
@@ -2594,9 +2415,6 @@ def update_task_run(
     output/state merges take a row lock, terminal transitions signal Temporal + dispatch
     push/Slack updates after commit, and a cloud→local transition cancels the workflow.
     """
-    from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
-        update_automation_run_result,
-    )
     from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the api import path)
         handle_loop_run_terminal,
     )
@@ -2674,7 +2492,6 @@ def update_task_run(
         run.save(update_fields=list(update_fields))
         run.publish_stream_state_event()
 
-    update_automation_run_result(run)
     # Only on the actual transition: a repeat PATCH with the same terminal status, or an
     # output-only PATCH on an already-terminal run, must not re-run loop bookkeeping
     # (consecutive_failures would double-count). The workflow's status-update activity
@@ -4150,8 +3967,9 @@ def _trigger_task_processing_workflow(
     initial_artifact_ids: list[str] | None = None,
     raise_on_error: bool = False,
 ) -> None:
-    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        execute_task_processing_workflow,
+    from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
+        WorkflowDispatchOptions,
+        enqueue_or_start_workflow,
     )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         RunSource,
@@ -4166,28 +3984,22 @@ def _trigger_task_processing_workflow(
     posthog_mcp_scopes: Literal["read_only", "full"] = "full" if run_source in full_mcp_run_sources else "read_only"
     try:
         logger.info("Attempting to trigger task processing workflow for task %s, run %s", task.id, run.id)
+        message = None
         if initial_message or initial_artifact_ids:
-            execute_task_processing_workflow(
-                task_id=str(task.id),
-                run_id=str(run.id),
-                team_id=task.team.id,
+            message = PendingFollowup(
+                message=initial_message,
+                artifact_ids=initial_artifact_ids or [],
+                actor_user_id=user_id,
+                message_id=str(uuid4()),
+            )
+        enqueue_or_start_workflow(
+            run,
+            options=WorkflowDispatchOptions(
                 user_id=user_id,
                 posthog_mcp_scopes=posthog_mcp_scopes,
-                initial_message=PendingFollowup(
-                    message=initial_message,
-                    artifact_ids=initial_artifact_ids or [],
-                    actor_user_id=user_id,
-                    message_id=str(uuid4()),
-                ),
-            )
-        else:
-            execute_task_processing_workflow(
-                task_id=str(task.id),
-                run_id=str(run.id),
-                team_id=task.team.id,
-                user_id=user_id,
-                posthog_mcp_scopes=posthog_mcp_scopes,
-            )
+                initial_message=message,
+            ),
+        )
         logger.info("Workflow trigger completed for task %s, run %s", task.id, run.id)
     except Exception as e:
         logger.exception("Failed to trigger task processing workflow for task %s, run %s: %s", task.id, run.id, e)
@@ -4251,20 +4063,27 @@ def start_task_run(
 
     previous_state = dict(run.state or {})
     try:
-        if state_updates:
-            TaskRun.update_state_atomic(run.id, updates=state_updates)
-            run.refresh_from_db()
-        logger.info("Triggering workflow for task %s, existing run %s", task.id, run.id)
-        _trigger_task_processing_workflow(
-            task,
-            run,
-            user_id,
-            initial_message=(pending_user_message or task.description or None)
-            if task.runtime == Task.Runtime.PI
-            else None,
-            initial_artifact_ids=pending_user_artifact_ids if task.runtime == Task.Runtime.PI else None,
-            raise_on_error=True,
-        )
+        with transaction.atomic():
+            run = (
+                TaskRun.objects.select_for_update(of=("self",))
+                .select_related("task", "task__team", "task__created_by")
+                .get(id=run.id)
+            )
+            task = run.task
+            if state_updates:
+                TaskRun.update_state_atomic(run.id, updates=state_updates)
+                run.refresh_from_db()
+            logger.info("Triggering workflow for task %s, existing run %s", task.id, run.id)
+            _trigger_task_processing_workflow(
+                task,
+                run,
+                user_id,
+                initial_message=(pending_user_message or task.description or None)
+                if task.runtime == Task.Runtime.PI
+                else None,
+                initial_artifact_ids=pending_user_artifact_ids if task.runtime == Task.Runtime.PI else None,
+                raise_on_error=True,
+            )
     except Exception:
         if state_updates:
             rollback_updates = {
@@ -4620,6 +4439,67 @@ def _list_tasks_queryset(
         latest_run_status = latest_run.values("status")[:1]
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
+    # PR/CI state filters read the snapshot the PR webhook and the CI follow-up
+    # loop persist onto the latest run's output (same latest-run subquery shape
+    # as the status filter, so "the task's PR" means what the API's latest_run
+    # shows). KeyTextTransform, so the comparison is text = text.
+    pr_state = filters.get("pr_state")
+    if pr_state:
+        latest_run_pr_state = latest_run.annotate(_pr_state=KeyTextTransform("pr_state", "output")).values("_pr_state")[
+            :1
+        ]
+        qs = qs.annotate(_latest_run_pr_state=Subquery(latest_run_pr_state))
+        if pr_state == "merged":
+            # Runs merged before pr_state existed only carry the older
+            # pr_merged flag; honor both spellings.
+            latest_run_pr_merged = latest_run.annotate(_pr_merged=KeyTextTransform("pr_merged", "output")).values(
+                "_pr_merged"
+            )[:1]
+            qs = qs.annotate(_latest_run_pr_merged=Subquery(latest_run_pr_merged)).filter(
+                Q(_latest_run_pr_state="merged") | Q(_latest_run_pr_merged="true")
+            )
+        else:
+            qs = qs.filter(_latest_run_pr_state=pr_state)
+
+    ci_status = filters.get("ci_status")
+    if ci_status:
+        latest_run_ci_status = latest_run.annotate(_ci_status=KeyTextTransform("ci_status", "output")).values(
+            "_ci_status"
+        )[:1]
+        qs = qs.annotate(_latest_run_ci_status=Subquery(latest_run_ci_status)).filter(_latest_run_ci_status=ci_status)
+
+    # Pins are per-user, so "pinned" means the requesting user's pins — and
+    # without a user (service callers) nothing is pinned.
+    if str(filters.get("pinned")).lower() == "true":
+        if user_id is None:
+            qs = qs.none()
+        else:
+            qs = qs.filter(Exists(TaskPin.objects.filter(task=OuterRef("pk"), user_id=user_id)))
+
+    commented_by = filters.get("commented_by")
+    if commented_by:
+        qs = qs.filter(
+            Exists(
+                TaskThreadMessage.objects.for_team(team_id).filter(
+                    task=OuterRef("pk"),
+                    author_id=commented_by,
+                    author_kind=TaskThreadMessage.AuthorKind.HUMAN,
+                )
+            )
+        )
+
+    mentions = filters.get("mentions")
+    if mentions:
+        qs = qs.filter(
+            Exists(
+                TaskThreadMessageMention.objects.for_team(team_id)
+                .filter(task=OuterRef("pk"), mentioned_user_id=mentions)
+                # Same rule as list_mentions: legacy turn_complete rows are hidden
+                # from threads, so their indexed mentions must not match either.
+                .exclude(message__event="turn_complete")
+            )
+        )
+
     # `internal` controls default visibility, not access — task visibility (applied above) is the real
     # authorization boundary, open to any team member. `all` returns both, `true` returns only-internal,
     # and the default excludes internal tasks so the main task list stays clean.
@@ -4824,6 +4704,7 @@ def create_task(
     from posthog.models import Team  # noqa: PLC0415
 
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
+        enforce_report_task_cap,
         record_report_task,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
@@ -5033,11 +4914,24 @@ def create_task(
     # Gated regardless of the relationship label: the label is client-selected and manually
     # created tasks run PR-capable by default, so a "discussion" label must not dodge the limit.
     report_ref = validated_data.get("signal_report") or validated_data.get("signal_report_id")
-    if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT:
-        enforce_self_driving_pr_quota(team, report_id=str(getattr(report_ref, "id", report_ref)))
+    signal_report_id = (
+        str(getattr(report_ref, "id", report_ref))
+        if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+        else None
+    )
+    if signal_report_id:
+        enforce_self_driving_pr_quota(team, report_id=signal_report_id)
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
+        if signal_report_id:
+            # Locks the report row until commit, so concurrent creates (and auto-start, which
+            # takes the same lock) serialize instead of both passing the count check.
+            enforce_report_task_cap(
+                team_id=team_id,
+                report_id=signal_report_id,
+                relationship=signal_report_task_relationship,
+            )
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
             # Record the task↔report association + work-log artefact for the asserted relationship
@@ -7601,9 +7495,9 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     ``task_control_q``): the dispatched run executes with the task creator's
     credentials, so nobody else may start or steer it. The task row is locked
     for the duration so overlapping fix requests serialize instead of each
-    creating a paid run. The fresh-run path mirrors ``run_task_automation``:
-    create the run inside the transaction and dispatch its processing workflow
-    on commit with ``skip_user_check``.
+    creating a paid run. The fresh-run path creates the run inside the
+    transaction and dispatches its processing workflow on commit with
+    ``skip_user_check``.
     Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
     ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
     """
@@ -7643,13 +7537,14 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
             # The workflow is gone despite the non-terminal row (evicted or stale); fall
             # through to a fresh run rather than reporting a dead end.
         task_run = task.create_run(mode="background", extra_state={"pending_user_message": prompt})
-        transaction.on_commit(
-            lambda: _dispatch_server_run(
-                team_id=task.team_id,
-                user_id=task.created_by_id,
-                task_id=str(task.id),
-                run_id=str(task_run.id),
-            )
+        from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
+            WorkflowDispatchOptions,
+            enqueue_or_start_workflow,
+        )
+
+        enqueue_or_start_workflow(
+            task_run,
+            options=WorkflowDispatchOptions(user_id=task.created_by_id, skip_user_check=True),
         )
     return "new_run"
 
@@ -7692,8 +7587,8 @@ def request_canvas_change(
 def _dispatch_server_run(*, team_id: int, user_id: int | None, task_id: str, run_id: str) -> None:
     """Dispatch a server-originated run's processing workflow, bypassing the per-user check.
 
-    Nothing canvas-specific: the same shape as ``automation_service``'s dispatch, kept
-    here because that module puts temporalio on its import path and this one must not.
+    Nothing canvas-specific: kept here because ``temporal.client`` puts temporalio on
+    its import path and this module must not.
     """
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         execute_task_processing_workflow,
