@@ -139,7 +139,7 @@ def build_cleanup_prompt(experiment: Experiment, flag_key: str, plan: CleanupPla
             "## Rules",
             "- For the kept variant: keep that branch's body, delete the surrounding flag check and the other branches.",
             "- Boolean-style checks: keep the enabled path's body and drop the if-check (and any else branch).",
-            "- If the kept branch renders nothing or does nothing, delete it entirely, including the component or helper it calls and their call sites. Do not leave a no-op mounted.",
+            "- If the kept branch renders nothing or does nothing, delete it entirely, including any component or helper that nothing else uses once the branch is gone. Do not leave a no-op mounted.",
             "- Remove the now-dead code you create: orphaned branches, unused imports, unused helpers.",
             "- Code only. Do NOT change the flag in PostHog, and do NOT touch unrelated code.",
             "- If the correct path is genuinely ambiguous at a site, leave it unchanged and list it in the PR description for a human to review.",
