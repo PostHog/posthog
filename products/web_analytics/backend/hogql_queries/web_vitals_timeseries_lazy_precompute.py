@@ -7,6 +7,7 @@ import posthoganalytics
 from prometheus_client import Counter
 
 from posthog.schema import (
+    ChartDisplayType,
     EventsNode,
     IntervalType,
     TrendsQuery,
@@ -137,8 +138,15 @@ def vitals_timeseries_percentile(query: WebVitalsQuery) -> Optional[str]:
     if source.breakdownFilter is not None:
         return None
     tf = source.trendsFilter
-    if tf is not None and (tf.formula or tf.formulas or tf.formulaNodes):
-        return None
+    if tf is not None:
+        # Only the canonical line graph is servable. Total-value displays
+        # collapse the range to one row and cumulative displays running-sum each
+        # bucket; the per-bucket bucket read reproduces neither (same gate the
+        # sibling web_trends runner applies).
+        if tf.display is not None and tf.display != ChartDisplayType.ACTIONS_LINE_GRAPH:
+            return None
+        if tf.formula or tf.formulas or tf.formulaNodes:
+            return None
 
     interval = (source.interval or IntervalType.DAY).value
     if interval not in _BUCKET_EXPRS:

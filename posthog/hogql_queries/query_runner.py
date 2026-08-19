@@ -910,11 +910,23 @@ def get_query_runner(
             is_vitals_precompute_enabled_for_team,
         )
 
+        # Only the canonical line-graph tab shape can be served from — or
+        # faithfully fall back through — this runner (a plain TrendsQueryRunner
+        # subclass). Other displays (total-value, cumulative, calendar heatmap,
+        # box plot, slope graph) must reach the TrendsQuery source's own
+        # dispatch below, which routes several of them to dedicated runners, so
+        # let those unwrap to the source rather than take this branch.
+        source = get_from_dict_or_attr(query, "source")
+        source_is_trends = source is not None and get_from_dict_or_attr(source, "kind") == "TrendsQuery"
+        source_trends_filter = get_from_dict_or_attr(source, "trendsFilter") if source_is_trends else None
+        source_display = get_from_dict_or_attr(source_trends_filter, "display") if source_trends_filter else None
+        is_canonical_display = source_display is None or source_display == ChartDisplayType.ACTIONS_LINE_GRAPH
+
         # Flag-gated at dispatch: with the rollout flag off this kind has no
         # runner branch, so `process_query_model` unwraps to the source
         # TrendsQuery exactly as before the runner existed. Local flag
         # evaluation only — no network I/O here.
-        if is_vitals_precompute_enabled_for_team(team):
+        if is_canonical_display and is_vitals_precompute_enabled_for_team(team):
             from products.web_analytics.backend.hogql_queries.web_vitals_timeseries import WebVitalsQueryRunner
 
             return WebVitalsQueryRunner(

@@ -12,10 +12,12 @@ from parameterized import parameterized
 
 from posthog.schema import (
     BreakdownFilter,
+    ChartDisplayType,
     CompareFilter,
     DateRange,
     EventsNode,
     IntervalType,
+    TrendsFilter,
     TrendsQuery,
     WebVitalsQuery,
 )
@@ -62,6 +64,15 @@ def _vitals_query(**overrides: Any) -> WebVitalsQuery:
 class TestVitalsTimeseriesGate(APIBaseTest):
     def test_canonical_tab_shape_is_servable(self) -> None:
         assert vitals_timeseries_percentile(_vitals_query()) == "p90"
+        # The tab query the frontend builds pins the line-graph display explicitly.
+        assert (
+            vitals_timeseries_percentile(
+                _vitals_query(
+                    source_overrides={"trendsFilter": TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH)}
+                )
+            )
+            == "p90"
+        )
 
     @parameterized.expand(
         [
@@ -80,6 +91,10 @@ class TestVitalsTimeseriesGate(APIBaseTest):
                 {"source_overrides": {"series": [_series(m, math_property="$other") for m in _METRICS]}},
             ),
             ("hour_interval", {"source_overrides": {"interval": IntervalType.HOUR}}),
+            (
+                "total_value_display",
+                {"source_overrides": {"trendsFilter": TrendsFilter(display=ChartDisplayType.ACTIONS_BAR_VALUE)}},
+            ),
             (
                 "breakdown",
                 {"source_overrides": {"breakdownFilter": BreakdownFilter(breakdown="$browser")}},
@@ -190,6 +205,21 @@ class TestWebVitalsTimeseriesLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         ):
             runner = get_query_runner_or_none(query, self.team)
         assert isinstance(runner, WebVitalsQueryRunner)
+
+    def test_dispatch_skips_runner_for_non_line_display(self) -> None:
+        # Non-line displays (here a calendar heatmap) have dedicated trends
+        # runners the plain-trends WebVitals runner can't reproduce, so with the
+        # flag on the wrapper must still unwrap to its source rather than route
+        # here.
+        query = _vitals_query(
+            source_overrides={"trendsFilter": TrendsFilter(display=ChartDisplayType.CALENDAR_HEATMAP)}
+        ).model_dump(mode="json")
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            runner = get_query_runner_or_none(query, self.team)
+        assert runner is None
 
     def test_cache_payload_carries_flag_state_as_kill_switch(self) -> None:
         query = _vitals_query()
