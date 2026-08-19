@@ -39,14 +39,15 @@ import { providerKeyStateIssueDescription, providerLabel } from '../settings/pro
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationReportConfig } from './components/EvaluationReportConfig'
+import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
-import { EVALUATION_PASSED_HOGQL, EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { EVALUATION_PASSED_HOGQL, EVALUATION_RUNS_QUERY_LIMIT } from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReports,
-    evaluationSupportsRunSummary,
+    evaluationSupportsRunOutcomes,
     evaluationTypeHasEditableCriteria,
     evaluationTypeUsesModelConfiguration,
     isBooleanEvaluationOutput,
@@ -128,12 +129,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const effectiveStrategy: EvaluationSettleStrategy =
         evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
     const isReportableEvaluation = evaluationSupportsReports(evaluation)
-    const supportsRunSummary = evaluationSupportsRunSummary(evaluation)
+    const supportsRunOutcomes = evaluationSupportsRunOutcomes(evaluation)
     const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)
     const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
 
     const trendInsightUrl =
-        supportsRunSummary && !isNewEvaluation && evaluation.id
+        supportsRunOutcomes && !isNewEvaluation && evaluation.id
             ? urls.insightNew({
                   query: {
                       kind: NodeKind.InsightVizNode,
@@ -386,12 +387,23 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         content: (
                             <div className="max-w-6xl">
                                 <div className="flex justify-between items-center mb-4">
-                                    <p className="text-muted text-sm m-0">
-                                        History of when this evaluation has been executed.
-                                        {runsSummary && runsSummary.total > EVALUATION_SUMMARY_MAX_RUNS && (
-                                            <> The table below shows the latest {EVALUATION_SUMMARY_MAX_RUNS} runs.</>
+                                    <div className="min-w-0">
+                                        <p className="text-muted text-sm m-0">
+                                            History of when this evaluation has been executed.
+                                            {runsSummary && runsSummary.total > EVALUATION_RUNS_QUERY_LIMIT && (
+                                                <>
+                                                    {' '}
+                                                    The table below shows the latest {EVALUATION_RUNS_QUERY_LIMIT} runs.
+                                                </>
+                                            )}
+                                        </p>
+                                        {isReportableEvaluation && (
+                                            <EvaluationReportsCallout
+                                                evaluationId={evaluation.id}
+                                                onReportsClick={() => setActiveTab('reports')}
+                                            />
                                         )}
-                                    </p>
+                                    </div>
                                     {runsSummary && (
                                         <div className="flex flex-col items-end gap-1">
                                             <div className="flex gap-4 text-sm">
@@ -399,7 +411,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <div className="font-semibold text-lg">{runsSummary.total}</div>
                                                     <div className="text-muted">Total runs</div>
                                                 </div>
-                                                {supportsRunSummary && (
+                                                {supportsRunOutcomes && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg text-success">
                                                             {runsSummary.successRate}%
@@ -407,7 +419,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         <div className="text-muted">Success rate</div>
                                                     </div>
                                                 )}
-                                                {supportsRunSummary && evaluation.output_config.allows_na && (
+                                                {supportsRunOutcomes && evaluation.output_config.allows_na && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg">
                                                             {runsSummary.applicabilityRate}%
