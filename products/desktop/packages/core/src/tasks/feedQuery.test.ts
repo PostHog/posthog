@@ -404,6 +404,13 @@ describe("feedQuery", () => {
       expect(plan.issues.map((i) => i.kind)).toEqual(["unsupported"]);
     });
 
+    it("flags -type:task as ignored instead of returning every task", () => {
+      const plan = planFeedQuery(parseFeedQuery("-type:task"), context);
+      expect(plan.requests).toEqual([{}]);
+      expect(plan.matches(task())).toBe(true);
+      expect(plan.issues.map((i) => i.kind)).toEqual(["unsupported"]);
+    });
+
     it.each([
       ["commented-by:shy", { commentedBy: shy.id }],
       ["mentions:@me", { mentions: shy.id }],

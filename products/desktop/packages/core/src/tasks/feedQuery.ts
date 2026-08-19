@@ -658,9 +658,11 @@ export function planFeedQuery(
 
   const typeGroup = groups.get("type");
   if (typeGroup) {
-    // Feed results contain tasks only.
+    // Feed results contain tasks only, so `type:` carries no meaning here. A
+    // negated `-type:task` is self-contradictory rather than the identity, so
+    // it is reported as ignored too instead of silently dropping to MATCH_ALL.
     for (const token of [...typeGroup.positives, ...typeGroup.negatives]) {
-      if (normalize(token.value) !== "task") {
+      if (token.negated || normalize(token.value) !== "task") {
         issues.push({
           raw: token.raw,
           kind: "unsupported",
