@@ -67,6 +67,7 @@ MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
+    "scout_suggestions": "scout",
 }
 
 
@@ -197,6 +198,10 @@ class Task(DeletedMetaFields, models.Model):
         SIGNAL_REPORT = "signal_report", "Signal Report"
         # Headless Signals scout — proactively explores a project and emits signals.
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
+        # Headless scan that pre-computes the "Suggested for this project" scout batch
+        # (products/signals/backend/scout_harness/suggestions.py). Reserved: the origin is what
+        # routes the run to the Signals OAuth app and its read-only posture.
+        SIGNALS_SCOUT_SUGGESTIONS = "scout_suggestions", "Signals Scout Suggestions"
         # Conversations support reply pipeline — autonomous grounded draft replies.
         SUPPORT_REPLY = "support_reply", "Support Reply"
         # HogDesk — the internal support desk client. Tasks it creates from a

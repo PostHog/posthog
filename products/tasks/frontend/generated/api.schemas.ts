@@ -1543,6 +1543,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `experiments` - Experiments
  * * `signal_report` - Signal Report
  * * `signals_scout` - Signals Scout
+ * * `scout_suggestions` - Signals Scout Suggestions
  * * `support_reply` - Support Reply
  * * `hogdesk` - HogDesk
  * * `review_hog` - ReviewHog
@@ -1566,6 +1567,7 @@ export const OriginProductEnumApi = {
     Experiments: 'experiments',
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
+    ScoutSuggestions: 'scout_suggestions',
     SupportReply: 'support_reply',
     Hogdesk: 'hogdesk',
     ReviewHog: 'review_hog',
@@ -1606,6 +1608,7 @@ export interface TaskCreateApi {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -1748,6 +1751,7 @@ export interface TaskWriteApi {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -1875,6 +1879,7 @@ export interface PatchedTaskWriteApi {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
