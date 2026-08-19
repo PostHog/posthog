@@ -2190,16 +2190,15 @@ def snapshot_clickhouse_queries(fn_or_class):
     Update snapshots via --snapshot-update.
     """
 
+    if getattr(fn_or_class, "_skip_clickhouse_query_snapshots", False):
+        return fn_or_class
+
     # check if fn_or_class is a class
     if inspect.isclass(fn_or_class):
         # wrap every class method that starts with test_ with this decorator
         for attr in dir(fn_or_class):
             method = getattr(fn_or_class, attr)
-            if (
-                callable(method)
-                and attr.startswith("test_")
-                and not getattr(method, "_skip_clickhouse_query_snapshots", False)
-            ):
+            if callable(method) and attr.startswith("test_"):
                 setattr(fn_or_class, attr, snapshot_clickhouse_queries(method))
         return fn_or_class
 
