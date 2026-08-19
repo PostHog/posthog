@@ -43,6 +43,13 @@ export interface webAnalyticsFilterPresetsLogicActions {
     loadPreset: (filters: WebAnalyticsFiltersConfig) => {
         filters: WebAnalyticsFiltersConfig
     } // webAnalyticsFilterLogic
+    setAppliedPresetFilterState: (
+        shortId: string | null,
+        filters: WebAnalyticsFiltersConfig | null
+    ) => {
+        filters: WebAnalyticsFiltersConfig | null
+        shortId: string | null
+    } // webAnalyticsFilterLogic
     clearDateFilters: () => {
         value: true
     } // webAnalyticsLogic
@@ -212,7 +219,7 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
         values: [webAnalyticsLogic, ['currentFiltersConfig']],
         actions: [
             webAnalyticsFilterLogic,
-            ['loadPreset', 'clearFilters as clearPropertyFilters'],
+            ['loadPreset', 'clearFilters as clearPropertyFilters', 'setAppliedPreset as setAppliedPresetFilterState'],
             webAnalyticsLogic,
             ['clearFilters as clearDateFilters'],
         ],
@@ -322,6 +329,13 @@ export const webAnalyticsFilterPresetsLogic = kea<webAnalyticsFilterPresetsLogic
         },
     })),
     listeners(({ actions, values }) => ({
+        // Keep webAnalyticsFilterLogic's copy in step so webAnalyticsLogic can tag queries with the
+        // preset. The other two transitions of the `appliedPreset` reducer (`loadPreset` and
+        // `clearFilters` via `clearPreset`) are webAnalyticsFilterLogic's own actions, so they
+        // already clear it there.
+        setAppliedPreset: ({ preset }) => {
+            actions.setAppliedPresetFilterState(preset?.short_id ?? null, preset?.filters ?? null)
+        },
         applyPreset: ({ preset }) => {
             if (values.appliedPreset?.short_id === preset.short_id) {
                 actions.clearPreset()

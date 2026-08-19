@@ -135,13 +135,29 @@ export const haveVariablesOrFiltersChanged = (a: Node, b: Node): boolean => {
     return false
 }
 
+/** Query log metadata, stripped from result caching on the backend too, so it can never change what
+ * comes back. Comparing it would refetch every tile whenever a tag alone changes. */
+const withoutQueryLogTags = <T extends Node>(node: T): T => {
+    if (!('tags' in node)) {
+        return node
+    }
+    const { tags: _tags, ...rest } = node as T & { tags?: unknown }
+    return rest as T
+}
+
 /** Compares two queries for semantic equality to prevent double-fetching of data. */
 export const compareDataNodeQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean => {
     if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
-        return objectsEqual(cleanInsightQuery(a, opts), cleanInsightQuery(b, opts))
+        return objectsEqual(
+            cleanInsightQuery(withoutQueryLogTags(a), opts),
+            cleanInsightQuery(withoutQueryLogTags(b), opts)
+        )
     }
 
-    return objectsEqual(objectCleanWithEmpty(a as any), objectCleanWithEmpty(b as any))
+    return objectsEqual(
+        objectCleanWithEmpty(withoutQueryLogTags(a) as any),
+        objectCleanWithEmpty(withoutQueryLogTags(b) as any)
+    )
 }
 
 /**

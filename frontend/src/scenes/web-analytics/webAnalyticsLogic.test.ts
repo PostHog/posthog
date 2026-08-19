@@ -15,6 +15,7 @@ import { PropertyFilterType, PropertyOperator, UserType } from '~/types'
 import { GraphsTab, ProductTab, TileId } from './common'
 import { FOCUS_MODE_TILE_IDS } from './focus-mode/focusModeMapping'
 import { WebAnalyticsConcern, getFocusModeOnboardingSeenKey } from './focus-mode/types'
+import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 describe('webAnalyticsLogic focus mode', () => {
@@ -573,5 +574,48 @@ describe('webAnalyticsLogic URL restoration', () => {
         router.actions.push('/web/bots')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+    })
+})
+
+describe('webAnalyticsLogic warmablePresetShortId', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    const applyPreset = (): void => {
+        webAnalyticsFilterLogic.actions.loadPreset(logic.values.currentFiltersConfig)
+        webAnalyticsFilterLogic.actions.setAppliedPreset('abc123', logic.values.currentFiltersConfig)
+    }
+
+    it('tags queries while the applied preset still matches the filters', () => {
+        expect(logic.values.warmablePresetShortId).toBeNull()
+
+        applyPreset()
+
+        expect(logic.values.warmablePresetShortId).toBe('abc123')
+    })
+
+    it('stops tagging as soon as the user drifts off the preset', () => {
+        applyPreset()
+
+        // An applied preset stays applied while the filters move, so without the equality
+        // check the warmer would attribute unrelated shapes to this preset.
+        webAnalyticsFilterLogic.actions.togglePropertyFilter(PropertyFilterType.Event, '$browser', 'Chrome')
+
+        expect(logic.values.appliedPresetShortId).toBe('abc123')
+        expect(logic.values.warmablePresetShortId).toBeNull()
     })
 })

@@ -121,6 +121,7 @@ import {
     loadPriorityMap,
     personPropertiesToPathClean,
     sessionPropertiesToPathClean,
+    withPresetTag,
 } from './common'
 import {
     PROPERTY_HOST,
@@ -155,6 +156,8 @@ export interface webAnalyticsLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     user: UserType | null // userLogic
+    appliedPresetFilters: WebAnalyticsFiltersConfig | null // webAnalyticsFilterLogic
+    appliedPresetShortId: string | null // webAnalyticsFilterLogic
     authorizedDomains: string[] // webAnalyticsFilterLogic
     countryFilter: string | null // webAnalyticsFilterLogic
     deviceTypeFilter: DeviceType | null // webAnalyticsFilterLogic
@@ -208,6 +211,7 @@ export interface webAnalyticsLogicValues {
     graphsTab: string
     hasCountryFilter: boolean
     hasIncompatibleFilters: boolean
+    hasNonDefaultFilters: boolean
     hasSavedFocusMode: boolean
     hasSeenFocusModeOnboarding: boolean
     hiddenTiles: TileId[]
@@ -246,6 +250,7 @@ export interface webAnalyticsLogicValues {
     tileVisualizations: Record<TileId, TileVisualizationOption>
     tiles: WebAnalyticsTile[]
     useWebAnalyticsPrecompute: boolean | null
+    warmablePresetShortId: string | null
     webAnalyticsFilters: WebAnalyticsPropertyFilters
     webVitalsMetricQuery: InsightVizNode<TrendsQuery>
     webVitalsPercentile: WebVitalsPercentile
@@ -554,6 +559,19 @@ export interface webAnalyticsLogicMeta {
             isPathCleaningEnabled: boolean,
             shouldFilterTestAccounts: boolean
         ) => WebAnalyticsFiltersConfig
+        warmablePresetShortId: (
+            appliedPresetShortId: string | null, // webAnalyticsFilterLogic
+            appliedPresetFilters: WebAnalyticsFiltersConfig | null, // webAnalyticsFilterLogic
+            currentFiltersConfig: WebAnalyticsFiltersConfig
+        ) => string | null
+        hasNonDefaultFilters: (
+            rawWebAnalyticsFilters: WebAnalyticsPropertyFilters, // webAnalyticsFilterLogic
+            domainFilter: string | null, // webAnalyticsFilterLogic
+            deviceTypeFilter: DeviceType | null, // webAnalyticsFilterLogic
+            countryFilter: string | null, // webAnalyticsFilterLogic
+            referrerFilter: string | null, // webAnalyticsFilterLogic
+            conversionGoal: WebAnalyticsConversionGoal | null
+        ) => boolean
         webAnalyticsFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
             isPathCleaningEnabled: boolean,
@@ -673,7 +691,8 @@ export interface webAnalyticsLogicMeta {
             isGreaterThanMd: boolean,
             tileVisualizations: Record<TileId, TileVisualizationOption>,
             preAggregatedEnabled: boolean | undefined,
-            hiddenTiles: TileId[]
+            hiddenTiles: TileId[],
+            warmablePresetShortId: string | null
         ) => WebAnalyticsTile[]
         getNewInsightUrl: (
             tiles: WebAnalyticsTile[]
@@ -719,6 +738,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'validatedDomainFilter',
                 'selectedHost',
                 'authorizedDomains',
+                'appliedPresetShortId',
+                'appliedPresetFilters',
             ],
         ],
         actions: [
@@ -1266,6 +1287,47 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 shouldFilterTestAccounts,
             }),
         ],
+        // The preset id to tag queries with, or null. An applied preset stays applied while the
+        // user drifts the filters away from it, so tagging off `appliedPresetShortId` alone would
+        // attribute unrelated query shapes to the preset and blow past the warmer's per-preset cap.
+        warmablePresetShortId: [
+            (s) => [s.appliedPresetShortId, s.appliedPresetFilters, s.currentFiltersConfig],
+            (
+                appliedPresetShortId: string | null,
+                appliedPresetFilters: WebAnalyticsFiltersConfig | null,
+                currentFiltersConfig: WebAnalyticsFiltersConfig
+            ): string | null =>
+                appliedPresetShortId && appliedPresetFilters && objectsEqual(appliedPresetFilters, currentFiltersConfig)
+                    ? appliedPresetShortId
+                    : null,
+        ],
+        // Whether the user has filtered beyond the defaults, which is when saving a preset starts to
+        // pay off. Date range and the path-cleaning / test-account toggles are deliberately left out:
+        // almost everyone changes the date range, so counting it would nudge almost everyone.
+        hasNonDefaultFilters: [
+            (s) => [
+                s.rawWebAnalyticsFilters,
+                s.domainFilter,
+                s.deviceTypeFilter,
+                s.countryFilter,
+                s.referrerFilter,
+                s.conversionGoal,
+            ],
+            (
+                properties: WebAnalyticsPropertyFilters,
+                domainFilter: string | null,
+                deviceTypeFilter: DeviceType | null,
+                countryFilter: string | null,
+                referrerFilter: string | null,
+                conversionGoal: WebAnalyticsConversionGoal | null
+            ): boolean =>
+                properties.length > 0 ||
+                !!domainFilter ||
+                !!deviceTypeFilter ||
+                !!countryFilter ||
+                !!referrerFilter ||
+                !!conversionGoal,
+        ],
         webAnalyticsFilters: [
             (s) => [
                 s.rawWebAnalyticsFilters,
@@ -1622,6 +1684,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.tileVisualizations,
                 s.preAggregatedEnabled,
                 s.hiddenTiles,
+                s.warmablePresetShortId,
             ],
             (
                 productTab: ProductTab,
@@ -1647,7 +1710,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 isGreaterThanMd: boolean,
                 tileVisualizations: Record<TileId, TileVisualizationOption>,
                 preAggregatedEnabled: boolean | undefined,
-                hiddenTiles: TileId[]
+                hiddenTiles: TileId[],
+                warmablePresetShortId: string | null
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
 
@@ -3049,12 +3113,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return []
                 }
 
-                return allTiles
-                    .filter(isNotNil)
-                    .filter((tile) =>
-                        preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
-                    )
-                    .filter((tile) => !hiddenTiles.includes(tile.tileId))
+                return withPresetTag(
+                    allTiles
+                        .filter(isNotNil)
+                        .filter((tile) =>
+                            preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
+                        )
+                        .filter((tile) => !hiddenTiles.includes(tile.tileId)),
+                    warmablePresetShortId
+                )
             },
         ],
         getNewInsightUrl: [(s) => [s.tiles], (tiles: WebAnalyticsTile[]) => getNewInsightUrlFactory(tiles)],
