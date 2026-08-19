@@ -11,6 +11,7 @@ import { template as githubTemplate } from './_destinations/github/github.templa
 import { template as gitlabTemplate } from './_destinations/gitlab/gitlab.template'
 import { template as googleTagManagerTemplate } from './_destinations/google-tag-manager/google-tag-manager.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
+import { template as googleDataManagerTemplate } from './_destinations/google_data_manager/google-data-manager.template'
 import { template as googleSheetsTemplate } from './_destinations/google_sheets/google_sheets.template'
 import { template as hubspotCompanyTemplate } from './_destinations/hubspot/hubspot.template'
 import { template as klimeTemplate } from './_destinations/klime/klime.template'
@@ -71,6 +72,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     githubTemplate,
     gitlabTemplate,
     googleAdsTemplate,
+    googleDataManagerTemplate,
     metaAdsTemplate,
     linkedinAdsTemplate,
     microsoftAdsTemplate,
