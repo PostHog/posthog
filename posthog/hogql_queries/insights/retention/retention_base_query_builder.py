@@ -12,6 +12,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import entity_to_expr, property_to_expr
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.retention.utils import breakdown_extract_expr
 
 if TYPE_CHECKING:
@@ -86,6 +87,7 @@ class RetentionBaseQueryBuilder(ABC):
         if entity.type == EntityType.DATA_WAREHOUSE:
             if not entity.aggregation_target_field:
                 raise ValidationError("A data warehouse retention series requires aggregation_target_field.")
+            tag_contains_user_hogql()
             return parse_expr(entity.aggregation_target_field)
         return ast.Field(chain=[self.aggregation_target_events_column])
 
