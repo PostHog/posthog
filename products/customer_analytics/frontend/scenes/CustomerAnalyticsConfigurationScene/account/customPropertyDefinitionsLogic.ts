@@ -1041,28 +1041,43 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 )
             },
         ],
-        // The person-target column mappings as the backend's `column_property_map` object.
+        // The person-target column mappings as the backend's `column_property_map` object. The key
+        // column is never mapped: its values identify the person/group. Bulk mapping already excludes
+        // the key column, but the key can be changed afterwards, and the map is create-only, so a key
+        // column left in a row here would be written as a property with no way to undo it.
         serializedColumnPropertyMap: [
             (s) => [s.customPropertyForm],
-            (form: CustomPropertyFormValues): Record<string, string> =>
-                Object.fromEntries(
-                    form.columnMappings
-                        .filter((mapping) => mapping.column.trim() && mapping.property.trim())
-                        .map((mapping) => [mapping.column.trim(), mapping.property.trim()])
-                ),
-        ],
-        // The per-mapping descriptions as the backend's `column_descriptions` object ({column:
-        // description}), only for complete mappings that carry a non-empty description.
-        serializedColumnDescriptions: [
-            (s) => [s.customPropertyForm],
-            (form: CustomPropertyFormValues): Record<string, string> =>
-                Object.fromEntries(
+            (form: CustomPropertyFormValues): Record<string, string> => {
+                const keyColumn = form.keyColumn?.trim()
+                return Object.fromEntries(
                     form.columnMappings
                         .filter(
-                            (mapping) => mapping.column.trim() && mapping.property.trim() && mapping.description.trim()
+                            (mapping) =>
+                                mapping.column.trim() && mapping.property.trim() && mapping.column.trim() !== keyColumn
+                        )
+                        .map((mapping) => [mapping.column.trim(), mapping.property.trim()])
+                )
+            },
+        ],
+        // The per-mapping descriptions as the backend's `column_descriptions` object ({column:
+        // description}), only for complete mappings that carry a non-empty description. The key column
+        // is excluded alongside its property, so both stay consistent.
+        serializedColumnDescriptions: [
+            (s) => [s.customPropertyForm],
+            (form: CustomPropertyFormValues): Record<string, string> => {
+                const keyColumn = form.keyColumn?.trim()
+                return Object.fromEntries(
+                    form.columnMappings
+                        .filter(
+                            (mapping) =>
+                                mapping.column.trim() &&
+                                mapping.property.trim() &&
+                                mapping.description.trim() &&
+                                mapping.column.trim() !== keyColumn
                         )
                         .map((mapping) => [mapping.column.trim(), mapping.description.trim()])
-                ),
+                )
+            },
         ],
         // Warn-only collision check per mapping: a chosen person-property name that is `$`-prefixed,
         // an identity property, or already defined on persons could overwrite existing values.

@@ -454,6 +454,18 @@ describe('customPropertyDefinitionsLogic', () => {
             expect(logic.values.mappableColumns).toEqual([])
         })
 
+        it('never serializes the key column as a property, even after the key changes', async () => {
+            // Bulk mapping excludes whatever key column is set at the time, but the key can change
+            // afterwards. The column_property_map is create-only, so writing the new identifier column as
+            // a property would be unrecoverable, and it must be dropped from the payload.
+            await mapAll({ keyColumn: 'org_id' })
+            expect(logic.values.serializedColumnPropertyMap).toEqual({ mrr: 'mrr' })
+
+            logic.actions.setCustomPropertyFormValue('keyColumn', 'mrr')
+
+            expect(logic.values.serializedColumnPropertyMap).toEqual({})
+        })
+
         it('leaves the key column mappable until one is chosen', async () => {
             // The button is gated on this in the modal — without a key column the action would map the
             // identifier as a property.
