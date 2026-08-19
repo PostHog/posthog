@@ -210,16 +210,19 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
         })
     )
     const { response, region } = await tryBothRegions(rebuild(), '/oauth/token/')
-    console.info(
-        JSON.stringify({
-            handler: 'token',
-            grant_type: grantType,
-            client_id_prefix: clientIdPrefix,
-            region_source: 'try_both',
-            resolved_region: region,
-            status: response.status,
-        })
-    )
+    const summary = JSON.stringify({
+        handler: 'token',
+        grant_type: grantType,
+        client_id_prefix: clientIdPrefix,
+        region_source: 'try_both',
+        resolved_region: region,
+        status: response.status,
+    })
+    if (region) {
+        console.info(summary)
+    } else {
+        console.error(summary)
+    }
     return response
 }
 
