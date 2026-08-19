@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -126,29 +126,29 @@ class TestFlattenCollection:
 class TestGetResource:
     @pytest.mark.parametrize("name", list(BIGEYE_ENDPOINTS.keys()))
     def test_every_endpoint_builds_a_resource(self, name: str) -> None:
-        resource = get_resource(name, workspace_id=None)
+        resource = cast(dict[str, Any], get_resource(name, workspace_id=None))
         assert resource["name"] == name
         assert resource["endpoint"]["path"] == BIGEYE_ENDPOINTS[name].path
 
     def test_paginated_endpoint_omits_workspace_id_when_unset(self) -> None:
-        resource = get_resource("Sources", workspace_id=None)
+        resource = cast(dict[str, Any], get_resource("Sources", workspace_id=None))
         assert resource["endpoint"]["json"] == {"pageSize": 100}
 
     def test_paginated_endpoint_includes_workspace_id_when_set(self) -> None:
-        resource = get_resource("Sources", workspace_id=7)
+        resource = cast(dict[str, Any], get_resource("Sources", workspace_id=7))
         assert resource["endpoint"]["json"] == {"pageSize": 100, "workspaceId": 7}
 
     def test_collections_includes_workspace_id_as_query_param(self) -> None:
-        resource = get_resource("Collections", workspace_id=7)
+        resource = cast(dict[str, Any], get_resource("Collections", workspace_id=7))
         assert resource["endpoint"]["params"] == {"workspaceId": 7}
 
     def test_workspaces_endpoint_has_no_workspace_scoping(self) -> None:
-        resource = get_resource("Workspaces", workspace_id=7)
+        resource = cast(dict[str, Any], get_resource("Workspaces", workspace_id=7))
         assert "json" not in resource["endpoint"]
         assert "params" not in resource["endpoint"]
 
     def test_collections_carries_flatten_data_map(self) -> None:
-        resource = get_resource("Collections", workspace_id=None)
+        resource = cast(dict[str, Any], get_resource("Collections", workspace_id=None))
         assert resource["data_map"] is _flatten_collection
 
 

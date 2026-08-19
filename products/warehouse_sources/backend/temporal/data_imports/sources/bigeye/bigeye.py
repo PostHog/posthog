@@ -1,8 +1,9 @@
 import re
-import dataclasses
 from typing import Any, Optional, cast
 
 import requests
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.settings import (
     BIGEYE_ENDPOINTS,
@@ -40,7 +41,7 @@ WORKSPACE_ID_REQUIRED_MESSAGE = "A workspace ID must be supplied"
 _HOST_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
-@dataclasses.dataclass
+@frozen
 class BigeyeResumeConfig:
     next_cursor: str
 

@@ -1,5 +1,6 @@
-from dataclasses import dataclass
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -11,7 +12,7 @@ FetchMethod = Literal["get", "post"]
 REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
 
 
-@dataclass
+@frozen
 class BigeyeEndpointConfig:
     name: str
     table_name: str
