@@ -612,6 +612,12 @@ pub enum TransportError {
 
     #[error("All retries exhausted")]
     RetriesExhausted,
+
+    #[error("Lane failed: {0}")]
+    LaneFailed(&'static str),
+
+    #[error("Lane closed without resolving the send")]
+    LaneClosed,
 }
 
 impl TransportError {
@@ -629,6 +635,10 @@ impl TransportError {
             TransportError::PayloadTooLarge(_) => false,
             TransportError::WorkerError(_) => true,
             TransportError::RetriesExhausted => false,
+            // Lane failures resolve through the deferral path, not the HTTP
+            // retry loop — never retried in place.
+            TransportError::LaneFailed(_) => false,
+            TransportError::LaneClosed => false,
         }
     }
 }

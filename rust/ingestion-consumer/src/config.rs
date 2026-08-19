@@ -6,6 +6,7 @@ use tracing::info;
 use crate::discovery::DiscoveryMode;
 use crate::kafka_config::ConsumerConfigBuilder;
 use crate::routing::RoutingStrategy;
+use crate::transports::TransportMode;
 
 /// Configuration for the ingestion consumer.
 ///
@@ -247,6 +248,20 @@ pub struct Config {
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    /// How sub-batches reach the workers: `http` (concurrent POST /ingest
+    /// requests) or `grpc` (one ordered WorkerIngest stream per worker, which
+    /// closes the wire-reordering window concurrent HTTP requests leave open).
+    /// The worker must serve the stream (`INGESTION_API_GRPC_ENABLED`) before
+    /// a consumer switches to `grpc`.
+    #[envconfig(from = "INGESTION_TRANSPORT", default = "http")]
+    pub ingestion_transport: TransportMode,
+
+    /// The worker pods' gRPC port (`INGESTION_API_GRPC_PORT` on the Node.js
+    /// side). Lanes derive each worker's stream address from its HTTP URL's
+    /// host plus this port.
+    #[envconfig(from = "INGESTION_WORKER_GRPC_PORT", default = "6739")]
+    pub ingestion_worker_grpc_port: u16,
 
     // ---- Worker discovery ----
     /// How the worker pool is discovered: `static` (use WORKER_ADDRESSES — the

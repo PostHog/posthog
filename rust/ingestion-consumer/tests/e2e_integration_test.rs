@@ -29,6 +29,7 @@ use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::order_sentinel::SentinelContext;
 use ingestion_consumer::transport::HttpTransport;
+use ingestion_consumer::transports::Transport;
 use ingestion_consumer::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
 use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
 
@@ -418,7 +419,7 @@ fn make_kafka_consumer(
 /// 1s keeps test scenarios responsive.)
 fn spawn_reaper(
     registry: Arc<WorkerRegistry>,
-    transport: Arc<HttpTransport>,
+    transport: Arc<Transport>,
     dispatcher: Arc<Dispatcher>,
     token: CancellationToken,
 ) {
@@ -529,14 +530,14 @@ impl Harness {
         let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
         let registry_for_test = Arc::clone(&registry);
         let dispatcher_for_test = Arc::clone(&dispatcher);
-        let transport = Arc::new(HttpTransport::new(
+        let transport = Arc::new(Transport::Http(Arc::new(HttpTransport::new(
             Duration::from_secs(5),
             0, // no retries — errors surface immediately for health tracking
             None,
             &worker_urls,
             1,
             true,
-        ));
+        ))));
         spawn_reaper(
             Arc::clone(&registry),
             Arc::clone(&transport),
@@ -611,14 +612,14 @@ impl Harness {
         let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config));
         Arc::clone(&registry).start_probing(self._probe_token.clone());
         let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
-        let transport = Arc::new(HttpTransport::new(
+        let transport = Arc::new(Transport::Http(Arc::new(HttpTransport::new(
             Duration::from_secs(5),
             0,
             None,
             &worker_urls,
             1,
             true,
-        ));
+        ))));
         spawn_reaper(
             Arc::clone(&registry),
             Arc::clone(&transport),
@@ -2371,14 +2372,14 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
     let probe2 = CancellationToken::new();
     Arc::clone(&registry2).start_probing(probe2.clone());
     let dispatcher2 = Arc::new(Dispatcher::new(Arc::clone(&registry2)));
-    let transport2 = Arc::new(HttpTransport::new(
+    let transport2 = Arc::new(Transport::Http(Arc::new(HttpTransport::new(
         Duration::from_secs(5),
         0,
         None,
         &worker_urls,
         1,
         true,
-    ));
+    ))));
     let mut manager2 = Manager::builder("e2e-c2").with_trap_signals(false).build();
     let handle2 = manager2.register("consumer", ComponentOptions::new());
     let shutdown2 = handle2.shutdown_token();
@@ -2447,14 +2448,14 @@ async fn fenced_static_member_exits_on_fatal_error() {
     let probe = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe.clone());
     let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
-    let transport = Arc::new(HttpTransport::new(
+    let transport = Arc::new(Transport::Http(Arc::new(HttpTransport::new(
         Duration::from_secs(5),
         0,
         None,
         &urls,
         1,
         true,
-    ));
+    ))));
     let mut manager = Manager::builder("e2e-fenced")
         .with_trap_signals(false)
         .build();

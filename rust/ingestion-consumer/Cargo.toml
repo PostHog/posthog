@@ -13,6 +13,7 @@ dashmap = { workspace = true }
 envconfig = { workspace = true }
 flate2 = { workspace = true }
 futures = { workspace = true }
+ingestion-worker-proto = { path = "../ingestion-worker-proto" }
 k8s-awareness = { path = "../common/k8s-awareness" }
 kube = { version = "0.98", features = ["client", "runtime"] }
 lifecycle = { path = "../common/lifecycle" }
@@ -29,7 +30,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { version = "0.1", features = ["net"] }
 tokio-util = { workspace = true }
+tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
