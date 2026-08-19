@@ -2,11 +2,14 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalF
 
 import {
     FACETS,
+    FacetConfig,
+    FacetScope,
     FacetSelection,
     FacetSource,
     FilterGroupFacetSource,
     cycleFacetFilter,
     facetFilterSelection,
+    facetScopeSignature,
     facetSelection,
     mergeSelectedIntoOptions,
     resolveFacets,
@@ -160,6 +163,115 @@ describe('facets', () => {
             const options = mergeSelectedIntoOptions(fetched, ['api', 'worker-1'], search)
             expect(options.filter((o) => o.count === 0).map((o) => o.value)).toEqual(expectedInjected)
             expect(options).toEqual(expect.arrayContaining(fetched))
+        })
+    })
+
+    describe('facetScopeSignature', () => {
+        const configured = (key: string): FacetConfig => FACETS.find((f) => f.key === key)!
+        const SERVICE = configured('service')
+        const STATUS = configured('status')
+        const NAMESPACE = configured('namespace')
+
+        const filter = (type: PropertyFilterType, key: string, operator: PropertyOperator, value: unknown): object => ({
+            type,
+            key,
+            operator,
+            value,
+        })
+
+        const BASE: FacetScope = {
+            currentTeamId: 1,
+            utcDateRange: { date_from: '-1h', date_to: null },
+            serviceNames: [],
+            queryFilterGroup: groupWith([]),
+        }
+        const signature = (facet: FacetConfig, scope: Partial<FacetScope> = {}): string =>
+            facetScopeSignature(facet, { ...BASE, ...scope })
+
+        // A facet that reacts to its own selection refetches a list excludeBreakdownFilter guarantees
+        // is unchanged; one that ignores a filter it should see serves stale counts. Both are silent.
+        it.each<[string, FacetConfig, Partial<FacetScope>, boolean]>([
+            ['service ignores its own selection', SERVICE, { serviceNames: ['api'] }, false],
+            [
+                'service ignores a span filter on its own column, at any operator',
+                SERVICE,
+                {
+                    queryFilterGroup: groupWith([
+                        filter(PropertyFilterType.Span, 'service_name', PropertyOperator.IContains, 'ap'),
+                    ]),
+                },
+                false,
+            ],
+            [
+                'service sees the status selection',
+                SERVICE,
+                {
+                    queryFilterGroup: groupWith([
+                        filter(PropertyFilterType.Span, 'status_code', PropertyOperator.Exact, ['2']),
+                    ]),
+                },
+                true,
+            ],
+            ['service sees the date range', SERVICE, { utcDateRange: { date_from: '-7d', date_to: null } }, true],
+            [
+                'status ignores its own selection',
+                STATUS,
+                {
+                    queryFilterGroup: groupWith([
+                        filter(PropertyFilterType.Span, 'status_code', PropertyOperator.Exact, ['2']),
+                    ]),
+                },
+                false,
+            ],
+            ['status sees the service selection', STATUS, { serviceNames: ['api'] }, true],
+            [
+                'namespace ignores its own values, either polarity',
+                NAMESPACE,
+                {
+                    queryFilterGroup: groupWith([
+                        filter(PropertyFilterType.SpanResourceAttribute, 'k8s.namespace.name', PropertyOperator.IsNot, [
+                            'argocd',
+                        ]),
+                    ]),
+                },
+                false,
+            ],
+            [
+                'namespace sees a span_attribute filter under the same key, which the backend keeps',
+                NAMESPACE,
+                {
+                    queryFilterGroup: groupWith([
+                        filter(PropertyFilterType.SpanAttribute, 'k8s.namespace.name', PropertyOperator.Exact, [
+                            'argocd',
+                        ]),
+                    ]),
+                },
+                true,
+            ],
+            [
+                'namespace sees another resource attribute',
+                NAMESPACE,
+                {
+                    queryFilterGroup: groupWith([
+                        filter(PropertyFilterType.SpanResourceAttribute, 'host.name', PropertyOperator.Exact, [
+                            'node-1',
+                        ]),
+                    ]),
+                },
+                true,
+            ],
+        ])('%s', (_, facet, scope, expectedToChange) => {
+            expect(signature(facet, scope) !== signature(facet)).toBe(expectedToChange)
+        })
+
+        it('is identical for structurally equal filter groups', () => {
+            // The signature is what the rail subscribes on: if it carried object identity rather than
+            // content, every unrelated filter edit would refetch every facet again.
+            const chip = (): object =>
+                filter(PropertyFilterType.SpanResourceAttribute, 'host.name', PropertyOperator.Exact, ['node-1'])
+            expect(signature(NAMESPACE, { queryFilterGroup: groupWith([chip()]) })).toEqual(
+                signature(NAMESPACE, { queryFilterGroup: groupWith([chip()]) })
+            )
         })
     })
 
