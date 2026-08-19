@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -87,7 +87,7 @@ describe("useDiscussReport", () => {
         }),
       { wrapper: createWrapper() },
     );
-    await act(() => result.current.discussReport("why?"));
+    await result.current.discussReport("why?");
     expect(createTask).not.toHaveBeenCalled();
     expect(toastError).toHaveBeenCalledWith(
       "Failed to start discussion",
@@ -107,7 +107,7 @@ describe("useDiscussReport", () => {
         }),
       { wrapper: createWrapper() },
     );
-    await act(() => result.current.discussReport("why?"));
+    await result.current.discussReport("why?");
     expect(createTask).toHaveBeenCalledTimes(1);
     const input = createTask.mock.calls[0][0];
     expect(input.repository).toBe("owner/repo");
@@ -115,6 +115,5 @@ describe("useDiscussReport", () => {
     expect(input.workspaceMode).toBe("cloud");
     expect(input.cloudRunSource).toBe("signal_report");
     expect(input.signalReportId).toBe("r1");
-    expect(input.signalReportTaskRelationship).toBe("discussion");
   });
 });

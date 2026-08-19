@@ -818,7 +818,8 @@ export class TaskCreationSaga extends Saga<
           origin_product: input.signalReportId
             ? "signal_report"
             : "user_created",
-          signal_report_task_relationship: input.signalReportTaskRelationship,
+          // The server associates the task with the report and records the implementation
+          // task_run artefact — no relationship label is sent (associations are unlabelled).
           branch:
             input.workspaceMode === "cloud" && canActivateWarmRun
               ? (input.branch ?? null)

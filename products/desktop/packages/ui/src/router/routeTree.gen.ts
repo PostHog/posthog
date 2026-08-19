@@ -58,7 +58,6 @@ import { Route as CodeInboxDismissedIndexRouteImport } from './routes/code/inbox
 import { Route as CodeAgentsScoutsIndexRouteImport } from './routes/code/agents/scouts.index'
 import { Route as CodeAgentsApplicationsIndexRouteImport } from './routes/code/agents/applications/index'
 import { Route as WebsiteChannelIdTasksTaskIdRouteImport } from './routes/website/$channelId/tasks/$taskId'
-import { Route as WebsiteChannelIdReportsReportIdRouteImport } from './routes/website/$channelId/reports/$reportId'
 import { Route as WebsiteChannelIdDashboardsDashboardIdRouteImport } from './routes/website/$channelId/dashboards/$dashboardId'
 import { Route as CodeTasksPendingKeyRouteImport } from './routes/code/tasks/pending.$key'
 import { Route as CodeLoopsLoopIdEditRouteImport } from './routes/code/loops/$loopId/edit'
@@ -331,12 +330,6 @@ const WebsiteChannelIdTasksTaskIdRoute =
     path: '/$channelId/tasks/$taskId',
     getParentRoute: () => WebsiteRoute,
   } as any)
-const WebsiteChannelIdReportsReportIdRoute =
-  WebsiteChannelIdReportsReportIdRouteImport.update({
-    id: '/$channelId/reports/$reportId',
-    path: '/$channelId/reports/$reportId',
-    getParentRoute: () => WebsiteRoute,
-  } as any)
 const WebsiteChannelIdDashboardsDashboardIdRoute =
   WebsiteChannelIdDashboardsDashboardIdRouteImport.update({
     id: '/$channelId/dashboards/$dashboardId',
@@ -520,7 +513,6 @@ export interface FileRoutesByFullPath {
   '/code/loops/$loopId/edit': typeof CodeLoopsLoopIdEditRoute
   '/code/tasks/pending/$key': typeof CodeTasksPendingKeyRoute
   '/website/$channelId/dashboards/$dashboardId': typeof WebsiteChannelIdDashboardsDashboardIdRoute
-  '/website/$channelId/reports/$reportId': typeof WebsiteChannelIdReportsReportIdRoute
   '/website/$channelId/tasks/$taskId': typeof WebsiteChannelIdTasksTaskIdRoute
   '/code/agents/applications/': typeof CodeAgentsApplicationsIndexRoute
   '/code/agents/scouts/': typeof CodeAgentsScoutsIndexRoute
@@ -582,7 +574,6 @@ export interface FileRoutesByTo {
   '/code/loops/$loopId/edit': typeof CodeLoopsLoopIdEditRoute
   '/code/tasks/pending/$key': typeof CodeTasksPendingKeyRoute
   '/website/$channelId/dashboards/$dashboardId': typeof WebsiteChannelIdDashboardsDashboardIdRoute
-  '/website/$channelId/reports/$reportId': typeof WebsiteChannelIdReportsReportIdRoute
   '/website/$channelId/tasks/$taskId': typeof WebsiteChannelIdTasksTaskIdRoute
   '/code/agents/applications': typeof CodeAgentsApplicationsIndexRoute
   '/code/agents/scouts': typeof CodeAgentsScoutsIndexRoute
@@ -657,7 +648,6 @@ export interface FileRoutesById {
   '/code/loops/$loopId/edit': typeof CodeLoopsLoopIdEditRoute
   '/code/tasks/pending/$key': typeof CodeTasksPendingKeyRoute
   '/website/$channelId/dashboards/$dashboardId': typeof WebsiteChannelIdDashboardsDashboardIdRoute
-  '/website/$channelId/reports/$reportId': typeof WebsiteChannelIdReportsReportIdRoute
   '/website/$channelId/tasks/$taskId': typeof WebsiteChannelIdTasksTaskIdRoute
   '/code/agents/applications/': typeof CodeAgentsApplicationsIndexRoute
   '/code/agents/scouts/': typeof CodeAgentsScoutsIndexRoute
@@ -733,7 +723,6 @@ export interface FileRouteTypes {
     | '/code/loops/$loopId/edit'
     | '/code/tasks/pending/$key'
     | '/website/$channelId/dashboards/$dashboardId'
-    | '/website/$channelId/reports/$reportId'
     | '/website/$channelId/tasks/$taskId'
     | '/code/agents/applications/'
     | '/code/agents/scouts/'
@@ -795,7 +784,6 @@ export interface FileRouteTypes {
     | '/code/loops/$loopId/edit'
     | '/code/tasks/pending/$key'
     | '/website/$channelId/dashboards/$dashboardId'
-    | '/website/$channelId/reports/$reportId'
     | '/website/$channelId/tasks/$taskId'
     | '/code/agents/applications'
     | '/code/agents/scouts'
@@ -869,7 +857,6 @@ export interface FileRouteTypes {
     | '/code/loops/$loopId/edit'
     | '/code/tasks/pending/$key'
     | '/website/$channelId/dashboards/$dashboardId'
-    | '/website/$channelId/reports/$reportId'
     | '/website/$channelId/tasks/$taskId'
     | '/code/agents/applications/'
     | '/code/agents/scouts/'
@@ -1257,13 +1244,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WebsiteChannelIdTasksTaskIdRouteImport
       parentRoute: typeof WebsiteRoute
     }
-    '/website/$channelId/reports/$reportId': {
-      id: '/website/$channelId/reports/$reportId'
-      path: '/$channelId/reports/$reportId'
-      fullPath: '/website/$channelId/reports/$reportId'
-      preLoaderRoute: typeof WebsiteChannelIdReportsReportIdRouteImport
-      parentRoute: typeof WebsiteRoute
-    }
     '/website/$channelId/dashboards/$dashboardId': {
       id: '/website/$channelId/dashboards/$dashboardId'
       path: '/$channelId/dashboards/$dashboardId'
@@ -1437,7 +1417,6 @@ interface WebsiteRouteChildren {
   WebsiteChannelIdNewRoute: typeof WebsiteChannelIdNewRoute
   WebsiteChannelIdIndexRoute: typeof WebsiteChannelIdIndexRoute
   WebsiteChannelIdDashboardsDashboardIdRoute: typeof WebsiteChannelIdDashboardsDashboardIdRoute
-  WebsiteChannelIdReportsReportIdRoute: typeof WebsiteChannelIdReportsReportIdRoute
   WebsiteChannelIdTasksTaskIdRoute: typeof WebsiteChannelIdTasksTaskIdRoute
 }
 
@@ -1458,7 +1437,6 @@ const WebsiteRouteChildren: WebsiteRouteChildren = {
   WebsiteChannelIdIndexRoute: WebsiteChannelIdIndexRoute,
   WebsiteChannelIdDashboardsDashboardIdRoute:
     WebsiteChannelIdDashboardsDashboardIdRoute,
-  WebsiteChannelIdReportsReportIdRoute: WebsiteChannelIdReportsReportIdRoute,
   WebsiteChannelIdTasksTaskIdRoute: WebsiteChannelIdTasksTaskIdRoute,
 }
 

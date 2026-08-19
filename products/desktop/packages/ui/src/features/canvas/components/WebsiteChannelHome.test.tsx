@@ -22,9 +22,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
     channels: [{ id: "chan-1", name: "eng" }],
     isLoading: false,
   }),
-  useChannelMutations: () => ({
-    createChannel: vi.fn().mockResolvedValue({ id: "report-space" }),
-  }),
 }));
 // The dock only exists off the chrome, so the layout is per-test state.
 const layout = vi.hoisted(() => ({ channels: false }));

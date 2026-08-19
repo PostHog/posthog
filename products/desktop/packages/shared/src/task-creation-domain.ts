@@ -58,7 +58,6 @@ export interface TaskCreationInput {
    */
   cloudRtkEnabled?: boolean;
   signalReportId?: string;
-  signalReportTaskRelationship?: "discussion" | "implementation" | "research";
   additionalDirectories?: string[];
   /**
    * CONTEXT.md of the channel a task was created in, if any. Appended to the

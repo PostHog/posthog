@@ -1,6 +1,5 @@
 import {
   BellIcon,
-  EnvelopeSimple,
   GearSix,
   HouseSimple,
   Lightning,
@@ -30,7 +29,6 @@ import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   navigateToActivity,
   navigateToHome,
-  navigateToInbox,
   navigateToLoops,
   navigateToWebsiteCommandCenter,
 } from "@posthog/ui/router/navigationBridge";
@@ -192,7 +190,6 @@ export function ChannelNav() {
   };
 
   const isHome = view.type === "home";
-  const isInbox = view.type === "inbox";
   const isActivity = view.type === "activity";
   const isCommandCenter = view.type === "command-center";
 
@@ -209,18 +206,6 @@ export function ChannelNav() {
           label="Home"
           isActive={isHome}
           onClick={withTrack("home", navigateToHome)}
-        />
-        <NavIcon
-          icon={
-            <EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />
-          }
-          label="Inbox"
-          shortcut={formatHotkey(SHORTCUTS.INBOX)}
-          isActive={isInbox}
-          onClick={withTrack("inbox", navigateToInbox)}
-          badge={
-            <CountBadge count={counts.pulls} className={ICON_BADGE_CLASS} />
-          }
         />
         <ActivityNavItem
           isActive={isActivity}

@@ -1,14 +1,9 @@
-import { seedInboxReportDetailCache } from "@posthog/core/inbox/inboxQuery";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { toast } from "@posthog/ui/primitives/toast";
-import {
-  navigateToInboxDismissedDetail,
-  navigateToInboxPullRequestDetail,
-  navigateToInboxReportDetail,
-} from "@posthog/ui/router/navigationBridge";
+import { navigateToChannelDashboard } from "@posthog/ui/router/navigationBridge";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
@@ -29,7 +24,7 @@ const log = logger.scope("open-inbox-report");
 export function useOpenInboxReport() {
   const queryClient = useQueryClient();
   const client = useOptionalAuthenticatedClient();
-  const resetFilters = useInboxSignalsFilterStore((s) => s.resetFilters);
+  const { reportSpaceId } = useReportSpace();
 
   return useCallback(
     async (reportId: string) => {
@@ -37,6 +32,7 @@ export function useOpenInboxReport() {
         log.warn("Ignoring open-report request – not authenticated");
         return;
       }
+      if (!reportSpaceId) return;
 
       log.info(`Opening report: ${reportId}`);
 
@@ -53,21 +49,20 @@ export function useOpenInboxReport() {
           return;
         }
 
-        resetFilters();
-        seedInboxReportDetailCache(queryClient, report);
-        if (report.status === "suppressed") {
-          navigateToInboxDismissedDetail(report.id);
-        } else if (report.implementation_pr_url) {
-          navigateToInboxPullRequestDetail(report.id);
-        } else {
-          navigateToInboxReportDetail(report.id);
+        if (!report.canvas_session) {
+          toast.error("This report's canvas isn't ready yet");
+          return;
         }
+        navigateToChannelDashboard(
+          reportSpaceId,
+          report.canvas_session.canvas_id,
+        );
         log.info(`Successfully opened report: ${report.id}`);
       } catch (error) {
         log.error("Unexpected error opening report:", error);
         toast.error("Failed to open report");
       }
     },
-    [client, queryClient, resetFilters],
+    [client, queryClient, reportSpaceId],
   );
 }
