@@ -549,6 +549,10 @@ class McpServerConfig:
 
 
 def get_sandbox_api_url() -> str:
+    # Local Docker caveat: this URL reaches the sandbox inside MCP server configs, which
+    # (unlike the env vars in _DOCKER_URL_ENV_KEYS) are never rewritten to
+    # host.docker.internal. With the localhost default, a local sandbox can't dial the
+    # MCP Store proxy, so the agent SDK silently drops every store connector.
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 

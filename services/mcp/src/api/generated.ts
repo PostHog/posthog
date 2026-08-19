@@ -10257,6 +10257,10 @@ export namespace Schemas {
       matched_pct: number;
       /** Sample of likely-yours unmatched utm_source values */
       sample_unmatched_utm_sources: UnmatchedUtmSample[];
+      /** Of the matched events, how many look paid: a cost-bearing utm_medium (cpc, cpm, cpv, cpa, ppc, retargeting, or anything starting with 'paid') or a gclid/gad_source click id. */
+      events_matched_paid_last_7d: number;
+      /** Of the matched events, how many carry any utm_medium. Zero paid with a non-zero count here means the traffic is tagged and organic; both zero means the team doesn't tag medium, which says nothing. */
+      events_matched_tagged_medium_last_7d: number;
     }
 
     export type AttributionMode = typeof AttributionMode[keyof typeof AttributionMode];
@@ -13538,6 +13542,38 @@ export namespace Schemas {
          * @nullable
          */
       current_period_end: string | null;
+    }
+
+    /**
+     * * `type` - type
+     * * `team` - team
+     * * `multiple` - multiple
+     */
+    export type BreakdownTypeEnum = typeof BreakdownTypeEnum[keyof typeof BreakdownTypeEnum];
+
+
+    export const BreakdownTypeEnum = {
+      Type: 'type',
+      Team: 'team',
+      Multiple: 'multiple',
+    } as const;
+
+    export interface BillingTimeSeriesPoint {
+      id?: number;
+      label?: string;
+      data?: number[];
+      dates?: string[];
+      breakdown_type?: BreakdownTypeEnum | null;
+      breakdown_value?: unknown;
+    }
+
+    export interface BillingTimeSeriesResponse {
+      status?: string;
+      type?: string;
+      customer_id?: number;
+      results: BillingTimeSeriesPoint[];
+      team_id_options?: number[];
+      next?: string;
     }
 
     /**
@@ -19790,6 +19826,35 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `tight` - tight
+     * * `condensed` - condensed
+     * * `standard` - standard
+     * * `relaxed` - relaxed
+     * * `wide` - wide
+     */
+    export type TileSpacingEnum = typeof TileSpacingEnum[keyof typeof TileSpacingEnum];
+
+
+    export const TileSpacingEnum = {
+      Tight: 'tight',
+      Condensed: 'condensed',
+      Standard: 'standard',
+      Relaxed: 'relaxed',
+      Wide: 'wide',
+    } as const;
+
+    export interface DashboardCustomization {
+      /** Named tile density preset.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      tile_spacing?: TileSpacingEnum;
+    }
+
+    /**
      * Serializer mixin that handles tags for objects.
      */
     export interface Dashboard {
@@ -19857,6 +19922,16 @@ export namespace Schemas {
          * @nullable
          */
       quick_filter_ids?: string[] | null;
+      /** Dashboard display settings. */
+      readonly customization: DashboardCustomization;
+      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      grid_spacing?: TileSpacingEnum;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -20251,6 +20326,49 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    /**
+     * A metric the bulk action did not act on, and why.
+     */
+    export interface DataCatalogMetricBulkSkip {
+      /** Name of the metric that was skipped. */
+      name: string;
+      /** Why it was skipped, e.g. 'Not found', 'Already approved', 'Drifted from its source insight'. */
+      reason: string;
+    }
+
+    /**
+     * Outcome of a bulk approve: what changed, and what was left alone.
+     */
+    export interface DataCatalogMetricBulkApprove {
+      /** The metrics that are now approved, freshly serialized. */
+      approved: DataCatalogMetric[];
+      /** Requested metrics that were not approved, with reasons. */
+      skipped: DataCatalogMetricBulkSkip[];
+    }
+
+    /**
+     * Outcome of a bulk delete: which names are gone, and what was left alone.
+     */
+    export interface DataCatalogMetricBulkDelete {
+      /** Names of the metrics that were deleted, now free for reuse. */
+      deleted: string[];
+      /** Requested metrics that were not deleted, with reasons. */
+      skipped: DataCatalogMetricBulkSkip[];
+    }
+
+    /**
+     * Input for the bulk metric actions: the metric names to act on.
+     */
+    export interface DataCatalogMetricBulkNamesRequest {
+      /**
+         * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+         * @minItems 1
+         * @maxItems 100
+         * @items.maxLength 128
+         */
+      names: string[];
     }
 
     /**
@@ -43101,6 +43219,24 @@ export namespace Schemas {
       skipped: InsightBulkOperationSkipped[];
     }
 
+    export interface InsightBulkSetTestAccountFilterRequest {
+      /** Whether every existing insight should filter out internal and test users. */
+      enabled: boolean;
+    }
+
+    export interface InsightBulkSetTestAccountFilterResponse {
+      /** Number of insights whose test account filter was changed. */
+      updated: number;
+      /** Number of insights that already had the requested value. */
+      unchanged: number;
+      /** Number of insights with no test account filter to set, such as SQL insights. */
+      unsupported: number;
+      /** Number of insights the requester cannot edit. */
+      skipped: number;
+      /** Number of insights left as they are because they still store legacy `filters` rather than a query. They keep whatever value they already had. Opening and saving one converts it, after which this endpoint covers it. */
+      legacy: number;
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel
@@ -49583,6 +49719,7 @@ export namespace Schemas {
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
      * * `signals_chat` - Signals Chat
+     * * `workflow` - Workflow
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -49606,6 +49743,7 @@ export namespace Schemas {
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       SignalsChat: 'signals_chat',
+      Workflow: 'workflow',
     } as const;
 
     /**
@@ -60228,6 +60366,14 @@ export namespace Schemas {
          * @nullable
          */
       quick_filter_ids?: string[] | null;
+      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      grid_spacing?: TileSpacingEnum;
       /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
       tiles?: DashboardPatchTileOpenApi[];
       /** Template key to create the dashboard from a predefined template. */
@@ -62994,7 +63140,8 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `signals_chat` - Signals Chat */
+       * * `signals_chat` - Signals Chat
+       * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -78681,7 +78828,8 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `signals_chat` - Signals Chat */
+       * * `signals_chat` - Signals Chat
+       * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -79842,7 +79990,8 @@ export namespace Schemas {
        * * `image_builder` - Image Builder
        * * `loop` - Loop
        * * `mcp_analytics` - MCP Analytics
-       * * `signals_chat` - Signals Chat */
+       * * `signals_chat` - Signals Chat
+       * * `workflow` - Workflow */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -83414,6 +83563,66 @@ export namespace Schemas {
       /** The span call-tree aggregation query to execute. */
       query: _TracingTreeQueryBody;
     }
+
+    export type BillingSpendRetrieveParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all teams in the organization.
+     * @nullable
+     */
+    team_ids?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
+    export type BillingUsageRetrieveParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all teams in the organization.
+     * @nullable
+     */
+    team_ids?: string | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
 
     export type CohortsStaffListParams = {
     /**
@@ -89347,6 +89556,18 @@ export namespace Schemas {
 
 
     export const InsightsBulkRestoreCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsBulkSetTestAccountFilterCreateParams = {
+    format?: InsightsBulkSetTestAccountFilterCreateFormat;
+    };
+
+    export type InsightsBulkSetTestAccountFilterCreateFormat = typeof InsightsBulkSetTestAccountFilterCreateFormat[keyof typeof InsightsBulkSetTestAccountFilterCreateFormat];
+
+
+    export const InsightsBulkSetTestAccountFilterCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
