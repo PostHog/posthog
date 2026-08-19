@@ -43,10 +43,15 @@ def linked_flag_ids_for_project(project_id: int) -> set[int]:
         .values_list("session_recording_linked_flag", flat=True)
     )
     # Only an integer id counts, matching the JSONB containment check in teams_linking_flag.
+    # `bool` is excluded explicitly because it subclasses `int`: a stored `{"id": true}` would
+    # otherwise add 1 to the set, and JSONB containment never treats `true` as `1`, so list and
+    # retrieve would disagree for flag id 1 (see the same guard in repair_replay_linked_flag_keys).
     return {
         linked_flag["id"]
         for linked_flag in linked_flags
-        if isinstance(linked_flag, dict) and isinstance(linked_flag.get("id"), int)
+        if isinstance(linked_flag, dict)
+        and isinstance(linked_flag.get("id"), int)
+        and not isinstance(linked_flag.get("id"), bool)
     }
 
 
