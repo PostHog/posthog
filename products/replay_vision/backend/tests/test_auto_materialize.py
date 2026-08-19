@@ -79,8 +79,7 @@ class TestAutoMaterializeScannerProperties:
         assert result.candidates == 0
 
     def test_backfill_spend_alone_does_not_qualify_a_scanner(self) -> None:
-        # Backfill reads land only in the total bucket; a one-day backfill must not mint columns,
-        # and pre-split rows (no fast/deep buckets yet) read as zero rather than as their total.
+        # Backfill reads land only in the total bucket; a one-day backfill must not mint columns.
         hour = dt.datetime.now(dt.UTC).replace(minute=0, second=0, microsecond=0).isoformat()
         _make_scanner(
             query=_QUERY_WITH_EVENT_FILTERS,
@@ -88,6 +87,16 @@ class TestAutoMaterializeScannerProperties:
             deep_read_bytes_by_hour={},
             sweep_read_bytes_by_hour={hour: AUTO_MATERIALIZE_MIN_DAILY_READ_BYTES * 5},
         )
+
+        result, task = _run()
+
+        task.assert_not_called()
+        assert result.candidates == 0
+
+    def test_a_pre_split_scanner_with_only_the_total_bucket_never_qualifies(self) -> None:
+        # A row the split meter has not written yet has both split buckets null; the total bucket
+        # folds in backfill reads, so it must not qualify on that alone.
+        hour = dt.datetime.now(dt.UTC).replace(minute=0, second=0, microsecond=0).isoformat()
         _make_scanner(
             query=_QUERY_WITH_EVENT_FILTERS,
             sweep_read_bytes_by_hour={hour: AUTO_MATERIALIZE_MIN_DAILY_READ_BYTES * 5},

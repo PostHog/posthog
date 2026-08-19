@@ -116,11 +116,12 @@ def _candidate_properties(now: dt.datetime) -> list[_Candidate]:
     already_materialized = _materialized_event_properties()
     best_per_property: dict[str, _Candidate] = {}
     for scanner, spend in sorted(qualifying, key=lambda pair: pair[1], reverse=True):
-        for key in _event_property_keys(scanner):
+        for key in sorted(_event_property_keys(scanner)):
             if key in already_materialized or key in best_per_property:
                 continue
             best_per_property[key] = _Candidate(property_name=key, scanner_id=str(scanner.id), spend_bytes_24h=spend)
-    return sorted(best_per_property.values(), key=lambda c: c.spend_bytes_24h, reverse=True)
+    # Name breaks spend ties, so which candidates fit under the per-run cap is deterministic.
+    return sorted(best_per_property.values(), key=lambda c: (-c.spend_bytes_24h, c.property_name))
 
 
 def _daily_read_bytes(scanner: ReplayScanner, now: dt.datetime) -> int:
