@@ -59,16 +59,12 @@ export default meta;
 
 type Story = StoryObj<typeof ControlFor>;
 
-/** Everything installed: Create PR is the primary action. */
 export const Ready: Story = {
   render: () => <ControlFor state={baseState} />,
 };
 
-/**
- * GitHub CLI missing (e.g. onboarding skipped install-cli because GitHub was
- * connected, then the user runs a local task). Create PR stays in the menu,
- * disabled, with the install command in its tooltip.
- */
+/** How a user gets here: onboarding skipped install-cli because GitHub was
+ * connected, then they run a local task. */
 export const GhCliMissing: Story = {
   render: () => (
     <ControlFor
@@ -80,7 +76,6 @@ export const GhCliMissing: Story = {
   ),
 };
 
-/** GitHub CLI installed but not authenticated: disabled with the login command. */
 export const GhCliUnauthenticated: Story = {
   render: () => (
     <ControlFor

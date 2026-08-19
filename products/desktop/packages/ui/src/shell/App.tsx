@@ -117,9 +117,6 @@ function App({ devToolbar }: AppProps) {
     let cancelled = false;
     const loadInitialRoute = async (): Promise<void> => {
       try {
-        // Route the channel fetch through the query cache so onboarding
-        // completion (which primes the same key) and this landing share one
-        // request instead of firing back-to-back.
         const { href, firstRun } = await resolveStartupLocation(
           startupIdentity,
           authenticatedClient,

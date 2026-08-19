@@ -48,7 +48,6 @@ describe("computeActiveSteps", () => {
     expect(computeActiveSteps({ ...allSteps, projectCount: 2 })).toContain(
       "project-select",
     );
-    // A list that has not loaded says nothing about how many projects exist.
     expect(
       computeActiveSteps({ ...allSteps, projectCount: undefined }),
     ).toContain("project-select");

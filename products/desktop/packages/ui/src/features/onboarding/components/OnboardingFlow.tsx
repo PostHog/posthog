@@ -84,16 +84,12 @@ export function OnboardingFlow() {
   );
   const apiClient = useOptionalAuthenticatedClient();
 
-  // Best-effort: provision the default spaces and make the onboarding repo
-  // pick their default repo, the personal space always and #general only
-  // when this call just created it. The response also seeds the channel
-  // cache the first-run landing reads right after.
+  // Best-effort. The response also seeds the channel cache that the first-run
+  // landing reads moments later.
   const assignRepoToSpaces = async (): Promise<void> => {
     if (!apiClient) return;
     const provisioned = await apiClient.provisionDefaultTaskChannels();
     queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, provisioned.channels);
-    // Whoever provisions first consumes the created flags; hand them to the
-    // startup resolver so the first-run landing still sees them.
     primeStartupProvision(provisioned);
     if (!selectedCloudRepo) return;
     // Fetched directly: the integrations store only fills once the main app's
@@ -108,8 +104,7 @@ export function OnboardingFlow() {
       classifyIntegrations(integrations).githubIntegrations,
     );
     // Channels only accept a team integration alongside repositories, so a
-    // user-level-only GitHub connection cannot set a space default. The task
-    // input still prefills from the last-used cloud repository there.
+    // user-level-only GitHub connection cannot set a space default.
     if (integrationId == null) return;
     for (const channelId of planSpaceRepoAssignments(provisioned.channels, {
       personalCreated: provisioned.personal_created,
@@ -214,8 +209,7 @@ export function OnboardingFlow() {
       }),
     );
     if (githubUserIntegrations.length > 0) {
-      // GitHub is connected, so the first task should start in the cloud even
-      // if an earlier session left a local run-mode preference behind.
+      // Overrides a local run mode left behind by an earlier session.
       setLastUsedWorkspaceMode("cloud");
     }
     assignRepoToSpaces().catch((error) =>
