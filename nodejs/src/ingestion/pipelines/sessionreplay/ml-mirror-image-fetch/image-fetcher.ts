@@ -154,7 +154,7 @@ export class HttpImageFetcher implements ImageFetcher {
     }
 
     private async hop(url: string, timeoutMs: number, maxBytes: number): Promise<HopResult> {
-        const headers = { ...REQUEST_HEADERS, ...this.webBotAuthSigner.headersFor(url) }
+        const headers = { ...REQUEST_HEADERS, ...this.webBotAuthSigner.headersForGet(url) }
         const response = await fetchStreamed(url, { headers, timeoutMs })
         const status = response.status
 

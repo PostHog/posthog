@@ -23,7 +23,14 @@ function keyId(publicKey: KeyObject): string {
     return createHash('sha256').update(canonicalJwk).digest('base64url')
 }
 
-function verifySignedHeaders(url: string, headers: Record<string, string>, publicKey: KeyObject, label: string): void {
+function expectSignedHeadersToVerify(
+    method: string,
+    url: string,
+    headers: Record<string, string>,
+    publicKey: KeyObject,
+    label: string,
+    expectedResult = true
+): void {
     const signatureInput = headers['signature-input'].split(', ').find((member) => member.startsWith(`${label}=`))
     const signature = headers.signature.split(', ').find((member) => member.startsWith(`${label}=`))
     if (!signatureInput || !signature) {
@@ -32,7 +39,7 @@ function verifySignedHeaders(url: string, headers: Record<string, string>, publi
 
     const parameters = signatureInput.slice(label.length + 1)
     const parametersMatch = parameters.match(
-        /^\("@authority" "signature-agent"\);created=(\d+);keyid="([^"]+)";alg="ed25519";expires=(\d+);nonce="([^"]+)";tag="web-bot-auth"$/
+        /^\("@method" "@authority" "@target-uri" "signature-agent"\);created=(\d+);keyid="([^"]+)";alg="ed25519";expires=(\d+);nonce="([^"]+)";tag="web-bot-auth"$/
     )
     if (!parametersMatch) {
         throw new Error(`Invalid ${label} parameters`)
@@ -42,12 +49,16 @@ function verifySignedHeaders(url: string, headers: Record<string, string>, publi
     expect(Number(expires) - Number(created)).toBe(60)
     expect(Buffer.from(nonce, 'base64url')).toHaveLength(64)
 
+    const targetUrl = new URL(url)
+    targetUrl.hash = ''
     const signatureBase =
-        `"@authority": ${new URL(url).host}\n` +
+        `"@method": ${method}\n` +
+        `"@authority": ${targetUrl.host}\n` +
+        `"@target-uri": ${targetUrl.toString()}\n` +
         `"signature-agent": ${SIGNATURE_AGENT}\n` +
         `"@signature-params": ${parameters}`
     const signatureBytes = Buffer.from(signature.slice(`${label}=:`.length, -1), 'base64')
-    expect(verifySignature(null, Buffer.from(signatureBase), publicKey, signatureBytes)).toBe(true)
+    expect(verifySignature(null, Buffer.from(signatureBase), publicKey, signatureBytes)).toBe(expectedResult)
 }
 
 describe('Web Bot Auth request signing', () => {
@@ -64,10 +75,22 @@ describe('Web Bot Auth request signing', () => {
         const signer = createWebBotAuthRequestSigner(keyPair.privateKeyPem)
         const url = 'https://cdn.example.com/image.png?size=large'
 
-        const headers = signer.headersFor(url)
+        const headers = signer.headersForGet(url)
 
         expect(headers['signature-agent']).toBe(SIGNATURE_AGENT)
-        verifySignedHeaders(url, headers, keyPair.publicKey, 'sig1')
+        expectSignedHeadersToVerify('GET', url, headers, keyPair.publicKey, 'sig1')
+    })
+
+    it.each([
+        ['a different method', 'POST', 'https://cdn.example.com/image.png?size=large'],
+        ['a different path', 'GET', 'https://cdn.example.com/other.png?size=large'],
+        ['a different query', 'GET', 'https://cdn.example.com/image.png?size=small'],
+    ])('does not verify for %s', (_name, method, replayUrl) => {
+        const keyPair = generateEd25519KeyPair()
+        const signer = createWebBotAuthRequestSigner(keyPair.privateKeyPem)
+        const headers = signer.headersForGet('https://cdn.example.com/image.png?size=large')
+
+        expectSignedHeadersToVerify(method, replayUrl, headers, keyPair.publicKey, 'sig1', false)
     })
 
     it('signs with the first configured key during rotation', () => {
@@ -78,9 +101,9 @@ describe('Web Bot Auth request signing', () => {
         )
         const url = 'https://cdn.example.com/image.png'
 
-        const headers = signer.headersFor(url)
+        const headers = signer.headersForGet(url)
 
-        verifySignedHeaders(url, headers, firstKeyPair.publicKey, 'sig1')
+        expectSignedHeadersToVerify('GET', url, headers, firstKeyPair.publicKey, 'sig1')
         expect(headers['signature-input']).not.toContain(keyId(secondKeyPair.publicKey))
         expect(headers.signature).not.toContain('sig2=')
     })

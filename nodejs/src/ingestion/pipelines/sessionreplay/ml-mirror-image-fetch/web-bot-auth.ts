@@ -3,6 +3,7 @@ import { KeyObject, createHash, createPrivateKey, createPublicKey, randomBytes, 
 const SIGNATURE_AGENT_URL = 'https://us.posthog.com/.well-known/http-message-signatures-directory'
 const SIGNATURE_AGENT_HEADER = JSON.stringify(SIGNATURE_AGENT_URL)
 const SIGNATURE_LIFETIME_SECONDS = 60
+const REQUEST_METHOD = 'GET'
 
 type SigningKey = {
     privateKey: KeyObject
@@ -10,7 +11,7 @@ type SigningKey = {
 }
 
 export interface WebBotAuthRequestSigner {
-    headersFor(url: string): Record<string, string>
+    headersForGet(url: string): Record<string, string>
 }
 
 export function createWebBotAuthRequestSigner(commaSeparatedPrivateKeyPems: string): WebBotAuthRequestSigner {
@@ -26,16 +27,21 @@ export function createWebBotAuthRequestSigner(commaSeparatedPrivateKeyPems: stri
 class Ed25519WebBotAuthRequestSigner implements WebBotAuthRequestSigner {
     constructor(private readonly signingKey: SigningKey) {}
 
-    public headersFor(url: string): Record<string, string> {
-        const authority = new URL(url).host
+    public headersForGet(url: string): Record<string, string> {
+        const targetUrl = new URL(url)
+        targetUrl.hash = ''
+        const authority = targetUrl.host
+        const targetUri = targetUrl.toString()
         const created = Math.floor(Date.now() / 1000)
         const expires = created + SIGNATURE_LIFETIME_SECONDS
         const nonce = randomBytes(64).toString('base64url')
         const parameters =
-            `("@authority" "signature-agent");created=${created};keyid="${this.signingKey.keyId}";` +
+            `("@method" "@authority" "@target-uri" "signature-agent");created=${created};keyid="${this.signingKey.keyId}";` +
             `alg="ed25519";expires=${expires};nonce="${nonce}";tag="web-bot-auth"`
         const signatureBase =
+            `"@method": ${REQUEST_METHOD}\n` +
             `"@authority": ${authority}\n` +
+            `"@target-uri": ${targetUri}\n` +
             `"signature-agent": ${SIGNATURE_AGENT_HEADER}\n` +
             `"@signature-params": ${parameters}`
 

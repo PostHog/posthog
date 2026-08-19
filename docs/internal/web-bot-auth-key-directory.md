@@ -21,7 +21,8 @@ PostHog Error Tracking receives a sanitized configuration error, and the endpoin
 ## Outbound request signing
 
 The Node.js image fetch lane validates every configured key and signs each outbound request with the first key.
-It signs each redirect hop for that hop's authority.
+It signs each redirect hop for the GET method, authority, full target URI, and `Signature-Agent` header.
+This prevents use of the signature for another method, path, or query.
 The signatures expire after one minute and include a unique 64-byte nonce.
 
 The request uses the structured-string `Signature-Agent` format in [Cloudflare's current verifier](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/).

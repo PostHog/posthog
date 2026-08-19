@@ -38,7 +38,7 @@ function image(bytes: Buffer, contentType: string, extraHeaders: Record<string, 
     return respond(200, { 'content-type': contentType, ...extraHeaders }, { bytes, overLimit: false })
 }
 
-const NOOP_SIGNER: WebBotAuthRequestSigner = { headersFor: () => ({}) }
+const NOOP_SIGNER: WebBotAuthRequestSigner = { headersForGet: () => ({}) }
 /** Everything public by default, so a test that cares about the policy says so. */
 const fetcher = (
     policy: Partial<RedirectPolicy> = {},
@@ -138,14 +138,14 @@ describe('HttpImageFetcher', () => {
         fetchStreamedMock
             .mockResolvedValueOnce(respond(302, { location: 'https://images.example.net/moved.png' }))
             .mockResolvedValueOnce(image(PNG, 'image/png'))
-        const headersFor = jest
+        const headersForGet = jest
             .fn()
             .mockReturnValueOnce({ signature: 'first-hop-signature' })
             .mockReturnValueOnce({ signature: 'second-hop-signature' })
 
-        await fetcher({}, { headersFor }).fetch('https://cdn.example.com/a.png', OPTIONS)
+        await fetcher({}, { headersForGet }).fetch('https://cdn.example.com/a.png', OPTIONS)
 
-        expect(headersFor.mock.calls).toEqual([
+        expect(headersForGet.mock.calls).toEqual([
             ['https://cdn.example.com/a.png'],
             ['https://images.example.net/moved.png'],
         ])
