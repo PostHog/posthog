@@ -15,6 +15,7 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
+from posthog.models.integration import Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -29,6 +30,67 @@ logger = logging.getLogger(__name__)
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
+
+# Mirrors FROM_OVERRIDE_EMAIL_REGEX in nodejs/src/cdp/services/messaging/email.service.ts, which
+# is what the send path enforces after rendering. Keep the two in sync.
+FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
+
+
+def _validate_email_sender_override(from_value: dict, context: dict) -> None:
+    """Reject a literal custom sender address the send path would refuse.
+
+    The runtime only sends from an address on the selected integration's verified domain; an
+    off-domain override is discarded at send time with a run-log warning the author never sees.
+    Catching it at save time puts the error in front of the person who can fix it. Only newly
+    written literals are checked: templated addresses resolve at render time, and values already
+    stored on the workflow are grandfathered so legacy placeholder data (cleaned up by a separate
+    backfill) does not block unrelated edits.
+    """
+    override = (from_value.get("email") or "").strip()
+    # A brace means a Liquid or Hog template that only resolves at send time.
+    if not override or "{" in override:
+        return
+
+    existing_from = context.get("existing_email_from") or {}
+    if override == (existing_from.get("email") or "").strip():
+        return
+
+    get_team = context.get("get_team")
+    if get_team is None:
+        # No request context (internal re-saves, direct construction); the send path still
+        # enforces the domain.
+        return
+
+    if not FROM_OVERRIDE_EMAIL_REGEX.match(override):
+        raise serializers.ValidationError(
+            {
+                "input": f'The custom sender address "{override}" is not a valid email address. '
+                "Use a single address like sender@yourdomain.com, or a template that resolves to one."
+            }
+        )
+
+    integration_ids = [
+        integration_id
+        for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
+        if isinstance(integration_id, int) and not isinstance(integration_id, bool)
+    ]
+    if not integration_ids:
+        return
+
+    override_domain = override.split("@")[1].lower()
+    integrations = Integration.objects.filter(team_id=get_team().id, id__in=integration_ids, kind="email")
+    for integration in integrations:
+        config = integration.config or {}
+        integration_domain = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
+        if integration_domain and override_domain != integration_domain:
+            raise serializers.ValidationError(
+                {
+                    "input": f'The custom sender address "{override}" is not on the verified domain '
+                    f'"{integration_domain}" of the selected sender. Use an address on that domain, '
+                    "or select a different sender."
+                }
+            )
+
 
 PRODUCT_ASYNC_FUNCTIONS: set[str] = set()
 
@@ -503,6 +565,8 @@ class InputsItemSerializer(serializers.Serializer):
                         raise serializers.ValidationError(
                             {"input": "Expected 'from.integrationIds' to be a list of Integration IDs."}
                         )
+
+                _validate_email_sender_override(from_value, self.context)
 
             if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
                 # Programmatically authored emails often supply html without a design, which the
