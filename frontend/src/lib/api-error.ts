@@ -16,6 +16,29 @@ export function isApprovalRequiredError(error: { status?: number; data?: any } |
 }
 
 /**
+ * HogQL error codes the query endpoint returns as a 400 when the submitted query is invalid
+ * (see posthog/api/query.py and the `ExposedHogQLError.code_name` values in
+ * posthog/hogql/errors.py). A caller can match on these instead of parsing the message.
+ */
+export const HOGQL_QUERY_VALIDATION_CODES: ReadonlySet<string> = new Set([
+    'hogql_error',
+    'hogql_syntax_error',
+    'hogql_query_error',
+    'table_access_denied',
+])
+
+/**
+ * A 400 whose code names a HogQL validation failure - the query the person typed is invalid, not a
+ * code fault. The SQL editor already shows them the message, so reporting it to error tracking only
+ * files their typos as issues.
+ */
+export function isHogQLQueryValidationError(
+    error: { status?: number; code?: string | null } | null | undefined
+): boolean {
+    return error?.status === 400 && !!error?.code && HOGQL_QUERY_VALIDATION_CODES.has(error.code)
+}
+
+/**
  * A transient gateway failure (502/503/504) rather than anything the caller did wrong. These
  * often arrive with an empty body (so `detail` is null) and usually succeed on retry, so a
  * listener that has already shown a toast should stop here instead of rethrowing into

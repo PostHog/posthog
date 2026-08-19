@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
+import { isAccessDeniedError, isApprovalRequiredError, isHogQLQueryValidationError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -211,9 +211,16 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                // An approvals 409 is expected control flow (a change request was created, or one
-                // is already pending) surfaced to the user by the approvals UI, not a failure.
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isApprovalRequiredError(error)) {
+                // Skip control flow and user-input failures that aren't code faults:
+                // - an approvals 409 (a change request was created, or one is already pending), surfaced by the approvals UI
+                // - a HogQL validation 400, which the SQL editor already shows; capturing it would file the person's
+                //   typo as an issue and echo their query text through the raw detail and `$current_url`. The
+                //   `query failed` metric in queries/query.ts already records these with status and code only.
+                if (
+                    !TRANSIENT_GATEWAY_STATUSES.includes(error?.status) &&
+                    !isApprovalRequiredError(error) &&
+                    !isHogQLQueryValidationError(error)
+                ) {
                     posthog.captureException(error)
                 }
             },

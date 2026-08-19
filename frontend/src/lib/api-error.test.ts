@@ -1,4 +1,4 @@
-import { ApiError, isTransientServerError } from './api-error'
+import { ApiError, isHogQLQueryValidationError, isTransientServerError } from './api-error'
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -79,6 +79,23 @@ describe('api-error', () => {
             ['a bare object shaped like an error', { status: 503 }],
         ])('does not classify %s as transient', (_, error) => {
             expect(isTransientServerError(error)).toBe(false)
+        })
+    })
+
+    describe('isHogQLQueryValidationError', () => {
+        it.each([
+            ['a 400 syntax error', { status: 400, code: 'hogql_syntax_error' }, true],
+            ['a 400 query error', { status: 400, code: 'hogql_query_error' }, true],
+            ['a 400 generic hogql error', { status: 400, code: 'hogql_error' }, true],
+            ['a 400 table access denied', { status: 400, code: 'table_access_denied' }, true],
+            // A 500 with the same code is a code fault, not user input, so keep reporting it.
+            ['a 500 with a hogql code', { status: 500, code: 'hogql_query_error' }, false],
+            ['a 400 with an unrelated code', { status: 400, code: 'unique' }, false],
+            ['a 400 with no code', { status: 400, code: null }, false],
+            ['a 403 permission denied', { status: 403, code: 'permission_denied' }, false],
+            [undefined, undefined, false],
+        ])('classifies %s', (_, error, expected) => {
+            expect(isHogQLQueryValidationError(error)).toBe(expected)
         })
     })
 })
