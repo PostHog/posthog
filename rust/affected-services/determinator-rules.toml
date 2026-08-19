@@ -82,7 +82,6 @@ mark-changed = []
 globs = [
     "persons_migrations/**",
     "behavioral_cohorts_migrations/**",
-    "cyclotron-core/migrations/**",
     "cyclotron-node-migrations/**",
     "flags_read_store_migrations/**",
     "bin/migrate-*",
