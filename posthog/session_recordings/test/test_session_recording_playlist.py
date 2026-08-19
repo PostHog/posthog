@@ -18,6 +18,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog import redis
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, PersonalAPIKey, SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.user import User
@@ -45,6 +46,11 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+from ee.models.rbac.access_control import AccessControl
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
@@ -420,6 +426,60 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert SessionRecordingPlaylistViewed.objects.count() == 0
+
+    def _create_denied_experiment_and_viewer(self) -> tuple[Experiment, User]:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="playlist-exposure-flag", created_by=self.user, filters={}
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="playlist exposure experiment",
+            feature_flag=flag,
+            created_by=self.user,
+            exposure_criteria={},
+            metrics=[],
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(experiment.pk), access_level="none"
+        )
+        return experiment, self._create_user("denied-playlist-viewer@posthog.com")
+
+    def test_rejects_saving_filters_that_reference_an_experiment_the_saver_cannot_view(self) -> None:
+        experiment, denied_user = self._create_denied_experiment_and_viewer()
+        exposure_filters = {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment.id}}
+        self.client.force_login(denied_user)
+        plain_playlist = self._create_playlist({"type": "filters", "filters": {"date_from": "-30d"}})
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            data={"name": "exposed sessions", "type": "filters", "filters": exposure_filters},
+        )
+        assert create_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "experiment you don't have access to" in create_response.json()["detail"]
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{plain_playlist.json()['short_id']}",
+            {"filters": exposure_filters},
+        )
+        assert update_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "experiment you don't have access to" in update_response.json()["detail"]
+
+    def test_saves_filters_that_reference_an_experiment_the_saver_can_view(self) -> None:
+        # The experiment's creator keeps viewer access despite the team-wide "none", so the
+        # save-time check must let their save through.
+        experiment, _ = self._create_denied_experiment_and_viewer()
+
+        self._create_playlist(
+            {
+                "name": "exposed sessions",
+                "type": "filters",
+                "filters": {"date_from": "-30d", "experiment_exposure": {"experiment_id": experiment.id}},
+            }
+        )
 
     def test_updates_playlist(self):
         create_response = self._create_playlist(

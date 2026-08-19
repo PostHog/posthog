@@ -18,6 +18,7 @@ import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
+import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/web-bot-auth'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
@@ -72,6 +73,7 @@ export function buildFetchRunner(
     config: IngestionSessionReplayMlMirrorServerConfig,
     publisher: FrontierPublisher
 ): FetchRunner {
+    const webBotAuthSigner = createWebBotAuthRequestSigner(config.WEB_BOT_AUTH_PRIVATE_KEYS)
     const budget = new HostBudget({
         requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND,
         burst: config.SESSION_RECORDING_ML_IMAGE_FETCH_BURST,
@@ -82,12 +84,15 @@ export function buildFetchRunner(
         maxTrackedDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS,
     })
     return new FetchRunner(
-        new HttpImageFetcher({
-            maxUrlLength: MAX_REDIRECT_URL_LENGTH,
-            // The crate's rule, so a redirect target meets the check the collector already applied
-            // to the first candidate rather than a second answer to the same question.
-            isPublicHost: (host) => getAnonymizer().isPublicHost(host),
-        }),
+        new HttpImageFetcher(
+            {
+                maxUrlLength: MAX_REDIRECT_URL_LENGTH,
+                // The crate's rule, so a redirect target meets the check the collector already applied
+                // to the first candidate rather than a second answer to the same question.
+                isPublicHost: (host) => getAnonymizer().isPublicHost(host),
+            },
+            webBotAuthSigner
+        ),
         budget,
         {
             maxConcurrentPerDomain: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN,
@@ -185,6 +190,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
             {
                 maxAgeMs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS,
                 dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS,
+                seenTtlSeconds: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS,
                 dryRun,
             },
             dryRun ? undefined : buildFetchRunner(this.config, publisher)

@@ -303,7 +303,7 @@ class TestToleratedHashClassification:
 def _build_tolerated_lookup(
     repo: Repo, identifiers: set[str], baseline_hashes: set[str]
 ) -> dict[tuple[str, str, str], ToleratedHash]:
-    """Mirrors the tolerated hash query in logic.complete_run."""
+    """Mirrors the tolerated hash query in runs.complete_run."""
     from django.db.models import Q
 
     now = timezone.now()

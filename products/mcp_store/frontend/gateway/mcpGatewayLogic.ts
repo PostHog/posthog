@@ -63,8 +63,6 @@ export const GATEWAY_CATEGORY_LABELS: Record<string, string> = {
     productivity: 'Productivity & collaboration',
 }
 
-export const CONNECTED_SERVERS_FILTER = 'connected'
-
 function currentProjectId(): string {
     return String(teamLogic.values.currentTeamId)
 }
@@ -196,7 +194,7 @@ export interface mcpGatewayLogicValues {
     config: TeamMCPGatewayConfigApi | null
     configLoading: boolean
     configMutationInProgress: boolean
-    connectedServerCount: number
+    connectedServers: GatewayServerEntry[]
     connectingServerId: string | null
     connectionApiKey: string
     connectionAuthType: InstallCustomAuthTypeEnumApi
@@ -631,7 +629,7 @@ export interface mcpGatewayLogicMeta {
             connectionApiKey: string
         ) => string | null
         categoryCounts: (mergedServers: MCPGatewayServerApi[]) => Record<string, number>
-        connectedServerCount: (mergedServers: MCPGatewayServerApi[]) => number
+        connectedServers: (mergedServers: MCPGatewayServerApi[]) => GatewayServerEntry[]
         filteredServers: (
             mergedServers: MCPGatewayServerApi[],
             searchQuery: string,
@@ -730,7 +728,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             accountId: string,
             serverId: string,
             enabled: boolean,
-            scope: MCPAgentGrantScopeEnumApi = 'personal',
+            scope: MCPAgentGrantScopeEnumApi = 'team',
             policies?: ToolPolicyEntryApi[]
         ) => ({
             accountId,
@@ -1185,10 +1183,12 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 return counts
             },
         ],
-        connectedServerCount: [
+        connectedServers: [
             (s) => [s.mergedServers],
-            (mergedServers: GatewayServerEntry[]): number =>
-                mergedServers.filter((server) => server.your_connection !== null).length,
+            (mergedServers: GatewayServerEntry[]): GatewayServerEntry[] =>
+                mergedServers
+                    .filter((server) => server.your_connection !== null)
+                    .sort((a, b) => a.name.localeCompare(b.name)),
         ],
         filteredServers: [
             (s) => [s.mergedServers, s.searchQuery, s.categoryFilter],
@@ -1199,14 +1199,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             ): GatewayServerEntry[] => {
                 const query = searchQuery.trim().toLowerCase()
                 return mergedServers.filter((server) => {
-                    if (categoryFilter === CONNECTED_SERVERS_FILTER && !server.your_connection) {
-                        return false
-                    }
-                    if (
-                        categoryFilter &&
-                        categoryFilter !== CONNECTED_SERVERS_FILTER &&
-                        server.category !== categoryFilter
-                    ) {
+                    if (categoryFilter && server.category !== categoryFilter) {
                         return false
                     }
                     if (!query) {

@@ -1119,6 +1119,11 @@ describe("ArtifactPreview", () => {
     expect(screen.getByText("v2/2")).toBeInTheDocument();
     lastCall = useQuery.mock.calls.at(-1)?.[0] as { queryKey: unknown[] };
     expect(lastCall.queryKey).toContain("artifact-1");
+
+    // A focus request that already landed must not keep pulling the pager back.
+    fireEvent.click(screen.getByRole("button", { name: "Older version" }));
+
+    expect(screen.getByText("v1/2")).toBeInTheDocument();
   });
 
   it("saves edited source as a new output version under the same name", async () => {

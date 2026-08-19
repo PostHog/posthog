@@ -1,30 +1,22 @@
 # Canvas templates
 
-A canvas is an agent-authored single-file React app that runs in a sandboxed
-iframe and talks to PostHog only through the injected `ph` shim.
+A canvas is an agent-authored browser app that runs in a sandboxed iframe and uses the injected
+`ph` API to interact with PostHog.
 
-## What a canvas is
+## Creation and authoring
 
-- A canvas record is a `dashboard`-typed desktop-fs row whose `meta` carries the
-  agent-authored React `code`, its `versions` edit history, the `currentVersionId`
-  pointer, author `context`, and a `templateId`.
-- **Templates** are data (`CanvasTemplate` records served by
-  `CanvasTemplatesService`, listed via the `canvasTemplates` tRPC router and the
-  create-picker `NewCanvasMenu`). Only **`freeform`** is offered today; more can be
-  appended in `BUILT_IN_TEMPLATES` (`@posthog/core/canvas/canvasTemplates.ts`).
-- A template's job is to inject the **agent system prompt**, resolved via
-  `freeformSystemPromptFor`.
-- Generation runs as a **dedicated agent task** (like `CONTEXT.md`) — see
-  `freeformPrompt.ts` / `hooks/useGenerateFreeformCanvas.ts`.
+- Any ordinary task can create a canvas by invoking the bundled `building-canvases` skill.
+- The space composer and sidebar do not have separate canvas task modes.
+- The canvas index can still create an empty canvas record. Its composer starts a task with that
+  canvas as the explicit target.
+- Template records contain only picker metadata and starter suggestions. Canvas authoring rules
+  live in the bundled canvas skills, not in template system prompts.
 
 ## Where things live
 
-- Agent prompts + templates: `@posthog/core/canvas/canvasTemplates.ts`,
-  `canvasTemplatesService.ts`.
-- The iframe + `ph` data shim: `features/canvas/freeform/` (`FreeformCanvas.tsx`,
-  `sandboxRuntime.ts`, `freeformDataBridge.ts`) and host-side
+- Template metadata: `@posthog/core/canvas/canvasTemplates.ts` and `canvasTemplatesService.ts`.
+- Agent task routing: `@posthog/core/canvas/generationPrompt.ts`.
+- The iframe and `ph` bridge: `features/canvas/freeform/` and
   `@posthog/core/canvas/canvasDataService.ts`.
-- Storage: `@posthog/core/canvas/dashboardsService.ts` + `dashboardSchemas.ts`.
-- Deeper walkthrough of the canvas tier + the data path: the `canvas-templates`
-  skill, and the forward-looking `docs/CANVAS-FREEFORM-REACT-PLAN.md` (publish /
-  external sharing).
+- Source, versions, drafts, and builds: `@posthog/core/canvas/dashboardsService.ts` and
+  `dashboardSchemas.ts`.

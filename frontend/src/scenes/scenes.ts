@@ -516,6 +516,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Product tours',
         description: 'Guide users through your product with interactive tours',
+        iconType: 'product_tour',
     },
     [Scene.ProductTour]: {
         projectBased: true,

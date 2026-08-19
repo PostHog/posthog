@@ -703,7 +703,7 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .max(visionScannersCreateBodyTagsMax)
             .optional()
             .describe(
-                "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas."
+                "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
             ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
@@ -856,7 +856,7 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .max(visionScannersPartialUpdateBodyTagsMax)
             .optional()
             .describe(
-                "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas."
+                "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
             ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer'])

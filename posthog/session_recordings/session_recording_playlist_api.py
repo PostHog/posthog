@@ -37,7 +37,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
 from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
@@ -547,6 +547,25 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             posthoganalytics.capture_exception(e)
 
         return recordings_counts
+
+    def validate_filters(self, value: Any) -> Any:
+        experiment_exposure = value.get("experiment_exposure") if isinstance(value, dict) else None
+        experiment_id = experiment_exposure.get("experiment_id") if isinstance(experiment_exposure, dict) else None
+        if isinstance(experiment_id, int):
+            # Deferred: the experiments facade package imports posthog.api on init, which
+            # circles back into this module through the API router registration.
+            from products.experiments.backend.facade.replay import validate_experiment_exposure_access  # noqa: PLC0415
+
+            try:
+                validate_experiment_exposure_access(
+                    self.context["get_team"](), self.context["request"].user, experiment_id
+                )
+            except UserAccessControlError:
+                raise ValidationError(
+                    "These filters reference an experiment you don't have access to. "
+                    "Ask for access to the experiment to save them."
+                )
+        return value
 
     def create(self, validated_data: dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]

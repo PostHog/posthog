@@ -618,6 +618,39 @@ class TestAddSection(SimpleTestCase):
         titles = [s.title for s in state["report"].sections]
         self.assertEqual(titles, ["First", "Second", "Third"])
 
+    def test_rejects_section_backticking_an_uncited_uuid(self):
+        # A run_id from list_recent_report_runs is a canonical UUID but not citable,
+        # so backticking it would ship a dead identifier. The guard blocks it in-loop.
+        state = _state_with_empty_report()
+        run_id = "0195f0a1-2b3c-7d4e-8f90-1a2b3c4d5e6f"
+        result = _add_section_fn(state=state, title="Summary", content=f"Steady since run `{run_id}`.")
+        self.assertIn("Error", result)
+        self.assertIn(run_id, result)
+        self.assertEqual(state["report"].sections, [])
+
+    def test_allows_section_when_backticked_uuid_is_cited(self):
+        state = _state_with_empty_report()
+        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+        result = _add_section_fn(state=state, title="Summary", content=f"See `{_VALID_GEN_ID}` for the regression.")
+        self.assertNotIn("Error", result)
+        self.assertEqual(len(state["report"].sections), 1)
+
+    @parameterized.expand(
+        [
+            ("different_casing", f"`{_VALID_GEN_ID.upper()}`"),
+            ("surrounding_spaces", f"` {_VALID_GEN_ID} `"),
+            ("multiple_backticks", f"``{_VALID_GEN_ID}``"),
+        ]
+    )
+    def test_rejects_cited_uuid_when_format_will_not_link(self, _name: str, formatted_id: str) -> None:
+        state = _state_with_empty_report()
+        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+
+        result = _add_section_fn(state=state, title="Summary", content=f"See {formatted_id} for the regression.")
+
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].sections, [])
+
 
 class TestAddCitation(SimpleTestCase):
     def test_appends_citation(self):

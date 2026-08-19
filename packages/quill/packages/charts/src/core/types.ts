@@ -393,18 +393,28 @@ export interface TooltipConfig {
     sortedByValue?: boolean
 }
 
-/** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
- *  bars). The two modes are mutually exclusive by construction — pick one. Omit the option
- *  entirely for the default: a data-derived range with `d3.nice()`. */
-export type ValueDomain =
-    /** Pin both ends — skips the data-derived range and `d3.nice()` so independent charts that
-     *  share this domain stay visually comparable (e.g. funnel steps). Takes precedence over
-     *  `barLayout: 'percent'` / `percentStackView`. */
-    | readonly [number, number]
-    /** Keep data-derived auto-scaling, but stretch the domain to always cover these values
-     *  (e.g. goal-line targets that sit outside the data). Folded into the range before
-     *  `d3.nice()`. */
-    | { include: readonly number[] }
+/** Value-axis domain control (y for vertical/line/area charts, x for horizontal bars). Omit for the
+ *  default: a data-derived range with `d3.nice()`.
+ *
+ *  Setting **both** ends pins the domain, skipping `d3.nice()` and overriding percent layout, which
+ *  keeps independent charts visually comparable (e.g. funnel steps). Setting **one** clamps that end
+ *  and leaves the other automatic.
+ *
+ *  A non-finite bound counts as unset, so `{ min: 0, max: Math.max(...[]) }` floors at zero instead
+ *  of collapsing. An inverted pair falls back to the automatic domain rather than being swapped,
+ *  because these arrive from saved queries, the API, and MCP, where a silent reinterpretation would
+ *  render an axis nobody asked for. */
+export interface ValueDomain {
+    /** Widen the domain to cover these values (e.g. off-scale goal lines). Folded in before
+     *  `d3.nice()`. Ignored once both `min` and `max` are set. */
+    include?: readonly number[]
+    /** Floor of the value axis, applied after `include` folding, the zero clamp and `d3.nice()`, and
+     *  used verbatim so a typed bound isn't rounded away. Ignored under a percent layout, and dropped
+     *  when non-positive on a log scale. */
+    min?: number
+    /** Ceiling of the value axis. See {@link ValueDomain.min}. */
+    max?: number
+}
 
 /** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
  *  config flat at the top level. `barLayout` stays top-level as the primary discriminator. */

@@ -12,7 +12,6 @@ export type AgentRosterSource =
     | 'error_tracking'
     | 'conversations'
     | 'replay_vision'
-    | 'session_replay'
     | 'llm_analytics'
     | 'analytics'
     | 'health_checks'
@@ -54,6 +53,13 @@ export interface AgentRosterDefinition {
      * toggle. The card links there instead of showing a switch.
      */
     manageUrl?: string
+    /**
+     * The emission pipeline runs an actionability gate on this source's records, and that gate
+     * reads the steering keys on `SignalSourceConfig.config` (see `sourceSteeringModalLogic`).
+     * Sources without a gate must not offer the steering form: the keys would be stored but
+     * nothing would read them.
+     */
+    steerable?: boolean
     /** Show this entry only while the given feature flag is enabled (alpha rollouts). */
     flag?: FeatureFlagKey
 }
@@ -84,6 +90,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'Support',
                 watches: 'Problems customers raise in support',
                 detail: 'Only open tickets are read.',
+                steerable: true,
                 docsUrl: 'https://posthog.com/docs/support',
                 docsLabel: 'Support',
             },
@@ -128,16 +135,6 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 docsUrl: urls.health(),
                 docsLabel: 'Health checks',
             },
-            {
-                source: 'session_replay',
-                sourceProduct: SignalSourceProduct.SessionReplay,
-                label: 'Session replay',
-                watches: 'UX problems in recordings, now covered by Replay Vision',
-                detail: 'Runs on a sample of the recordings that match your filters.',
-                docsUrl: 'https://posthog.com/docs/session-replay',
-                docsLabel: 'Session replay',
-                legacy: true,
-            },
         ],
     },
     {
@@ -149,6 +146,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'GitHub issues',
                 watches: 'Issues filed in GitHub',
                 detail: 'Reads the issues from the GitHub repositories you sync to the warehouse.',
+                steerable: true,
             },
             {
                 source: 'engineering_analytics',
@@ -165,6 +163,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'Linear',
                 watches: 'Issues tracked in Linear',
                 detail: 'Reads the issues from the Linear workspace you sync to the warehouse.',
+                steerable: true,
             },
             {
                 source: 'zendesk',
@@ -172,6 +171,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'Zendesk',
                 watches: 'Incoming Zendesk tickets',
                 detail: 'Reads the tickets from the Zendesk account you sync to the warehouse.',
+                steerable: true,
             },
             {
                 source: 'pganalyze',
@@ -179,6 +179,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'pganalyze',
                 watches: 'Slow Postgres queries and bad indexes',
                 detail: 'Reads the issues from the pganalyze account you sync to the warehouse.',
+                steerable: true,
             },
         ],
     },

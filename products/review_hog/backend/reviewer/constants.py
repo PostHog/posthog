@@ -138,8 +138,10 @@ MAX_THREADS_PER_RUN = 20
 # Attempts for the per-PR resolution session. Retries are cheap — the per-thread verdicts persist,
 # so a retry redoes unjudged threads and undelivered side effects (a crash in the post-reply window
 # can still duplicate a reply; see temporal/resolution.py). On the final attempt a failed turn skips
-# its thread instead of raising, mirroring the validation session.
-RESOLUTION_MAX_ATTEMPTS = 2
+# its thread instead of raising, mirroring the validation session. Sized for prod worker rollouts:
+# deploys land every ~15 minutes and kill the in-flight attempt after a ~5-minute grace, so an
+# attempt survives ~2-4 turns and a full work-list needs several attempts to grind through.
+RESOLUTION_MAX_ATTEMPTS = 5
 
 # CHUNKING MODEL
 # Pins for the sandbox chunking turn (PRs over the one-shot gate), matching the one-shot pin below —

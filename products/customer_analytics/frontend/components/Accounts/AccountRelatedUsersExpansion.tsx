@@ -52,6 +52,7 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
                 controlled: true,
                 pageSize: PAGE_SIZE,
                 currentPage: page,
+                useUrl: false,
                 entryCount: membersResponse?.count ?? 0,
                 onForward: () => setPage(page + 1),
                 onBackward: () => setPage(page - 1),

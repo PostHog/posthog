@@ -26,6 +26,18 @@ export type ActivityEventKind = (typeof ACTIVITY_EVENTS)[number];
 
 const ACTIVITY_EVENT_SET: ReadonlySet<string> = new Set(ACTIVITY_EVENTS);
 
+const RUN_ARTIFACT_TYPES_WITHOUT_TIMELINE_EVENTS: ReadonlySet<string> = new Set(
+  [
+    "plan",
+    "context",
+    "reference",
+    "artifact",
+    "tree_snapshot",
+    "user_attachment",
+    "skill_bundle",
+  ],
+);
+
 export interface RunStartedPayload {
   runId: string;
   environment: string;
@@ -202,8 +214,12 @@ export function parseActivityEvent(message: {
     case "awaiting_input":
       return { kind: event, payload: { runId: str(payload.run_id) } };
     case "artifact_created":
-    case "artifact_revised":
-      return { kind: event, payload: artifactPayload(payload) };
+    case "artifact_revised": {
+      const parsed = artifactPayload(payload);
+      return RUN_ARTIFACT_TYPES_WITHOUT_TIMELINE_EVENTS.has(parsed.artifactType)
+        ? null
+        : { kind: event, payload: parsed };
+    }
     case "canvas_created":
       return {
         kind: event,

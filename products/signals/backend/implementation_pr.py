@@ -31,23 +31,31 @@ def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str
     the facade then resolves the latest PR-bearing run for each task, so multiple runs of a task
     collapse to the newest PR.
 
-    A report can be associated with several implementation tasks (retries), but only one PR is
-    surfaced — the first associated task that has one. The merge flag is read from *that* task, so
-    the URL and its state always describe the same PR. Reading them independently would let a
-    retry's merged PR vouch for a different PR's URL.
+    Every signals task associated with the report is a candidate, not just the `implementation`
+    ones: a task started from the inbox's "Discuss" button runs the same agent against the same
+    repo, so it can push a branch and open a PR too, and that PR is the report's PR as much as an
+    auto-started one is. Implementation tasks are still consulted first, so a report that has both
+    surfaces exactly what it surfaced before.
+
+    A report can be associated with several tasks (retries, plus any discussion), but only one PR is
+    surfaced — the first candidate that has one. The merge flag is read from *that* task, so the URL
+    and its state always describe the same PR. Reading them independently would let a retry's merged
+    PR vouch for a different PR's URL.
     """
     if not report_ids:
         return {}
 
-    # (report_id, task_id) for each report's implementation task(s); signals owns this mapping.
+    # (report_id, task_id) for each report's signals task(s); signals owns this mapping.
     # Batched across the whole page so association costs two queries, not two per report (N+1).
     runs_by_report = SignalReport.associated_task_runs_for_reports(
         report_ids=[str(report_id) for report_id in report_ids],
         product=SIGNALS_PRODUCT,
-        type=TASK_RUN_TYPE_IMPLEMENTATION,
     )
     pairs: list[tuple[str, str]] = [
-        (report_id, run.task_id) for report_id, runs in runs_by_report.items() for run in runs
+        (report_id, run.task_id)
+        for report_id, runs in runs_by_report.items()
+        # Stable sort, so implementation tasks lead and each group keeps its oldest-first order.
+        for run in sorted(runs, key=lambda run: run.type != TASK_RUN_TYPE_IMPLEMENTATION)
     ]
     if not pairs:
         return {}
@@ -65,7 +73,7 @@ def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str
 
 
 def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str, str]:
-    """PR URL from the latest implementation task run for each report, when available."""
+    """PR URL from the latest PR-bearing task run for each report, when available."""
     return {report_id: pr.url for report_id, pr in fetch_implementation_pr_state_for_reports(report_ids).items()}
 
 

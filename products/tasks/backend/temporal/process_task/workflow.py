@@ -128,6 +128,15 @@ def _is_dead_sandbox_failure(error: BaseException) -> bool:
     return isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type in DEAD_SANDBOX_ERROR_TYPES
 
 
+def _failure_error_type(cause: BaseException | None, exc: Exception) -> str:
+    cause_type = getattr(cause, "type", None)
+    if isinstance(cause_type, temporalio.exceptions.TimeoutType):
+        return cause_type.name.lower()
+    if isinstance(cause_type, str) and cause_type:
+        return cause_type
+    return type(exc).__name__
+
+
 def _message_dedupe_key(
     message_id: str,
     actor_user_id: int | None,
@@ -138,7 +147,7 @@ def _message_dedupe_key(
     return f"{actor_user_id or ''}:{actor_slack_user_id}:{message_id}"
 
 
-@dataclass
+@dataclass(frozen=False)
 class ResumedSandboxState:
     """Loop state carried across continue_as_new to re-attach without re-provisioning."""
 
@@ -158,6 +167,9 @@ class ResumedSandboxState:
     # ISO8601 start of the whole continue_as_new chain, so the wall-clock cap is not
     # reset by a continuation. None on payloads written before this field existed.
     chain_started_at: Optional[str] = None
+    agent_active: Optional[bool] = None
+    end_of_turn_received: Optional[bool] = None
+    last_agent_heartbeat_at: Optional[str] = None
 
 
 @dataclass
@@ -317,6 +329,11 @@ _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 
+# Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
+# the message's dedupe key so a retry can land; background runs keep the fail-fast
+# terminalization poll_for_turn callers rely on. Same cleanup lifecycle as above.
+_PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN = "tasks-followup-failure-keeps-run"
+
 # `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
 # Django model imports.
 _ONBOARDING_ORIGIN_PRODUCT = "onboarding"
@@ -362,6 +379,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # reason a run ended stays machine-readable without abusing error_message.
         self._completion_timeout_marker: Optional[str] = None
         self._heartbeat_received: bool = False
+        self._agent_active: Optional[bool] = None
+        self._end_of_turn_received: Optional[bool] = None
+        self._last_agent_heartbeat_at: Optional[datetime] = None
         self._prewarmed: bool = False
         self._first_user_message_received: bool = False
         self._sandbox_gone: bool = False
@@ -792,7 +812,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._ci_repetitions += 1
         ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
         self._last_active_time = workflow.now()
-        await self._send_followup_to_sandbox(ci_message, [])
+        await self._send_followup_to_sandbox(ci_message, [], user_originated=False)
 
     @workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
@@ -1123,7 +1143,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # the UI show the persisted message, so surface the cause instead.
             cause = e.cause if isinstance(e, temporalio.exceptions.ActivityError) else None
             cause_message = getattr(cause, "message", None) or (str(cause) if cause is not None else None)
-            error_type = getattr(cause, "type", None) or type(e).__name__
+            error_type = _failure_error_type(cause, e)
             error_message = truncate_error_message(cause_message or str(e))
             if self._context:
                 if self._current_progress_step is not None:
@@ -1340,6 +1360,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 last_active_time=self._last_active_time.isoformat() if self._last_active_time else None,
                 accepted_message_ids=self._accepted_message_ids,
                 chain_started_at=self._chain_start_time().isoformat(),
+                agent_active=self._agent_active,
+                end_of_turn_received=self._end_of_turn_received,
+                last_agent_heartbeat_at=(
+                    self._last_agent_heartbeat_at.isoformat() if self._last_agent_heartbeat_at else None
+                ),
             ),
         )
 
@@ -1364,6 +1389,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._accepted_message_ids = resumed.accepted_message_ids
         self._accepted_message_id_set = set(resumed.accepted_message_ids)
         self._last_active_time = datetime.fromisoformat(resumed.last_active_time) if resumed.last_active_time else None
+        self._agent_active = resumed.agent_active
+        self._end_of_turn_received = resumed.end_of_turn_received
+        self._last_agent_heartbeat_at = (
+            datetime.fromisoformat(resumed.last_agent_heartbeat_at) if resumed.last_agent_heartbeat_at else None
+        )
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         context = await workflow.execute_activity(
@@ -2035,6 +2065,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         error_type: Optional[str] = None,
         timeout_marker: Optional[str] = None,
     ) -> None:
+        seconds_since_last_agent_heartbeat = (
+            (workflow.now() - self._last_agent_heartbeat_at).total_seconds() if self._last_agent_heartbeat_at else None
+        )
         await workflow.execute_activity(
             update_task_run_status,
             UpdateTaskRunStatusInput(
@@ -2044,6 +2077,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 timed_out_inactivity=timed_out_inactivity,
                 error_type=error_type,
                 timeout_marker=timeout_marker,
+                agent_active_at_termination=self._agent_active,
+                end_of_turn_received=self._end_of_turn_received,
+                last_agent_heartbeat_at=(
+                    self._last_agent_heartbeat_at.isoformat() if self._last_agent_heartbeat_at else None
+                ),
+                seconds_since_last_agent_heartbeat=seconds_since_last_agent_heartbeat,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -2218,7 +2257,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 CreateResumeSnapshotInput(
                     sandbox_id=sandbox_id,
                     run_id=self.context.run_id,
-                    use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
                     reason=reason,
                     allow_pruning=allow_pruning,
                 ),
@@ -2401,8 +2439,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def heartbeat(self, agent_active: bool = False) -> None:
         if not agent_active:
             return
+        now = workflow.now()
         self._heartbeat_received = True
-        self._last_active_time = workflow.now()
+        self._last_active_time = now
+        self._last_agent_heartbeat_at = now
+
+    @temporalio.workflow.signal
+    async def agent_state_changed(self, agent_active: bool) -> None:
+        self._agent_active = agent_active
+        self._end_of_turn_received = not agent_active
 
     @temporalio.workflow.signal
     async def send_followup_message(
@@ -2558,6 +2603,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         context: dict[str, Any] | None = None,
         *,
         steer: bool = False,
+        user_originated: bool = True,
     ) -> str | None:
         workflow.logger.info(
             "send_followup_dispatch_begin",
@@ -2600,8 +2646,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     **error_properties,
                 },
             )
-            # Mark the run as failed so poll_for_turn sees a terminal status
-            # immediately instead of waiting for the inactivity timeout.
+            if self.context.mode == "interactive" and workflow.patched(_PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN):
+                if message_id:
+                    dedupe_key = _message_dedupe_key(message_id, actor_user_id, context)
+                    if dedupe_key in self._accepted_message_id_set:
+                        self._accepted_message_id_set.discard(dedupe_key)
+                        self._accepted_message_ids.remove(dedupe_key)
+                if user_originated:
+                    # A user follow-up can arrive without a message_id, so the card can't hinge on
+                    # one; the generated group still gives the user a failure notice instead of a
+                    # silently frozen conversation. CI nudges skip it because the copy is user-facing.
+                    await self._emit_progress(
+                        step="followup_delivery",
+                        status="failed",
+                        label="Couldn't deliver your message",
+                        group=f"followup-delivery:{message_id or workflow.uuid4()}",
+                        detail=str(cause_message or e),
+                    )
+                return None
             self._completion_status = "failed"
             self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
             self._completion_error_type = "followup_delivery_failed"

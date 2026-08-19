@@ -46,6 +46,7 @@ import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDe
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
+import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -977,6 +978,16 @@ function InternalDataTableVisualization(
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.ScatterPlot) {
+        component = (
+            <SqlScatterGraph
+                className="p-2"
+                xData={xData}
+                yData={yData}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
             />

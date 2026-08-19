@@ -21,6 +21,7 @@ import {
   type Adapter,
   buildPrOutput,
   getErrorMessage,
+  isIgnoredSkillPath,
   type McpServerConnection,
   mergePrUrls,
   parseMcpToolName,
@@ -443,12 +444,12 @@ export class AgentServer {
   private resumeState: ResumeState | null = null;
   private nativeResume: { sessionId: string; warm: boolean } | null = null;
   private oversizedResumeRetried = false;
-  // Prewarmed runs boot before the user's first message exists, so the boot-time
-  // --autoPublish flag can't carry the user's choice; it is resolved from run
-  // state when the first message arrives (see resolveWarmActivationSettings).
+  // Prewarmed runs boot before the user's first message exists, so boot-time
+  // CLI flags can't carry the user's choice. Those settings are read from the
+  // run's state when the first message arrives (see resolveActivationSettings).
   private prewarmedRun = false;
   private prewarmedStartupTurnPending = false;
-  private warmAutoPublishResolved = false;
+  private autoPublishStateResolved = false;
   private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
   private installedSkillBundleInfo = new Map<string, InstalledSkillBundle>();
@@ -652,9 +653,10 @@ export class AgentServer {
     // veto, not silent auto-approval.
     return (
       mode === "default" ||
-      mode === "auto" ||
       mode === "read-only" ||
-      mode === "plan"
+      mode === "plan" ||
+      // codex relays every approval, so relaying "auto" prompts for what it runs unattended.
+      (mode === "auto" && this.getRuntimeAdapter() !== "codex")
     );
   }
 
@@ -1208,7 +1210,7 @@ export class AgentServer {
           // effort while the final composer selection uses another.
           // Resolve before buildDetectedPrContext so a warm auto-publish upgrade
           // also flips the detected-PR context to its push variant.
-          const autoPublishUpgrade = await this.resolveWarmActivationSettings();
+          const autoPublishUpgrade = await this.resolveActivationSettings();
           const hostContext = [
             ...(autoPublishUpgrade ? [autoPublishUpgrade] : []),
             ...(this.detectedPrUrl
@@ -1614,7 +1616,7 @@ export class AgentServer {
     this.preSessionEvents = [];
     this.prewarmedRun = false;
     this.prewarmedStartupTurnPending = false;
-    this.warmAutoPublishResolved = false;
+    this.autoPublishStateResolved = false;
     this.warmReasoningEffortResolved = false;
 
     this.logger.debug("Initializing session", {
@@ -3283,6 +3285,12 @@ export class AgentServer {
       ) {
         continue;
       }
+      // Bundles from clients that predate export-side filtering can still
+      // carry ignored entries; drop them so the sandbox skill matches what
+      // current clients would have uploaded.
+      if (isIgnoredSkillPath(normalizedEntryName)) {
+        continue;
+      }
 
       const destinationPath = join(destinationRoot, normalizedEntryName);
       const relativeDestination = relative(destinationRoot, destinationPath);
@@ -3535,12 +3543,20 @@ export class AgentServer {
     );
   }
 
-  /** Apply activation-time settings before a prewarmed session's first turn. */
-  private async resolveWarmActivationSettings(): Promise<string | null> {
-    if (!this.prewarmedRun || !this.session) {
+  /** Apply settings from run state before the first turn when launch config is incomplete. */
+  private async resolveActivationSettings(): Promise<string | null> {
+    if (!this.session) {
       return null;
     }
-    if (this.warmReasoningEffortResolved && this.warmAutoPublishResolved) {
+
+    const shouldResolveReasoning =
+      this.prewarmedRun && !this.warmReasoningEffortResolved;
+    const shouldResolveAutoPublish =
+      !this.autoPublishStateResolved &&
+      this.config.autoPublish !== true &&
+      this.config.createPr !== false &&
+      !this.isAutomatedOrigin();
+    if (!shouldResolveReasoning && !shouldResolveAutoPublish) {
       return null;
     }
 
@@ -3552,14 +3568,16 @@ export class AgentServer {
       );
       state = run?.state as Record<string, unknown> | undefined;
     } catch (error) {
-      // Keep both settings unresolved so a later message retries. A transient
+      // Keep the settings unresolved so a later message retries. A transient
       // control-plane failure must not prevent the first prompt from running.
-      this.logger.debug("Failed to fetch warm activation settings", { error });
+      this.logger.debug("Failed to fetch activation settings", { error });
       return null;
     }
 
-    await this.resolveWarmReasoningEffort(state);
-    return this.resolveWarmAutoPublishUpgrade(state);
+    if (shouldResolveReasoning) {
+      await this.resolveWarmReasoningEffort(state);
+    }
+    return this.resolveAutoPublishFromState(state);
   }
 
   private async resolveWarmReasoningEffort(
@@ -3596,18 +3614,13 @@ export class AgentServer {
   }
 
   /**
-   * A prewarmed run boots before the user's first message exists, so the
-   * --autoPublish flag can't carry the user's choice; the backend persists it
-   * into the run's state at warm activation instead. Nothing has been sent to
-   * the agent until that first message arrives, so resolving it here still
-   * governs the whole conversation: flip the config (so later consumers like
-   * buildDetectedPrContext see it) and return the auto-publish cloud
-   * instructions to inject into the first prompt as an override.
+   * The backend persists auto-publish in run state. Recover it when an older or
+   * incomplete launch path omits the CLI flag, before the agent sees its first prompt.
    */
-  private resolveWarmAutoPublishUpgrade(
+  private resolveAutoPublishFromState(
     state: Record<string, unknown> | undefined,
   ): string | null {
-    if (this.warmAutoPublishResolved) {
+    if (this.autoPublishStateResolved) {
       return null;
     }
     if (
@@ -3616,15 +3629,15 @@ export class AgentServer {
       this.isAutomatedOrigin()
     ) {
       // The boot decision already publishes (or never may) — nothing to upgrade.
-      this.warmAutoPublishResolved = true;
+      this.autoPublishStateResolved = true;
       return null;
     }
-    this.warmAutoPublishResolved = true;
+    this.autoPublishStateResolved = true;
     if (state?.auto_publish !== true) {
       return null;
     }
     this.config.autoPublish = true;
-    this.logger.debug("Warm run upgraded to auto-publish from run state");
+    this.logger.debug("Run upgraded to auto-publish from run state");
     return [
       "IMPORTANT — OVERRIDE PREVIOUS INSTRUCTIONS ABOUT CREATING BRANCHES/PRs.",
       "The user has auto-publish enabled for this run. The review-first cloud task instructions in your system prompt are replaced by the following:",

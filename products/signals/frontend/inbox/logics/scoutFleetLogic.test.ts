@@ -3,34 +3,34 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import {
+    signalsScoutChatTasksCreate,
     signalsScoutConfigList,
     signalsScoutConfigUpdate,
-    signalsScoutMetadataGet,
 } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
-import { RunSourceEnumApi, TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { SCOUT_AUTHOR_PROMPT } from '../utils/scoutRunsWindow'
+import { SignalScoutRunSummary } from '../types'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
 jest.mock('products/signals/frontend/generated/api', () => ({
+    signalsScoutChatTasksCreate: jest.fn(),
     signalsScoutConfigDestroy: jest.fn(),
     signalsScoutConfigList: jest.fn(),
     signalsScoutConfigUpdate: jest.fn(),
-    signalsScoutMetadataGet: jest.fn(),
     signalsScoutRunsFindingsSummary: jest.fn(),
 }))
 
+const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.MockedFunction<
+    typeof signalsScoutChatTasksCreate
+>
 const mockSignalsScoutConfigList = signalsScoutConfigList as jest.MockedFunction<typeof signalsScoutConfigList>
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
-const mockSignalsScoutMetadataGet = signalsScoutMetadataGet as jest.MockedFunction<typeof signalsScoutMetadataGet>
 
 const BASE_CONFIG: SignalScoutConfigApi = {
     id: 'config-1',
@@ -55,6 +55,25 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     created_at: '2026-07-22T00:00:00Z',
 }
 
+function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
+    return {
+        run_id: 'run-1',
+        skill_name: BASE_CONFIG.skill_name,
+        skill_version: 1,
+        status: 'completed',
+        metadata: {},
+        created_at: '2026-07-22T01:00:00Z',
+        started_at: '2026-07-22T01:00:00Z',
+        completed_at: '2026-07-22T01:02:00Z',
+        summary: '',
+        emitted_count: 0,
+        emitted_finding_ids: [],
+        emitted_report_ids: [],
+        edited_report_ids: [],
+        ...overrides,
+    }
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: Error) => void } {
     let resolvePromise!: (value: T) => void
     let rejectPromise!: (error: Error) => void
@@ -70,19 +89,9 @@ describe('scoutFleetLogic', () => {
 
     beforeEach(async () => {
         initKeaTests()
+        mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
-        mockSignalsScoutMetadataGet.mockReset().mockResolvedValue({
-            enrolled: true,
-            banner_message: null,
-            limits: {
-                max_runs_per_tick: 1,
-                max_runs_per_day: null,
-                runs_today: 0,
-                runs_remaining_today: null,
-            },
-        })
-
         logic = scoutFleetLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -131,6 +140,10 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.updatingScoutIds).toEqual([])
     })
 
+    // The roster is the only consumer of the tag filter, so assert through the buckets it renders.
+    const rosterConfigIds = (): string[] =>
+        logic.values.rosterBuckets.flatMap((bucket) => bucket.configs.map((config) => config.id))
+
     it('filters scouts by any selected tag and stops applying tags that are no longer in use', () => {
         const revenueScout = { ...BASE_CONFIG, tags: ['revenue'] }
         const onCallScout = {
@@ -150,14 +163,81 @@ describe('scoutFleetLogic', () => {
         logic.actions.setScoutTagFilter(['revenue', 'on-call'])
 
         expect(logic.values.activeScoutTags).toEqual(['revenue', 'on-call'])
-        expect(logic.values.visibleConfigs.map((config) => config.id)).toEqual(['config-1', 'config-2'])
+        expect(rosterConfigIds()).toEqual(['config-1', 'config-2'])
 
         logic.actions.patchScoutConfigLocally(revenueScout.id, { tags: [] })
         logic.actions.patchScoutConfigLocally(onCallScout.id, { tags: [] })
 
         expect(logic.values.selectedScoutTags).toEqual(['revenue', 'on-call'])
         expect(logic.values.activeScoutTags).toEqual([])
-        expect(logic.values.visibleConfigs).toHaveLength(3)
+        expect(rosterConfigIds()).toHaveLength(3)
+    })
+
+    it('groups the roster by lifecycle, leading with the scouts that are producing', () => {
+        logic.actions.loadScoutConfigsSuccess([
+            { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
+            { ...BASE_CONFIG, id: 'busy', skill_name: 'signals-scout-busy' },
+            {
+                ...BASE_CONFIG,
+                id: 'off',
+                skill_name: 'signals-scout-off',
+                enabled: false,
+                status: 'paused_by_user',
+            },
+            {
+                ...BASE_CONFIG,
+                id: 'broken',
+                skill_name: 'signals-scout-broken',
+                enabled: false,
+                status: 'paused_by_system',
+                pause_reason: 'repeated_failures',
+            },
+        ])
+        // `busy` filed a report in the window, which is what separates Working from Watching.
+        logic.actions.loadScoutRunsSuccess([makeRun({ skill_name: 'signals-scout-busy', emitted_report_ids: ['r-1'] })])
+
+        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual([
+            'working',
+            'needs_you',
+            'watching',
+            'off',
+        ])
+        expect(logic.values.rosterGroupCounts).toMatchObject({ working: 1, needs_you: 1, watching: 1, off: 1 })
+    })
+
+    it('leaves a row where it is when its switch is flipped, instead of relocating it mid-click', async () => {
+        logic.actions.loadScoutConfigsSuccess([
+            { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
+            { ...BASE_CONFIG, id: 'other', skill_name: 'signals-scout-other' },
+        ])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual(['watching'])
+
+        // The optimistic half of a toggle: the switch reads off immediately...
+        logic.actions.patchScoutConfigLocally('quiet', { enabled: false })
+
+        // ...but the row stays in the group it was rendered in, rather than jumping to Off.
+        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual(['watching'])
+        expect(rosterConfigIds()).toEqual(['other', 'quiet'])
+        expect(logic.values.scoutConfigs?.find((config) => config.id === 'quiet')?.enabled).toBe(false)
+    })
+
+    it('re-places rows once server data lands', async () => {
+        logic.actions.loadScoutConfigsSuccess([{ ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' }])
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.loadScoutConfigsSuccess([
+            {
+                ...BASE_CONFIG,
+                id: 'quiet',
+                skill_name: 'signals-scout-quiet',
+                enabled: false,
+                status: 'paused_by_user',
+            },
+        ])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual(['off'])
     })
 
     it('keeps configs unresolved until the current team is available', async () => {
@@ -210,24 +290,16 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.updatingScoutIds).toEqual([])
     })
 
-    it('runs the task it creates, rather than leaving the user on an unstarted one', async () => {
-        const repositories = jest.spyOn(api.tasks, 'repositories')
-        const create = jest.spyOn(api.tasks, 'create').mockResolvedValue({ id: 'task-1' } as any)
-        const run = jest.spyOn(api.tasks, 'run').mockResolvedValue({ id: 'task-1' } as any)
+    it('starts the chat task server-side and navigates to it', async () => {
+        mockSignalsScoutChatTasksCreate.mockResolvedValue({ task_id: 'task-1' })
 
-        logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
-        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+        await expectLogic(logic).toDispatchActions(['startScoutChatTaskSuccess'])
 
-        expect(run).toHaveBeenCalledWith('task-1', {
-            run_source: RunSourceEnumApi.Manual,
-            mode: TaskExecutionModeEnumApi.Interactive,
-            // Without the prompt as the first turn, an interactive run boots the agent idle.
-            pending_user_message: SCOUT_AUTHOR_PROMPT,
+        expect(mockSignalsScoutChatTasksCreate).toHaveBeenCalledWith(String(MOCK_TEAM_ID), {
+            chat_type: 'author_scout',
         })
         expect(router.values.location.pathname).toContain('task-1')
-        // Pinning a repo would make the run clone it in full, and these prompts never touch code.
-        expect(repositories).not.toHaveBeenCalled()
-        expect(create).toHaveBeenCalledWith(expect.not.objectContaining({ repository: expect.anything() }))
     })
 
     it('starts nothing when the organization has not approved AI data processing', async () => {
@@ -235,25 +307,21 @@ describe('scoutFleetLogic', () => {
             ...MOCK_DEFAULT_ORGANIZATION,
             is_ai_data_processing_approved: false,
         })
-        const create = jest.spyOn(api.tasks, 'create').mockResolvedValue({ id: 'task-3' } as any)
-        const run = jest.spyOn(api.tasks, 'run').mockResolvedValue({ id: 'task-3' } as any)
 
-        logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
+        logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
         await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
 
-        // The tasks run endpoint has no consent check of its own, so dropping the guard here would
+        // The endpoint enforces no consent check of its own, so dropping the guard here would
         // start an agent sandbox for an organization that declined AI data processing.
-        expect(create).not.toHaveBeenCalled()
-        expect(run).not.toHaveBeenCalled()
+        expect(mockSignalsScoutChatTasksCreate).not.toHaveBeenCalled()
     })
 
-    it('still opens the task when kicking off its run fails', async () => {
-        jest.spyOn(api.tasks, 'create').mockResolvedValue({ id: 'task-2' } as any)
-        jest.spyOn(api.tasks, 'run').mockRejectedValue(new Error('over the usage limit'))
+    it('resets the in-flight chat type when the kickoff fails', async () => {
+        mockSignalsScoutChatTasksCreate.mockRejectedValue(new Error('over the usage limit'))
 
-        logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
-        await expectLogic(logic).toDispatchActions(['startScoutChatTaskSuccess'])
+        logic.actions.startScoutChatTask('author_scout', 'scout authoring task')
+        await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
 
-        expect(router.values.location.pathname).toContain('task-2')
+        expect(logic.values.runningChatType).toBeNull()
     })
 })

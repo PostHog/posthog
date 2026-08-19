@@ -35,6 +35,7 @@ from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_sc
 from posthog.temporal.alerts.types import AlertInfo, CheckAlertWorkflowInputs, SkipReason
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAlertChecksWorkflow
 from posthog.temporal.common.slo_interceptor import SloInterceptor
+from posthog.temporal.tests.test_alerts_activities import _email_delivery
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.models.insight import Insight
@@ -221,7 +222,8 @@ async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
     with (
         patch("posthog.temporal.alerts.activities.check_alert_for_insight", return_value=evaluation_result),
         patch(
-            "posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=recipients
+            "posthog.tasks.alerts.utils.send_notifications_for_breaches",
+            return_value=[_email_delivery(recipients[0])],
         ) as mock_send_breaches,
     ):
         await _run_check_alert_workflow(
@@ -235,7 +237,7 @@ async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
     assert len(checks) == 1
     check = checks[0]
     assert check.state == AlertState.FIRING
-    assert check.targets_notified == {"users": recipients}
+    assert check.targets_notified == {"users": recipients, "destinations": []}
 
     mock_send_breaches.assert_called_once()
     call = mock_send_breaches.call_args
@@ -347,7 +349,7 @@ async def test_check_alert_workflow_records_errored_check_when_evaluation_keeps_
         ) as mock_ch_query,
         patch(
             "posthog.tasks.alerts.utils.send_notifications_for_errors",
-            return_value=["alerts-wf-test@posthog.com"],
+            return_value=[_email_delivery("alerts-wf-test@posthog.com")],
         ) as mock_send_errors,
         failure_ctx,
     ):

@@ -11,6 +11,7 @@ import requests
 from parameterized import parameterized
 
 from posthog.models import Organization, ProxyRecord
+from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.temporal.proxy_service.monitor import PROXY_LIVE_CHECK_TIMEOUT_S, CheckActivityInput, check_proxy_is_live
 
 
@@ -158,7 +159,9 @@ class TestCheckProxyIsLive(TestCase):
     ):
         mock_get_record.return_value = self.proxy_record
         mock_post.return_value = Mock(status_code=200, raise_for_status=Mock(return_value=None))
-        mock_validate.return_value = (True, None, {ipaddress.ip_address("203.0.113.7")})
+        mock_validate.return_value = PinnedUrlVerdict(
+            allowed=True, reason=None, pinned_ips={ipaddress.ip_address("203.0.113.7")}
+        )
         mock_create_connection.return_value = MagicMock()
 
         mock_socket = Mock()
@@ -188,7 +191,7 @@ class TestCheckProxyIsLive(TestCase):
     ):
         mock_get_record.return_value = self.proxy_record
         mock_post.return_value = Mock(status_code=200, raise_for_status=Mock(return_value=None))
-        mock_validate.return_value = (False, "private address", set())
+        mock_validate.return_value = PinnedUrlVerdict(allowed=False, reason="private address", pinned_ips=set())
 
         result = await check_proxy_is_live(self.input)
 
