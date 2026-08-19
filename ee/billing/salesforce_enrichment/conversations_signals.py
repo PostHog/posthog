@@ -9,12 +9,12 @@ from django.contrib.postgres.aggregates import ArrayAgg
 from django.db.models import Case, Count, DateTimeField, Exists, Max, Min, OuterRef, Q, QuerySet, UUIDField, When
 from django.db.models.functions import Cast, Coalesce
 
-from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import query_with_columns
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.temporal.common.logger import get_logger
@@ -76,7 +76,12 @@ def fetch_slack_channel_user_count(team_id: int, slack_channel_id: str, slack_te
     if not bot_token:
         return None
 
-    client = WebClient(token=bot_token)
+    client = WebClient(
+        token=bot_token,
+        source="salesforce_enrichment",
+        workspace_id=slack_team_id,
+        app_id="support",
+    )
     cursor: str | None = None
     user_count = 0
 
