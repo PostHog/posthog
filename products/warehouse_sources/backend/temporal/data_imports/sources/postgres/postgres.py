@@ -64,6 +64,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     compute_projected_columns,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SQLSourceImplementation,
 )
@@ -3658,13 +3659,11 @@ def postgres_source(
                             column_names = [column.name for column in cursor.description or []]
                             read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
-                            while True:
-                                rows = cursor.fetchmany(chunk_size)
-                                if not rows:
-                                    break
-
+                            for rows in fetch_row_batches(cursor.fetchmany, max_rows=chunk_size):
                                 dicts = [dict(zip(column_names, row)) for row in rows]
-                                del rows
+                                # The batcher still holds this list, so only clearing it in place
+                                # frees the tuples before the Arrow build.
+                                rows.clear()
                                 yield table_from_iterator(iter(dicts), read_schema)
                                 offset += len(dicts)
                     return

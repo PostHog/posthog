@@ -47,6 +47,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     compute_projected_columns,
     project_arrow_columns,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
+    fetch_row_batches,
+    iter_row_batches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SourceMetadata,
     SQLSourceImplementation,
@@ -398,29 +402,19 @@ def _stream_rows_as_arrow_batches(
     chunk_size: int,
     arrow_schema: pa.Schema,
 ) -> Iterator[pa.Table]:
-    """Yield one Arrow table per `chunk_size` rows, reading rows straight off the wire.
+    """Yield one Arrow table per `chunk_size` rows (or per byte budget), reading rows off the wire.
 
     `stream()` puts libpq in single-row (or chunked-row) mode: no cursor is declared, so the
     per-node cap on cursor data never applies, and no result set is buffered into the worker
     either. Those were the two ways a large table could not be read.
     """
     column_names: list[str] = []
-    pending: list[Any] = []
 
-    def to_arrow(rows: list[Any]) -> pa.Table:
-        return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
-
-    for row in cursor.stream(query, size=_libpq_rows_per_chunk()):
+    for rows in iter_row_batches(cursor.stream(query, size=_libpq_rows_per_chunk()), max_rows=chunk_size):
         if not column_names:
             # Only described once the first result arrives, so it can't be read before the loop.
             column_names = [column.name for column in cursor.description or []]
-        pending.append(row)
-        if len(pending) >= chunk_size:
-            yield to_arrow(pending)
-            pending = []
-
-    if pending:
-        yield to_arrow(pending)
+        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
 
 def _fetch_arrow_batches(
@@ -429,35 +423,18 @@ def _fetch_arrow_batches(
     arrow_schema: pa.Schema,
     fetch_size: int | None = None,
 ) -> Iterator[pa.Table]:
-    """Yield one Arrow table per `chunk_size` rows drawn from an already-executed `cursor`.
+    """Yield one Arrow table per `chunk_size` rows (or per byte budget) from an executed `cursor`.
 
-    `fetch_size` decouples the per-`FETCH` page from the Arrow batch: rows accumulate across
-    pages until `chunk_size` is reached. Redshift caps a single `FETCH` on a single-node cluster
-    (see `REDSHIFT_SINGLE_NODE_FETCH_LIMIT`) far below the chunk sizes we target, so paging is
-    the only way to keep the server cursor and still write batches the Delta writer sizes well.
-    Defaults to `chunk_size`, i.e. one `FETCH` per Arrow table.
+    `fetch_size` caps the per-`FETCH` page independently of the Arrow batch: rows accumulate
+    across pages until `chunk_size` is reached. Redshift caps a single `FETCH` on a single-node
+    cluster (see `REDSHIFT_SINGLE_NODE_FETCH_LIMIT`) far below the chunk sizes we target, so
+    paging is the only way to keep the server cursor and still write batches the Delta writer
+    sizes well. Defaults to `chunk_size`, i.e. one `FETCH` per Arrow table.
     """
     column_names = [column.name for column in cursor.description or []]
-    page_size = fetch_size or chunk_size
 
-    def to_arrow(rows: list[Any]) -> pa.Table:
-        return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
-
-    pending: list[Any] = []
-    while True:
-        rows = cursor.fetchmany(page_size)
-        if not rows:
-            break
-
-        pending.extend(rows)
-        # Overshoots by at most `page_size - 1` rows, which is bounded and far below the byte
-        # budget `chunk_size` was derived from.
-        if len(pending) >= chunk_size:
-            yield to_arrow(pending)
-            pending = []
-
-    if pending:
-        yield to_arrow(pending)
+    for rows in fetch_row_batches(cursor.fetchmany, max_rows=chunk_size, max_page_rows=fetch_size or chunk_size):
+        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
 
 def _stream_arrow_batches(

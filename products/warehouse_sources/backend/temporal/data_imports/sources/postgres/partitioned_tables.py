@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     compute_projected_columns,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates_psycopg import (
     and_join,
     render_psycopg_row_filter_conditions,
@@ -442,10 +443,7 @@ def iterate_date_windows(
                     cur.execute(query)
                     columns = [c.name for c in cur.description or []]
                     window_schema = restrict_schema_to_columns(arrow_schema, columns)
-                    while True:
-                        rows = cur.fetchmany(chunk_size)
-                        if not rows:
-                            break
+                    for rows in fetch_row_batches(cur.fetchmany, max_rows=chunk_size):
                         rows_this_window += len(rows)
                         yield table_from_iterator((dict(zip(columns, r)) for r in rows), window_schema)
         except psycopg.errors.QueryCanceled:
@@ -632,10 +630,7 @@ def iterate_partitions(
                 cur.execute(query)
                 columns = [c.name for c in cur.description or []]
                 partition_schema = restrict_schema_to_columns(arrow_schema, columns)
-                while True:
-                    rows = cur.fetchmany(chunk_size)
-                    if not rows:
-                        break
+                for rows in fetch_row_batches(cur.fetchmany, max_rows=chunk_size):
                     rows_this_partition += len(rows)
                     yield table_from_iterator((dict(zip(columns, r)) for r in rows), partition_schema)
 

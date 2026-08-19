@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     project_arrow_columns,
     render_named_conditions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SourceMetadata,
     SQLSourceImplementation,
@@ -944,11 +945,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
 
                     column_names = [column[0] for column in cursor.description or []]
 
-                    while True:
-                        rows = cursor.fetchmany(chunk_size)
-                        if not rows:
-                            break
-
+                    for rows in fetch_row_batches(cursor.fetchmany, max_rows=chunk_size):
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
         return SourceResponse(

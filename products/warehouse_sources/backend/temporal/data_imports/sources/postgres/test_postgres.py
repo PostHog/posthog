@@ -31,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     TemporaryFileSizeExceedsLimitException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import table_payload_bytes
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import batching
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -6874,6 +6876,7 @@ class _FakeCursor:
         self._executed = True
 
     def fetchmany(self, n: int):
+        self.owner.owner.fetch_sizes.append(n)
         if not self._executed:
             return []
         batch, self._rows_remaining = self._rows_remaining[:n], self._rows_remaining[n:]
@@ -6915,6 +6918,7 @@ class _FakeConnectionFactory:
         self.script = script
         self.connections_opened = 0
         self.connections: list[_FakeConnection] = []
+        self.fetch_sizes: list[int] = []
 
     def __call__(self) -> _FakeConnection:
         self.connections_opened += 1
@@ -7141,6 +7145,9 @@ class TestIterateDateWindowsFake:
             _run_windows(
                 script=script,
                 child_partitions=[child],
+                # One row per batch, so the row really is out before the drop: rows read into the
+                # batcher but not yet yielded are discarded with the failed window and re-read.
+                chunk_size=1,
                 is_connection_dropped=_is_connection_dropped_error,
             )
 
@@ -8056,3 +8063,59 @@ class TestPartitionIterationConnectRetry:
         # 1 setup + 2 per-window/per-partition connects (1 dropped commit + 1 success).
         assert connect_mock.call_count == 3
         assert sum(table.num_rows for table in tables) == 3
+
+
+class TestExtractionByteBounds:
+    """Extraction batches must be bounded by accumulated bytes, not by a sampled row count.
+
+    The chunk size is derived from a p95 `octet_length` sample, so on a table whose row
+    sizes span orders of magnitude a fixed row count buys no memory bound at all: a heavy
+    region fetches the same row count and materialises gigabytes.
+    """
+
+    BUDGET = 8 * 1024
+    BLOB = "x" * 1024
+
+    def _schema(self) -> pa.Schema:
+        fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("val", pa.string())]
+        return pa.schema(fields)
+
+    def _child(self) -> ChildPartition:
+        return ChildPartition(
+            oid=1,
+            schema="public",
+            name="p",
+            partbound="FOR VALUES FROM ('2026-01-01') TO ('2026-01-02')",
+        )
+
+    def test_batches_flush_on_the_byte_budget_not_the_row_count(self):
+        rows = [(i, "s") for i in range(200)] + [(i, self.BLOB) for i in range(200, 400)]
+
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", self.BUDGET):
+            tables, _ = _run_windows(
+                script=[list(rows)],
+                child_partitions=[self._child()],
+                chunk_size=400,
+                arrow_schema=self._schema(),
+            )
+
+        assert sum(table.num_rows for table in tables) == 400
+        assert [value for table in tables for value in table.column("val").to_pylist()] == [row[1] for row in rows]
+        # A blob row costs ~1 KiB, so a batch that respects an 8 KiB budget holds a handful of
+        # them — never the whole 400-row chunk.
+        oversized = [table.num_rows for table in tables if table_payload_bytes(table) > self.BUDGET]
+        assert oversized == []
+
+    def test_fetch_pages_shrink_once_wide_rows_appear(self):
+        rows = [(i, "s") for i in range(1000)] + [(i, self.BLOB) for i in range(1000, 2000)]
+
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", self.BUDGET):
+            _, factory = _run_windows(
+                script=[list(rows)],
+                child_partitions=[self._child()],
+                chunk_size=100_000,
+                arrow_schema=self._schema(),
+            )
+
+        # Once a 1 KiB row has been seen, a page of the sampled row count would hold ~100 MiB.
+        assert max(factory.fetch_sizes[-3:]) <= self.BUDGET // len(self.BLOB) + 1

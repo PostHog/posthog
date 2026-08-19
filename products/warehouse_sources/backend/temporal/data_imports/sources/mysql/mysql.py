@@ -55,6 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     compute_projected_columns,
     project_arrow_columns,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SourceMetadata,
     SQLSourceImplementation,
@@ -1512,12 +1513,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
 
                     column_names = [column[0] for column in ss_cursor.description or []]
 
-                    while True:
-                        # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
-                        batch = ss_cursor.fetchmany(chunk_size)
-                        if not batch:
-                            break
-
+                    for batch in fetch_row_batches(ss_cursor.fetchmany, max_rows=chunk_size):
                         yield table_from_iterator((dict(zip(column_names, row)) for row in batch), arrow_schema)
                 finally:
                     # Tear the streaming cursor down without draining the rest of
