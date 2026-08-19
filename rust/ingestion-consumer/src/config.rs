@@ -117,6 +117,29 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_size: usize,
 
+    /// Maximum payload bytes to collect before dispatching a batch, in KiB.
+    /// `0` (default) disables the bound, leaving collection count-only.
+    ///
+    /// Resident memory is `CONSUMER_MAX_BACKGROUND_TASKS x batch x event size`,
+    /// doubled while a sub-batch is in flight, so a count-only cap only bounds
+    /// memory if every lane's event size is known and stable. It is not: measured
+    /// mean payloads across analytics lanes span ~1KB to ~43KB, a 45x spread, and
+    /// the same `CONSUMER_BATCH_SIZE` therefore means 45x the memory on one lane
+    /// versus another. This bound restates the limit in the unit that actually
+    /// constrains the pod, so one value is safe everywhere.
+    ///
+    /// Whichever bound is reached first ends collection. The count cap stays
+    /// useful as a downstream-shape guard (worker request size, per-batch
+    /// overhead); this one is the memory guard. Checked before appending, so a
+    /// batch always carries at least one message and overshoot is bounded by a
+    /// single message (itself capped by `fetch.message.max.bytes`).
+    ///
+    /// Default is off so that rolling this image out changes no lane's batch
+    /// composition; lanes opt in where their memory arithmetic is already
+    /// written down.
+    #[envconfig(from = "CONSUMER_BATCH_SIZE_KB", default = "0")]
+    pub consumer_batch_size_kb: usize,
+
     /// Maximum time to wait while collecting a batch (milliseconds)
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,

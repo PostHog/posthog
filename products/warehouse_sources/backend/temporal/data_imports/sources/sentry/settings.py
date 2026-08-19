@@ -1,9 +1,11 @@
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any, Literal
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ParentRowFilter
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 DEFAULT_SENTRY_API_BASE_URL = "https://sentry.io"
@@ -30,6 +32,11 @@ REQUIRED_SENTRY_SCOPES = (
 # ranges older than the organization's event retention window, so every request has to
 # carry a floor rather than the 1970 sentinel the issue endpoints tolerate.
 SENTRY_RETENTION_DAYS = 90
+
+# The issues API windows its listing while the synced `issues` table accumulates every issue
+# ever seen, so a warehouse fan-out must floor the scan or it fans out over issues the API
+# path never would. Same floor as the tag-values iterator's per-row cutoff.
+ISSUES_PARENT_ROW_FILTER = ParentRowFilter(field="lastSeen", not_older_than=timedelta(days=SENTRY_RETENTION_DAYS))
 
 # `dataset` values accepted by /trace-items/attributes/.
 TRACE_ITEM_DATASETS = ("logs", "preprod", "processing_errors", "spans", "tracemetrics")
@@ -259,6 +266,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             # full=true makes Sentry return complete event bodies (incl. stacktrace entries).
             child_params={"full": "true"},
             parent_source="warehouse",
+            parent_row_filter=ISSUES_PARENT_ROW_FILTER,
         ),
     ),
     "issue_hashes": SentryEndpointConfig(
@@ -278,6 +286,7 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             # it as "no hashes for this issue" instead of failing the whole schema.
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
             parent_source="warehouse",
+            parent_row_filter=ISSUES_PARENT_ROW_FILTER,
         ),
     ),
     "issue_tag_values": SentryEndpointConfig(

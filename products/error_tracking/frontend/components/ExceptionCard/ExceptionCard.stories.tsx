@@ -9,6 +9,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import { TEST_EVENTS } from '../../__mocks__/events'
 import { results as batchGetResults } from '../../__mocks__/stack_frames/batch_get'
+import { ExceptionTag } from '../../hooks/use-error-tag-renderer'
 import { StyleVariables } from '../StyleVariables'
 import { ExceptionCard } from './ExceptionCard'
 import { exceptionCardLogic } from './exceptionCardLogic'
@@ -46,19 +47,36 @@ export function ExceptionCardBase(): JSX.Element {
     return (
         <div className="w-[1000px] h-[700px]">
             <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id' }}>
-                <OpenSessionTab>
+                <OpenTimelineTab>
                     <ExceptionCard
                         issueId="issue-id"
                         issueName="Test Issue"
                         loading={false}
                         event={TEST_EVENTS['javascript_resolved'] as any}
                     />
-                </OpenSessionTab>
+                </OpenTimelineTab>
             </BindLogic>
         </div>
     )
 }
 ExceptionCardBase.parameters = sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved']))
+
+export function ExceptionCardWithFooter(): JSX.Element {
+    const event = asErrorEventType(TEST_EVENTS['javascript_resolved'])
+
+    return (
+        <div className="h-[700px] w-full max-w-5xl">
+            <ExceptionCard
+                issueId="issue-id"
+                issueName="Test Issue"
+                loading={false}
+                event={event}
+                label={<ExceptionTag color="red" label="Last Seen" />}
+            />
+        </div>
+    )
+}
+ExceptionCardWithFooter.parameters = sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved']))
 
 export function ExceptionCardNoInApp(): JSX.Element {
     return (
@@ -216,9 +234,9 @@ function ExceptionCardSessionTimelineStory({
     return (
         <div className={containerClassName}>
             <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id' }}>
-                <OpenSessionTab>
+                <OpenTimelineTab>
                     <ExceptionCard issueId="issue-id" issueName="Test Issue" loading={false} event={event} />
-                </OpenSessionTab>
+                </OpenTimelineTab>
             </BindLogic>
         </div>
     )
@@ -529,11 +547,11 @@ function buildSessionTimelineEvent(
     }
 }
 
-function OpenSessionTab({ children }: { children: JSX.Element }): JSX.Element {
+function OpenTimelineTab({ children }: { children: JSX.Element }): JSX.Element {
     const { setCurrentTab } = useActions(exceptionCardLogic({ issueId: 'issue-id' }))
 
     useEffect(() => {
-        setCurrentTab('session')
+        setCurrentTab('timeline')
     }, [setCurrentTab])
 
     return children

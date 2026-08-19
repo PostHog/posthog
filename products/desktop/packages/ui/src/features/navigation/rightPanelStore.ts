@@ -24,9 +24,18 @@ interface RightPanelStore {
    * default. Not persisted, because this is within-run memory.
    */
   sideByKey: Record<string, RightPanelSide | null | undefined>;
+  /**
+   * How many artifacts a session had the last time its panel showed them, so
+   * the switcher can mark the ones that arrived since. A missing entry is a
+   * session nobody has drawn yet, which takes whatever it already has as seen:
+   * opening an old session is not news. Not persisted, for the same reason
+   * `sideByKey` isn't - this is within-run memory.
+   */
+  seenArtifactCountByKey: Record<string, number | undefined>;
   setWidth: (width: number) => void;
   setIsResizing: (isResizing: boolean) => void;
   setSideForKey: (key: string, side: RightPanelSide | null) => void;
+  markArtifactsSeen: (key: string, count: number) => void;
 }
 
 /**
@@ -54,17 +63,60 @@ export function resolveRightPanelSide({
   return DEFAULT_RIGHT_PANEL_SIDE;
 }
 
+/**
+ * What a session's switcher does with the artifact count it just read: whether
+ * to take this count as seen, and whether to mark the button.
+ *
+ * A session nobody has drawn yet (`seen` undefined) takes its whole count as
+ * seen, so opening a run that finished last week doesn't announce its files as
+ * new. A panel already showing artifacts keeps up with them, so the mark can
+ * never appear behind an open list.
+ *
+ * Until `ready`, the count has no manifest source behind it and reads as zero.
+ * Taking that zero as seen would make the real files look new the moment they
+ * load, so an unready count is neither taken as seen nor allowed to mark.
+ */
+export function resolveArtifactMark({
+  count,
+  seen,
+  isShowingArtifacts,
+  ready,
+}: {
+  count: number;
+  seen: number | undefined;
+  isShowingArtifacts: boolean;
+  ready: boolean;
+}): { markSeen: boolean; hasNew: boolean } {
+  if (!ready) return { markSeen: false, hasNew: false };
+  if (seen === undefined || isShowingArtifacts) {
+    return { markSeen: true, hasNew: false };
+  }
+  return { markSeen: false, hasNew: count > seen };
+}
+
 export const useRightPanelStore = create<RightPanelStore>()(
   persist(
     (set) => ({
       width: RIGHT_PANEL_DEFAULT_WIDTH,
       isResizing: false,
       sideByKey: {},
+      seenArtifactCountByKey: {},
       setWidth: (width) =>
         set({ width: Math.max(RIGHT_PANEL_MIN_WIDTH, width) }),
       setIsResizing: (isResizing) => set({ isResizing }),
       setSideForKey: (key, side) =>
         set((state) => ({ sideByKey: { ...state.sideByKey, [key]: side } })),
+      markArtifactsSeen: (key, count) =>
+        set((state) =>
+          state.seenArtifactCountByKey[key] === count
+            ? state
+            : {
+                seenArtifactCountByKey: {
+                  ...state.seenArtifactCountByKey,
+                  [key]: count,
+                },
+              },
+        ),
     }),
     {
       name: "right-panel",

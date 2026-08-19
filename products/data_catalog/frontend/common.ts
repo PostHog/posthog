@@ -1,5 +1,20 @@
 export const METRIC_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]*$/
 
+/** Values typed in the new metric modal, carried into the SQL editor's "Save as metric" dialog. */
+export interface MetricFormPrefill {
+    name?: string
+    display_name?: string
+    description?: string
+    unit?: string
+}
+
+export const METRIC_FIELD_COPY = {
+    name: { label: 'Name', placeholder: 'monthly_active_users' },
+    displayName: { label: 'Display name', placeholder: 'Monthly active users' },
+    description: { label: 'Description', placeholder: 'What this metric measures and how to read it' },
+    unit: { label: 'Unit', placeholder: 'users' },
+} as const
+
 export function humanizeDefinitionKind(kind: string | null): string {
     if (!kind) {
         return 'Stub'

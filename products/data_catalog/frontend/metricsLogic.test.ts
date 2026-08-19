@@ -163,6 +163,36 @@ describe('metricsLogic', () => {
         expect(logic.values.newMetricModalOpen).toEqual(true)
     })
 
+    it.each([
+        [
+            'carries the typed values into the SQL editor URL',
+            {
+                name: 'monthly_active_users',
+                display_name: 'Monthly active users',
+                description: 'Unique users seen in the last 30 days',
+                unit: 'users',
+            },
+            {
+                name: 'monthly_active_users',
+                display_name: 'Monthly active users',
+                description: 'Unique users seen in the last 30 days',
+                unit: 'users',
+            },
+        ],
+        ['omits the prefill from the SQL editor URL when nothing was typed', {}, undefined],
+    ])('%s', async (_case, formValues, expectedPrefill) => {
+        logic.actions.openNewMetricModal()
+        logic.actions.setNewMetricForm(formValues)
+
+        logic.actions.openSqlEditorForNewMetric()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.newMetricModalOpen).toEqual(false)
+        expect(router.values.location.pathname).toContain(urls.sqlEditor())
+        expect(router.values.searchParams.source).toEqual('metric')
+        expect(router.values.searchParams.metric_prefill).toEqual(expectedPrefill)
+    })
+
     it('removes the row when delete succeeds', async () => {
         ;(dataCatalogMetricsDestroy as jest.Mock).mockResolvedValue(undefined)
 

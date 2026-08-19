@@ -379,8 +379,11 @@ export const metricsLogic = kea<metricsLogicType>([
         openNewMetricModal: () => actions.loadSavedInsights(),
         setInsightSearch: () => actions.loadSavedInsights(),
         openSqlEditorForNewMetric: () => {
+            const { name, display_name, description, unit } = values.newMetricForm
             actions.closeNewMetricModal()
-            router.actions.push(urls.sqlEditor({ source: 'metric' }))
+            router.actions.push(
+                urls.sqlEditor({ source: 'metric', metricPrefill: { name, display_name, description, unit } })
+            )
         },
         createMetric: async () => {
             if (values.isCreatingMetric) {

@@ -193,23 +193,21 @@ CREATE TABLE posthog.logs_kafka_metrics_distributed (
 CREATE TABLE posthog.logs_volume_buckets (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
-  generation UInt64,
   service_name LowCardinality(String),
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
-  log_count UInt64
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, generation, service_name, namespace, environment, severity_text) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(42) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+  log_count SimpleAggregateFunction(sum, UInt64)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(42) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.logs_volume_buckets_distributed (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
-  generation UInt64,
   service_name LowCardinality(String),
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
-  log_count UInt64
-) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs_volume_buckets');
+  log_count SimpleAggregateFunction(sum, UInt64)
+) ENGINE = Distributed('logs', 'posthog', 'logs_volume_buckets');
 CREATE TABLE posthog.metric_attributes (
   team_id Int32,
   time_bucket DateTime64(0),
