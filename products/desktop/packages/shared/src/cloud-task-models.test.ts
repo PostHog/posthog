@@ -36,6 +36,7 @@ describe("formatGatewayModelName", () => {
     [model("openai/gpt-5.6-sol", "openai"), "GPT-5.6 Sol"],
     [model("moonshotai/kimi-k3", "modal"), "Kimi K3"],
     [model("@cf/zai-org/glm-5.2", "cloudflare"), "GLM-5.2"],
+    [model("zai-org/glm-5.3", "baseten"), "GLM-5.3"],
     [
       model("deepseek-ai/deepseek-v4-flash-0731", "baseten"),
       "DeepSeek V4 Flash",
