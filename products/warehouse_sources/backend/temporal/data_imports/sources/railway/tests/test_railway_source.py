@@ -85,6 +85,10 @@ class TestRailwaySource:
             ("rate_limit", "Railway API error (retryable): status=429, retry_after=60"),
             ("server_error", "Railway API error (retryable): status=500, retry_after=None"),
             (
+                "problem_processing_request",
+                "Railway API error (retryable): Problem processing request. GraphQL errors: Problem processing request",
+            ),
+            (
                 "connection_error",
                 "HTTPSConnectionPool(host='backboard.railway.com', port=443): Max retries exceeded with url: "
                 '/graphql/v2 (Caused by ReadTimeoutError("HTTPSConnectionPool'
