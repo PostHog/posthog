@@ -27,7 +27,11 @@ from products.review_hog.backend.temporal.outcomes_activities import (
     discover_outcome_teams_activity,
 )
 from products.review_hog.backend.temporal.outcomes_workflow import ClassifyFindingOutcomesWorkflow
-from products.review_hog.backend.temporal.resolution import ResolvePRWorkflow, resolve_threads_activity
+from products.review_hog.backend.temporal.resolution import (
+    ResolvePRWorkflow,
+    fail_resolution_activity,
+    resolve_threads_activity,
+)
 from products.review_hog.backend.temporal.workflow import (
     ReviewPerspectivesWorkflow,
     ReviewPRWorkflow,
@@ -68,4 +72,5 @@ ACTIVITIES = [
     discover_outcome_teams_activity,
     classify_team_outcomes_activity,
     resolve_threads_activity,
+    fail_resolution_activity,
 ]

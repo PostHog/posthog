@@ -21,6 +21,7 @@ from products.tasks.backend.models import Task, TaskRun
 # receivers.py imports both at call time (startup-import-budget), so the defining modules are the
 # patch targets.
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
+_WORKFLOW_RUNNING = "products.review_hog.backend.temporal.client.workflow_running"
 _STAMPHOG_QUEUE = "products.stamphog.backend.facade.tasks.queue_inbox_pr_review"
 # GitHub's own casing, as a real `output.pr_url` carries it. The task row lowercases its slug, so
 # this is what lets an assertion tell the task's repository apart from the PR URL's own claim.
@@ -31,6 +32,11 @@ _HEAD_BRANCH = "posthog-code/fix-the-thing"
 class TestInboxTrigger(BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        # The PR leg now probes the busy-guard before starting; default it idle so the existing
+        # cases exercise the review path without a live Temporal, and the busy case overrides it.
+        busy_patcher = patch(_WORKFLOW_RUNNING, return_value=False)
+        self.addCleanup(busy_patcher.stop)
+        busy_patcher.start()
         self.signal_report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1.0
         )
@@ -174,6 +180,32 @@ class TestInboxTrigger(BaseTest):
             repository="posthog/posthog",
             head_branch=_HEAD_BRANCH,
         )
+
+    @patch(_START, return_value="wf-1")
+    def test_pr_review_is_skipped_while_the_prs_resolution_is_running(self, mock_start) -> None:
+        # Busy-guard: a published inbox review chains its own resolution, and a later TaskRun save
+        # re-fires this receiver. Without the guard that second review races the resolution's pushes
+        # and re-reviews threads it is mid-way through settling — the exact collision the endpoints
+        # already refuse. The branch leg can't collide, so only the PR leg is guarded.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice)
+        with patch(_WORKFLOW_RUNNING, return_value=True):
+            self._record_output(self._run(self._task()), {"pr_url": _PR_URL})
+
+        mock_start.assert_not_called()
+
+    @patch(_START, return_value="wf-1")
+    def test_branch_review_ignores_the_resolution_busy_guard(self, mock_start) -> None:
+        # A branch-only target has no PR for a resolution to run against, so a "busy" probe must not
+        # block it — the branch leg reviews regardless.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice)
+        with patch(_WORKFLOW_RUNNING, return_value=True):
+            self._record_output(self._run(self._task()), {"head_branch": _HEAD_BRANCH})
+
+        mock_start.assert_called_once()
 
     @patch(_START, return_value="wf-1")
     def test_run_creation_with_a_target_does_not_trigger(self, mock_start) -> None:
