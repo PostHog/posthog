@@ -421,6 +421,29 @@ describe('dataQualityChecksLogic', () => {
         )
     })
 
+    it('stops polling a run whose retrieve keeps failing', async () => {
+        // A request that keeps rejecting (e.g. a 500 or the flag turned off mid-run) must still honor
+        // the 15 minute cap instead of retrying forever and leaving the panel stuck running.
+        ;(warehouseSavedQueriesChecksRunAllCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mockRejectedValue(new Error('boom'))
+        await mountLogic()
+
+        await startRunUnderFakeTimers()
+
+        // 3s cadence for the first minute, then 15s: 20 + 56 polls covers the 15 minute cap.
+        for (let poll = 0; poll < 80 && !logic.values.pollTimedOut; poll++) {
+            await advancePoll(poll < 20 ? 3000 : 15000)
+        }
+
+        expect(logic.values.pollTimedOut).toBe(true)
+        expect(logic.values.isSuiteRunning).toBe(false)
+        const pollsBeforeGivingUp = (warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mock.calls.length
+        await advancePoll(15000)
+        expect((warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mock.calls.length).toEqual(
+            pollsBeforeGivingUp
+        )
+    })
+
     it('adopts a run that was already in flight on mount', async () => {
         ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [buildSuiteRun()] })
 
