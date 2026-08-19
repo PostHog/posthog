@@ -285,6 +285,7 @@ export interface EnrichedEvent {
 export interface EnricherApiConfig {
   apiKey: string;
   host: string;
+  publicHost?: string;
   projectId: number;
   /** Timeout in ms for each API request (default: 10 000). */
   timeoutMs?: number;
