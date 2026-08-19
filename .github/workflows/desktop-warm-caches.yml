@@ -55,13 +55,16 @@ jobs:
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
-            # No restore-keys: a fresh save per commit keeps the cache from growing
-            # forever, at the cost of a cold build on every master push.
+            # Save a fresh entry per commit so the cache does not grow forever, but
+            # restore the previous commit's entry as a fallback so build:deps and
+            # typecheck start warm instead of cold on every master push. Mirrors the
+            # keys in .github/actions/desktop-restore-turbo-cache.
             - name: Cache turbo artifacts
               uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
               with:
                   path: products/desktop/.turbo/cache
                   key: desktop-turbo-${{ github.sha }}
+                  restore-keys: desktop-turbo-
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
@@ -101,6 +104,19 @@ jobs:
               id: pnpm-store
               run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
+            # Key the Electron and Playwright caches on the one version each depends
+            # on, not the whole lockfile. Any unrelated dependency bump changes the
+            # lockfile hash and evicts both, which forces a slow re-download and
+            # re-save; the resolved versions below change only when they actually do.
+            - name: Resolve cache versions
+              id: versions
+              run: |
+                  set -euo pipefail
+                  electron=$(grep -m1 -oE '^  electron@[^:]+' pnpm-lock.yaml | sed 's/^  electron@//')
+                  playwright=$(grep -m1 -oE '^  playwright@[^:]+' pnpm-lock.yaml | sed 's/^  playwright@//')
+                  echo "electron=$electron" >> "$GITHUB_OUTPUT"
+                  echo "playwright=$playwright" >> "$GITHUB_OUTPUT"
+
             - name: Cache pnpm store
               id: pnpm-cache
               uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -109,20 +125,24 @@ jobs:
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
-            # Same keys as desktop-test.yml's integration-test job.
+            # desktop-test.yml's integration-test job restores both caches with a
+            # restore-keys prefix (electron-<os>-, playwright-<os>-), so it still
+            # finds these narrower keys.
             - name: Cache Electron binary
               id: electron-cache
               uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
               with:
                   path: ~/Library/Caches/electron
-                  key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  key: electron-${{ runner.os }}-${{ steps.versions.outputs.electron }}
+                  restore-keys: electron-${{ runner.os }}-
 
             - name: Cache Playwright browsers
               id: playwright-cache
               uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
               with:
                   path: ~/Library/Caches/ms-playwright
-                  key: playwright-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  key: playwright-${{ runner.os }}-${{ steps.versions.outputs.playwright }}
+                  restore-keys: playwright-${{ runner.os }}-
 
             # macOS minutes are 10x; do nothing when every cache is already warm.
             - name: Install dependencies
