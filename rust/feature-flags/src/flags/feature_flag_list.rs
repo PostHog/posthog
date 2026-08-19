@@ -181,7 +181,8 @@ impl FeatureFlagList {
                     team_id,
                     e
                 );
-                FlagError::internal(anyhow::Error::new(e).context("Database query error"))
+                let message = format!("Database query error: {e}");
+                FlagError::internal(anyhow::Error::new(e).context(message))
             })?;
 
         let flags: Vec<FeatureFlag> = flags_row

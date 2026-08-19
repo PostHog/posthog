@@ -528,7 +528,7 @@ mod tests {
         let query_failed = GroupTypeFetchError::QueryFailed("test error".to_string());
         let flag_error: FlagError = query_failed.into();
         assert!(
-            matches!(flag_error, FlagError::InternalError { ref cause, .. } if cause.to_string() == "test error")
+            matches!(flag_error, FlagError::InternalError { ref cause, .. } if cause.to_string() == "Internal error: test error")
         );
     }
 

@@ -56,21 +56,14 @@ pub enum ClientFacingError {
 pub enum FlagError {
     #[error(transparent)]
     ClientFacing(#[from] ClientFacingError),
-    /// Internal server fault (500). `code` is the stable string surfaced as
-    /// `reason.code` in the flags response and as the canonical-log error code,
-    /// so treat it as part of the public contract. Build one with the
-    /// constructors below rather than inline, so a code never drifts.
-    ///
-    /// The field is `cause`, not `source`: thiserror treats a field literally
-    /// named `source` as `#[source]`, and `anyhow::Error` does not implement
-    /// `std::error::Error`, so that combination will not compile.
+    /// `code` is public: it ships as `reason.code` and as a metrics label.
+    /// Named `cause` because thiserror would treat `source` as `#[source]`,
+    /// which `anyhow::Error` cannot satisfy.
     #[error("{cause}")]
     InternalError {
         code: &'static str,
         cause: anyhow::Error,
     },
-    /// Transient dependency failure (503) where retrying may succeed. Carries the
-    /// same `code` contract as [`FlagError::InternalError`].
     #[error("{cause}")]
     Unavailable {
         code: &'static str,
@@ -138,17 +131,18 @@ pub enum FlagError {
 }
 
 impl FlagError {
-    /// A generic internal fault. Attach context at the call site so the log
-    /// carries the failing operation: `FlagError::internal(e.context("..."))`.
+    /// The `Internal error: ` prefix reaches customers as the `$feature_flag_reason`
+    /// event property, so changing it changes their data. `context` keeps the chain.
     pub fn internal(cause: impl Into<anyhow::Error>) -> Self {
+        let cause = cause.into();
+        let message = format!("Internal error: {cause}");
         FlagError::InternalError {
             code: "internal_error",
-            cause: cause.into(),
+            cause: cause.context(message),
         }
     }
 
-    /// Flag definition data that could not be parsed, which means corruption or a
-    /// schema mismatch rather than an availability problem, so it stays a 500.
+    /// Corrupt or mismatched data, so a 500 rather than a retryable 503.
     pub fn flag_data_parsing(details: impl std::fmt::Display) -> Self {
         FlagError::InternalError {
             code: "flag_data_parsing_error",
@@ -392,8 +386,6 @@ impl IntoResponse for FlagError {
                 ClientFacingError::ServiceUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "Service is currently unavailable. Please try again later.".to_string()),
             },
             FlagError::InternalError { code, cause } => {
-                // `{cause:?}` prints the whole anyhow chain, which is the point of
-                // the bucket: the variant no longer names the failure, the chain does.
                 tracing::error!(error_code = code, "Internal server error: {cause:?}");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -401,8 +393,6 @@ impl IntoResponse for FlagError {
                 )
             }
             FlagError::Unavailable { code, cause } => {
-                // 503s are transient by definition, so these stay at warn to keep
-                // error dashboards meaningful during a dependency blip.
                 tracing::warn!(error_code = code, "Service dependency unavailable: {cause:?}");
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
@@ -688,7 +678,36 @@ impl From<HyperCacheError> for FlagError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
     use tokio::time::{timeout, Duration};
+
+    /// These strings reach customers as the `$feature_flag_reason` event property.
+    #[rstest]
+    #[case(FlagError::internal(anyhow::anyhow!("boom")), "Internal error: boom")]
+    #[case(
+        FlagError::flag_data_parsing("bad json"),
+        "Failed to parse flag data: bad json"
+    )]
+    #[case(
+        FlagError::data_parsing(anyhow::anyhow!("bad payload")),
+        "Failed to parse data"
+    )]
+    #[case(
+        FlagError::batch_evaluation_panicked(),
+        "Parallel batch evaluation task panicked"
+    )]
+    #[case(
+        FlagError::redis_unavailable(anyhow::anyhow!("connection refused")),
+        "redis unavailable"
+    )]
+    #[case(FlagError::cache_miss(), "Cache miss - data not found in cache")]
+    #[case(FlagError::person_not_found(), "Person not found")]
+    fn test_bucketed_error_descriptions_are_stable(
+        #[case] error: FlagError,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(error.evaluation_error_description(), expected);
+    }
 
     #[test]
     fn test_is_5xx() {

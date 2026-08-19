@@ -230,7 +230,8 @@ async fn scan_persons_page(
         .await
         .map_err(|e| {
             warn!(team_id, cursor, "Batch eval person scan failed: {e}");
-            FlagError::internal(anyhow::Error::new(e).context("person scan query failed"))
+            let message = format!("person scan query failed: {e}");
+            FlagError::internal(anyhow::Error::new(e).context(message))
         })
 }
 

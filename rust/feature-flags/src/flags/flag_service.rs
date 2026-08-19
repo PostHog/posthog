@@ -932,7 +932,7 @@ mod tests {
         );
     }
 
-    /// Corrupt Redis payload must hard-fail with DataParsingErrorWithContext rather
+    /// Corrupt Redis payload must hard-fail under `flag_data_parsing_error` rather
     /// than silently fall back to PG (which would serve single-stage data).
     #[tokio::test]
     async fn test_get_flags_hard_fails_on_hypercache_parse_error() {
