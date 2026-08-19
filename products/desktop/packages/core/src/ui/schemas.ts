@@ -7,9 +7,15 @@ export const UIServiceEvent = {
   InvalidateToken: "invalidate-token",
 } as const;
 
-// UI events are simple signals - payload is just a marker that the event fired
+export interface OpenSettingsPayload {
+  /** Settings category slug to open. Defaults to `plan-usage` when empty. */
+  category: string;
+}
+
+// UI events are simple signals - payload is just a marker that the event fired.
+// OpenSettings is the exception: it carries the settings category to open.
 export interface UIServiceEvents {
-  [UIServiceEvent.OpenSettings]: true;
+  [UIServiceEvent.OpenSettings]: OpenSettingsPayload;
   [UIServiceEvent.NewTask]: true;
   [UIServiceEvent.ResetLayout]: true;
   [UIServiceEvent.ClearStorage]: true;

@@ -77,6 +77,17 @@ const deepLinkStubRouter = router({
   onOpenLoop: neverEmit,
 });
 
+// UI events are main-process signals (menu items, deep links). Web has no
+// main process, so the streams never fire and there is no pending link.
+const uiStubRouter = router({
+  onOpenSettings: neverEmit,
+  onNewTask: neverEmit,
+  onResetLayout: neverEmit,
+  onClearStorage: neverEmit,
+  onInvalidateToken: neverEmit,
+  getPendingSettingsLink: publicProcedure.query(() => null),
+});
+
 // Slack/GitHub connect. Desktop opens the PostHog integration authorize URL in
 // the system browser and relays the result back through a posthog-code:// deep
 // link (captured by the main process). The browser has no URL scheme, but it
@@ -506,6 +517,7 @@ export const webHostRouter = router({
   os: osStubRouter,
   skills: skillsStubRouter,
   slackIntegration: slackIntegrationRouter,
+  ui: uiStubRouter,
   workspace: workspaceStubRouter,
 });
 

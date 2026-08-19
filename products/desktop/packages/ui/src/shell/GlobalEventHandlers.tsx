@@ -18,6 +18,7 @@ import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { resolveSettingsCategory } from "@posthog/ui/features/settings/types";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import type { TaskData } from "@posthog/ui/features/sidebar/useSidebarData";
 import { useFocusWorkspace } from "@posthog/ui/features/workspace/useFocusWorkspace";
@@ -36,6 +37,7 @@ import { logger } from "@posthog/ui/shell/logger";
 import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
 import { installUncaughtErrorLogging } from "@posthog/ui/shell/uncaughtErrorLog";
 import { clearApplicationStorage } from "@posthog/ui/utils/clearStorage";
+import { useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -144,6 +146,14 @@ export function GlobalEventHandlers({
   const handleOpenSettings = useCallback(() => {
     openSettingsDialog();
   }, [openSettingsDialog]);
+
+  const handleSettingsDeepLink = useCallback(
+    (data?: { category: string }) => {
+      const category = data ? resolveSettingsCategory(data.category) : null;
+      openSettingsDialog(category ?? "plan-usage");
+    },
+    [openSettingsDialog],
+  );
 
   const handleFocusTaskMode = useCallback((data?: unknown) => {
     if (!data) return;
@@ -342,9 +352,23 @@ export function GlobalEventHandlers({
 
   useSubscription(
     trpcReact.ui.onOpenSettings.subscriptionOptions(undefined, {
-      onData: handleOpenSettings,
+      onData: handleSettingsDeepLink,
     }),
   );
+
+  // Drain a usage deep link that arrived before the subscription was live.
+  const pendingSettingsLink = useQuery(
+    trpcReact.ui.getPendingSettingsLink.queryOptions(undefined, {
+      staleTime: Number.POSITIVE_INFINITY,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    }),
+  );
+  useEffect(() => {
+    if (pendingSettingsLink.data) {
+      handleSettingsDeepLink(pendingSettingsLink.data);
+    }
+  }, [pendingSettingsLink.data, handleSettingsDeepLink]);
 
   useSubscription(
     trpcReact.ui.onNewTask.subscriptionOptions(undefined, {
