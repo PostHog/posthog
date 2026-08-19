@@ -292,6 +292,39 @@ describe('hogFunctionConfigurationLogic', () => {
         })
     })
 
+    describe('resetForm restore is scoped to the saving project', () => {
+        // localStorage is shared across every project on this origin and the new-from-template
+        // snapshot keys on the template id alone, so a snapshot saved by another project must not
+        // pre-fill this one. Distinct templateIds keep the two cases from sharing a storage key.
+        it.each([
+            ['restores a snapshot saved by the current project', true, 'proj-scope-match'],
+            ['drops a snapshot saved by a different project', false, 'proj-scope-mismatch'],
+        ])('%s', async (_name, sameProject, templateId) => {
+            initKeaTests()
+            mockApi.getTemplate.mockReturnValue(Promise.resolve({ ...HOG_TEMPLATE } as any))
+            logic = hogFunctionConfigurationLogic({ templateId })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+
+            const currentProjectId = logic.values.currentProjectId
+            const snapshotProjectId = sameProject ? currentProjectId : (currentProjectId ?? 0) + 1
+            logic.actions.setUnsavedConfiguration(
+                { ...logic.values.configuration, name: 'restored-from-snapshot' },
+                snapshotProjectId
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.resetForm()
+            }).toFinishAllListeners()
+
+            if (sameProject) {
+                expect(logic.values.configuration.name).toBe('restored-from-snapshot')
+            } else {
+                expect(logic.values.configuration.name).not.toBe('restored-from-snapshot')
+            }
+        })
+    })
+
     describe('loading a missing function', () => {
         beforeEach(() => {
             initKeaTests()

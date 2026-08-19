@@ -415,6 +415,7 @@ export interface hogFunctionConfigurationLogicValues {
     type: HogFunctionTypeType
     unsavedConfiguration: {
         configuration: HogFunctionConfigurationType
+        projectId: number | null
         timestamp: number
     } | null
     useMapping: number | true | undefined
@@ -600,8 +601,12 @@ export interface hogFunctionConfigurationLogicActions {
     setShowSource: (showSource: boolean) => {
         showSource: boolean
     }
-    setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => {
+    setUnsavedConfiguration: (
+        configuration: HogFunctionConfigurationType | null,
+        projectId?: number | null
+    ) => {
         configuration: HogFunctionConfigurationType | null
+        projectId: number | null
     }
     sparklineQueryChanged: (sparklineQuery: TrendsQuery) => {
         sparklineQuery: TrendsQuery
@@ -859,7 +864,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 sparklineQuery,
             }) as { sparklineQuery: TrendsQuery },
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
-        setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
+        setUnsavedConfiguration: (
+            configuration: HogFunctionConfigurationType | null,
+            projectId: number | null = null
+        ) => ({
+            configuration,
+            projectId,
+        }),
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
         setSampleGlobals: (sampleGlobals: CyclotronJobInvocationGlobals | null) => ({ sampleGlobals }),
@@ -909,11 +920,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         unsavedConfiguration: [
-            null as { timestamp: number; configuration: HogFunctionConfigurationType } | null,
+            null as { timestamp: number; projectId: number | null; configuration: HogFunctionConfigurationType } | null,
             { persist: true },
             {
-                setUnsavedConfiguration: (_, { configuration }) =>
-                    configuration ? { timestamp: Date.now(), configuration } : null,
+                setUnsavedConfiguration: (_, { configuration, projectId }) =>
+                    configuration ? { timestamp: Date.now(), projectId, configuration } : null,
             },
         ],
 
@@ -2007,9 +2018,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             }
 
             const paramsFromUrl = cache.paramsFromUrl ?? {}
+            // localStorage is shared across every project on this origin, and the new-from-template
+            // snapshot keys on the template id alone, so only restore a snapshot saved by the same
+            // project. Otherwise an abandoned OAuth snapshot bleeds one project's config into another.
+            const snapshot = values.unsavedConfiguration
             const unsavedConfigurationToApply =
-                (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL
-                    ? values.unsavedConfiguration?.configuration
+                snapshot &&
+                snapshot.timestamp > Date.now() - UNSAVED_CONFIGURATION_TTL &&
+                snapshot.projectId === values.currentProjectId
+                    ? snapshot.configuration
                     : null
 
             actions.resetConfiguration(config)
@@ -2122,18 +2139,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             // secret input values first (top-level and per-mapping) so freshly typed secrets never
             // reach persistent, origin-readable storage in cleartext.
             const config = values.configuration
-            actions.setUnsavedConfiguration({
-                ...config,
-                inputs: config.inputs
-                    ? redactSecretHogFunctionInputs(config.inputs, config.inputs_schema ?? [])
-                    : config.inputs,
-                mappings: config.mappings?.map((mapping) => ({
-                    ...mapping,
-                    inputs: mapping.inputs
-                        ? redactSecretHogFunctionInputs(mapping.inputs, mapping.inputs_schema ?? [])
-                        : mapping.inputs,
-                })),
-            })
+            actions.setUnsavedConfiguration(
+                {
+                    ...config,
+                    inputs: config.inputs
+                        ? redactSecretHogFunctionInputs(config.inputs, config.inputs_schema ?? [])
+                        : config.inputs,
+                    mappings: config.mappings?.map((mapping) => ({
+                        ...mapping,
+                        inputs: mapping.inputs
+                            ? redactSecretHogFunctionInputs(mapping.inputs, mapping.inputs_schema ?? [])
+                            : mapping.inputs,
+                    })),
+                },
+                values.currentProjectId
+            )
         },
     })),
     afterMount(({ props, actions, cache }) => {
