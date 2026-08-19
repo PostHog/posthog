@@ -18,7 +18,7 @@ from drf_spectacular.utils import (
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
-from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
+from rest_framework.exceptions import APIException, MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
@@ -109,6 +109,12 @@ API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
     "An estimate of how many bytes we've read from postgres to return the person endpoint.",
     labelnames=[LABEL_TEAM_ID],
 )
+
+
+class PersonDeletionError(APIException):
+    status_code = 500
+    default_detail = "Couldn't delete this person. Try again, and if the problem continues contact support."
+    default_code = "person_deletion_failed"
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -667,13 +673,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         try:
             person = self.get_object()
             # Convert query params to request data format expected by bulk_delete
-            self._bulk_delete_persons(
+            summary = self._bulk_delete_persons(
                 request=request,
                 ids=[str(person.uuid)],
                 delete_events="delete_events" in request.GET,
                 delete_recordings="delete_recordings" in request.GET,
                 keep_person="keep_person" in request.GET,
             )
+            # _bulk_delete_persons swallows per-person failures into deletion_errors, so a
+            # non-empty list here means this person was not deleted. Surface it instead of 202.
+            if summary["deletion_errors"]:
+                raise PersonDeletionError()
             return response.Response(status=202)
 
         except Person.DoesNotExist:

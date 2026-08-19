@@ -484,6 +484,21 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(async_deletion.key, str(person.uuid))
         self.assertIsNone(async_deletion.delete_verified_at)
 
+    @mock.patch("posthog.models.person.bulk_delete.delete_person")
+    def test_delete_person_reports_failure_instead_of_202(self, mock_delete_person):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1"],
+            immediate=True,
+        )
+        mock_delete_person.side_effect = Exception("DB connection lost")
+
+        response = self.client.delete(f"/api/person/{person.uuid}/")
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # The person was not deleted, so it must still be readable.
+        self.assertIsNotNone(get_person_by_uuid(self.team.pk, str(person.uuid)))
+
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_bulk_delete_ids(self):
         person = _create_person(

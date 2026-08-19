@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toParams } from 'lib/utils/url'
 
@@ -125,7 +126,20 @@ export const personDeleteModalLogic = kea<personDeleteModalLogicType>([
                         params.delete_recordings = true
                     }
 
-                    await api.delete(`api/person/${person.id}?${toParams(params)}`)
+                    try {
+                        await api.delete(`api/person/${person.id}?${toParams(params)}`)
+                    } catch (error) {
+                        // Capture on failure too, so a delete that never completes is visible in
+                        // analytics instead of only in a session recording.
+                        posthog.capture('delete person failed', params)
+                        lemonToast.error(
+                            (error as ApiError)?.detail ||
+                                'Could not delete this person. Try again, and if the problem continues contact support.'
+                        )
+                        // Rethrow so the loader records the failure and the modal stays open.
+                        throw error
+                    }
+
                     posthog.capture('delete person', params)
 
                     lemonToast.success(

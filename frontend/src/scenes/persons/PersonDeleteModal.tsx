@@ -13,7 +13,7 @@ import { asDisplay } from './person-utils'
 const DELETE_CONFIRMATION_TEXT = 'delete'
 
 export function PersonDeleteModal(): JSX.Element | null {
-    const { personDeleteModal, deleteConfirmationText } = useValues(personDeleteModalLogic)
+    const { personDeleteModal, deleteConfirmationText, deletedPersonLoading } = useValues(personDeleteModalLogic)
     const [alsoDeleteEvents, setAlsoDeleteEvents] = useState(false)
     const [alsoDeleteRecordings, setAlsoDeleteRecordings] = useState(false)
     const { deletePerson, showPersonDeleteModal, setDeleteConfirmationText } = useActions(personDeleteModalLogic)
@@ -25,8 +25,36 @@ export function PersonDeleteModal(): JSX.Element | null {
         setAlsoDeleteRecordings(false)
     }
 
+    const confirmed = matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
+
     return (
-        <LemonModal isOpen={!!personDeleteModal} onClose={handleClose} title="Confirm deletion" maxWidth="500px">
+        <LemonModal
+            isOpen={!!personDeleteModal}
+            onClose={handleClose}
+            title="Confirm deletion"
+            maxWidth="500px"
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={handleClose} data-attr="delete-person-cancel">
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        status="danger"
+                        loading={deletedPersonLoading}
+                        disabledReason={!confirmed ? 'Please type the correct confirmation text' : undefined}
+                        onClick={() =>
+                            deletePerson(personDeleteModal as PersonType, alsoDeleteEvents, alsoDeleteRecordings)
+                        }
+                        data-attr="delete-person"
+                    >
+                        Delete person
+                    </LemonButton>
+                </>
+            }
+        >
+            {/* Banners render above the confirmation input so the input and the pinned footer buttons
+                never shift under the pointer as options are toggled. */}
             <div className="space-y-4">
                 <h4>Are you sure you want to delete "{asDisplay(personDeleteModal)}"?</h4>
 
@@ -56,6 +84,12 @@ export function PersonDeleteModal(): JSX.Element | null {
                         </Link>
                     </LemonBanner>
                 )}
+                {confirmed && (
+                    <LemonBanner type="warning">
+                        Do NOT delete this person if you want to re-use the distinct IDs. Instead use split ID. Re-using
+                        the distinct ID of a deleted person is not supported and will result in a bad application state.
+                    </LemonBanner>
+                )}
                 <LemonDivider />
                 <div className="space-y-2">
                     <label className="text-sm">
@@ -69,32 +103,6 @@ export function PersonDeleteModal(): JSX.Element | null {
                         autoFocus
                     />
                 </div>
-                {matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT) && (
-                    <LemonBanner type="warning">
-                        Do NOT delete this person if you want to re-use the distinct IDs. Instead use split ID. Re-using
-                        the distinct ID of a deleted person is not supported and will result in a bad application state.
-                    </LemonBanner>
-                )}
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-                <LemonButton type="secondary" onClick={handleClose} data-attr="delete-person-cancel">
-                    Cancel
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    status="danger"
-                    disabledReason={
-                        !matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
-                            ? 'Please type the correct confirmation text'
-                            : undefined
-                    }
-                    onClick={() =>
-                        deletePerson(personDeleteModal as PersonType, alsoDeleteEvents, alsoDeleteRecordings)
-                    }
-                    data-attr="delete-person"
-                >
-                    Delete person
-                </LemonButton>
             </div>
         </LemonModal>
     )
