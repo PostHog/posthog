@@ -89,12 +89,19 @@ export interface PersonhogPersonsStoreOptions {
      * fate.
      */
     syncMergeMoveLimit: number
+    /**
+     * The per-call deadline on merge RPCs, from the same config the client
+     * transport is built with. The fence budget derives from it, so the two
+     * cannot drift apart; see FENCE_WAIT_SLACK_MS.
+     */
+    mergeRpcTimeoutMs: number
 }
 
 const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
     maxConcurrentUpdates: 10,
     updateAllProperties: false,
     syncMergeMoveLimit: 10_000,
+    mergeRpcTimeoutMs: 3_000,
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
@@ -144,13 +151,21 @@ export class PersonhogPendingRpcError extends Error {
 const REDIRECT_MAX_ATTEMPTS = 5
 
 /**
- * How long a fold waits for a merge holding its person. A merge that hangs
- * must slow those persons briefly, never stall ingestion for them, so the
- * wait is bounded and a timeout is counted rather than thrown: proceeding
- * loses the ordering guarantee for one event, blocking forever loses the
- * partition.
+ * Headroom the fence budget carries over one merge RPC deadline, covering
+ * the awaits that surround the call inside the fence: draining writes
+ * already on the wire, and the merge's own resolve.
+ *
+ * The budget is deliberately sized for a merge making ONE attempt, not for
+ * its whole retry sequence. A merge that retries is contending, and holding
+ * every fold for that person across the full sequence would multiply into
+ * the flush's own bounded rounds and risk stalling the poll loop past
+ * Kafka's max.poll.interval.ms — losing the partition to preserve one
+ * event's ordering. A retrying merge instead falls through to the timeout
+ * path, which is safe: the fold proceeds, reconcile marks its lane, and the
+ * redirect delivers the ops to the survivor with source precedence. What it
+ * costs is that event's enrichment freshness, not its data.
  */
-const FENCE_MAX_WAIT_MS = 5_000
+const FENCE_WAIT_SLACK_MS = 2_000
 
 /** How many back-to-back merges a single fold will wait out before proceeding. */
 const FENCE_MAX_CHAINED_WAITS = 3
@@ -311,6 +326,13 @@ export class PersonhogPersonsStore implements PersonsStore {
     private redirectsInFlight: Map<string, Set<Promise<void>>> = new Map()
     /** Serializes flush passes; see flush(). */
     private flushChain: Promise<void> = Promise.resolve()
+    /**
+     * How long one fold waits for a merge holding its person: one merge RPC
+     * deadline plus the slack around it. A merge that hangs must slow those
+     * persons briefly, never stall ingestion for them, so the wait is
+     * bounded and a timeout is counted rather than thrown.
+     */
+    private readonly fenceWaitMs: number
 
     constructor(
         private repository: PersonHogPersonWriteRepository,
@@ -322,6 +344,12 @@ export class PersonhogPersonsStore implements PersonsStore {
         // inside BigInt() when the request is built. Either turns every merge
         // in the deployment into a failure, so they fail startup instead.
         assertMoveLimit('PERSONHOG_SYNC_MERGE_MOVE_LIMIT', this.options.syncMergeMoveLimit)
+        if (!Number.isFinite(this.options.mergeRpcTimeoutMs) || this.options.mergeRpcTimeoutMs <= 0) {
+            throw new Error(`PERSONHOG_TIMEOUT_MS must be a positive number, got ${this.options.mergeRpcTimeoutMs}`)
+        }
+        // Derived rather than fixed: a fence sized independently of the
+        // deadline it covers stops covering it the moment either moves.
+        this.fenceWaitMs = this.options.mergeRpcTimeoutMs + FENCE_WAIT_SLACK_MS
     }
 
     forBatch(batchId: number): PersonsStoreForBatch {
@@ -535,7 +563,7 @@ export class PersonhogPersonsStore implements PersonsStore {
     private async awaitFence(personKey: string, fence: Promise<void>): Promise<void> {
         let timer: NodeJS.Timeout | undefined
         const expired = new Promise<'timeout'>((resolve) => {
-            timer = setTimeout(() => resolve('timeout'), FENCE_MAX_WAIT_MS)
+            timer = setTimeout(() => resolve('timeout'), this.fenceWaitMs)
         })
         try {
             const outcome = await Promise.race([fence.then(() => 'released' as const), expired])

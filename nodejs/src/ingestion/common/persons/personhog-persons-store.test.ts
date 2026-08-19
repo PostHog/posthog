@@ -1919,6 +1919,50 @@ describe('PersonhogPersonsStore', () => {
             }
         })
 
+        it('the fence budget follows the merge rpc deadline it covers', async () => {
+            // Sized from the deadline rather than fixed, so raising the RPC
+            // timeout cannot leave folds abandoning fences the merge is
+            // still legitimately using. A store given a 30s deadline must
+            // still be waiting well past the 5s the default would allow.
+            jest.useFakeTimers()
+            try {
+                const slowStore = new PersonhogPersonsStore(repository, { mergeRpcTimeoutMs: 30_000 })
+                const bound = slowStore.forBatch(0)
+                repository.resolvePersonsByDistinctIds.mockResolvedValue([
+                    { teamId: 1, distinctId: 'd1', person },
+                ] as never)
+                repository.fetchPersonById.mockResolvedValue({ ...person } as never)
+                await bound.fetchForUpdate(1, 'd1')
+                repository.mergePersons = jest.fn().mockImplementation(() => new Promise(() => {}))
+                void bound.mergePersons({
+                    teamId: 1,
+                    targetDistinctId: 'd1',
+                    sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
+                    eventOps: ops({}, '$identify'),
+                    opId: 'event-uuid',
+                    allowIdentifiedSources: false,
+                    mergeMode: createDefaultSyncMergeMode(),
+                    createdAtMs: 3_600_000,
+                })
+                await jest.advanceTimersByTimeAsync(0)
+
+                let folded = false
+                const fold = bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1').then(() => {
+                    folded = true
+                })
+                // Past the default budget, still parked behind the merge.
+                await jest.advanceTimersByTimeAsync(6_000)
+                expect(folded).toBe(false)
+
+                // Past its own budget, the fold proceeds as usual.
+                await jest.advanceTimersByTimeAsync(30_000)
+                await fold
+                expect(folded).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('demoted lanes reach the survivor in the merge\u2019s source order, not fold order', async () => {
             const bound = store.forBatch(0)
             // Folded in the OPPOSITE order of the merge's sources, so only

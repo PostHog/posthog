@@ -422,6 +422,7 @@ export class IngestionApiServer implements NodeServer {
                 maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,
                 updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 syncMergeMoveLimit: this.config.PERSONHOG_SYNC_MERGE_MOVE_LIMIT,
+                mergeRpcTimeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
             })
             personsStore = new RoutingPersonsStore(this.personsStore, this.personhogStore, personsStoreMode)
         }
