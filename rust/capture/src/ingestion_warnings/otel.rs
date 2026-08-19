@@ -56,9 +56,11 @@ pub fn warning_for_otel_parse_error(err: &CaptureError) -> Option<WarningType> {
 
         // Reachable only if `parse_request` grows a new failure mode: decide
         // warn-or-not there rather than defaulting to silence here.
-        // `NonAiEventOnAiLane` joins them as structurally unreachable: only
-        // `process_events` raises it, and this handler does not call it.
+        // `NonAiEventOnAiLane` and `AiEventTooBig` join them as structurally
+        // unreachable: only `process_events` raises them, and this handler does
+        // not call it.
         CaptureError::NonAiEventOnAiLane(_)
+        | CaptureError::AiEventTooBig(_)
         | CaptureError::RequestHydrationError(_)
         | CaptureError::EmptyBatch
         | CaptureError::EmptyPayload

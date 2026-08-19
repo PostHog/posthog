@@ -280,8 +280,12 @@ pub struct Config {
     ///   span behind one that can never fit. That loss is invisible in the
     ///   response, so it raises a `MessageSizeTooLarge` ingestion warning.
     ///
-    /// Every path also counts the loss under `ai_event_too_big`, on
-    /// `capture_events_dropped_total` or `capture_v1_events_dropped`.
+    /// The legacy, v1, and OTEL paths count the loss under `ai_event_too_big`,
+    /// on `capture_events_dropped_total` or `capture_v1_events_dropped`. The
+    /// legacy path charges the whole batch, because the refusal loses every
+    /// event in it, not just the offender. The multipart handler counts no
+    /// drop at all: like every other error it raises, the refusal shows up
+    /// only on `capture_error_by_stage_and_type`.
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 

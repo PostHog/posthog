@@ -182,6 +182,7 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
         | CaptureError::InvalidTimestamp
         | CaptureError::MissingWindowId
         | CaptureError::NonAiEventOnAiLane(_)
+        | CaptureError::AiEventTooBig(_)
         | CaptureError::MissingEventName => None,
 
         // Quota, rate, and ops-imposed drops are surfaced through billing and

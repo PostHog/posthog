@@ -70,6 +70,14 @@ pub enum CaptureError {
     RetryableSinkError,
     #[error("maximum event size exceeded: {0}")]
     EventTooBig(String),
+    /// An AI-lane event over the deployment's per-event ceiling, raised by
+    /// `process_events` before the sink. Separate from [`Self::EventTooBig`]
+    /// because the two differ in what has already happened when they fire: the
+    /// sink raises `EventTooBig` for one message after earlier events in the
+    /// batch were enqueued, while this one refuses the whole request with
+    /// nothing sent. Warning counts and drop metrics both depend on that.
+    #[error("maximum AI event size exceeded: {0}")]
+    AiEventTooBig(String),
     #[error("invalid event could not be processed")]
     NonRetryableSinkError,
 
@@ -125,6 +133,7 @@ impl CaptureError {
             CaptureError::TokenValidationError(_) => "invalid_token",
             CaptureError::RetryableSinkError => "retryable_sink",
             CaptureError::EventTooBig(_) => "oversize_event",
+            CaptureError::AiEventTooBig(_) => "ai_event_too_big",
             CaptureError::NonRetryableSinkError => "non_retry_sink",
             CaptureError::BillingLimit => "billing_limit",
             CaptureError::RateLimited => "rate_limited",
@@ -158,7 +167,9 @@ impl IntoResponse for CaptureError {
             | CaptureError::NonAiEventOnAiLane(_)
             | CaptureError::MissingSnapshotData => (StatusCode::BAD_REQUEST, self.to_string()),
 
-            CaptureError::EventTooBig(_) => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),
+            CaptureError::EventTooBig(_) | CaptureError::AiEventTooBig(_) => {
+                (StatusCode::PAYLOAD_TOO_LARGE, self.to_string())
+            }
 
             CaptureError::NoTokenError
             | CaptureError::MultipleTokensError

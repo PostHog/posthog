@@ -387,12 +387,16 @@ async fn process_events_inner(
     // the sink, where the producer's own cap would refuse it anyway — after
     // capture had read and processed the whole request. The whole request is
     // refused, matching how every other oversize check on this path behaves.
+    //
+    // The drop isn't counted here. The abort reaches the endpoint, which charges
+    // the whole batch under this error's own `ai_event_too_big` tag; counting
+    // locally too would report one more drop than the batch held, and split one
+    // rejection across two `cause` labels.
     if let Some(offender) = events.iter().find(|e| {
         e.metadata.data_type == DataType::AiEvents
             && exceeds_max_ai_event_bytes(e.event.data.len(), context.ai_max_event_bytes)
     }) {
-        report_dropped_events("ai_event_too_big", 1);
-        return Err(CaptureError::EventTooBig(format!(
+        return Err(CaptureError::AiEventTooBig(format!(
             "AI event {} is {} bytes, over the {}-byte limit",
             offender.metadata.event_name,
             offender.event.data.len(),
@@ -1511,7 +1515,7 @@ mod tests {
         .await
         .expect_err("an oversize AI event must refuse the batch");
 
-        assert!(matches!(err, CaptureError::EventTooBig(_)), "got {err:?}");
+        assert!(matches!(err, CaptureError::AiEventTooBig(_)), "got {err:?}");
         assert!(
             sink.get_events().is_empty(),
             "no event may reach the sink once the request is refused"
