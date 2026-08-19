@@ -16,6 +16,7 @@ import {
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useActiveRepoStore } from "@posthog/ui/shell/activeRepoStore";
@@ -55,6 +56,26 @@ export function useOnboardingFlow() {
       .finally(() => setIsDetectingRepo(false));
   }, [selectedDirectory, hostClient, localWorkspaces]);
 
+  const [selectedCloudRepo, setSelectedCloudRepo] = useState<string | null>(
+    null,
+  );
+  const handleCloudRepoChange = useCallback(
+    (repo: string | null) => {
+      setSelectedCloudRepo(repo);
+      setLastUsedCloudRepository(repo);
+      if (repo) {
+        // A cloud repo replaces any local folder pick, and vice versa.
+        setSelectedDirectory("");
+        setDetectedRepo(null);
+        track(ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED, {
+          has_git_remote: true,
+          repository_provider: "github",
+        });
+      }
+    },
+    [setLastUsedCloudRepository, setSelectedDirectory],
+  );
+
   const handleDirectoryChange = useCallback(
     async (path: string) => {
       setSelectedDirectory(path);
@@ -70,6 +91,9 @@ export function useOnboardingFlow() {
         });
         return;
       }
+
+      setSelectedCloudRepo(null);
+      setLastUsedCloudRepository(null);
 
       if (!path) return;
 
@@ -105,10 +129,19 @@ export function useOnboardingFlow() {
 
   const hasCodeAccess = useAuthStateValue((state) => state.hasCodeAccess);
   const hasImportableConfig = useHasImportableConfig();
+  const { data: githubUserIntegrations } = useUserGithubIntegrations();
+  const hasGithubIntegration = githubUserIntegrations
+    ? githubUserIntegrations.length > 0
+    : undefined;
 
   const activeSteps = useMemo(
-    () => computeActiveSteps(hasCodeAccess, hasImportableConfig),
-    [hasCodeAccess, hasImportableConfig],
+    () =>
+      computeActiveSteps({
+        hasCodeAccess,
+        hasImportableConfig,
+        hasGithubIntegration,
+      }),
+    [hasCodeAccess, hasImportableConfig, hasGithubIntegration],
   );
 
   useEffect(() => {
@@ -157,5 +190,8 @@ export function useOnboardingFlow() {
     detectedRepo,
     isDetectingRepo,
     handleDirectoryChange,
+    selectedCloudRepo,
+    handleCloudRepoChange,
+    hasGithubIntegration,
   };
 }
