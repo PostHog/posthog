@@ -29,7 +29,11 @@ from products.tasks.backend.logic.services.sandbox import (
     parse_sandbox_repo_mount_map,
     workload_for_origin_product,
 )
-from products.tasks.backend.logic.services.sandbox_usage import measure_sandbox_cpu_usage, open_sandbox_session
+from products.tasks.backend.logic.services.sandbox_usage import (
+    measure_sandbox_billed_cpu_usage,
+    measure_sandbox_cpu_usage,
+    open_sandbox_session,
+)
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -336,6 +340,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             sandbox_created_at = timezone.now()
             used_snapshot = bool((resume_snapshot_ext_id or snapshot) and sandbox.config.snapshot_restored)
             sandbox_creation_timer.set_used_snapshot(used_snapshot)
+        if not sandbox.start_cpu_billing_sampler():
+            activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
         if sandbox.config.image_fallback:
             emit_agent_log(ctx.run_id, "warn", f"Sandbox image downgraded: {sandbox.config.image_fallback}")
         if sandbox.launch_dev_stack_bootstrap():
@@ -419,15 +425,15 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             if credentials.token:
                 sandbox_state["sandbox_connect_token"] = credentials.token
             TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
-            cpu_usage_attribution_usec, cpu_usage_attribution_measured_at = (
-                measure_sandbox_cpu_usage(sandbox) if sandbox.config.is_vm else (None, None)
-            )
+            cpu_usage_attribution_usec, cpu_usage_attribution_measured_at = measure_sandbox_cpu_usage(sandbox)
+            billed_cpu_usage_attribution_usec = measure_sandbox_billed_cpu_usage(sandbox)
             open_sandbox_session(
                 run_id=ctx.run_id,
                 sandbox_id=sandbox.id,
                 config=sandbox.config,
                 sandbox_created_at=sandbox_created_at,
                 cpu_usage_attribution_usec=cpu_usage_attribution_usec,
+                billed_cpu_usage_attribution_usec=billed_cpu_usage_attribution_usec,
                 cpu_usage_attribution_measured_at=cpu_usage_attribution_measured_at,
                 required=ctx.task_runtime == "pi",
             )
