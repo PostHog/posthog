@@ -105,15 +105,23 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
         )
     }
 
+    // The button only leads to the composer, which is already what the right pane shows whenever no task
+    // is selected — on `/tasks/new` and on bare `/tasks` alike. Dropping `to` is what surfaces
+    // `disabledReason` in the tooltip; with a link target, `Link` shows the plain `tooltip` instead.
+    const composerAlreadyOpen = selectedTaskId === null
+
     return (
         <div className="flex flex-col h-full min-h-0">
             <div className="flex items-center justify-between gap-1 py-2 pr-2 pl-1 shrink-0">
                 <span className="text-sm font-semibold pl-1">Tasks</span>
                 <Link
-                    to={urls.taskNew()}
+                    to={composerAlreadyOpen ? undefined : urls.taskNew()}
                     data-attr="tasks-new"
                     buttonProps={{ iconOnly: true, variant: 'outline' }}
                     tooltip="New task"
+                    disabledReason={
+                        composerAlreadyOpen ? "You're already on a new task. Enter a prompt to start it." : undefined
+                    }
                 >
                     <IconPlusSmall className="size-4" />
                 </Link>
