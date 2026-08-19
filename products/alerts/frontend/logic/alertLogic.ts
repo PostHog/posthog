@@ -5,8 +5,9 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils/datetime'
 
-import { AlertState } from '~/queries/schema/schema-general'
+import { ForecastConditionType, AlertState } from '~/queries/schema/schema-general'
 
+import { alertModeOf } from '../types'
 import type { AlertCheck, AlertType } from '../types'
 
 export const CHART_CHECKS_LIMIT = 50
@@ -59,7 +60,7 @@ function getCheckPlotValue(check: AlertCheck, isAnomalyDetection: boolean): numb
 export interface alertLogicValues {
     alert: AlertType | null
     alertHistoryChartSeries: AlertHistoryChartPoint[]
-    alertHistoryChartSeriesName: 'Anomaly score' | 'Value'
+    alertHistoryChartSeriesName: 'Anomaly score' | 'Value' | 'Value or forecast'
     alertHistoryChecksSortedDesc: AlertCheck[]
     alertHistoryHasHistory: boolean
     alertHistoryIsAnomalyDetection: boolean
@@ -121,7 +122,10 @@ export interface alertLogicMeta {
         alertHistoryChecksSortedDesc: (alert: AlertType | null) => AlertCheck[]
         alertHistoryChartSeries: (alert: AlertType | null) => AlertHistoryChartPoint[]
         alertHistoryUsesAnomalyScores: (alert: AlertType | null) => boolean
-        alertHistoryChartSeriesName: (alertHistoryUsesAnomalyScores: boolean) => 'Anomaly score' | 'Value'
+        alertHistoryChartSeriesName: (
+            alertHistoryUsesAnomalyScores: boolean,
+            alert: AlertType | null
+        ) => 'Anomaly score' | 'Value' | 'Value or forecast'
         alertHistoryHasHistory: (alert: AlertType | null) => boolean
         alertHistoryTablePageCount: (alert: AlertType | null) => number
         alertHistoryTableEntryCount: (alert: AlertType | null) => number
@@ -189,7 +193,10 @@ export const alertLogic = kea<alertLogicType>([
 
     // Selector deps must be functions from `logic.selectors` / propSelectors — not raw state values.
     selectors(() => ({
-        alertHistoryIsAnomalyDetection: [(s) => [s.alert], (alert: AlertType | null) => !!alert?.detector_config],
+        alertHistoryIsAnomalyDetection: [
+            (s) => [s.alert],
+            (alert: AlertType | null) => !!alert && alertModeOf(alert) === 'detector',
+        ],
         alertHistoryChecksSortedDesc: [
             (s) => [s.alert],
             (alert: AlertType | null): AlertCheck[] => {
@@ -203,7 +210,7 @@ export const alertLogic = kea<alertLogicType>([
                 if (!alert) {
                     return []
                 }
-                const isAnomaly = !!alert.detector_config
+                const isAnomaly = alertModeOf(alert) === 'detector'
                 const sortedAsc = [...(alert.checks ?? [])].sort(
                     (a, b) => dayjs(a.created_at).valueOf() - dayjs(b.created_at).valueOf()
                 )
@@ -237,8 +244,15 @@ export const alertLogic = kea<alertLogicType>([
             },
         ],
         alertHistoryChartSeriesName: [
-            (s) => [s.alertHistoryUsesAnomalyScores],
-            (usesAnomalyScores: boolean) => (usesAnomalyScores ? 'Anomaly score' : 'Value'),
+            (s) => [s.alertHistoryUsesAnomalyScores, s.alert],
+            (usesAnomalyScores: boolean, alert: AlertType | null) => {
+                if (usesAnomalyScores) {
+                    return 'Anomaly score' as const
+                }
+                return alert?.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
+                    ? ('Value or forecast' as const)
+                    : ('Value' as const)
+            },
         ],
         alertHistoryHasHistory: [
             (s) => [s.alert],

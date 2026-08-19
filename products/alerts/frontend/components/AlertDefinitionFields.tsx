@@ -17,14 +17,19 @@ import {
 } from 'products/alerts/frontend/logic/funnelAlertOptions'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
-import { isFunnelsAlertConfig, isHogQLAlertConfig } from 'products/alerts/frontend/types'
+import { AlertMode, isFunnelsAlertConfig, isHogQLAlertConfig } from 'products/alerts/frontend/types'
 
 import { HogQLAlertPreviewBanner, HogQLAlertPreviewRowsTable } from './HogQLAlertPreview'
 
-const breakdownDisabledReason = (alertMode: 'detector' | 'threshold'): string =>
-    alertMode === 'detector'
-        ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-        : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'
+export const breakdownDisabledReason = (alertMode: AlertMode): string => {
+    if (alertMode === 'detector') {
+        return 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
+    }
+    if (alertMode === 'forecast') {
+        return "Forecast alerts don't support breakdowns yet. Switch to threshold or anomaly detection, or remove the breakdown."
+    }
+    return 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'
+}
 
 /** Trends: pick which series (or formula) to monitor. */
 export function TrendsDefinitionFields({
@@ -36,7 +41,7 @@ export function TrendsDefinitionFields({
     alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
     isBreakdownValid: boolean
-    alertMode: 'detector' | 'threshold'
+    alertMode: AlertMode
 }): JSX.Element {
     return (
         <AlertDefinitionRow label="When">

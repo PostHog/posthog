@@ -9478,7 +9478,7 @@ export namespace Schemas {
       horizon?: number | null;
       /** Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95). */
       interval_width?: number | null;
-      /** How far outside the band counts, in band half-widths, from 0 to 3 (prediction_interval mode only). Higher fires less, and a well-calibrated band stops firing at all above about 2. Half-widths rather than training residuals: those exist only when the engine runs with history, which is the preview path, and a scheduled check does not. The band already carries the residual scale, since Prophet built it from them. */
+      /** How far past the band's edge a value must sit to count, in band half-widths, from 0 to 3 (prediction_interval mode only). 0 fires as soon as a value leaves the range, 1 waits for a full half-width beyond it, and a well-calibrated band stops firing at all above about 2. Not a probability, and not bounded at 1. Half-widths rather than training residuals: those exist only when the engine runs with history, which is the preview path, and a scheduled check does not. The band already carries the residual scale, since Prophet built it from them. */
       score_threshold?: number | null;
       /** Which line the comparison reads. Defaults to the point forecast for future_breach, and to best_case for target_by_date. Ignored by band_deviation. Distinct from `score_threshold`, which decides how far outside the band counts, not which line is read. */
       sensitivity?: ForecastSensitivity | null;

@@ -63,7 +63,7 @@ export function alertCadenceMinutes(interval: AlertCalculationInterval): number 
     return CADENCE_DURATION_MINUTES[interval]
 }
 
-const INSIGHT_INTERVAL_DURATION_MINUTES: Record<IntervalType, number> = {
+export const INSIGHT_INTERVAL_DURATION_MINUTES: Record<IntervalType, number> = {
     second: 1 / 60,
     minute: 1,
     hour: 60,

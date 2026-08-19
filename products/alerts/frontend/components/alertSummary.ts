@@ -1,8 +1,17 @@
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    ForecastConditionType,
+    ForecastTargetDirection,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 
 import { intervalDropdownPhrase } from 'products/alerts/frontend/components/editAlertModalUtils'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
-import { type AlertConfig, type AlertType } from 'products/alerts/frontend/types'
+import { alertModeOf, type AlertConfig, type AlertType } from 'products/alerts/frontend/types'
 
 export interface AlertSummaryParts {
     /** What the alert watches — e.g. "value below 100" or "anomalies". Empty when unknown. */
@@ -90,6 +99,22 @@ function detectorSummary(): string {
     return 'an anomaly'
 }
 
+function forecastSummary(config: AlertFormType['forecast_config']): string {
+    if (!config) {
+        return 'the forecast crosses your threshold'
+    }
+    if (config.condition === ForecastConditionType.BAND_DEVIATION) {
+        return 'a value falls outside its expected range'
+    }
+    if (config.condition === ForecastConditionType.TARGET_BY_DATE) {
+        const target = config.target != null ? humanFriendlyNumber(config.target) : 'a target'
+        const direction = config.target_direction === ForecastTargetDirection.AT_MOST ? 'above' : 'below'
+        const on = config.target_date ? ` on ${dayjs(config.target_date).format('MMM D, YYYY')}` : ''
+        return `the forecast is ${direction} ${target}${on}`
+    }
+    return 'the forecast crosses your threshold'
+}
+
 /** Build a one-line human summary of what an alert does. Pure (no React) so it can feed a header
  *  string, a wizard review step, or a tooltip. Returns empty parts when the form is too incomplete
  *  to summarize — the caller decides whether to render them at all. */
@@ -98,11 +123,13 @@ export function buildAlertSummary(
     subscribedCount: number,
     destinationCount = 0
 ): AlertSummaryParts {
-    const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
+    const alertMode = alertModeOf(alertForm)
 
     let fires = ''
     if (alertMode === 'detector') {
         fires = detectorSummary()
+    } else if (alertMode === 'forecast') {
+        fires = forecastSummary(alertForm.forecast_config)
     } else {
         const bounds = alertForm.threshold?.configuration?.bounds
         fires = formatThresholdSummary(

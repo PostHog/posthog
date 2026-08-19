@@ -1,9 +1,44 @@
-import { AlertState } from '~/queries/schema/schema-general'
+import {
+    AlertState,
+    ForecastConditionType,
+    ForecastEngineType,
+    ForecastTargetDirection,
+} from '~/queries/schema/schema-general'
 
 import type { AlertCheck, AlertCheckDelivery } from './types'
-import { AlertsTab, getActiveAlertsTab, isFailedDelivery, summarizeDeliveries } from './utils'
+import type { AlertType } from './types'
+import { AlertsTab, getActiveAlertsTab, isFailedDelivery, isTargetDatePassed, summarizeDeliveries } from './utils'
 
 describe('alerts utils', () => {
+    describe('isTargetDatePassed', () => {
+        const targetAlert = (target_date: string, enabled: boolean): AlertType =>
+            ({
+                enabled,
+                forecast_config: {
+                    type: 'ForecastConfig',
+                    engine: ForecastEngineType.PROPHET,
+                    condition: ForecastConditionType.TARGET_BY_DATE,
+                    target: 100,
+                    target_direction: ForecastTargetDirection.AT_LEAST,
+                    target_date,
+                },
+            }) as AlertType
+
+        it.each([
+            ['finished once the date passed', '2026-01-01', false, true],
+            ['still running before the date', '2026-12-31', true, false],
+            ['disabled by hand before the date', '2026-12-31', false, false],
+            ['past date but still enabled', '2026-01-01', true, false],
+            ['finished on the date itself', '2026-06-01', false, true],
+        ])('%s', (_name, date, enabled, expected) => {
+            expect(isTargetDatePassed(targetAlert(date, enabled), new Date('2026-06-01'))).toBe(expected)
+        })
+
+        it('is false for a non-target alert', () => {
+            expect(isTargetDatePassed({ enabled: false } as AlertType, new Date('2026-06-01'))).toBe(false)
+        })
+    })
+
     describe('getActiveAlertsTab', () => {
         it.each([
             {

@@ -12,6 +12,7 @@ interface WizardStepInput {
     advancedNode: ReactNode
     summary: { fires: string; cadence: string; notifies: string }
     thresholdValidationError?: string
+    forecastValidationError?: string
     scheduleRestrictionFormError?: string
     alertFormHasErrors: boolean
     alertName: string
@@ -22,7 +23,9 @@ export function buildWizardSteps(input: WizardStepInput): AlertWizardStep[] {
     const reviewFires = summary.fires || 'a configured threshold'
     const reviewCadence = summary.cadence || 'a cadence'
     const reviewNotifies = summary.notifies || 'no one yet'
-    const monitorCannotAdvanceReason = !input.alertName ? 'Enter an alert name.' : input.thresholdValidationError
+    const monitorCannotAdvanceReason = !input.alertName
+        ? 'Enter an alert name.'
+        : (input.thresholdValidationError ?? input.forecastValidationError)
     const monitorCanAdvance = !monitorCannotAdvanceReason
 
     return [

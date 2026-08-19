@@ -23,6 +23,7 @@ import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { alertsLogic } from '../logic/alertsLogic'
 import { AlertType } from '../types'
+import { isTargetDatePassed } from '../utils'
 import { EditAlertModal } from './EditAlertModal'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -118,7 +119,9 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
             title: 'Status',
             dataIndex: 'state',
             render: function renderStateIndicator(_, alert: AlertType) {
-                return alert.enabled ? <AlertStateIndicator alert={alert} /> : null
+                return alert.enabled || isTargetDatePassed(alert, new Date()) ? (
+                    <AlertStateIndicator alert={alert} />
+                ) : null
             },
         },
         {

@@ -22,6 +22,7 @@ describe('buildWizardSteps', () => {
     it.each([
         ['missing name', { alertName: '' }, 'monitor', 'Enter an alert name.'],
         ['invalid threshold', { thresholdValidationError: 'Enter a threshold' }, 'monitor', 'Enter a threshold'],
+        ['invalid forecast', { forecastValidationError: 'Enter a target value' }, 'monitor', 'Enter a target value'],
         [
             'invalid schedule',
             { alertFormHasErrors: true, scheduleRestrictionFormError: 'Choose an end time' },

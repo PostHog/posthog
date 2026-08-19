@@ -5228,9 +5228,11 @@ class ForecastConfig(BaseModel):
     score_threshold: float | None = Field(
         default=None,
         description=(
-            "How far outside the band counts, in band half-widths, from 0 to 3"
-            " (prediction_interval mode only). Higher fires less, and a well-calibrated"
-            " band stops firing at all above about 2. Half-widths rather than training"
+            "How far past the band's edge a value must sit to count, in band"
+            " half-widths, from 0 to 3 (prediction_interval mode only). 0 fires as soon"
+            " as a value leaves the range, 1 waits for a full half-width beyond it, and"
+            " a well-calibrated band stops firing at all above about 2. Not a"
+            " probability, and not bounded at 1. Half-widths rather than training"
             " residuals: those exist only when the engine runs with history, which is"
             " the preview path, and a scheduled check does not. The band already"
             " carries the residual scale, since Prophet built it from them."

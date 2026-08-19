@@ -6,6 +6,7 @@ import { LemonTag, Link } from '@posthog/lemon-ui'
 import { AlertState } from '~/queries/schema/schema-general'
 
 import { AlertType } from '../types'
+import { isTargetDatePassed } from '../utils'
 
 interface AlertDefinitionRowProps {
     label?: ReactNode
@@ -24,7 +25,11 @@ export function AlertDefinitionRow({ label, children, className }: AlertDefiniti
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
     if (!alert.enabled) {
-        return <LemonTag type="muted">Disabled</LemonTag>
+        return isTargetDatePassed(alert, new Date()) ? (
+            <LemonTag type="muted">Target date passed</LemonTag>
+        ) : (
+            <LemonTag type="muted">Disabled</LemonTag>
+        )
     }
 
     switch (alert.state) {
