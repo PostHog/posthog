@@ -188,15 +188,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # ignored by version-migration tooling — only the user changes it. Not available for
     # webhook-sync schemas (webhook payload versions are configured per source at the vendor).
     api_version = models.CharField(max_length=128, null=True, blank=True)
-    # The oldest point this schema is meant to cover, for a source that bounds a first sync to a
-    # lookback rather than reading the vendor's whole history (`_BaseSource.history_window`). NULL
-    # means unbounded, which is most sources and needs nothing recorded.
-    #
-    # A column rather than a `sync_type_config` key deliberately: this is a declaration about the
-    # schema, not state the pipeline owns, and `update_sync_type_config_for_reset_pipeline` exists
-    # to clear that blob. It has to outlive a re-import — a re-import drops the cursor, so a source
-    # resolving its lookback against the day it runs narrows the range to the last window, and the
-    # drain only moves forward, so no later run collects the rest.
+    # The oldest point this schema covers, for a source that bounds a first sync (see
+    # `sources/common/history_window.py`). NULL means unbounded. A column rather than a
+    # `sync_type_config` key because it has to outlive a reset, which clears that blob.
     history_start = models.DateTimeField(null=True, blank=True)
     # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
     sync_type_config = models.JSONField(

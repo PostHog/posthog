@@ -289,9 +289,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         if processed_incremental_earliest_value:
             await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
-        # Resolved here rather than in the source: a source deciding it per run resolves its lookback
-        # against today, so a re-import — which arrives with no cursor — would narrow the range to
-        # the last window and drop the rest for good. None for a source that reads everything.
+        # None for a source that reads everything, which is most of them.
         history_start = await database_sync_to_async_pool(history_start_for_schema)(schema)
         if history_start is not None:
             await logger.adebug(f"History start for this schema is: {history_start}")

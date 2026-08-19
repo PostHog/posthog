@@ -16,11 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleAdsSourceConfig,
 )
 
-# How far back a sync with no cursor reaches when the schema records no history start. Declared as
-# the source's `history_window`, so a schema pins it once instead of re-deriving it against the day
-# a run happens. The windowed drain cannot begin at the 1970 incremental sentinel: each empty window
-# is a request, and stepping from 1970 spends the run on requests that return nothing. Not an API
-# limit — Google serves older rows, so this costs first-sync catch-up time, not correctness.
+# How far back a first sync reaches, declared as the source's `history_lookback`. Report tables
+# drain in fixed windows, so a walk needs a start close enough that it isn't spent on empty
+# requests. Not an API limit — Google serves older rows, so this costs catch-up time, not
+# correctness.
 GOOGLE_ADS_INITIAL_BACKFILL_DAYS = 2 * 365
 
 

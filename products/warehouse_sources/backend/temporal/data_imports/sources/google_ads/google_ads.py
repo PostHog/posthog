@@ -494,11 +494,10 @@ def _earliest_date_with_data(
 ) -> dt.date | None:
     """Return the first date this resource holds rows for, or None when it holds none.
 
-    How this source reaches an unbounded range cheaply. The drain walks fixed windows and each
-    empty one is a request, so starting at the 1970 sentinel would spend the run on requests that
-    return nothing. Google sorts and truncates server-side, so this costs one request whatever the
-    range or the size of the account. It decides nothing about which range to import -- that is the
-    schema's `history_start` -- only where looking stops being pointless.
+    How the drain reaches an unbounded range cheaply: it walks fixed windows and each empty one is a
+    request, so starting at the sentinel would spend the run on requests that return nothing. Google
+    sorts and truncates server-side, so this costs one request whatever the account holds. It
+    locates a range rather than choosing one — that is the schema's `history_start`.
     """
     query = (
         f"SELECT {incremental_field} FROM {table.name} "
@@ -622,14 +621,10 @@ def google_ads_source(
                     else start
                 )
             else:
-                # No cursor: a first sync, or a re-import that cleared one. Both read the range the
-                # schema records, so which of the two this is stops mattering -- resolving a lookback
-                # here instead would hand a re-import the last window and drop the rest.
-                #
-                # No recorded range means unbounded, which for this drain means asking the account
-                # where its rows begin: walking fixed windows from the 1970 sentinel would spend the
-                # run on empty requests. An account holding nothing answers with nothing, and today
-                # is the cheapest way to say "no range to walk".
+                # A first sync and a re-import both arrive here, and both read the range the schema
+                # records, so the two stop needing to be told apart. No recorded range means
+                # unbounded: ask the account where its rows begin rather than walk empty windows
+                # from the sentinel. An account holding nothing has no range to walk.
                 if history_start is not None:
                     start = _incremental_value_as_date(history_start)
                 else:

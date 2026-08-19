@@ -31,7 +31,6 @@ from posthog.models.integration import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
-    HistoryWindow,
     ResumableSource,
     VersionDeprecation,
 )
@@ -101,11 +100,7 @@ class GoogleAdsSource(
         VersionDeprecation(version="v24", sunset_at=None),
     )
 
-    # Report tables drain in bounded windows, so a sync with no cursor needs somewhere to begin and
-    # cannot start at the 1970 incremental sentinel: each empty window is a request, and stepping
-    # from 1970 spends the run on requests that return nothing. Not an API limit — Google serves
-    # older rows than this, so the bound costs first-sync catch-up time rather than correctness.
-    history_window = HistoryWindow(default_lookback=datetime.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS))
+    history_lookback = datetime.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
 
     @property
     def source_type(self) -> ExternalDataSourceType:

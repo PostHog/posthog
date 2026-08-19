@@ -1583,7 +1583,7 @@ class TestGoogleAdsQueryConstruction:
                     self._stats_table(),
                     should_use_incremental_field=True,
                     db_incremental_field_last_value=cursor,
-                    db_incremental_field_last_value_before_lookback=dt.date(2026, 5, 4),
+                    db_incremental_field_last_value_before_lookback=dt.date(2026, 1, 31),
                     incremental_field="segments.date",
                     incremental_field_type=IncrementalFieldType.Date,
                     window_rows={**overlap_and_straddle, data_past_gap.isoformat(): 1},

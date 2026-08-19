@@ -9,36 +9,12 @@ So a schema records the answer the first time it syncs, and reads it from there 
 """
 
 import datetime as dt
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import HistoryWindow
-
-
-def resolve_history_start(
-    *,
-    window: Optional["HistoryWindow"],
-    recorded: dt.datetime | None,
-    requested: dt.datetime | None,
-    now: dt.datetime,
-) -> dt.datetime | None:
-    """The oldest point a schema should read, or None for no bound at all.
-
-    A user-stated `requested` date wins: it is the only one of the three anybody chose. Otherwise
-    the `recorded` value, which is what carries the range across a re-import.
-    """
-    if window is None:
-        return None
-
-    if requested is not None:
-        if window.max_lookback is not None:
-            return max(requested, now - window.max_lookback)
-        return requested
-
-    return recorded
 
 
 def history_start_for_schema(schema: "ExternalDataSchema", now: dt.datetime | None = None) -> dt.datetime | None:
@@ -59,14 +35,14 @@ def history_start_for_schema(schema: "ExternalDataSchema", now: dt.datetime | No
     except ValueError:
         return None
 
-    window = source.history_window
-    if window is None:
+    lookback = source.history_lookback
+    if lookback is None:
         return None
 
     if schema.history_start is None and schema.table_id is None:
         # `update_fields` rather than a plain save: the pipeline holds this instance from before the
         # run linked its table, so writing the whole row would put back the values it was loaded with.
-        schema.history_start = (now or timezone.now()) - window.default_lookback
+        schema.history_start = (now or timezone.now()) - lookback
         schema.save(update_fields=["history_start"])
 
     return schema.history_start
