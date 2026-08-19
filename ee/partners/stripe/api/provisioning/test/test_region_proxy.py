@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from ee.partners.stripe.api.provisioning.region_proxy import RegionProxyThrottle
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
 
@@ -114,8 +115,6 @@ class TestRegionProxyThrottle(StripeProvisioningTestBase):
         # Over-budget requests must be refused before the outbound call: the
         # proxy runs pre-authentication, so this cap is the only limit an
         # unauthenticated caller meets on the cross-region path.
-        from ee.partners.stripe.api.provisioning.region_proxy import RegionProxyThrottle
-
         body = {
             "id": "acctreq_throttled",
             "email": "throttled@example.com",
