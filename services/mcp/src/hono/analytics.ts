@@ -302,9 +302,12 @@ const REDACTED_VALUE = '[redacted]'
 // `signing_key`, and a dozen more, none of which the prefix list matched. The
 // trailing-segment rule catches that whole shape. Plural `*_tokens` stays out on
 // purpose — it is LLM token counts and Adjust's `app_tokens` app ids, never a
-// secret.
+// secret. `connection_string` gets its own name: Postgres, MSSQL, Redshift,
+// Snowflake and friends all accept one as an alternative to discrete
+// host/user/password fields, and it carries the credentials inline
+// (`postgres://user:pass@host/db`) — MongoDB's source has no other field for them.
 const SENSITIVE_KEY_PATTERN =
-    /password|passwd|passphrase|secret|credential|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|(^|[_-])(token|key|keys)$/i
+    /password|passwd|passphrase|secret|credential|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|(^|[_-])(token|key|keys)$/i
 
 function redactSecrets(value: unknown): unknown {
     if (Array.isArray(value)) {
