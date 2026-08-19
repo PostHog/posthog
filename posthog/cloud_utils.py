@@ -26,6 +26,15 @@ def is_dev_mode() -> bool:
     return bool(settings.DEBUG)
 
 
+def is_hobby() -> bool:
+    """Self-hosted install: neither cloud nor local dev. Mirrors `isHobby` in preflightLogic.
+
+    Does not use `posthog.run_mode.RunMode.is_hobby`, because importing that module here
+    closes the `posthog.utils` -> `posthog.cloud_utils` import cycle.
+    """
+    return not is_cloud() and not is_dev_mode()
+
+
 def is_ci() -> bool:
     return os.environ.get("GITHUB_ACTIONS") is not None
 
