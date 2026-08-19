@@ -36,6 +36,40 @@ class FeatureDiscoveryFailedInput:
     error: str
 
 
+def _get_discovery_run(team_id: int, run_id: str) -> FeatureDiscoveryRun:
+    return FeatureDiscoveryRun.objects.for_team(team_id).get(id=run_id)
+
+
+def _mark_discovery_running(team_id: int, run_id: str) -> None:
+    FeatureDiscoveryRun.objects.for_team(team_id).filter(id=run_id).update(
+        status=FeatureDiscoveryRun.Status.RUNNING,
+        error="",
+        updated_at=timezone.now(),
+    )
+
+
+def _link_discovery_task_sync(team_id: int, run_id: str, task_id: str) -> None:
+    FeatureDiscoveryRun.objects.for_team(team_id).filter(id=run_id).update(
+        task_id=task_id,
+        status=FeatureDiscoveryRun.Status.RUNNING,
+        error="",
+        updated_at=timezone.now(),
+    )
+
+
+def _mark_discovery_failed(team_id: int, run_id: str) -> None:
+    (
+        FeatureDiscoveryRun.objects.for_team(team_id)
+        .filter(id=run_id)
+        .exclude(status=FeatureDiscoveryRun.Status.COMPLETED)
+        .update(
+            status=FeatureDiscoveryRun.Status.FAILED,
+            error="Feature discovery failed. Check the repository connection and try again.",
+            updated_at=timezone.now(),
+        )
+    )
+
+
 @temporalio.workflow.defn(name="feature-discovery")
 class FeatureDiscoveryWorkflow:
     @staticmethod
@@ -67,15 +101,10 @@ class FeatureDiscoveryWorkflow:
 
 
 async def _link_discovery_task(input: FeatureDiscoveryWorkflowInput, task_run: TaskRun) -> None:
-    await (
-        FeatureDiscoveryRun.objects.for_team(input.team_id)
-        .filter(id=input.run_id)
-        .aupdate(
-            task_id=task_run.task_id,
-            status=FeatureDiscoveryRun.Status.RUNNING,
-            error="",
-            updated_at=timezone.now(),
-        )
+    await database_sync_to_async(_link_discovery_task_sync, thread_sensitive=False)(
+        input.team_id,
+        input.run_id,
+        str(task_run.task_id),
     )
 
 
@@ -83,19 +112,11 @@ async def _link_discovery_task(input: FeatureDiscoveryWorkflowInput, task_run: T
 @scoped_temporal()
 @close_db_connections
 async def run_feature_discovery_activity(input: FeatureDiscoveryWorkflowInput) -> int:
-    run = await FeatureDiscoveryRun.objects.for_team(input.team_id).aget(id=input.run_id)
+    run = await database_sync_to_async(_get_discovery_run, thread_sensitive=False)(input.team_id, input.run_id)
     if run.status == FeatureDiscoveryRun.Status.COMPLETED:
         return run.discovered_count
 
-    await (
-        FeatureDiscoveryRun.objects.for_team(input.team_id)
-        .filter(id=input.run_id)
-        .aupdate(
-            status=FeatureDiscoveryRun.Status.RUNNING,
-            error="",
-            updated_at=timezone.now(),
-        )
-    )
+    await database_sync_to_async(_mark_discovery_running, thread_sensitive=False)(input.team_id, input.run_id)
     try:
         async with Heartbeater():
             sandbox_env_id = await database_sync_to_async(
@@ -160,15 +181,4 @@ async def mark_feature_discovery_failed_activity(input: FeatureDiscoveryFailedIn
         team_id=input.team_id,
         error=input.error,
     )
-    await (
-        FeatureDiscoveryRun.objects.for_team(input.team_id)
-        .filter(
-            id=input.run_id,
-        )
-        .exclude(status=FeatureDiscoveryRun.Status.COMPLETED)
-        .aupdate(
-            status=FeatureDiscoveryRun.Status.FAILED,
-            error="Feature discovery failed. Check the repository connection and try again.",
-            updated_at=timezone.now(),
-        )
-    )
+    await database_sync_to_async(_mark_discovery_failed, thread_sensitive=False)(input.team_id, input.run_id)
