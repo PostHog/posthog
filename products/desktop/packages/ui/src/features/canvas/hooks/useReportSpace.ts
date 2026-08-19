@@ -36,6 +36,9 @@ export function useReportSpace(enabled = true): {
         creationStarted.current = false;
         setCreationFailed(true);
         toast.error("Couldn't create the report space", {
+          // Stable id so concurrent hook instances collapse to one toast
+          // instead of stacking identical failures.
+          id: "report-space-creation-error",
           description:
             error instanceof Error
               ? error.message
