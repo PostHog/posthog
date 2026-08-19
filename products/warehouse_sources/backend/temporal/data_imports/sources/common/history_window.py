@@ -52,10 +52,15 @@ def history_start_for_schema(
     if schema.history_start is not None:
         return schema.history_start
 
-    # Whether a run before this one exists, not whether a table does: `delete_table` nulls the table
-    # link on a schema that has synced for years, and jobs outlive the wipe. This run's own job is
-    # already created by the time the import activity calls this, so it has to be excluded.
-    if ExternalDataJob.objects.filter(schema_id=schema.pk).exclude(pk=current_job_id).exists():
+    # Whether a run before this one imported anything, not whether a table exists: `delete_table`
+    # nulls the table link on a schema that has synced for years, and jobs outlive the wipe.
+    #
+    # Rows landed rather than the job row itself, because a job is created several activities before
+    # the import runs and outlives every way a run can end early — a billing limit, a cancellation, a
+    # deploy. Counting those would leave the schema unrecorded forever, reading unbounded on every
+    # re-import. This run's own job is excluded too: it is created before this call, and a retry of
+    # this activity may already have landed rows under it.
+    if ExternalDataJob.objects.filter(schema_id=schema.pk, rows_synced__gt=0).exclude(pk=current_job_id).exists():
         return None
 
     # `update_fields` because the pipeline loaded this instance before the run linked its table.

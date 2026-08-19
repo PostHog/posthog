@@ -68,6 +68,22 @@ class TestHistoryStartForSchema(BaseTest):
         schema.refresh_from_db()
         assert schema.history_start is None
 
+    def test_a_prior_run_that_landed_nothing_still_counts_as_a_first_sync(self):
+        # A job row is created several activities before the import runs, and outlives every way a
+        # run ends early — a billing limit, a cancellation, a deploy. Counting those would leave the
+        # schema unrecorded forever and reading unbounded on every re-import.
+        schema = self._schema()
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=schema.source,
+            schema=schema,
+            status=ExternalDataJob.Status.BILLING_LIMIT_REACHED,
+            rows_synced=0,
+            workflow_id="wf",
+        )
+
+        assert self._resolve(schema) == NOW - dt.timedelta(days=2 * 365)
+
     def test_a_schema_whose_table_was_deleted_records_nothing(self):
         # `delete_table` nulls the table link on a schema that has synced for years, so the table
         # link cannot stand in for "never synced". Recording a lookback here writes down a narrower
