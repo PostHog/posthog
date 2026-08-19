@@ -32,7 +32,7 @@ from products.stamphog.backend.logic.approval_retention import (
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
-from products.stamphog.backend.logic.github_client import MAX_PR_FILES, StamphogGitHubClient
+from products.stamphog.backend.logic.github_client import MAX_COMPARE_FILES, StamphogGitHubClient
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 from products.tasks.backend.facade.api import find_signal_implementation_run
@@ -525,15 +525,19 @@ def _retract_approvals_on_base_retarget(repo_config: StamphogRepoConfig, pr: dic
 def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:
     """Whether a standing approval survives this push, rather than being dismissed and re-reviewed.
 
-    Compares the PR's own diff at the approved head, stored on that run when its context was fetched,
-    against the diff at the current head. False for everything ambiguous: no PR row, no standing
-    approval, an approval already at this head (a same-head re-review is deliberately allowed to void
-    it), or a run whose stored file payload is missing or belongs to another head.
+    Compares the PR's own diff at the head the approval was posted for against its diff at the head
+    this delivery carries. Both sides are read with ``compare_commits`` from commit shas the payload
+    and the run already fixed, so neither can be aimed at content the PR is not actually on.
+
+    False for everything ambiguous: no PR row, no standing approval, an approval already at this head
+    (a same-head re-review is deliberately allowed to void it), a run with no recorded base sha, a
+    compare at GitHub's file cap, or any unreadable payload.
     """
     team_id = repo_config.team_id
     pr_number = pr.get("number")
     head_sha = (pr.get("head") or {}).get("sha") or ""
-    if pr_number is None or not head_sha:
+    base_sha = (pr.get("base") or {}).get("sha") or ""
+    if pr_number is None or not head_sha or not base_sha:
         return False
 
     # Writer pin for the same reason _retract_stale_approvals_on_skip uses one: this read decides
@@ -560,22 +564,11 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
         .order_by("-completed_at")
         .first()
     )
-    if standing is None:
+    if standing is None or standing.posted_review_id is None or not standing.head_sha:
         return False
 
-    if standing.posted_review_id is None:
-        return False
-
-    stored = standing.output or {}
-    approved_files = stored.get("files")
-    if not isinstance(approved_files, list):
-        return False
-
-    # The stored listing comes from get_pr_files, which answers for the PR's live head rather than
-    # for the head the run reviewed. It only describes the approved diff when the head had not moved
-    # by the time it was fetched, so the fetch records what it saw and this refuses anything else,
-    # including a run from before that field existed.
-    if stored.get("files_head_sha") != standing.head_sha:
+    approved_base_sha = ((standing.output or {}).get("pr") or {}).get("base", {}).get("sha") or ""
+    if not approved_base_sha:
         return False
 
     client = StamphogGitHubClient(repo_config.installation_id)
@@ -587,8 +580,9 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
     if standing.posted_review_id not in active_ids:
         return False
 
-    current_files = client.get_pr_files(repo_config.repository, pr_number)
-    if not approved_diff_unchanged(approved_files, current_files, max_files=MAX_PR_FILES):
+    approved_files = client.compare_commits(repo_config.repository, approved_base_sha, standing.head_sha)
+    current_files = client.compare_commits(repo_config.repository, base_sha, head_sha)
+    if not approved_diff_unchanged(approved_files, current_files, max_files=MAX_COMPARE_FILES):
         return False
     _record_retained_head(standing, head_sha)
     return True

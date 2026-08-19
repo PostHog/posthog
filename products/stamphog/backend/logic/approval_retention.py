@@ -11,6 +11,11 @@ changed file's blob sha, so it never has to judge whether a given file matters. 
 branch that touches none of the PR's files leaves every blob identical and retains; a merge that has
 to resolve a conflict inside one of them changes that blob and re-reviews.
 
+Both sides come from `compare_commits`, which takes two commit shas. That is load-bearing rather
+than incidental: `get_pr_files` answers for whichever head is live when the request runs, so a
+contributor could push the approved content, let the comparison run, and push the unreviewed head
+back. Reading two immutable commits leaves no such window.
+
 There is deliberately no "this file is harmless" rule. Successive review passes found that every
 candidate for one was wrong in this repository: lockfiles select the dependency code that gets
 installed, tests run in CI with CI's credentials, a file under a generated/ directory can be

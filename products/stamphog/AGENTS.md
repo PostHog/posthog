@@ -50,9 +50,12 @@ So a merge of the base branch that touches none of the PR's files retains, and a
 There is deliberately no "this file is harmless" rule, and adding one back needs a very good argument.
 Successive review passes found every candidate wrong in this repository: lockfiles select the dependency code that gets installed, tests run in CI with CI's credentials, a file under a `generated/` directory can be hand-edited and still compiles into a service, `docs/onboarding` is aliased into the production frontend, MDX compiles to JavaScript, snapshot files are JavaScript modules the test runner executes, and even plain Markdown ships, because `services/mcp` imports `.md` templates and product `tools.yaml` files compile `.md` prompts into shipped tool definitions.
 
-Everything ambiguous falls through to the normal path, which dismisses first: no standing approval, an approval already at this head, a run with no stored file payload, an unreadable payload, a file listing that hit `MAX_PR_FILES` and is therefore a prefix rather than the diff, or any GitHub error.
+Both sides are read with `compare_commits`, from the base and head shas the run and the payload already fixed.
+That is load-bearing rather than incidental: `get_pr_files` answers for whichever head is live when the request runs, so a contributor could push the approved content, let the comparison run, and push the unreviewed head back.
+Retention must never consult that endpoint.
+
+Everything ambiguous falls through to the normal path, which dismisses first: no standing approval, an approval already at this head, a run with no recorded base sha, a compare at `MAX_COMPARE_FILES` and therefore a prefix rather than the diff, or any GitHub error.
 Retention also re-checks GitHub that the stored approval is still active, because a maintainer dismissing it by hand updates nothing in the product DB, and skipping the review over a dismissed approval would leave the PR with neither.
-`get_pr_files` answers for the PR's live head rather than for `run.head_sha`, so `fetch_review_context` records the head it saw as `files_head_sha` and retention refuses any payload whose marker does not equal the approving run's head, a run from before the marker existed included.
 A retained head is recorded on the approving run (`retained_head_shas`), because `_record_merged_pull_request` matches an approving run on `head_sha` alone and would otherwise treat every retained merge as unapproved and drop it from the digest for good.
 Self-driving inbox runs are excluded so the carve-out's head pinning stays untouched.
 
