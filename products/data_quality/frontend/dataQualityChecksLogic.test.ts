@@ -283,6 +283,26 @@ describe('dataQualityChecksLogic', () => {
         })
     })
 
+    it('clears the name during an edit rather than dropping it', async () => {
+        // A blank name is a supported "address by id" state, so the PATCH must carry the empty string
+        // instead of omitting the key, which would leave the old name in place.
+        ;(warehouseSavedQueriesChecksPartialUpdate as jest.Mock).mockResolvedValue(buildCheck({ name: '' }))
+        await mountLogic()
+        logic.actions.openCheckModal(buildCheck({ name: 'existing_name' }))
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setCheckFormValues({ name: '' })
+
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warehouseSavedQueriesChecksPartialUpdate).toHaveBeenCalledWith('1', 'view-1', 'check-1', {
+            name: '',
+            description: '',
+            severity: 'error',
+            tags: [],
+        })
+    })
+
     it('creates the check once when the form is submitted twice', async () => {
         // Enter submits the form even while the save button is disabled by its loading state.
         ;(warehouseSavedQueriesChecksCreate as jest.Mock).mockResolvedValue(buildCheck({ id: 'check-new' }))

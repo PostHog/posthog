@@ -643,7 +643,7 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
                 try {
                     const saved = editing
                         ? await checksApi.partialUpdate(subjectRef(props), editing.id, {
-                              name: form.name || undefined,
+                              name: form.name,
                               description: form.description,
                               severity: form.severity,
                               tags: form.tags,
