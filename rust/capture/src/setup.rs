@@ -351,6 +351,7 @@ pub async fn build_components(
     if ai_byte_limit_enabled {
         warn_if_ai_byte_budget_below_max_event(&config);
     }
+    warn_if_ai_ceiling_exceeds_producer_cap(&config);
     let ai_byte_rate_limiter = rate_limiter_redis
         .as_ref()
         .filter(|_| ai_byte_limit_enabled)
@@ -452,6 +453,29 @@ fn ai_byte_limit_per_second(config: &Config) -> u64 {
         return 0;
     }
     config.ai_byte_limit_per_second
+}
+
+/// Warns when the per-event ceiling is at or above what the producer will
+/// send. Above the cap the ceiling stops being a guard: capture reads the
+/// body, builds the event, and the producer refuses it anyway, so the only
+/// thing the higher ceiling buys is a later failure. Both sides come from
+/// config, so the check stays correct when either knob moves.
+fn ai_ceiling_exceeds_producer_cap(config: &Config) -> bool {
+    let ceiling = config.ai_max_event_bytes;
+    // `0` disables the ceiling, so there is no ordering to be wrong about.
+    ceiling != 0 && ceiling >= config.kafka.kafka_producer_message_max_bytes as u64
+}
+
+fn warn_if_ai_ceiling_exceeds_producer_cap(config: &Config) {
+    if ai_ceiling_exceeds_producer_cap(config) {
+        warn!(
+            ai_max_event_bytes = config.ai_max_event_bytes,
+            kafka_producer_message_max_bytes = config.kafka.kafka_producer_message_max_bytes,
+            "AI_MAX_EVENT_BYTES is at or above KAFKA_PRODUCER_MESSAGE_MAX_BYTES; \
+             events between the producer cap and the ceiling are built and then \
+             refused by the producer"
+        );
+    }
 }
 
 /// Warns when a token sending full-size AI events would be limited on nearly
@@ -1189,6 +1213,36 @@ mod tests {
         create_sink(&config, None, None)
             .await
             .expect("boot must proceed when the completeness check is disabled");
+    }
+
+    /// The ceiling only guards anything while it sits under the producer's cap.
+    /// A deployment that raises the producer keeps its headroom; one that never
+    /// touched it gets told the default is too high for its broker.
+    #[rstest::rstest]
+    #[case::default_ceiling_on_a_default_producer(8_388_608, 1_000_000, true)]
+    #[case::default_ceiling_under_a_raised_producer(8_388_608, 10_485_760, false)]
+    #[case::equal_still_warns(1_000_000, 1_000_000, true)]
+    #[case::disabled_ceiling_never_warns(0, 1_000_000, false)]
+    fn ai_ceiling_is_checked_against_the_producer_cap(
+        #[case] ceiling: u64,
+        #[case] producer_cap: u32,
+        #[case] expected: bool,
+    ) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "ai"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion_ai"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let mut config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+        config.ai_max_event_bytes = ceiling;
+        config.kafka.kafka_producer_message_max_bytes = producer_cap;
+
+        assert_eq!(ai_ceiling_exceeds_producer_cap(&config), expected);
     }
 
     /// Import deployments never build the AI byte limiter, however the knob is
