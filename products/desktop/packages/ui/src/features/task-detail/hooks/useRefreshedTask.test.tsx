@@ -27,6 +27,17 @@ function task(runId: string, status: "failed" | "in_progress"): Task {
   } as Task;
 }
 
+function signalsTaskWithoutRun(): Task {
+  return {
+    id: "task-123",
+    title: "Generate report canvas",
+    description: "Generate a canvas",
+    repository: null,
+    origin_product: "signal_report",
+    latest_run: null,
+  } as Task;
+}
+
 describe("useRefreshedTask", () => {
   beforeEach(() => {
     mocks.getTask.mockReset();
@@ -53,5 +64,35 @@ describe("useRefreshedTask", () => {
       expect(result.current.latest_run?.id).toBe("run-child");
     });
     expect(mocks.getTask).toHaveBeenCalledWith("task-123");
+  });
+
+  it("polls a Signals task until its cloud run is attached", async () => {
+    const pendingTask = signalsTaskWithoutRun();
+    const runningTask = {
+      ...task("run-child", "in_progress"),
+      origin_product: "signal_report",
+    } as Task;
+    mocks.getTask
+      .mockResolvedValueOnce(pendingTask)
+      .mockResolvedValueOnce(runningTask);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(
+      () => useRefreshedTask("task-123", pendingTask),
+      { wrapper },
+    );
+
+    await waitFor(
+      () => {
+        expect(result.current.latest_run?.id).toBe("run-child");
+      },
+      { timeout: 3_000 },
+    );
+    expect(mocks.getTask).toHaveBeenCalledTimes(2);
   });
 });
