@@ -17,6 +17,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ParentClosePolicy
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
@@ -47,6 +48,7 @@ from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationInput,
     SignalReportInboxNotificationWorkflow,
 )
+from products.signals.backend.temporal.report_canvas import ReportCanvasWorkflowInput, SignalReportCanvasWorkflow
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
 from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
@@ -60,6 +62,12 @@ from products.signals.backend.temporal.types import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# A freshly promoted report's signals can trail its summary run into ClickHouse by a few seconds
+# (the emit -> embed -> insert path is asynchronous), so an empty first fetch is retried before it
+# is trusted. Six 10s attempts comfortably covers observed p99 ingestion lag.
+EMPTY_FETCH_RETRY_ATTEMPTS = 6
+EMPTY_FETCH_RETRY_INTERVAL = timedelta(seconds=10)
 
 
 def _capture_report_event(
@@ -195,6 +203,51 @@ class SignalReportSummaryWorkflow:
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
+    async def _fetch_signals(
+        self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger
+    ) -> FetchSignalsForReportOutput:
+        fetch_input = FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id)
+        fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
+            fetch_signals_for_report_activity,
+            fetch_input,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        # patched(): histories recorded before the retry loop have no timers to replay.
+        if fetch_result.signals or not workflow.patched("signals-empty-fetch-retry"):
+            return fetch_result
+        for attempt in range(1, EMPTY_FETCH_RETRY_ATTEMPTS + 1):
+            log.info("No signals visible in ClickHouse yet, retrying fetch", attempt=attempt)
+            await workflow.sleep(EMPTY_FETCH_RETRY_INTERVAL)
+            fetch_result = await workflow.execute_activity(
+                fetch_signals_for_report_activity,
+                fetch_input,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if fetch_result.signals:
+                metrics.increment_report_fetch_recovered(attempt)
+                return fetch_result
+        return fetch_result
+
+    async def _start_report_canvas(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        if not workflow.patched("signals-report-canvases"):
+            return
+        try:
+            await workflow.start_child_workflow(
+                SignalReportCanvasWorkflow.run,
+                ReportCanvasWorkflowInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                id=SignalReportCanvasWorkflow.workflow_id_for(inputs.team_id, inputs.report_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                execution_timeout=timedelta(hours=5),
+            )
+        except temporalio.exceptions.WorkflowAlreadyStartedError:
+            pass
+        except Exception:
+            workflow.logger.exception(f"Failed to start report canvas generation for {inputs.report_id}")
+
     async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger) -> bool:
         """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
         # 0. Quota gate: a team whose org is over its self-driving credits quota gets no new research or PRs. The
@@ -207,13 +260,21 @@ class SignalReportSummaryWorkflow:
             log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
             return False
         # 1. Fetch signals for the report
-        fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
-            fetch_signals_for_report_activity,
-            FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        fetch_result = await self._fetch_signals(inputs, log)
         if not fetch_result.signals:
+            # patched(): same marker as the retry loop, so pre-patch histories replay straight to failure.
+            if workflow.patched("signals-empty-fetch-retry") and await workflow.execute_activity(
+                report_has_assigned_signals_activity,
+                ReportHasAssignedSignalsInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            ):
+                # Signals are assigned in Postgres but not yet readable in ClickHouse. Failing here
+                # would be terminal, so leave the report as it is: grouping re-promotes a candidate
+                # on the next matching signal, and that run sees the rows.
+                log.warning("Report has assigned signals that are not yet visible in ClickHouse, deferring run")
+                metrics.increment_report_run_deferred("signals_not_visible")
+                return False
             log.error("No signals found for report, marking as failed")
             await workflow.execute_activity(
                 mark_report_failed_activity,
@@ -380,6 +441,7 @@ class SignalReportSummaryWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                await self._start_report_canvas(inputs)
                 # No loop, human input is required
                 return False
             # 6. Mark ready and check if new signals arrived during the run
@@ -401,6 +463,7 @@ class SignalReportSummaryWorkflow:
             if has_new_signals:
                 log.info("Report has new signals since run started, looping")
             else:  # Only emit the notification if we're not going to immediately re-run
+                await self._start_report_canvas(inputs)
                 # Publish is best-effort: a Kafka/notification failure shouldn't flip a
                 # successfully-generated READY report to FAILED.
                 try:
@@ -501,6 +564,23 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
             stage=input.stage,
         )
         return False
+
+
+@frozen
+class ReportHasAssignedSignalsInput:
+    team_id: int
+    report_id: str
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def report_has_assigned_signals_activity(input: ReportHasAssignedSignalsInput) -> bool:
+    """Whether grouping has assigned any signal to the report. Postgres `signal_count` is written at
+    assignment time, before the signal reaches ClickHouse, so it tells an ingestion-lag empty fetch
+    apart from a report that genuinely has nothing to research.
+    """
+    return await SignalReport.objects.filter(id=input.report_id, team_id=input.team_id, signal_count__gt=0).aexists()
 
 
 @dataclass

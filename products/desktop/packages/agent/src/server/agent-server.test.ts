@@ -1558,7 +1558,10 @@ describe("AgentServer HTTP Mode", () => {
     function exposeCloudClient(testServer: AgentServer) {
       return testServer as unknown as {
         config: { relayMcpServers?: string[]; mode?: string };
-        session: { hasDesktopConnected?: boolean } | null;
+        session: {
+          hasDesktopConnected?: boolean;
+          permissionMode?: PermissionMode;
+        } | null;
         eventStreamSender: unknown;
         relayPermissionToClient: (params: unknown) => Promise<unknown>;
         pendingPermissions: Map<string, unknown>;
@@ -1782,6 +1785,37 @@ describe("AgentServer HTTP Mode", () => {
       expect(relaySpy).not.toHaveBeenCalled();
       expect(result.outcome).toEqual({ outcome: "cancelled" });
     });
+
+    it.each([
+      { runtimeAdapter: "codex" as Adapter, relayed: false },
+      { runtimeAdapter: "claude" as Adapter, relayed: true },
+    ])(
+      "auto mode relays an edit approval on $runtimeAdapter: $relayed",
+      async ({ runtimeAdapter, relayed }) => {
+        const testServer = exposeCloudClient(createServer({ runtimeAdapter }));
+        testServer.session = {
+          hasDesktopConnected: true,
+          permissionMode: "auto",
+        };
+        const relaySpy = vi
+          .spyOn(testServer, "relayPermissionToClient")
+          .mockResolvedValue({
+            outcome: { outcome: "selected", optionId: "allow_once" },
+          });
+
+        const { requestPermission } = testServer.createCloudClient(basePayload);
+        const result = await requestPermission({
+          options: [{ optionId: "allow_once", kind: "allow_once" }],
+          toolCall: { kind: "edit", toolCallId: "tc-1" },
+        });
+
+        expect(relaySpy).toHaveBeenCalledTimes(relayed ? 1 : 0);
+        expect(result.outcome).toEqual({
+          outcome: "selected",
+          optionId: "allow_once",
+        });
+      },
+    );
 
     it.each([
       {

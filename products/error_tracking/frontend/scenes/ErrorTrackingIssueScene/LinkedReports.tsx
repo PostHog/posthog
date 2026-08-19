@@ -52,9 +52,8 @@ function LinkedReportRow({ report }: { report: SignalReportApi }): JSX.Element {
  * Reports the inbox grouped this issue's signals into, most recently updated first.
  *
  * This is a section of the right pane, not a card sitting on top of one, so it wears the pane's own
- * chrome: the same 2rem header strip the exception card below it uses, square corners, no outer border,
- * and rows that run the full width. The name takes the AI colour, which is how the app marks the work
- * its own software did.
+ * chrome: square corners, no outer border, and rows that run the full width. The name takes the AI
+ * color, which is how the app marks the work its own software did.
  */
 export function LinkedReportsSection({ reports }: { reports: SignalReportApi[] }): JSX.Element | null {
     if (reports.length === 0) {
