@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 
+from products.workflows.backend.management.commands import strip_placeholder_sender_overrides as command_module
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -89,3 +90,37 @@ class TestStripPlaceholderSenderOverrides(BaseTest):
         mock_command_reload.reset_mock()
         call_command("strip_placeholder_sender_overrides", "--live-run")
         mock_command_reload.assert_not_called()
+
+    @patch(
+        "products.workflows.backend.management.commands.strip_placeholder_sender_overrides.reload_hog_flows_on_workers"
+    )
+    def test_live_run_preserves_a_save_landing_between_scan_and_write(self, _mock_command_reload, _mock_model_reload):
+        # The command must write the row it re-reads under lock, not the blob its scan saw.
+        # Writing the scanned blob silently discards any workflow save that commits in between.
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="legacy",
+            actions=[_email_action("a1", {"integrationId": 1, "email": "default@example.com"})],
+        )
+        concurrent_actions = [
+            _email_action("a1", {"integrationId": 1, "email": "default@example.com"}),
+            _email_action("a2", {"integrationId": 2, "email": "team@customer.com"}),
+        ]
+
+        real_strip = command_module._strip_placeholder
+        fired = False
+
+        def strip_with_concurrent_save(actions):
+            nonlocal fired
+            if not fired:
+                fired = True
+                HogFlow.objects.filter(pk=flow.pk).update(actions=concurrent_actions)
+            return real_strip(actions)
+
+        with patch.object(command_module, "_strip_placeholder", side_effect=strip_with_concurrent_save):
+            call_command("strip_placeholder_sender_overrides", "--live-run")
+
+        flow.refresh_from_db()
+        assert len(flow.actions) == 2, "the save that landed mid-command was discarded"
+        assert "email" not in flow.actions[0]["config"]["inputs"]["email"]["value"]["from"]
+        assert flow.actions[1]["config"]["inputs"]["email"]["value"]["from"]["email"] == "team@customer.com"

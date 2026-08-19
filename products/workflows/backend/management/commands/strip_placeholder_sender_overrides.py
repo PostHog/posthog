@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+from django.db import transaction
 from django.db.models import Q
 
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
@@ -60,23 +61,42 @@ class Command(BaseCommand):
             if not live_stripped and not draft_stripped:
                 continue
 
+            if not live_run:
+                self.stdout.write(
+                    f"  Would strip {live_stripped} live / {draft_stripped} draft "
+                    f"override(s) on flow id={flow.id} team_id={flow.team_id} status={flow.status}"
+                )
+                flows_changed += 1
+                overrides_stripped += live_stripped + draft_stripped
+                continue
+
+            # Re-read the row under a lock and strip that value, not the one the scan saw. A
+            # customer saving the workflow between the scan and this write would otherwise have
+            # their edit overwritten by the stale blob this command is holding - the same lost
+            # write rewrite_email_asset_url and the API save paths guard against.
+            with transaction.atomic():
+                locked = HogFlow.objects.select_for_update().get(pk=flow.pk)
+                live_stripped = _strip_placeholder(locked.actions)
+                locked_draft_actions = (locked.draft or {}).get("actions") if isinstance(locked.draft, dict) else None
+                draft_stripped = _strip_placeholder(locked_draft_actions)
+                if not live_stripped and not draft_stripped:
+                    continue
+
+                update_fields: dict = {}
+                if live_stripped:
+                    update_fields["actions"] = locked.actions
+                if draft_stripped:
+                    update_fields["draft"] = locked.draft
+                # .update() avoids bumping updated_at / firing save signals for a backfill; workers
+                # cache the live flow config, so a live-actions change needs an explicit reload.
+                HogFlow.objects.filter(pk=locked.pk).update(**update_fields)
+
             self.stdout.write(
-                f"  {'Stripping' if live_run else 'Would strip'} {live_stripped} live / {draft_stripped} draft "
+                f"  Stripping {live_stripped} live / {draft_stripped} draft "
                 f"override(s) on flow id={flow.id} team_id={flow.team_id} status={flow.status}"
             )
             flows_changed += 1
             overrides_stripped += live_stripped + draft_stripped
-            if not live_run:
-                continue
-
-            update_fields: dict = {}
-            if live_stripped:
-                update_fields["actions"] = flow.actions
-            if draft_stripped:
-                update_fields["draft"] = flow.draft
-            # .update() avoids bumping updated_at / firing save signals for a backfill; workers
-            # cache the live flow config, so a live-actions change needs an explicit reload.
-            HogFlow.objects.filter(pk=flow.pk).update(**update_fields)
             if live_stripped:
                 reload_hog_flows_on_workers(team_id=flow.team_id, hog_flow_ids=[str(flow.id)])
 
