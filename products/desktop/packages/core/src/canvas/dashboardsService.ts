@@ -42,8 +42,6 @@ interface ApiCanvas {
   component_meta?: unknown;
   channel: string;
   template_id: string;
-  source_product?: string;
-  source_resource_id?: string | null;
   context: string;
   generation_task_id: string | null;
   pinned_at: string | null;
@@ -104,8 +102,6 @@ function toRecord(api: ApiCanvas): DashboardRecord {
     description: api.description ?? "",
     componentMeta: meta.success ? meta.data : null,
     templateId: api.template_id || FREEFORM_TEMPLATE_ID,
-    sourceProduct: api.source_product ?? "user_created",
-    sourceResourceId: api.source_resource_id,
     context: api.context ?? "",
     generationTaskId: api.generation_task_id,
     createdBy: creatorLabel(api.created_by),

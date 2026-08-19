@@ -24,7 +24,6 @@ import {
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
-import { getOriginProductMeta } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
 import { InlineEditInput } from "@posthog/ui/features/sidebar/components/items/TaskItem";
 import {
   PinnedBadge,
@@ -122,15 +121,9 @@ function CanvasBadgeStack({
   item: ChannelItemModel;
   pinned?: boolean;
 }) {
-  const source = getOriginProductMeta(item.source ?? undefined);
   return (
     <AvatarGroup stacked reverse size="xs" className="shrink-0">
       {pinned ? <PinnedBadge /> : null}
-      {source ? (
-        <RowBadge label={`${source.label} canvas`}>
-          <source.Icon size={9} />
-        </RowBadge>
-      ) : null}
       <RowBadge label="Canvas">
         {/* Violet is the canvas colour everywhere else it appears — the
             artifacts list, the thread panel, the pinned menu — so the badge says

@@ -374,19 +374,6 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "All caught up" })).toBeNull();
   });
 
-  it("marks a canvas created from Signals", () => {
-    renderRow(
-      item({
-        key: "canvas:c1",
-        kind: "canvas",
-        id: "c1",
-        source: "signal_report",
-      }),
-    );
-
-    expect(screen.getByLabelText("Signals canvas")).toBeInTheDocument();
-  });
-
   it("gives a canvas the actions it has: pin and delete, not archive or filing", async () => {
     const canvas = item({
       key: "canvas:c1",

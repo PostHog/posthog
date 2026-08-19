@@ -26,7 +26,6 @@ import {
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useLatestTurnMessage } from "@posthog/ui/features/canvas/hooks/useLatestTurnMessage";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
-import { getOriginProductMeta } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
 import { TaskDotMark } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
 import {
   type TaskBadge,
@@ -240,7 +239,6 @@ export function ChannelItemPreview({
   const status = useChannelTaskStatus(item);
   const message = useLatestTurnMessage(item.task);
   const dot = status ? taskDot(status) : null;
-  const source = getOriginProductMeta(item.source ?? undefined);
 
   return (
     <ItemGroup className="gap-0!">
@@ -255,8 +253,7 @@ export function ChannelItemPreview({
             <span className="min-w-0">{item.title}</span>
           </ItemTitle>
           <ItemDescription>
-            {item.kind === "canvas" ? "Canvas" : "Task"}
-            {source ? ` from ${source.label}` : ""} · updated{" "}
+            {item.kind === "canvas" ? "Canvas" : "Task"} · updated{" "}
             {formatRelativeTimeShort(item.ts)}
           </ItemDescription>
         </ItemContent>

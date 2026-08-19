@@ -322,8 +322,8 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // in the tab rather than from what the current filters left behind — picking
   // one source must not be what removes the others from the menu.
   const sources = useMemo(() => channelItemSources(tabItems), [tabItems]);
-  // A canvas has no run, so the run filters can only ever empty the canvases
-  // tab. Same treatment as createdBy above: neutralised as well as
+  // A canvas has no run, so the three run filters can only ever empty the
+  // canvases tab. Same treatment as createdBy above: neutralised as well as
   // hidden, or a choice made on the sessions tab would empty this one.
   //
   // A source the tab has none of goes the same way, and for the same reason: it
@@ -346,6 +346,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           ...scoped,
           attention: "any",
           environment: "any",
+          source: ANY_SOURCE,
         }
       : scoped;
   }, [isPersonalChannel, rawFilters, sources, tab]);

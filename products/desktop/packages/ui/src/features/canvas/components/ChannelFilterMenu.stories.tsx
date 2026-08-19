@@ -31,15 +31,11 @@ function Harness({
     <div className="flex justify-end p-2">
       <ChannelFilterMenu
         filters={filters}
-        onFilterChange={(key, value) =>
-          setFilters((current) => ({ ...current, [key]: value }))
-        }
-        onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
+        onFiltersChange={setFilters}
         sort={sort}
         onSortChange={setSort}
         sources={sources}
         showCreatedBy={showCreatedBy}
-        showRunFilters
         active={hasActiveChannelItemFilters(filters)}
       />
     </div>
