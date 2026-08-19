@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, Data
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     emit_signals_enabled_for,
     person_property_sync_enabled_for,
+    schema_binding,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -296,7 +297,7 @@ def create_external_data_job_model_activity(
 
         # Whether this schema feeds any enabled person-target Customer analytics source (owned by
         # customer_analytics via external_product_hooks; not imported here).
-        person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema.id)
+        person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema_binding(schema.id))
 
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),
