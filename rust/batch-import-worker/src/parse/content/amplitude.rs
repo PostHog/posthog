@@ -5,6 +5,7 @@ use chrono::Utc;
 use common_types::{CapturedEvent, InternallyCapturedEvent, RawEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tracing::error;
 use uuid::Uuid;
 
@@ -422,6 +423,18 @@ impl AmplitudeEvent {
                 );
             }
 
+            // Map the Amplitude session onto a PostHog $session_id so imported
+            // events group into sessions. An explicit $session_id already present
+            // in the source properties wins over the derived one.
+            let session_id: Option<String> = match properties.get("$session_id") {
+                Some(existing) => existing.as_str().map(String::from),
+                None => derive_session_uuid(&amp, &distinct_id).map(|session_uuid| {
+                    let session_id = session_uuid.to_string();
+                    properties.insert("$session_id".to_string(), Value::String(session_id.clone()));
+                    session_id
+                }),
+            };
+
             if let Some(country) = &amp.country {
                 properties.insert(
                     "$geoip_country_name".to_string(),
@@ -697,7 +710,7 @@ impl AmplitudeEvent {
                 let inner = CapturedEvent {
                     uuid: event_uuid,
                     distinct_id,
-                    session_id: None,
+                    session_id,
                     ip: amp.ip_address.unwrap_or_else(|| "127.0.0.1".to_string()),
                     data: serde_json::to_string(&raw_event)?,
                     now: Utc::now().to_rfc3339(),
@@ -731,6 +744,44 @@ fn get_distinct_id(amp: &AmplitudeEvent) -> String {
     }
 
     Uuid::now_v7().to_string()
+}
+
+// UUIDv7 embeds a 48-bit millisecond timestamp; Amplitude session ids outside
+// that range cannot be represented (Amplitude uses -1/0 for "no session").
+const MAX_UUID_V7_TIMESTAMP_MS: i64 = (1 << 48) - 1;
+
+/// Derive a deterministic UUIDv7 to use as the PostHog `$session_id` for an
+/// Amplitude event. Amplitude's `session_id` is the session start time in epoch
+/// milliseconds, which becomes the UUIDv7 timestamp, so downstream session
+/// handling sees the correct session start. The remaining bits come from a
+/// SHA-256 of the session key and the session id, so every event in the same
+/// session — including across import re-runs — maps to the same UUID, while
+/// identical start times on different devices do not collide.
+///
+/// Keyed by `device_id` (falling back to the event's distinct id) rather than
+/// by distinct id, because Amplitude sessions are device-scoped: `user_id`
+/// appearing mid-session (e.g. after login) changes the distinct id but must
+/// not split the session.
+fn derive_session_uuid(amp: &AmplitudeEvent, distinct_id: &str) -> Option<Uuid> {
+    if amp.session_id <= 0 || amp.session_id > MAX_UUID_V7_TIMESTAMP_MS {
+        return None;
+    }
+
+    let session_key = match &amp.device_id {
+        Some(device_id) if !device_id.is_empty() => device_id.as_str(),
+        _ => distinct_id,
+    };
+
+    let mut hasher = Sha256::new();
+    hasher.update(session_key.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(amp.session_id.to_be_bytes());
+    let digest = hasher.finalize();
+
+    let mut entropy = [0u8; 10];
+    entropy.copy_from_slice(&digest[..10]);
+
+    Some(uuid::Builder::from_unix_timestamp_millis(amp.session_id as u64, &entropy).into_uuid())
 }
 
 fn parse_timestamp_string(time_str: &str) -> Result<chrono::DateTime<Utc>, chrono::ParseError> {
@@ -1141,6 +1192,143 @@ mod tests {
         assert_eq!(
             data.properties.get("$amplitude_session_id"),
             Some(&json!(131415))
+        );
+    }
+
+    fn parsed_session_id(amp_event: AmplitudeEvent) -> Option<String> {
+        let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
+        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+
+        let property = data.properties.get("$session_id").map(|v| {
+            v.as_str()
+                .expect("$session_id should be a string")
+                .to_string()
+        });
+        // The Kafka header must always mirror the property
+        assert_eq!(result.inner.session_id, property);
+        property
+    }
+
+    #[test]
+    fn test_session_id_maps_to_deterministic_uuidv7() {
+        let session_start_ms: i64 = 1697380200123;
+        let amp_event = AmplitudeEvent {
+            event_type: Some("button_click".to_string()),
+            user_id: Some("user123".to_string()),
+            device_id: Some("device456".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            session_id: session_start_ms,
+            ..Default::default()
+        };
+
+        let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
+
+        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        let session_id = data
+            .properties
+            .get("$session_id")
+            .and_then(|v| v.as_str())
+            .expect("$session_id should be set");
+
+        // The Kafka header mirrors the property
+        assert_eq!(result.inner.session_id.as_deref(), Some(session_id));
+        // The original Amplitude value is preserved for traceability
+        assert_eq!(
+            data.properties.get("$amplitude_session_id"),
+            Some(&json!(session_start_ms))
+        );
+
+        // A valid UUIDv7 whose embedded timestamp is the Amplitude session start
+        let uuid = Uuid::parse_str(session_id).unwrap();
+        assert_eq!(uuid.get_version_num(), 7);
+        let (secs, nanos) = uuid.get_timestamp().unwrap().to_unix();
+        assert_eq!(
+            secs as i64 * 1000 + (nanos / 1_000_000) as i64,
+            session_start_ms
+        );
+    }
+
+    #[test]
+    fn test_session_id_deterministic_and_device_scoped() {
+        let base = AmplitudeEvent {
+            event_type: Some("first_event".to_string()),
+            user_id: Some("user123".to_string()),
+            device_id: Some("device456".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            session_id: 1697380200123,
+            ..Default::default()
+        };
+
+        let mut second_event = base.clone();
+        second_event.event_type = Some("second_event".to_string());
+
+        // Same device before $identify: no user_id, so the distinct id differs
+        let mut anonymous = base.clone();
+        anonymous.user_id = None;
+
+        let mut other_device = base.clone();
+        other_device.device_id = Some("device789".to_string());
+
+        let session = parsed_session_id(base).expect("$session_id should be set");
+        // Every event in the same device session maps to the same UUID...
+        assert_eq!(
+            parsed_session_id(second_event).as_deref(),
+            Some(session.as_str())
+        );
+        // ...including across the mid-session identify boundary...
+        assert_eq!(
+            parsed_session_id(anonymous).as_deref(),
+            Some(session.as_str())
+        );
+        // ...while the same start time on another device does not collide.
+        assert_ne!(
+            parsed_session_id(other_device).as_deref(),
+            Some(session.as_str())
+        );
+    }
+
+    #[test]
+    fn test_no_session_id_when_amplitude_session_absent_or_invalid() {
+        // 0 = field absent (serde default), -1 = Amplitude's "no session",
+        // i64::MAX = not representable in a UUIDv7 timestamp
+        for session_id in [0i64, -1, i64::MAX] {
+            let amp_event = AmplitudeEvent {
+                event_type: Some("button_click".to_string()),
+                user_id: Some("user123".to_string()),
+                event_time: Some("2023-10-15 14:30:00".to_string()),
+                session_id,
+                ..Default::default()
+            };
+
+            assert_eq!(parsed_session_id(amp_event), None);
+        }
+    }
+
+    #[test]
+    fn test_existing_session_id_property_wins() {
+        let amp_event = AmplitudeEvent {
+            event_type: Some("button_click".to_string()),
+            user_id: Some("user123".to_string()),
+            device_id: Some("device456".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            session_id: 1697380200123,
+            event_properties: [(
+                "$session_id".to_string(),
+                json!("0199c50e-7d31-7b52-8000-a2b3c4d5e6f7"),
+            )]
+            .iter()
+            .cloned()
+            .collect(),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            parsed_session_id(amp_event).as_deref(),
+            Some("0199c50e-7d31-7b52-8000-a2b3c4d5e6f7")
         );
     }
 
