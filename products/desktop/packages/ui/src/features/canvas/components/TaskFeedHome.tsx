@@ -38,9 +38,17 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
   const navigate = useNavigate();
   const feed = useProjectTaskFeed(feedId);
   const removeFeed = useTaskFeedsStore((s) => s.removeFeed);
-  const { tasks, isComplete, isLoading, issues } = useTaskFeedResults(
-    feed?.query,
-  );
+  const {
+    canRetry,
+    error,
+    errorMessage,
+    isComplete,
+    isFetching,
+    isLoading,
+    issues,
+    refetch,
+    tasks,
+  } = useTaskFeedResults(feed?.query);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
@@ -106,6 +114,18 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
           <FeedQueryHighlight query={feed.query} className="min-w-0 truncate" />
           {isLoading ? (
             <Skeleton className="h-3 w-12 shrink-0 self-center" />
+          ) : error ? (
+            canRetry ? (
+              <Button
+                variant="link-muted"
+                size="xs"
+                loading={isFetching}
+                disabled={isFetching}
+                onClick={refetch}
+              >
+                Try again
+              </Button>
+            ) : null
           ) : (
             <span className="shrink-0 text-muted-foreground text-xs">
               {isComplete
@@ -114,10 +134,15 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
             </span>
           )}
         </div>
-        {!isLoading && !isComplete && (
-          <span className="text-muted-foreground text-xs">
-            Some matching tasks may not be shown.
-          </span>
+        {error ? (
+          <span className="text-(--red-11) text-xs">{errorMessage}</span>
+        ) : (
+          !isLoading &&
+          !isComplete && (
+            <span className="text-muted-foreground text-xs">
+              Some matching tasks may not be shown.
+            </span>
+          )
         )}
         {issues.map((issue) => (
           <span
@@ -156,7 +181,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
   const intro = (
     <div>
       {queryBar}
-      {!isLoading && isComplete && tasks.length === 0 && (
+      {!isLoading && !error && isComplete && tasks.length === 0 && (
         <div className="flex flex-col items-center gap-1 px-4 py-16 text-center">
           <Text className="font-medium">No tasks match this saved search</Text>
           <Text className="text-muted-foreground text-sm">

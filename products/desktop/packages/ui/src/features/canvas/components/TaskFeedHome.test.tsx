@@ -4,6 +4,9 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+let taskResultsError: Error | null = null;
+const refetch = vi.fn();
+
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
 vi.mock("@posthog/ui/hooks/useSetHeaderContent", () => ({
   useSetHeaderContent: vi.fn(),
@@ -29,10 +32,17 @@ vi.mock("@posthog/ui/features/canvas/hooks/useProjectTaskFeeds", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useTaskFeedResults: () => ({
-    tasks: [],
+    canRetry: true,
+    error: taskResultsError,
+    errorMessage: taskResultsError
+      ? "Couldn't load matching tasks. Try again."
+      : null,
     isComplete: true,
+    isFetching: false,
     isLoading: false,
     issues: [],
+    refetch,
+    tasks: [],
   }),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
@@ -42,6 +52,8 @@ import { TaskFeedHome } from "./TaskFeedHome";
 
 describe("TaskFeedHome", () => {
   beforeEach(() => {
+    taskResultsError = null;
+    refetch.mockClear();
     useTaskFeedsStore.setState({
       feeds: [
         {
@@ -54,6 +66,25 @@ describe("TaskFeedHome", () => {
         },
       ],
     });
+  });
+
+  it("shows task request failures instead of an empty result", async () => {
+    taskResultsError = new Error("Network error");
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <TaskFeedHome feedId="feed-1" />
+      </Theme>,
+    );
+
+    expect(
+      screen.getByText("Couldn't load matching tasks. Try again."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("No tasks match this saved search"),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByText("Try again"));
+    expect(refetch).toHaveBeenCalledOnce();
   });
 
   it("requires confirmation before deleting a saved search", async () => {
