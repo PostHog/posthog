@@ -21,17 +21,6 @@ function renderWarning(filterGroups: FeatureFlagGroupType[]): HTMLElement {
     return container
 }
 
-describe('fractionalRolloutPercentages', () => {
-    it('picks out only percentages that are not whole numbers', () => {
-        expect(fractionalRolloutPercentages([group(100), group(0.5), group(0), group(33.33)])).toEqual([0.5, 33.33])
-    })
-
-    it('ignores null and missing rollout percentages', () => {
-        expect(fractionalRolloutPercentages([group(null), {}])).toEqual([])
-        expect(fractionalRolloutPercentages(undefined)).toEqual([])
-    })
-})
-
 describe('FractionalRolloutWarning', () => {
     beforeEach(() => {
         initKeaTests()
@@ -41,20 +30,33 @@ describe('FractionalRolloutWarning', () => {
         cleanup()
     })
 
-    it('warns and names the offending percentage', () => {
-        renderWarning([group(100), group(0.5)])
+    describe('fractionalRolloutPercentages', () => {
+        it('picks out only percentages that are not whole numbers', () => {
+            expect(fractionalRolloutPercentages([group(100), group(0.5), group(0), group(33.33)])).toEqual([0.5, 33.33])
+        })
 
-        expect(document.body).toHaveTextContent('fractional rollout percentage (0.5%)')
-        expect(document.body).toHaveTextContent('every flag in the project')
+        it('ignores null and missing rollout percentages', () => {
+            expect(fractionalRolloutPercentages([group(null), {}])).toEqual([])
+            expect(fractionalRolloutPercentages(undefined)).toEqual([])
+        })
     })
 
-    it('lists every offending percentage when several condition sets are fractional', () => {
-        renderWarning([group(0.5), group(33.33)])
+    describe('rendering', () => {
+        it('warns and names the offending percentage', () => {
+            renderWarning([group(100), group(0.5)])
 
-        expect(document.body).toHaveTextContent('(0.5%, 33.33%)')
-    })
+            expect(document.body).toHaveTextContent('fractional rollout percentage (0.5%)')
+            expect(document.body).toHaveTextContent('every flag in the project')
+        })
 
-    it('stays silent when every rollout percentage is a whole number', () => {
-        expect(renderWarning([group(100), group(0), group(50)])).toBeEmptyDOMElement()
+        it('lists every offending percentage when several condition sets are fractional', () => {
+            renderWarning([group(0.5), group(33.33)])
+
+            expect(document.body).toHaveTextContent('(0.5%, 33.33%)')
+        })
+
+        it('stays silent when every rollout percentage is a whole number', () => {
+            expect(renderWarning([group(100), group(0), group(50)])).toBeEmptyDOMElement()
+        })
     })
 })
