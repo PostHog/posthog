@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     build_pyarrow_decimal_type,
+    restrict_schema_to_columns,
     table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
@@ -1518,7 +1519,14 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         if not batch:
                             break
 
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in batch), arrow_schema)
+                        # The streaming read can return a strict subset of the columns discovered
+                        # during setup (a column dropped at the source, or the table recreated
+                        # narrower, between discovery and the read), so restrict the schema to what
+                        # the query actually returned instead of failing the batch build.
+                        yield table_from_iterator(
+                            (dict(zip(column_names, row)) for row in batch),
+                            restrict_schema_to_columns(arrow_schema, column_names),
+                        )
                 finally:
                     # Tear the streaming cursor down without draining the rest of
                     # the unbuffered result set — see `_release_streaming_cursor`.
