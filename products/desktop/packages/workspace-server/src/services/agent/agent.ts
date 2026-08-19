@@ -308,6 +308,9 @@ function extractSteeringCapability(init: unknown): string | undefined {
   return typeof steering === "string" ? steering : undefined;
 }
 
+/** A streaming turn emits many events a second; warn once a minute, not per event. */
+const NO_LISTENER_WARN_INTERVAL_MS = 60_000;
+
 interface ManagedSession {
   taskRunId: string;
   taskId: string;
@@ -393,6 +396,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
   private sessions = new Map<string, ManagedSession>();
   private pendingPermissions = new Map<string, PendingPermission>();
+  /** Live renderer session-event subscriptions per taskRunId. */
+  private sessionEventSubscribers = new Map<string, number>();
+  private lastNoListenerWarnAt = new Map<string, number>();
   private idleTimeouts = new Map<
     string,
     { handle: ReturnType<typeof setTimeout>; deadline: number }
@@ -1759,6 +1765,7 @@ For git operations while detached:
       );
 
       this.sessions.delete(taskRunId);
+      this.lastNoListenerWarnAt.delete(taskRunId);
 
       const timeout = this.idleTimeouts.get(taskRunId);
       if (timeout) {
@@ -1775,6 +1782,63 @@ For git operations while detached:
     }
   }
 
+  /**
+   * Streams a run's session events to one renderer subscriber. Tracks the
+   * subscriber count per run so a turn that streams with nobody listening
+   * (a dead renderer subscription) shows up in the log instead of only as a
+   * transcript that never updates.
+   */
+  async *subscribeSessionEvents(
+    taskRunId: string,
+    signal?: AbortSignal,
+  ): AsyncIterable<unknown> {
+    this.sessionEventSubscribers.set(
+      taskRunId,
+      (this.sessionEventSubscribers.get(taskRunId) ?? 0) + 1,
+    );
+    const startedAt = Date.now();
+    let delivered = 0;
+    this.log.info("Renderer subscribed to session events", { taskRunId });
+    try {
+      for await (const event of this.toIterable(
+        AgentServiceEvent.SessionEvent,
+        { signal },
+      )) {
+        if (event.taskRunId !== taskRunId) continue;
+        delivered += 1;
+        yield event.payload;
+      }
+    } finally {
+      const remaining = (this.sessionEventSubscribers.get(taskRunId) ?? 1) - 1;
+      if (remaining > 0) {
+        this.sessionEventSubscribers.set(taskRunId, remaining);
+      } else {
+        this.sessionEventSubscribers.delete(taskRunId);
+      }
+      this.log.info("Renderer session event subscription closed", {
+        taskRunId,
+        delivered,
+        durationMs: Date.now() - startedAt,
+        remainingSubscribers: Math.max(remaining, 0),
+        promptPending: this.sessions.get(taskRunId)?.promptPending ?? false,
+      });
+    }
+  }
+
+  private warnIfNoRendererListening(taskRunId: string): void {
+    if (this.sessionEventSubscribers.has(taskRunId)) return;
+    const session = this.sessions.get(taskRunId);
+    if (!session?.promptPending) return;
+    const now = Date.now();
+    const lastWarnedAt = this.lastNoListenerWarnAt.get(taskRunId) ?? 0;
+    if (now - lastWarnedAt < NO_LISTENER_WARN_INTERVAL_MS) return;
+    this.lastNoListenerWarnAt.set(taskRunId, now);
+    this.log.warn(
+      "Session events emitted while a prompt is pending but no renderer is subscribed",
+      { taskRunId, taskId: session.taskId },
+    );
+  }
+
   private createClientConnection(
     taskRunId: string,
     _channel: string,
@@ -1789,6 +1853,7 @@ For git operations while detached:
         taskRunId,
         payload,
       });
+      this.warnIfNoRendererListening(taskRunId);
     };
 
     const onAcpMessage = (message: unknown) => {

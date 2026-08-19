@@ -284,6 +284,16 @@ describe('CyclotronJobInputsValidation', () => {
                 expect(result.valid).toBe(true)
                 expect(result.errors).toEqual({})
             })
+
+            it('errors when a sender rotation contains more than ten senders', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    nativeEmailInput({ integrationId: 1, integrationIds: Array.from({ length: 11 }, (_, i) => i + 1) }),
+                    schema
+                )
+
+                expect(result.valid).toBe(false)
+                expect(result.errors.email).toContain('Choose no more than 10 email senders')
+            })
         })
 
         describe('templating validation', () => {

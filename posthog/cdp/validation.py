@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
+MAX_WORKFLOW_EMAIL_SENDERS = 10
 
 PRODUCT_ASYNC_FUNCTIONS: set[str] = set()
 
@@ -485,6 +486,24 @@ class InputsItemSerializer(serializers.Serializer):
                         {"input": f"Expected string {label} for {', '.join(wrong_types)}."}
                     )
 
+                integration_ids = from_value.get("integrationIds")
+                if integration_ids is not None:
+                    if not isinstance(integration_ids, list):
+                        raise serializers.ValidationError(
+                            {"input": "Expected 'from.integrationIds' to be a list of Integration IDs."}
+                        )
+                    if len(integration_ids) > MAX_WORKFLOW_EMAIL_SENDERS:
+                        raise serializers.ValidationError(
+                            {"input": f"At most {MAX_WORKFLOW_EMAIL_SENDERS} email senders are allowed."}
+                        )
+                    if not all(
+                        isinstance(integration_id, int) and not isinstance(integration_id, bool)
+                        for integration_id in integration_ids
+                    ):
+                        raise serializers.ValidationError(
+                            {"input": "Expected 'from.integrationIds' to be a list of Integration IDs."}
+                        )
+
             if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
                 # Programmatically authored emails often supply html without a design, which the
                 # visual editor can't open. Wrap it so every stored email has an editable design.
@@ -571,7 +590,7 @@ class InputsSerializer(serializers.DictField):
 
     def run_child_validation(self, data):
         result = {}
-        errors = {}
+        errors: dict[str, Any] = {}
 
         existing_secret_inputs = self.context.get("encrypted_inputs")
         # Note this should always be the child of a dict serializer with a sibling 'inputs_schema' field so we can validate against the relevant schema
@@ -586,9 +605,20 @@ class InputsSerializer(serializers.DictField):
             key = str(schema["key"])
             value = data.get(key) or {}
 
-            # We only load the existing secret if the schema is secret and the given value has "secret" set
-            if schema.get("secret") and existing_secret_inputs and ((value and value.get("secret")) or value == {}):
-                value = existing_secret_inputs.get(schema["key"]) or {}
+            if schema.get("secret"):
+                # A {"secret": true} value with no "value" is the read-back mask, meaning "keep the
+                # stored secret". One that also carries a "value" is a rotation and must win, so it
+                # falls through to normal validation.
+                is_masked = isinstance(value, dict) and bool(value.get("secret")) and "value" not in value
+                if is_masked or value == {}:
+                    existing_value = (existing_secret_inputs or {}).get(key)
+                    if existing_value:
+                        value = existing_value
+                    elif is_masked:
+                        # Nothing stored to keep. Silently dropping the input here has disabled
+                        # webhook auth in production - fail so the caller re-enters the value.
+                        errors[key] = "No value is saved for this secret input. Enter the value again."
+                        continue
 
             self.context["schema"] = schema
 

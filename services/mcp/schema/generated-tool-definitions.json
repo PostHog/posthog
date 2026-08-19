@@ -1096,8 +1096,50 @@
             "readOnlyHint": false
         }
     },
+    "canvas-layout-get": {
+        "description": "Read a grid canvas's live layout document (grid definition + placements) and its `current_version_id`. Always call this before patching or publishing: pass the returned version id as `expected_current_version_id` so concurrent edits are not overwritten. A grid canvas with no versions yet returns the default empty layout with a null version id. Placements reference component canvases (kind=component) — resolve their contracts via canvas-list.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Read grid canvas layout",
+        "title": "Read grid canvas layout",
+        "required_scopes": ["canvas:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "canvas-layout-patch": {
+        "description": "Apply surgical operations to a grid canvas's layout — the DEFAULT way to change one: add_placement (a new widget box), update_placement (fill a box with a component, move/resize it, change its status or config), remove_placement, set_grid. Operations apply in order to the current layout, the result is validated atomically, and the new version is live immediately (layout is data — no build). `expected_current_version_id` is REQUIRED (from canvas-layout-get; null only before the first layout publish) — a stale base is rejected with 409 version_conflict; re-read the layout, re-apply, and patch again. To fill a drawn box: update_placement with changes {status: \"live\", component: <component canvas id>, config: {...}}. The component must be published (canvas-list kind=component shows component_meta and published_build_id) and the config must match its configSchema.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Patch grid canvas layout",
+        "title": "Patch grid canvas layout",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "canvas-layout-publish": {
+        "description": "Publish a COMPLETE layout document as a grid canvas's new head version. Prefer canvas-layout-patch for incremental changes — full publish is for creating an initial layout or restructuring the whole grid. The layout is validated first (grid bounds, overlaps, component references, per-placement config against each component's configSchema); errors reject the publish and leave the canvas untouched. The new version is live immediately — no build. `expected_current_version_id` is REQUIRED (from canvas-layout-get; null only before the first layout publish) — a stale base is rejected with 409 version_conflict; re-read the layout, rebuild the document on the new head, and publish again.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Publish grid canvas layout",
+        "title": "Publish grid canvas layout",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "canvas-list": {
-        "description": "List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to resolve which canvas a request refers to before reading or publishing source. Each row's `url` is that canvas's only valid link — share it verbatim; never construct a canvas URL yourself.",
+        "description": "List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to resolve which canvas a request refers to before reading or publishing source. With `kind=component` this is the COMPONENT STORE: reusable widgets grid canvases place. Before building a new widget, ALWAYS search here first (`kind=component` plus `search=<what the widget shows>`) — placing an existing component with the right `config` beats authoring a duplicate. A component is placeable when `component_meta` (its size contract and configSchema) and `published_build_id` are both set. Each row's `url` is that canvas's only valid link — share it verbatim; never construct a canvas URL yourself.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "List canvases",
@@ -1847,7 +1889,7 @@
         }
     },
     "custom-property-definitions-create": {
-        "description": "Create a Customer Analytics custom property definition — the shape of a custom attribute. Provide `name` (required, unique within the team), optional `description`, `display_type` (required; one of text, number, currency, percent, date, datetime, boolean), and optional `is_big_number` to abbreviate large numeric values (e.g. 10,000 → 10K; only valid for numeric display types). `target_type` picks what the property attaches to: `account` (default; value set manually or from a materialized view), `person`, or `group` (person/group properties are populated from a warehouse table via a custom property source and become usable like any other person/group property in feature flags, cohorts, and insights). For `group` targets, also pass `group_type_index` (0-4) selecting the group type. Person and group targets require the `warehouse-person-properties` feature; creating a `group` target additionally requires the `group:write` scope. Definitions are team-scoped; for account targets, set the value a specific account holds via the account custom property value tools.",
+        "description": "Create a Customer Analytics custom property definition — the shape of a custom attribute. Provide `name` (required, unique within the team), optional `description`, `display_type` (required; one of text, number, currency, percent, date, datetime, boolean), and optional `is_big_number` to abbreviate large numeric values (e.g. 10,000 → 10K; only valid for numeric display types). `target_type` picks what the property attaches to: `account` (default; value set manually or from a materialized view), `person`, or `group` (person/group properties are populated from a warehouse table or a materialized view via a custom property source and become usable like any other person/group property in feature flags, cohorts, and insights). For `group` targets, also pass `group_type_index` (0-4) selecting the group type. Person and group targets require the `warehouse-person-properties` feature; creating a `group` target additionally requires the `group:write` scope. Definitions are team-scoped; for account targets, set the value a specific account holds via the account custom property value tools.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create custom property definition",
@@ -1922,7 +1964,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "custom-property-sources-backfill": {
-        "description": "Person- and group-property sources only: start a backfill that reads the whole warehouse table and populates person or group properties for its historical rows. Backfill is per table — one call refreshes every enabled property mapped from that table — and it coalesces if one is already running for the table (the response's `already_running` is then true). Returns 400 for a source that is not an enabled person- or group-property source. Backfilling a group-target source additionally requires the `group:write` scope.",
+        "description": "Person- and group-property sources only: start a backfill that reads the whole warehouse table or view and populates person or group properties for its historical rows. Backfill is per table or view — one call refreshes every enabled property mapped from it — and it coalesces if one is already running for that table or view (the response's `already_running` is then true). Returns 400 for a source that is not an enabled person- or group-property source. Backfilling a group-target source additionally requires the `group:write` scope.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Backfill a warehouse person- or group-property source",
@@ -1937,7 +1979,7 @@
         "feature_flag": "warehouse-person-properties"
     },
     "custom-property-sources-create": {
-        "description": "Bind a custom property definition to a data source. Account sources read a materialized view (`saved_query` + `source_column`); person and group sources read a synced warehouse table (`external_data_schema` + `column_property_map` mapping warehouse columns to person/group properties, plus `key_column` = the distinct_id column for person sources or the group-key column for group sources). One source per definition. The target (account, person, or group) follows the bound definition's `target_type`; creating a source for a group-target definition additionally requires the `group:write` scope.",
+        "description": "Bind a custom property definition to a data source. Account sources read a materialized view (`saved_query` + `source_column`). Person and group sources read either a synced warehouse table (`external_data_schema`) or a materialized view (`saved_query`) — pass exactly one — plus `column_property_map` mapping warehouse columns to person/group properties and `key_column` = the distinct_id column for person sources or the group-key column for group sources. A view binding must already be materialized. One source per definition. The target (account, person, or group) follows the bound definition's `target_type`; creating a source for a group-target definition additionally requires the `group:write` scope.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create custom property source",
@@ -2027,7 +2069,7 @@
         "feature_flag": "warehouse-person-properties"
     },
     "custom-property-sources-sync": {
-        "description": "Person- and group-property sources only: trigger the underlying warehouse schema's sync now. This re-runs a real (billable) warehouse sync, and the incremental person/group-property update rides off it. It does not reset the schema's recurring sync schedule. Returns 400 for a source that is not an enabled person- or group-property source. Syncing a group-target source additionally requires the `group:write` scope.",
+        "description": "Person- and group-property sources only: run what the source reads now. A table binding re-runs a real (billable) warehouse sync; a view binding materializes the view. The incremental person/group-property update rides off that run. It does not reset the recurring schedule. Returns 400 for a source that is not an enabled person- or group-property source, and for a view whose data-modeling DAG is not on the v2 schedule (use backfill there instead). Syncing a group-target source additionally requires the `group:write` scope.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Sync a warehouse person- or group-property source now",
@@ -2535,6 +2577,171 @@
             "readOnlyHint": true
         },
         "feature_flag": "product-data-catalog"
+    },
+    "data-quality-check-create-on-table": {
+        "description": "Add a dbt-test-style assertion to a synced warehouse table; the table's id is the table_id\npath parameter. A check passes when it finds zero failing rows.\n\nQuery `system.information_schema.data_quality_checks` first — re-creating an identical check is a no-op,\nbut a near-duplicate with different config is noise for whoever reviews the results.\n\nPrefer a generic type over custom_sql. Config per type:\n  - not_null, unique: no config; set column_name.\n  - accepted_values: {\"values\": [\"paid\", \"refunded\"]}; set column_name.\n  - relationships: {\"to_subject_type\": \"table\", \"to_subject_uuid\": \"<uuid>\", \"to_column\": \"id\"}; set\n    column_name.\n  - row_count: {\"min\": 1} and/or {\"max\": 1000000}; no column_name.\n  - freshness: {\"max_age_minutes\": 60}; set column_name to a timestamp column.\n  - custom_sql: {\"query\": \"select 1 from orders where total < 0\"}; every row it returns is a failure.\n\nUse severity 'error' when bad data should block trusting the model, 'warn' when it is worth surfacing but\nnot acting on. Checks run automatically after each sync of the table; there is nothing to schedule.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "Create a data quality check on a table",
+        "title": "Create a data quality check on a table",
+        "required_scopes": ["warehouse_table:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-quality-checks"
+    },
+    "data-quality-check-create-on-view": {
+        "description": "Add a dbt-test-style assertion to a saved query (view or materialized view); the view's id is\nthe saved_query_id path parameter. A check passes when it finds zero failing rows.\n\nQuery `system.information_schema.data_quality_checks` first — re-creating an identical check is a no-op,\nbut a near-duplicate with different config is noise for whoever reviews the results.\n\nPrefer a generic type over custom_sql. Config per type:\n  - not_null, unique: no config; set column_name.\n  - accepted_values: {\"values\": [\"paid\", \"refunded\"]}; set column_name.\n  - relationships: {\"to_subject_type\": \"table\", \"to_subject_uuid\": \"<uuid>\", \"to_column\": \"id\"}; set\n    column_name.\n  - row_count: {\"min\": 1} and/or {\"max\": 1000000}; no column_name.\n  - freshness: {\"max_age_minutes\": 60}; set column_name to a timestamp column.\n  - custom_sql: {\"query\": \"select 1 from orders where total < 0\"}; every row it returns is a failure.\n\nUse severity 'error' when bad data should block trusting the model, 'warn' when it is worth surfacing but\nnot acting on. Checks run automatically when the view refreshes; there is nothing to schedule.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "Create a data quality check on a view",
+        "title": "Create a data quality check on a view",
+        "required_scopes": ["warehouse_view:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-quality-checks"
+    },
+    "data-quality-check-delete-on-table": {
+        "description": "Delete a check. The API soft-deletes it, so its run history stays queryable in system.information_schema.data_quality_check_runs and past failures can still be dated.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "Delete a data quality check on a table",
+        "title": "Delete a data quality check on a table",
+        "required_scopes": ["warehouse_table:write", "query:read"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-quality-checks"
+    },
+    "data-quality-check-delete-on-view": {
+        "description": "Delete a check. The API soft-deletes it, so its run history stays queryable in system.information_schema.data_quality_check_runs and past failures can still be dated.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "Delete a data quality check on a view",
+        "title": "Delete a data quality check on a view",
+        "required_scopes": ["warehouse_view:write", "query:read"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-quality-checks"
+    },
+    "data-quality-check-results-on-table": {
+        "description": "The check's newest runs, including the failing-row count and the compiled HogQL that selects the offending rows — re-run that query to investigate a failure.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "Recent results of a data quality check on a table",
+        "title": "Recent results of a data quality check on a table",
+        "required_scopes": ["warehouse_table:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "data-quality-checks"
+    },
+    "data-quality-check-results-on-view": {
+        "description": "The check's newest runs, including the failing-row count and the compiled HogQL that selects the offending rows — re-run that query to investigate a failure.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "Recent results of a data quality check on a view",
+        "title": "Recent results of a data quality check on a view",
+        "required_scopes": ["warehouse_view:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "data-quality-checks"
+    },
+    "data-quality-check-run-on-table": {
+        "description": "Run one check now. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "Run a data quality check on a table",
+        "title": "Run a data quality check on a table",
+        "required_scopes": ["warehouse_table:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-quality-checks"
+    },
+    "data-quality-check-run-on-view": {
+        "description": "Run one check now. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "Run a data quality check on a view",
+        "title": "Run a data quality check on a view",
+        "required_scopes": ["warehouse_view:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-quality-checks"
+    },
+    "data-quality-check-types": {
+        "description": "The check types this project can author, each with the JSON schema its config is validated against. Static catalog — the saved_query_id path parameter can be any view's id.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "List data quality check types",
+        "title": "List data quality check types",
+        "required_scopes": ["warehouse_view:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "data-quality-checks"
+    },
+    "data-quality-check-update-on-table": {
+        "description": "Change a check's presentation (name, description, severity, enabled, tags). The assertion itself — check_type, column_name, config — is immutable; create a new check and delete this one instead.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "Update a data quality check on a table",
+        "title": "Update a data quality check on a table",
+        "required_scopes": ["warehouse_table:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-quality-checks"
+    },
+    "data-quality-check-update-on-view": {
+        "description": "Change a check's presentation (name, description, severity, enabled, tags). The assertion itself — check_type, column_name, config — is immutable; create a new check and delete this one instead.",
+        "category": "Data quality",
+        "feature": "data_quality",
+        "summary": "Update a data quality check on a view",
+        "title": "Update a data quality check on a view",
+        "required_scopes": ["warehouse_view:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "data-quality-checks"
     },
     "data-warehouse-source-connect-link": {
         "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use, expire after 24 hours, and are only visible to the PostHog user who entered them — the page must be filled by the same user this session authenticates as. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
@@ -4139,7 +4346,7 @@
         }
     },
     "external-data-sources-create": {
-        "description": "Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained control. The 'schemas' array is NOT a top-level argument — it goes INSIDE 'payload', alongside the credential fields: payload = {<credential fields…>, \"schemas\": [...]}. Each schemas entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns. Build the entries from the rows returned by 'external-data-sources-db-schema' first. Sources back queryable warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).",
+        "description": "Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. If you only have credentials and want every table, call 'data-warehouse-source-setup' instead — one call, fewer ways to get it wrong. Use this path when the user asked for specific tables or sync types. The 'schemas' array is NOT a top-level argument — it goes INSIDE 'payload', alongside the credential fields: payload = {<credential fields…>, \"schemas\": [...]}. Each schemas entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns. Build the entries from the rows returned by 'external-data-sources-db-schema' first. Omit 'schemas' entirely and every discovered table syncs with default settings. Sources back queryable warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Create data warehouse source (advanced; prefer source setup)",
@@ -4751,7 +4958,7 @@
         }
     },
     "inbox-report-artefacts-delete": {
-        "description": "Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status type (e.g. priority_judgment) reverts the report's canonical status to the previous version.",
+        "description": "Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status type (e.g. priority_judgment) reverts the report's canonical status to the previous version. `task_run` artefacts are an append-only work log and cannot be deleted.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Delete an artefact",
@@ -5729,21 +5936,6 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
-    },
-    "llma-evaluation-summary-create": {
-        "description": "Generate an AI-powered summary of boolean AI observability evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Summarize evaluation results",
-        "title": "Summarize evaluation results",
-        "required_scopes": ["llm_analytics:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "requires_ai_consent": true
     },
     "llma-evaluation-test-hog": {
         "description": "Test Hog evaluation source code against a sample of recent data without saving. Set target to match how the evaluation runs: 'generation' samples individual $ai_generation events, 'trace' samples whole traces and runs against trace-level globals, 'session' samples whole sessions that have gone quiet and runs against session-level globals. For trace previews, pass target_config.window_seconds to match the saved evaluation's aggregation window; for session previews, pass target_config.quiet_period_seconds to match its quiet period. Returns per-sample results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",

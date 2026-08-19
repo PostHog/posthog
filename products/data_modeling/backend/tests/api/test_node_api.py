@@ -16,7 +16,7 @@ from products.data_modeling.backend.logic.node_frequency import set_declared_tar
 from products.data_modeling.backend.logic.node_suspension import mark_node_suspended, suspension_state
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 
 class TestNodeViewSet(APIBaseTest):

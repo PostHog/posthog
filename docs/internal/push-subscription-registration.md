@@ -49,6 +49,22 @@ self-hosted deployment.
 Rule 3 is the one that is easy to miss, and without it a project that turns push on never reaches the
 devices it already has.
 
+## The list has to be cached on disk
+
+Registration runs at startup. Remote config resolves asynchronously, so on a cold start the SDK
+usually reaches the point of registering before `/config` has answered. An SDK that only consults the
+freshly fetched list therefore still sends the request it was supposed to skip, and the gate takes
+effect from the second launch onward rather than the first.
+
+So the push slice has to be persisted when it arrives and preloaded on the next start, before the
+first registration attempt. On Android that is the pattern `errorTracking` already uses:
+`processErrorTrackingConfig` writes to `config.cachePreferences`, and `preloadErrorTrackingConfig`
+restores it on launch. iOS mirrors it.
+
+This interacts with rule 1. A cold start with nothing cached is not the same as an absent key: the SDK
+has never heard from this server, so it registers, exactly as rule 1 says. Only a cached empty list
+means "skip".
+
 ## Why rule 3 exists
 
 Both mobile SDKs persist a delivered marker (`deliveredForDistinctId`) alongside the pending

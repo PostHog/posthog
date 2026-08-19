@@ -131,6 +131,11 @@ function ScheduleSection(): JSX.Element {
                 {noDays && <span className="text-xs text-danger">Pick at least one day</span>}
             </div>
 
+            <span className="text-xs text-muted">
+                Each run summarizes up to 100 observations since the last digest ran. Busier periods are sampled down to
+                that limit.
+            </span>
+
             <div className="w-32">
                 <label className="text-sm font-semibold">At</label>
                 <LemonInput
@@ -153,11 +158,6 @@ function ScheduleSection(): JSX.Element {
                 <label className="text-sm font-semibold">Timezone</label>
                 <TimezoneSelect value={timezone} onChange={(tz) => setActionFormValue('timezone', tz)} />
             </div>
-
-            <span className="text-xs text-muted">
-                Each run summarizes up to 100 observations from the period. Busier periods are sampled down to that
-                limit.
-            </span>
         </div>
     )
 }

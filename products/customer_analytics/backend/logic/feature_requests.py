@@ -378,8 +378,6 @@ def create_feature_request(
     description = input.description.strip()
     if not title:
         raise FeatureRequestValidationError("title", "Enter a title.")
-    if not description:
-        raise FeatureRequestValidationError("description", "Enter a description.")
     if not input.product_area_ids:
         raise FeatureRequestValidationError("product_area_ids", "Select at least one product area.")
 
@@ -484,8 +482,6 @@ def update_feature_request(
                 update_fields.add("title")
         if input.description is not None:
             description = input.description.strip()
-            if not description:
-                raise FeatureRequestValidationError("description", "Enter a description.")
             if description != feature_request.description:
                 feature_request.description = description
                 update_fields.add("description")

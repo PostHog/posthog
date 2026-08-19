@@ -65,7 +65,7 @@ Examples:
 
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
-**Shape:** invoke `/writing-pr-descriptions` before writing the body. Lead with the effect a person sees rather than the code path behind it, make the body stand alone for a reader who opens no files, and let its size track the change. Then one fact per bullet, sentences under 25 words, active voice, no idioms. A description that got longer as bullets was not cut.
+**Shape:** invoke `/writing-pr-descriptions` before writing the body. Lead with the effect a person sees rather than the code path behind it, and hold Changes to that too: a bullet a person can notice says what they now see or do differently, and one line says which part is mechanical. Make the body stand alone for a reader who opens no files, and let its size track the change. Then one fact per bullet, sentences under 25 words, active voice, no idioms. A description that got longer as bullets was not cut.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
@@ -118,6 +118,13 @@ Draft status doesn't help, since runs are dispatched before draft/skip logic app
 - Restack only when you need to, rather than rebasing the whole stack on master repeatedly.
 - When a restack must push many branches, stagger them instead of force-pushing all at once.
 
+#### Pre-push checks — merge queue guard
+
+The pre-push hook refuses to push a branch whose PR is sitting in the Trunk merge queue — a push there would knock the PR out of the queue.
+A PR whose batch failed and is waiting for a retest does not block, so you can push a fix then — Trunk drops the PR from the queue on push, which is what you want after a failure.
+When it blocks you, leave the branch alone and put further changes on a new branch with a new PR; to intentionally update the queued PR instead, run `trunk merge cancel <number>` (or comment `/trunk cancel`), wait for it to leave the queue, then push.
+The check fails open (missing `gh` or `trunk`, not logged in, offline, API errors), and `TRUNK_QUEUE_PUSH_CHECK_DISABLED=1` skips it.
+
 #### Pre-push checks — ci:preflight
 
 A pre-push hook runs `hogli ci:preflight --strict`, failing the push on deterministic CI breakage reachable from your diff (lint, lockfiles, migration conflicts). Never bypass it (`--no-verify`).
@@ -130,6 +137,7 @@ All merges into `master` go through the Trunk merge queue.
 Never run `gh pr merge` or click the GitHub merge button — both are blocked by branch ruleset.
 
 - Enqueue: `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`.
+- The Trunk CLI is an alternative to the comments: `trunk merge <number>` enqueues, `trunk merge status <number>` inspects, `trunk merge cancel <number>` dequeues. It ships in the flox environment but needs a one-time interactive `trunk login`, so agents and headless environments should keep using the comments.
 - After enqueueing, babysit the PR until it merges or fails — follow [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) for the preflight, watch, and failure-handling loop.
 - Queue progress is the `Trunk Merge Queue (master)` check run on the PR's head commit. The PR's own checks don't reflect the queue's testing — it runs CI on a `trunk-merge/**` branch.
 - On failure the Trunk bot comments with links to the failing workflows; fix, push, and re-enqueue.
@@ -161,6 +169,7 @@ Examples:
 ## CI / GitHub Actions
 
 - `.nvmrc` controls the Node.js version for all CI workflows (via `actions/setup-node`) — changing it affects every CI job that runs Node
+- CI uploads test results to Trunk Flaky Tests; the `trunk` MCP server in `.mcp.json` queries per-test flakiness on a PR or `master` (authenticate via `/mcp`, or a `TRUNK_API_TOKEN` bearer header when headless) — see `/debugging-ci-failures` and `/fixing-flaky-tests`
 - Every job in `.github/workflows/` must declare `timeout-minutes` — prevents stuck runners from burning credits indefinitely
 - **CI workflow changes must stay backwards compatible with open PRs that haven't rebased.** A workflow edit hits every in-flight PR immediately (it runs against the PR merged with master), but companion changes — a new dependency, file, or config — only reach a branch once it rebases. If the workflow starts requiring something an unrebased branch lacks, every such PR fails before its tests run. Make the new behavior degrade gracefully when the prerequisite is absent, or gate it so unrebased branches are unaffected. This has broken CI repeatedly.
 
@@ -191,7 +200,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 
 - Python: Write as if mypy `--strict` is enabled — annotate all function signatures (arguments + return types), avoid `Any`, use `TYPE_CHECKING` imports for type-only references. When a change is type-risky, run mypy the way CI does — `uv run mypy --cache-fine-grained .`, repo-wide, never a file subset (it follows imports, so a subset misses reverse-dependency breakage); `hogli ci:preflight` reminds you, and CI blocks on the same command. The config isn't fully strict yet, but new code should be
 - Python imports: keep imports at module level — not inside functions, methods, or conditionals. Inline imports hide dependencies from static analysis, slow hot paths with repeated lookups, and mask circular-import problems instead of fixing them; ruff's `PLC0415` enforces this. Defer an import only to (1) break a true unavoidable circular import (fix the structure first if you can), (2) reference types under `TYPE_CHECKING`, or (3) keep a heavy/optional dependency off the import path so it loads only when its code runs. For (3), add a justified `# noqa: PLC0415` on the import line (e.g. `# noqa: PLC0415 — keeps the heavy dep off the import path`) — never blanket-suppress the rule
-- Python dataclasses: invoke `/writing-dataclasses` before adding or changing a dataclass, returning or passing several values, or passing a dataclass through layers. House decorator is `@frozen` from `posthog.dataclasses`; a bare `@dataclass` without an explicit `frozen=` fails the ratchet in `posthog/test/test_dataclass_defaults.py`
+- Python dataclasses: invoke `/writing-dataclasses` before adding or changing a dataclass, returning or passing several values, or passing a dataclass through layers. House decorator is `@frozen` from `posthog.dataclasses`; a bare `@dataclass` without an explicit `frozen=` fails the ratchet in `posthog/test/repo_invariants/test_dataclass_defaults.py`
 - Frontend: for any frontend work — the main app (`frontend/src/`) **or** a product frontend (`products/*/frontend/`) — follow [frontend/src/AGENTS.md](frontend/src/AGENTS.md): reuse existing Lemon/quill components instead of hand-rolling tables/badges/labels, import generated `*Api` types instead of handwriting them, and run typecheck/typegen at the right moments. Product frontends share the same components and generated types, so the same rules apply there
 - Frontend: TypeScript required, explicit return types
 - Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
@@ -206,7 +215,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Comments: never log change history or chat context in code — no "previously did X, now does Y", "per <task/PR>", "changed because…", or "AI:"/"agent:" notes. That goes in the commit message and PR description
 - Comments: when refactoring or moving code, preserve existing comments unless they are explicitly made obsolete by the change
 - Python tests: do not add doc comments
-- Python: do not create empty `__init__.py` files
+- Python: do not create empty `__init__.py` files, with one exception: the package markers import tooling needs — `products/`, every product's `backend/`, and their `facade/` and `presentation/` trees. `products/` carries one so file-based mypy resolves `products.<name>.backend` rather than `<name>.backend`; that makes it a regular package, and grimp then stops descending at the first directory without a marker, silently dropping everything below it from every import-linter contract. `hogli product:lint` enforces those markers. Everywhere else — test directories, generated trees — leave the file out
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - Tests: prefer parameterized tests (use the `parameterized` library in Python) — if you're writing multiple assertions for variations of the same logic, it should be parameterized
 - Tests must earn their place: every new test has to catch a realistic regression no existing test already catches (if you can't name it, don't add it), assert observable behavior through the public interface rather than implementation details, and stay cheap — deterministic, isolated, and at the lowest level that catches the bug (see `/writing-tests`)
@@ -258,6 +267,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/stacking-prs` — creating, restacking, adopting, or landing a stack of PRs (`gh stack`)
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
+- `/placing-product-frontend-code` — adding a frontend file or directory for a product, or deciding between `products/<name>/frontend/` and `frontend/src/scenes/<name>/`
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
 - `/writing-evals` — adding or changing eval suites, cases, scorers, or seeders under `products/posthog_ai/evals/` or `products/*/evals/`, touching the harness in `products/posthog_ai/eval_harness/`, or running those evals
@@ -265,6 +275,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/authoring-ci-workflows` — adding or editing any `.github/workflows` workflow, composite action, or reusable workflow
 - `/reviewing-personhog-protocol` — any personhog coordination-protocol change (leases, fencing, handoffs, supervisors, budgets, warming, changelog semantics), and any request for an exhaustive review of personhog code
 - `/gating-production-deploys` — any workflow that builds and pushes a production image or dispatches a deploy
+- `/splitting-oversized-modules` — splitting a Python module into a package, or deciding whether to propose splitting one before you work in it; propose, and land the move as a stacked base PR rather than inside your feature diff
 - `/auditing-llm-gateway-parity` — changing either gateway's auth, attribution, billing, endpoints, providers, models, routing, or metadata contract; reviewing a `services/llm-gateway` change; or refreshing `services/llm-gateway/PARITY.md`
 - `/finding-llm-gateway-migration-candidates` — finding, auditing, or ranking callers that could move from `services/llm-gateway` to `PostHog/ai-gateway`, including requests for the next or lowest-risk migration candidate
 - `/migrating-llm-gateway-callers` — adding an LLM gateway caller or migrating an existing caller from `services/llm-gateway` to `PostHog/ai-gateway`, including shared client and gateway setting changes made for that migration

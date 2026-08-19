@@ -45,7 +45,6 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
-    CustomOAuth2Integration,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -54,6 +53,7 @@ from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
 )
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
+from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
@@ -397,7 +397,7 @@ class TestExternalDataSource(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_create_external_data_source_delete_on_missing_schemas(self, _mock_validate):
+    def test_create_external_data_source_delete_on_non_list_schemas(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -412,6 +412,28 @@ class TestExternalDataSource(APIBaseTest):
 
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
+
+    @parameterized.expand([("omitted", {}), ("empty_list", {"schemas": []})])
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_defaults_schemas(self, _name, extra_payload, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    **extra_payload,
+                },
+            },
+        )
+
+        assert response.status_code == 201
+        source = ExternalDataSource.objects.get()
+        assert source.schemas.filter(should_sync=True).exists()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -857,6 +879,40 @@ class TestExternalDataSource(APIBaseTest):
         schema_two.refresh_from_db()
         assert schema_one.should_sync is False
         assert schema_two.should_sync is False
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_sets_primary_key_columns(self, _mock_workflow_exists):
+        # A keyless incremental table fails its sync until someone picks a primary key, and a source
+        # can land hundreds of them at once. Undeclared fields are dropped in validation, so without
+        # primary_key_columns on this serializer the batch returns 200 having changed nothing.
+        source = self._create_external_data_source()
+        schemas = [
+            ExternalDataSchema.objects.create(
+                name=name,
+                team_id=self.team.pk,
+                source=source,
+                should_sync=True,
+                sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+                sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "datetime"},
+            )
+            for name in ("Customers", "Invoices")
+        ]
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+            data={"schemas": [{"id": str(schema.id), "primary_key_columns": ["id"]} for schema in schemas]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [schema["primary_key_columns"] for schema in response.json()] == [["id"], ["id"]]
+
+        for schema in schemas:
+            schema.refresh_from_db()
+            assert schema.sync_type_config.get("primary_key_columns") == ["id"]
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -8223,6 +8279,8 @@ class TestExternalDataSource(APIBaseTest):
                     [200, 201],
                     f"Expected acceptance for valid prefix '{prefix}'",
                 )
+                source = ExternalDataSource.objects.get(id=response.json()["id"])
+                self.assertEqual(source.prefix, prefix)
 
 
 class TestCreateWebhook(APIBaseTest):

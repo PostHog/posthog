@@ -24,6 +24,7 @@ import {
 } from '../../generated/api'
 import type {
     AccountApi,
+    FeatureRequestAccountApi,
     FeatureRequestApi,
     FeatureRequestHistoryApi,
     FeatureRequestProductAreaApi,
@@ -181,6 +182,7 @@ export interface featureRequestsLogicValues {
     featureRequestsPage: number
     featureRequestsResponse: PaginatedFeatureRequestListApi
     featureRequestsResponseLoading: boolean
+    filteredProductAreas: FeatureRequestProductAreaApi[]
     hasActiveFilters: boolean
     idempotencyKey: string
     listSearchParams: Record<string, string>
@@ -189,6 +191,8 @@ export interface featureRequestsLogicValues {
     productAreaActive: boolean
     productAreaDisplayOrder: number
     productAreaFilter: string[]
+    productAreaFormOpen: boolean
+    productAreaFormVersion: number
     productAreaIds: string[]
     productAreaName: string
     productAreaOptions: {
@@ -196,6 +200,7 @@ export interface featureRequestsLogicValues {
         label: string
     }[]
     productAreaSaveDisabledReason: string | undefined
+    productAreaSearch: string
     productAreas: FeatureRequestProductAreaApi[]
     productAreasError: string | null
     productAreasLoading: boolean
@@ -208,6 +213,7 @@ export interface featureRequestsLogicValues {
     savingProductArea: boolean
     savingRequestChanges: boolean
     searchQuery: string
+    selectedAccount: FeatureRequestAccountApi | null
     statusFilter: FeatureRequestStatusEnumApi[]
     submitDisabledReason: string | undefined
     submittingRequest: boolean
@@ -226,6 +232,9 @@ export interface featureRequestsLogicActions {
         value: true
     }
     closeEditRequest: () => {
+        value: true
+    }
+    closeProductAreaForm: () => {
         value: true
     }
     closeProductAreas: () => {
@@ -393,6 +402,9 @@ export interface featureRequestsLogicActions {
     setProductAreaName: (productAreaName: string) => {
         productAreaName: string
     }
+    setProductAreaSearch: (productAreaSearch: string) => {
+        productAreaSearch: string
+    }
     setRequestHistoryShowingAll: (showingAll: boolean) => {
         showingAll: boolean
     }
@@ -407,6 +419,9 @@ export interface featureRequestsLogicActions {
     }
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
+    }
+    setSelectedAccount: (selectedAccount: FeatureRequestAccountApi | null) => {
+        selectedAccount: FeatureRequestAccountApi | null
     }
     setSubmittingRequest: (submittingRequest: boolean) => {
         submittingRequest: boolean
@@ -442,7 +457,14 @@ export interface featureRequestsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         currentTeamId: (currentTeam: TeamPublicType | TeamType | null) => string
         activeProductAreas: (productAreas: FeatureRequestProductAreaApi[]) => FeatureRequestProductAreaApi[]
-        accountOptions: (accounts: AccountApi[]) => {
+        filteredProductAreas: (
+            productAreas: FeatureRequestProductAreaApi[],
+            productAreaSearch: string
+        ) => FeatureRequestProductAreaApi[]
+        accountOptions: (
+            accounts: AccountApi[],
+            selectedAccount: FeatureRequestAccountApi | null
+        ) => {
             key: string
             label: string
         }[]
@@ -460,14 +482,12 @@ export interface featureRequestsLogicMeta {
         }[]
         submitDisabledReason: (
             title: string,
-            description: string,
             accountId: string | null,
             productAreaIds: string[],
             submittingRequest: boolean
         ) => string | undefined
         editDisabledReason: (
             editTitle: string,
-            editDescription: string,
             editAccountId: string | null,
             editProductAreaIds: string[],
             savingRequestChanges: boolean
@@ -521,6 +541,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setTitle: (title: string) => ({ title }),
         setDescription: (description: string) => ({ description }),
         setAccountId: (accountId: string | null) => ({ accountId }),
+        setSelectedAccount: (selectedAccount: FeatureRequestAccountApi | null) => ({ selectedAccount }),
         setAccountSearch: (accountSearch: string) => ({ accountSearch }),
         setProductAreaIds: (productAreaIds: string[]) => ({ productAreaIds }),
         setIdempotencyKey: (idempotencyKey: string) => ({ idempotencyKey }),
@@ -528,9 +549,11 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setSubmittingRequest: (submittingRequest: boolean) => ({ submittingRequest }),
         openProductAreas: true,
         closeProductAreas: true,
+        closeProductAreaForm: true,
         startNewProductArea: true,
         startEditingProductArea: (productArea: FeatureRequestProductAreaApi) => ({ productArea }),
         setProductAreaName: (productAreaName: string) => ({ productAreaName }),
+        setProductAreaSearch: (productAreaSearch: string) => ({ productAreaSearch }),
         setProductAreaDisplayOrder: (productAreaDisplayOrder: number) => ({ productAreaDisplayOrder }),
         setProductAreaActive: (productAreaActive: boolean) => ({ productAreaActive }),
         saveProductArea: true,
@@ -681,6 +704,15 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             },
         ],
         accountSearch: ['', { setAccountSearch: (_, { accountSearch }) => accountSearch }],
+        selectedAccount: [
+            null as FeatureRequestAccountApi | null,
+            {
+                setSelectedAccount: (_, { selectedAccount }) => selectedAccount,
+                openEditRequest: (_, { featureRequest }) => featureRequest.account,
+                closeCreateRequest: () => null,
+                closeEditRequest: () => null,
+            },
+        ],
         accountsError: [
             null as string | null,
             {
@@ -745,11 +777,37 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         idempotencyKey: [newIdempotencyKey(), { setIdempotencyKey: (_, { idempotencyKey }) => idempotencyKey }],
         submittingRequest: [false, { setSubmittingRequest: (_, { submittingRequest }) => submittingRequest }],
         productAreasOpen: [false, { openProductAreas: () => true, closeProductAreas: () => false }],
+        productAreaSearch: [
+            '',
+            {
+                setProductAreaSearch: (_, { productAreaSearch }) => productAreaSearch,
+                closeProductAreas: () => '',
+            },
+        ],
+        productAreaFormOpen: [
+            false,
+            {
+                startNewProductArea: () => true,
+                startEditingProductArea: () => true,
+                closeProductAreaForm: () => false,
+                closeProductAreas: () => false,
+            },
+        ],
+        productAreaFormVersion: [
+            0,
+            {
+                startNewProductArea: (state) => state + 1,
+                startEditingProductArea: (state) => state + 1,
+                closeProductAreaForm: (state) => state + 1,
+                closeProductAreas: (state) => state + 1,
+            },
+        ],
         editingProductAreaId: [
             null as string | null,
             {
                 startNewProductArea: () => null,
                 startEditingProductArea: (_, { productArea }) => productArea.id,
+                closeProductAreaForm: () => null,
                 closeProductAreas: () => null,
             },
         ],
@@ -759,6 +817,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 startNewProductArea: () => '',
                 startEditingProductArea: (_, { productArea }) => productArea.name,
                 setProductAreaName: (_, { productAreaName }) => productAreaName,
+                closeProductAreaForm: () => '',
+                closeProductAreas: () => '',
             },
         ],
         productAreaDisplayOrder: [
@@ -767,6 +827,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 startNewProductArea: () => 0,
                 startEditingProductArea: (_, { productArea }) => productArea.display_order ?? 0,
                 setProductAreaDisplayOrder: (_, { productAreaDisplayOrder }) => productAreaDisplayOrder,
+                closeProductAreaForm: () => 0,
+                closeProductAreas: () => 0,
             },
         ],
         productAreaActive: [
@@ -775,6 +837,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 startNewProductArea: () => true,
                 startEditingProductArea: (_, { productArea }) => productArea.is_active ?? true,
                 setProductAreaActive: (_, { productAreaActive }) => productAreaActive,
+                closeProductAreaForm: () => true,
+                closeProductAreas: () => true,
             },
         ],
         savingProductArea: [false, { setSavingProductArea: (_, { savingProductArea }) => savingProductArea }],
@@ -860,10 +924,30 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             (productAreas: FeatureRequestProductAreaApi[]): FeatureRequestProductAreaApi[] =>
                 productAreas.filter((area) => area.is_active),
         ],
+        filteredProductAreas: [
+            (selectors) => [selectors.productAreas, selectors.productAreaSearch],
+            (
+                productAreas: FeatureRequestProductAreaApi[],
+                productAreaSearch: string
+            ): FeatureRequestProductAreaApi[] => {
+                const normalizedSearch = productAreaSearch.trim().toLocaleLowerCase()
+                return normalizedSearch
+                    ? productAreas.filter((area) => area.name.toLocaleLowerCase().includes(normalizedSearch))
+                    : productAreas
+            },
+        ],
         accountOptions: [
-            (selectors) => [selectors.accounts],
-            (accounts: AccountApi[]): { key: string; label: string }[] =>
-                accounts.map((account) => ({ key: account.id, label: account.name })),
+            (selectors) => [selectors.accounts, selectors.selectedAccount],
+            (
+                accounts: AccountApi[],
+                selectedAccount: FeatureRequestAccountApi | null
+            ): { key: string; label: string }[] => {
+                const displayAccounts =
+                    selectedAccount && !accounts.some((account) => account.id === selectedAccount.id)
+                        ? [selectedAccount, ...accounts]
+                        : accounts
+                return displayAccounts.map((account) => ({ key: account.id, label: account.name }))
+            },
         ],
         productAreaOptions: [
             (selectors) => [selectors.activeProductAreas],
@@ -889,14 +973,12 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         submitDisabledReason: [
             (selectors) => [
                 selectors.title,
-                selectors.description,
                 selectors.accountId,
                 selectors.productAreaIds,
                 selectors.submittingRequest,
             ],
             (
                 title: string,
-                description: string,
                 accountId: string | null,
                 productAreaIds: string[],
                 submittingRequest: boolean
@@ -906,9 +988,6 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 }
                 if (!title.trim()) {
                     return 'Enter a title'
-                }
-                if (!description.trim()) {
-                    return 'Enter a description'
                 }
                 if (!accountId) {
                     return 'Select an account'
@@ -922,14 +1001,12 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         editDisabledReason: [
             (selectors) => [
                 selectors.editTitle,
-                selectors.editDescription,
                 selectors.editAccountId,
                 selectors.editProductAreaIds,
                 selectors.savingRequestChanges,
             ],
             (
                 editTitle: string,
-                editDescription: string,
                 editAccountId: string | null,
                 editProductAreaIds: string[],
                 savingRequestChanges: boolean
@@ -939,9 +1016,6 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 }
                 if (!editTitle.trim()) {
                     return 'Enter a title'
-                }
-                if (!editDescription.trim()) {
-                    return 'Enter a description'
                 }
                 if (!editAccountId) {
                     return 'Select an account'
@@ -1042,6 +1116,16 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             actions.loadAccounts('')
             actions.loadProductAreas()
         },
+        setAccountId: ({ accountId }) => {
+            actions.setSelectedAccount(
+                accountId ? (values.accounts.find((account) => account.id === accountId) ?? null) : null
+            )
+        },
+        setEditAccountId: ({ editAccountId }) => {
+            actions.setSelectedAccount(
+                editAccountId ? (values.accounts.find((account) => account.id === editAccountId) ?? null) : null
+            )
+        },
         setAccountSearch: async ({ accountSearch }, breakpoint) => {
             await breakpoint(300)
             actions.loadAccounts(accountSearch)
@@ -1074,13 +1158,14 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             }
         },
         openProductAreas: () => {
-            actions.startNewProductArea()
+            actions.closeProductAreaForm()
             actions.loadProductAreas()
         },
         saveProductArea: async () => {
             if (values.productAreaSaveDisabledReason) {
                 return
             }
+            const productAreaFormVersion = values.productAreaFormVersion
             actions.setSavingProductArea(true)
             try {
                 if (values.editingProductAreaId) {
@@ -1096,7 +1181,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                         is_active: values.productAreaActive,
                     })
                 }
-                actions.startNewProductArea()
+                if (values.productAreaFormVersion === productAreaFormVersion) {
+                    actions.closeProductAreaForm()
+                }
                 actions.loadProductAreas()
                 actions.loadFeatureRequests()
             } catch {
