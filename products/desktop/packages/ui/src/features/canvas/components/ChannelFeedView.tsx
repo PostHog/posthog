@@ -1307,7 +1307,10 @@ export function ChannelFeedView({
     // a space's header) and the composer — with skeleton cards holding the
     // feed's shape where the results are about to land.
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto" aria-busy="true">
+        <span role="status" className="sr-only">
+          Loading tasks
+        </span>
         <div className="mx-auto w-full px-4 pt-4 pb-10">
           {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
           {composerBlock}

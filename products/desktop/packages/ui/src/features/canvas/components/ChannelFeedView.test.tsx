@@ -34,6 +34,7 @@ vi.mock("@posthog/ui/features/browser-tabs/TaskTabIcon", () => ({
 }));
 
 import {
+  ChannelFeedView,
   ExpandablePrompt,
   mergeFeedEntries,
   stripContextBlocks,
@@ -85,6 +86,23 @@ function mockLayout(charsPerLine: number) {
 }
 
 describe("ChannelFeedView", () => {
+  it("announces when tasks are loading", () => {
+    const { container } = render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[]}
+          isLoading
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading tasks");
+  });
+
   it("reports when its task is opened", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
