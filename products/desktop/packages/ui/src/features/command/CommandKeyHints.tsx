@@ -1,7 +1,6 @@
 import { Kbd, KbdGroup } from "@posthog/quill";
-import type { ReactNode } from "react";
 
-export function CommandKeyHints({ children }: { children?: ReactNode }) {
+export function CommandKeyHints() {
   return (
     <div className="flex items-center justify-center gap-4 border-border border-t py-1">
       <div className="flex items-center gap-2">
@@ -23,7 +22,6 @@ export function CommandKeyHints({ children }: { children?: ReactNode }) {
         </KbdGroup>
         <span className="text-xs">close</span>
       </div>
-      {children}
     </div>
   );
 }
