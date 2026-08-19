@@ -277,25 +277,33 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         # The JWKS tiers keep their budget.
         charge_partner_by_name("deep_links", self._partner_at_tier(PartnerTier.JWKS))
 
-    def test_rejected_wizard_run_is_refunded(self):
-        # wizard_runs is charged inside create_wizard_run rather than by the view, so a
-        # rejection there is not on any request ledger for handle_exception to refund.
-        # With a budget of 1, a second rejected run must still be rejected for the same
-        # reason instead of turning into a 429.
+    def test_failed_repository_probe_keeps_the_charge(self):
+        # The repository check is an authenticated GitHub call, so a rejected run has
+        # already done outbound work. With a budget of 1, a second attempt must be
+        # rate limited rather than probing GitHub again for free.
         self.partner_app.update_provisioning(can_start_wizard_runs=True)
         self.partner_app.update_provisioning_rate_limits(wizard_runs=1)
 
         with self.settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client"):
-            for _ in range(2):
-                with self.assertRaises(ProvisioningError) as ctx:
-                    create_wizard_run(
-                        partner=self.partner_app,
-                        user_id=self.user.id,
-                        team=self.team,
-                        repository="acme/widgets",
-                        branch=None,
-                    )
-                assert ctx.exception.code == "github_integration_required"
+            with self.assertRaises(ProvisioningError) as ctx:
+                create_wizard_run(
+                    partner=self.partner_app,
+                    user_id=self.user.id,
+                    team=self.team,
+                    repository="acme/widgets",
+                    branch=None,
+                )
+            assert ctx.exception.code == "github_integration_required"
+
+            with self.assertRaises(ProvisioningError) as ctx:
+                create_wizard_run(
+                    partner=self.partner_app,
+                    user_id=self.user.id,
+                    team=self.team,
+                    repository="acme/other",
+                    branch=None,
+                )
+            assert ctx.exception.code == "rate_limited"
 
     # --- Durable ceiling ---
 
