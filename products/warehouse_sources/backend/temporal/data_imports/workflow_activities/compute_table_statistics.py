@@ -19,6 +19,8 @@ import dataclasses
 from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
+from django.db import InterfaceError, OperationalError, close_old_connections
 from django.utils import timezone
 
 import structlog
@@ -237,8 +239,20 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
 
     row_count, stats_by_column = _aggregate_add_action_stats(add_actions, columns)
 
-    for column_name, stat in stats_by_column.items():
-        _upsert_statistics(team, table, column_name, row_count, stat, delta_version)
+    try:
+        for column_name, stat in stats_by_column.items():
+            _upsert_statistics(team, table, column_name, row_count, stat, delta_version)
+    except (OperationalError, InterfaceError):
+        # The Delta-log read above can run long enough for the Postgres connection opened by the
+        # earlier metadata queries (team/schema/existing-stats) to go stale — server restart, proxy
+        # idle-close — before these writes run. Django only clears a stale connection at thread
+        # entry/exit, not mid-call, so the first write here is the first thing to notice. Retry once
+        # after reconnecting rather than failing the whole activity and forcing Temporal to redo the
+        # Delta-log read just to redo a handful of upserts.
+        if not settings.TEST:
+            close_old_connections()
+        for column_name, stat in stats_by_column.items():
+            _upsert_statistics(team, table, column_name, row_count, stat, delta_version)
 
     log.info("warehouse_statistics.done", columns=len(stats_by_column), row_count=row_count)
     emit_completed("done", columns=len(stats_by_column), row_count=row_count, delta_version=delta_version)

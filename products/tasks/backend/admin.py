@@ -10,7 +10,16 @@ from posthog.models.user import User
 from posthog.storage import object_storage
 
 from . import loop_service
-from .models import CodeInvite, CodeInviteRedemption, Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun
+from .models import (
+    CodeInvite,
+    CodeInviteQuerySet,
+    CodeInviteRedemption,
+    Loop,
+    LoopTrigger,
+    SandboxSnapshot,
+    Task,
+    TaskRun,
+)
 from .visibility import task_run_visibility_q, task_visibility_q
 
 
@@ -146,6 +155,16 @@ class CodeInviteAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "redemption_count", "created_at")
     autocomplete_fields = ("created_by",)
     inlines = []
+    actions = ["expire_invites"]
+
+    @admin.action(description="Expire selected invites")
+    def expire_invites(self, request: HttpRequest, queryset: CodeInviteQuerySet) -> None:
+        selected = queryset.count()
+        expired = queryset.expire()
+        message = f"Expired {expired} of {selected} selected invite(s)."
+        if expired < selected:
+            message += " Invites that were already expired were left unchanged."
+        self.message_user(request, message)
 
     def get_fieldsets(self, request, obj=None):
         if obj:
