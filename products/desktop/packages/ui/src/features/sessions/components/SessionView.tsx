@@ -866,7 +866,11 @@ export function SessionView({
                             ) : undefined
                           }
                           toolbarEndSlot={
-                            <ContextUsageIndicator usage={contextUsage} />
+                            <ContextUsageIndicator
+                              usage={contextUsage}
+                              taskId={taskId}
+                              focused={isActiveSession !== false}
+                            />
                           }
                           onToggleMessagingMode={toggleMessagingMode}
                           onAttachmentsChange={handleAttachmentsChange}

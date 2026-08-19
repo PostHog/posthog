@@ -228,6 +228,12 @@ export interface TaskRunSessionLogsPage {
   matchingCount: number | null;
 }
 
+export interface TaskUsage {
+  token_cost_usd: number;
+  compute_cost_usd: number;
+  total_cost_usd: number;
+}
+
 export interface TaskListOptions {
   repository?: string;
   createdBy?: number;
@@ -2460,6 +2466,20 @@ export class PostHogAPIClient {
       path: { project_id: teamId.toString(), id: taskId },
     });
     return normalizeTaskResponse(data, { teamId });
+  }
+
+  async getTaskUsage(taskId: string): Promise<TaskUsage> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/tasks/${taskId}/usage/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch task usage: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskUsage;
   }
 
   async getPinnedTaskIds(): Promise<string[]> {
