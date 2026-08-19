@@ -48,9 +48,10 @@ jobs:
               uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  # Space-delimited, shell-escaped list of matched files; scoped to
-                  # added|modified so a deleted file is never handed to the scan.
-                  list-files: shell
+                  # JSON list of matched files, parsed with jq (never shell-eval) so a
+                  # crafted filename cannot inject commands. Scoped to added|modified so a
+                  # deleted file is never handed to the scan.
+                  list-files: json
                   filters: |
                       desktop:
                         - added|modified:
@@ -74,13 +75,20 @@ jobs:
                   # -e omitted: exit codes are captured and inspected explicitly.
                   set -uo pipefail
                   CHANGED="${RUNNER_TEMP}/react-doctor-changed-files.txt"
-                  : > "$CHANGED"
-                  # paths-filter emits repo-root-relative paths; react-doctor runs from
-                  # products/desktop, so strip that prefix to make each path relative to it.
-                  eval "set -- ${DESKTOP_FILES}"
-                  for file in "$@"; do
-                    printf '%s\n' "${file#products/desktop/}" >> "$CHANGED"
-                  done
+                  # paths-filter emits a JSON array of repo-root-relative paths. Parse it
+                  # with jq (never shell-eval) and strip the products/desktop/ prefix, since
+                  # react-doctor runs from there. error() on a newline path: the
+                  # --changed-files-from input is one path per line, so a newline is how a
+                  # crafted filename could smuggle a second entry.
+                  jq_status=0
+                  printf '%s' "${DESKTOP_FILES:-[]}" \
+                    | jq -r '.[] | if test("\n") then error("changed file path contains a newline") else sub("^products/desktop/"; "") end' \
+                    > "$CHANGED" || jq_status=$?
+                  if [ "$jq_status" -ne 0 ]; then
+                    echo "Could not build the changed-file list from paths-filter output; failing rather than scanning." >&2
+                    echo "exit-code=1" >> "$GITHUB_OUTPUT"
+                    exit 1
+                  fi
                   if [ ! -s "$CHANGED" ]; then
                     echo "No changed files; nothing for react-doctor to scan."
                     echo "exit-code=0" >> "$GITHUB_OUTPUT"
