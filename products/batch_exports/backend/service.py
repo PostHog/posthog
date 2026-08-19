@@ -137,7 +137,8 @@ class BatchExportField(typing.TypedDict):
 
 class BatchExportSchema(typing.TypedDict):
     fields: list[BatchExportField]
-    values: dict[str, str]
+    # HogQL binds these at any type; narrowing breaks Temporal input decoding.
+    values: dict[str, typing.Any]
 
 
 @dataclass
