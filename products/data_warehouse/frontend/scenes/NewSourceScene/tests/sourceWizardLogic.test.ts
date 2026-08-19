@@ -1,6 +1,8 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -1187,6 +1189,27 @@ describe('sourceWizardLogic', () => {
                 expect(createWebhook).toHaveBeenCalledTimes(2)
                 expect(createWebhook).toHaveBeenLastCalledWith('source-1')
                 expect(onComplete).toHaveBeenCalled()
+            } finally {
+                unmount()
+            }
+        })
+    })
+
+    describe('kind URL sync', () => {
+        const stripeSource = { name: 'Stripe', iconPath: '', caption: null, fields: [] } as SourceConfig
+
+        it('writes the selected connector to the URL and clears it on reset', () => {
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+            const unmount = logic.mount()
+
+            try {
+                router.actions.push(urls.dataWarehouseSourceNew())
+
+                logic.actions.selectConnector(stripeSource)
+                expect(router.values.searchParams.kind).toEqual('Stripe')
+
+                logic.actions.onClear()
+                expect(router.values.searchParams.kind).toBeUndefined()
             } finally {
                 unmount()
             }

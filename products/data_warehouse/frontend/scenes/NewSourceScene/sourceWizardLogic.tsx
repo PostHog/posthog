@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers,
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
@@ -11,6 +11,7 @@ import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -3667,6 +3668,35 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setDatabaseSchemas(values.databaseSchema)
         },
     })),
+    actionToUrl(() => {
+        // Keep the URL's `kind` in sync with the selected connector. The wizard has two writers
+        // of `kind` (a source card link and in-page selection), so without this the address bar
+        // can name one connector while the page shows another. Only the param changes; other
+        // search and hash params are preserved, and we replace rather than push to avoid
+        // polluting history.
+        const syncKind = (
+            kind: string | undefined
+        ): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | undefined => {
+            // The wizard can be embedded on other scenes; only rewrite the URL when the
+            // browser is actually on the new-source route. The raw pathname carries the
+            // project prefix (/project/:id/...), so strip it before comparing.
+            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.dataWarehouseSourceNew()) {
+                return undefined
+            }
+            const { kind: currentKind, ...rest } = router.values.searchParams
+            if (currentKind === kind) {
+                return undefined
+            }
+            const nextParams = kind ? { ...rest, kind } : rest
+            return [urls.dataWarehouseSourceNew(), nextParams, router.values.hashParams, { replace: true }]
+        }
+
+        return {
+            selectConnector: ({ connector }) => syncKind(connector?.name),
+            setManualLinkingProvider: ({ provider }) => syncKind(provider),
+            onClear: () => syncKind(undefined),
+        }
+    }),
     urlToAction(({ actions, values }) => {
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
