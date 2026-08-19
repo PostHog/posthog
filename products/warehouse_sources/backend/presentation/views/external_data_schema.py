@@ -844,7 +844,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
             if incremental_field_changed:
                 if instance.table is not None and isinstance(incremental_field, str):
-                    # Get the max_value and set it on incremental_field_last_value
                     max_value = instance.table.get_max_value_for_column(incremental_field)
                     if max_value:
                         instance.update_incremental_field_value(max_value, save=False)
