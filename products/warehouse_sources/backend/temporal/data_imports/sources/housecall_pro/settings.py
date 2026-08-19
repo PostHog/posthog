@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)  # static endpoint catalog, never mutated after construction
 class HousecallProEndpointConfig:
     name: str
     path: str

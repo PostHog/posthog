@@ -30,7 +30,7 @@ PAGE_SIZE = 100
 MAX_PAGES = 100_000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)  # resume state is rebuilt wholesale each save, not mutated in place
 class HousecallProResumeConfig:
     # Next 1-indexed page to fetch.
     page: int
