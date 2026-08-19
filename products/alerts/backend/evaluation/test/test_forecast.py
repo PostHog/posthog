@@ -24,6 +24,7 @@ from products.alerts.backend.evaluation.contract import (
     SeriesPoint,
 )
 from products.alerts.backend.evaluation.forecast import (
+    _decomposition_suffix,
     _evaluate_future_breach_values,
     _evaluate_target_by_date_values,
     _index_for_target_date,
@@ -315,3 +316,27 @@ class TestInsufficientHistoryIsNotMisconfiguration:
             evaluate_with_forecast(result, {"condition": "future_breach"}, None)
         # The distinction is the point: it must not be catchable as a configuration failure.
         assert not issubclass(InsufficientHistoryError, AlertExtractionError)
+
+
+class TestDecompositionCopy:
+    def _forecast(self, trend: float, weekly: float) -> ForecastResult:
+        return ForecastResult(
+            dates=["2026-04-01"],
+            yhat=[100.0],
+            lower=[90.0],
+            upper=[110.0],
+            components={"trend": [trend], "weekly": [weekly]},
+        )
+
+    def test_states_the_direction_in_the_metric_terms(self) -> None:
+        assert _decomposition_suffix(self._forecast(1210.0, -145.2), 0) == (
+            " (usual level around 1,210, typically 12% lower on this day of the week)"
+        )
+
+    def test_a_negative_trend_states_no_seasonality_rather_than_the_opposite(self) -> None:
+        """Dividing by a negative trend flips the sign, so a component that is lower would read as
+        higher. Opaque model output made that survivable; a plain sentence would not."""
+        suffix = _decomposition_suffix(self._forecast(-1000.0, -120.0), 0)
+        assert "higher" not in suffix
+        assert "lower" not in suffix
+        assert suffix == " (usual level around -1,000)"

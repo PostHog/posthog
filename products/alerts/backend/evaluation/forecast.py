@@ -81,20 +81,31 @@ def _clean_points(result: ExtractionResult) -> tuple[list[str], list[float]]:
 
 
 def _decomposition_suffix(forecast: ForecastResult, index: int) -> str:
-    """Render the forecast decomposition for one point, e.g. " (trend 1210.00, weekly seasonality −12%)".
-    Empty when the engine produced no components — the message degrades to expected-vs-actual."""
+    """Say why the forecast sits where it does, in the metric's own terms.
+
+    Why the alert fired is the first thing a person asks, so this belongs in the message rather
+    than in metadata. The engine's component names are model vocabulary, so they are stated as
+    plain observations about the series instead.
+    """
     if not forecast.components:
         return ""
     trend_series = forecast.components.get("trend")
     trend = trend_series[index] if trend_series and index < len(trend_series) else None
-    parts: list[str] = []
-    if trend is not None:
-        parts.append(f"trend {trend:.2f}")
-    for name in ("weekly", "yearly"):
-        series = forecast.components.get(name)
-        if series and index < len(series) and trend:
-            parts.append(f"{name} seasonality {series[index] / trend:+.0%}")
-    return f" ({', '.join(parts)})" if parts else ""
+    if trend is None:
+        return ""
+
+    parts = [f"usual level around {trend:,.0f}"]
+    # A share of the trend only reads as higher or lower while the trend is positive. On a negative
+    # trend the division flips the sign, so the sentence would state the opposite of what happened.
+    if trend > 0:
+        for name, phrasing in (("weekly", "on this day of the week"), ("yearly", "at this time of year")):
+            series = forecast.components.get(name)
+            if not series or index >= len(series):
+                continue
+            share = series[index] / trend
+            direction = "higher" if share >= 0 else "lower"
+            parts.append(f"typically {abs(share):.0%} {direction} {phrasing}")
+    return f" ({', '.join(parts)})"
 
 
 def _evaluate_band_deviation(
@@ -151,19 +162,20 @@ def _evaluate_future_breach_values(
     against_upper = lower if best_case else yhat
     against_lower = upper if best_case else yhat
 
+    qualifier = "even in the best case" if best_case else "on the current forecast"
     for i in range(len(yhat)):
         breach_date = dates[i][:10]
         if bounds.upper is not None and against_upper[i] > bounds.upper:
             predicted = against_upper[i]
             message = (
-                f"Forecast for {label}: predicted value {predicted:.2f} on {breach_date} "
-                f"is more than the upper threshold ({bounds.upper}){decomposition(i)}"
+                f"Forecast for {label}: predicted {predicted:.2f} on {breach_date} "
+                f"is more than the upper threshold ({bounds.upper}) {qualifier}{decomposition(i)}"
             )
         elif bounds.lower is not None and against_lower[i] < bounds.lower:
             predicted = against_lower[i]
             message = (
-                f"Forecast for {label}: predicted value {predicted:.2f} on {breach_date} "
-                f"is less than the lower threshold ({bounds.lower}){decomposition(i)}"
+                f"Forecast for {label}: predicted {predicted:.2f} on {breach_date} "
+                f"is less than the lower threshold ({bounds.lower}) {qualifier}{decomposition(i)}"
             )
         else:
             continue
