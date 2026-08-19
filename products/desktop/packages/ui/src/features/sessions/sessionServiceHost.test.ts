@@ -1765,7 +1765,7 @@ describe("SessionService", () => {
       await vi.waitFor(() => {
         expect(
           mockAuthenticatedClient.getTaskRunSessionLogsPage,
-        ).toHaveBeenCalledWith("task-123", "run-123", { limit: 5000 });
+        ).toHaveBeenCalledWith("task-123", "run-123", { limit: 1 });
       });
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
         "run-123",
@@ -1897,22 +1897,22 @@ describe("SessionService", () => {
         expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
           "run-123",
           expect.objectContaining({
-            transcriptWindowStart: 7000,
+            transcriptWindowStart: 10000,
             cloudTranscriptEntryCount: 12000,
           }),
         );
       });
       expect(mockConvertStoredEntriesToEvents).toHaveBeenCalledWith(
-        chainEntries.slice(7000),
+        chainEntries.slice(10000),
         undefined,
-        { taskRunId: "run-123", startEntryIndex: 7000 },
+        { taskRunId: "run-123", startEntryIndex: 10000 },
       );
       const hydrationOffsets = new Set(
         mockAuthenticatedClient.getTaskRunSessionLogsPage.mock.calls.map(
           (call) => (call[2] as { offset?: number }).offset ?? 0,
         ),
       );
-      expect(hydrationOffsets).toEqual(new Set([0, 7000]));
+      expect(hydrationOffsets).toEqual(new Set([0, 10000]));
 
       const hydrated = createMockSession({
         taskId: "task-123",
@@ -1920,7 +1920,7 @@ describe("SessionService", () => {
         cloudStatus: "completed",
         isCloud: true,
         events: [],
-        transcriptWindowStart: 7000,
+        transcriptWindowStart: 10000,
       });
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(hydrated);
       await service.loadOlderCloudTranscript("task-123");
@@ -1929,11 +1929,59 @@ describe("SessionService", () => {
         mockAuthenticatedClient.getTaskRunSessionLogsPage,
       ).toHaveBeenLastCalledWith("task-123", "run-123", {
         limit: 5000,
-        offset: 2000,
+        offset: 5000,
       });
       expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
         "run-123",
-        expect.objectContaining({ transcriptWindowStart: 2000 }),
+        expect.objectContaining({ transcriptWindowStart: 5000 }),
+      );
+    });
+
+    it("waits out a restoring auth before hydrating instead of bailing", async () => {
+      const service = getSessionService();
+      const session = createMockSession({
+        taskId: "task-123",
+        taskRunId: "run-123",
+        cloudStatus: "completed",
+        isCloud: true,
+        events: [],
+      });
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(session);
+      mockSessionStoreSetters.getSessions.mockReturnValue({
+        "run-123": session,
+      });
+      mockAuth.fetchAuthState.mockResolvedValueOnce({
+        status: "restoring",
+        bootstrapComplete: false,
+      });
+      mockAuthenticatedClient.getTaskRunSessionLogsPage.mockResolvedValue({
+        entries: [{ timestamp: "2024-01-01T00:00:00Z", notification: {} }],
+        hasMore: false,
+        matchingCount: 1,
+      });
+
+      service.watchCloudTask(
+        "task-123",
+        "run-123",
+        "https://api.anthropic.com",
+        123,
+        undefined,
+        "https://example.com/logs/run-123",
+        undefined,
+        "claude",
+        undefined,
+        undefined,
+        undefined,
+        "completed",
+      );
+
+      await vi.waitFor(
+        () => {
+          expect(
+            mockAuthenticatedClient.getTaskRunSessionLogsPage,
+          ).toHaveBeenCalledWith("task-123", "run-123", { limit: 1 });
+        },
+        { timeout: 2000 },
       );
     });
 
@@ -2276,7 +2324,7 @@ describe("SessionService", () => {
       await vi.waitFor(() => {
         expect(
           mockAuthenticatedClient.getTaskRunSessionLogsPage,
-        ).toHaveBeenCalledWith("task-123", "run-123", { limit: 5000 });
+        ).toHaveBeenCalledWith("task-123", "run-123", { limit: 1 });
       });
       resolveFirstHydration({
         entries: [],

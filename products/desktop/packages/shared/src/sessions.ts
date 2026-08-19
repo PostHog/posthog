@@ -68,6 +68,8 @@ export interface AgentSession {
   /** Absolute chain index of the first hydrated entry; >0 while older history is not loaded. */
   transcriptWindowStart?: number;
   isLoadingOlderTranscript?: boolean;
+  /** True while the terminal transcript is being fetched, so an empty thread shows as loading. */
+  isHydratingTranscript?: boolean;
   /** Leaf-run cursor used to reconcile live cloud log updates. */
   processedLineCount?: number;
   framework?: "claude";

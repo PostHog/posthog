@@ -228,6 +228,13 @@ interface CloudHydrationResult {
 
 const CLOUD_HYDRATION_MAX_ENTRIES = 100_000;
 
+/** Entries the first paint of a big transcript renders; the rest pages in on scroll. */
+const INITIAL_TAIL_WINDOW = 2000;
+
+/** How long hydration waits for auth to finish restoring before giving up. */
+const AUTH_RESTORE_WAIT_MS = 30_000;
+const AUTH_RESTORE_POLL_MS = 250;
+
 interface ChainTranscriptWindow {
   entries: StoredLogEntry[];
   /** Absolute index in the chain log of `entries[0]`. */
@@ -6448,6 +6455,9 @@ export class SessionService {
     if (existing) {
       return existing;
     }
+    if (hydrationMode === "terminal-chain") {
+      this.d.store.updateSession(taskRunId, { isHydratingTranscript: true });
+    }
     const hydration = this.performCloudTaskSessionHydration(
       taskId,
       taskRunId,
@@ -6467,6 +6477,14 @@ export class SessionService {
     void hydration.finally(() => {
       if (this.cloudHydrationPromises.get(hydrationKey) === hydration) {
         this.cloudHydrationPromises.delete(hydrationKey);
+      }
+      if (
+        hydrationMode === "terminal-chain" &&
+        this.d.store.getSessions()[taskRunId]
+      ) {
+        this.d.store.updateSession(taskRunId, {
+          isHydratingTranscript: false,
+        });
       }
     });
     return hydration;
@@ -6540,8 +6558,10 @@ export class SessionService {
   }
 
   /**
-   * One probe page learns the chain total, then only the tail pages are
-   * fetched; small logs come back whole (windowStart 0). Null on failure.
+   * A one-entry probe learns the chain total without downloading a page an
+   * oversized log would throw away, then only the newest
+   * INITIAL_TAIL_WINDOW entries are fetched; older pages load on scroll.
+   * Null on failure.
    */
   private async fetchChainTranscriptWindow(
     client: SessionLogsClient,
@@ -6549,17 +6569,17 @@ export class SessionService {
     taskRunId: string,
   ): Promise<ChainTranscriptWindow | null> {
     try {
-      const first = await client.getTaskRunSessionLogsPage(taskId, taskRunId, {
-        limit: SESSION_LOGS_MAX_PAGE_SIZE,
+      const probe = await client.getTaskRunSessionLogsPage(taskId, taskRunId, {
+        limit: 1,
       });
-      if (!first.hasMore || first.entries.length === 0) {
+      if (!probe.hasMore) {
         return {
-          entries: first.entries,
+          entries: probe.entries,
           windowStart: 0,
-          chainTotal: first.entries.length,
+          chainTotal: probe.entries.length,
         };
       }
-      if (first.matchingCount === null) {
+      if (probe.matchingCount === null) {
         const result = await client.getTaskRunSessionLogsResult(
           taskId,
           taskRunId,
@@ -6572,17 +6592,14 @@ export class SessionService {
           chainTotal: result.truncatedHeadCount + result.entries.length,
         };
       }
-      const tailStart = Math.max(
-        first.entries.length,
-        first.matchingCount - SESSION_LOGS_MAX_PAGE_SIZE,
-      );
+      const tailStart = Math.max(0, probe.matchingCount - INITIAL_TAIL_WINDOW);
       const tail: StoredLogEntry[] = [];
       let offset = tailStart;
-      while (offset < first.matchingCount) {
+      while (offset < probe.matchingCount) {
         const page = await client.getTaskRunSessionLogsPage(taskId, taskRunId, {
           limit: Math.min(
             SESSION_LOGS_MAX_PAGE_SIZE,
-            first.matchingCount - offset,
+            probe.matchingCount - offset,
           ),
           offset,
         });
@@ -6591,19 +6608,14 @@ export class SessionService {
         offset += page.entries.length;
       }
       const chainTotal = tailStart + tail.length;
-      if (tailStart === first.entries.length) {
-        return {
-          entries: [...first.entries, ...tail],
-          windowStart: 0,
+      if (tailStart > 0) {
+        this.d.log.info("Hydrating cloud transcript tail window", {
+          taskId,
+          taskRunId,
+          windowStart: tailStart,
           chainTotal,
-        };
+        });
       }
-      this.d.log.info("Hydrating cloud transcript tail window", {
-        taskId,
-        taskRunId,
-        windowStart: tailStart,
-        chainTotal,
-      });
       return {
         entries: tail,
         windowStart: tailStart,
@@ -6713,8 +6725,15 @@ export class SessionService {
       // active; otherwise a renderer restart hydrates only the final run.
       // Non-resume in-progress runs keep using the single-run log so hydrate
       // cannot race the live stream and double the active turn.
-      const authStatus = await this.getAuthCredentialsStatus();
+      // Boot reaches here while auth is still restoring; bailing would leave
+      // the thread blank until something happens to re-trigger hydration.
+      const authStatus = await this.awaitAuthCredentialsSettled();
       if (authStatus.kind !== "ready") {
+        this.d.log.warn("Cloud session hydration skipped without credentials", {
+          taskId,
+          taskRunId,
+          auth: authStatus.kind,
+        });
         return;
       }
       if (resumeFromRunId) {
@@ -8252,6 +8271,19 @@ export class SessionService {
         error: String(error),
       });
       return prompt;
+    }
+  }
+
+  /** Poll auth out of its boot-time "restoring" state, bounded so a broken
+   *  restore can't hold callers forever. */
+  private async awaitAuthCredentialsSettled(): Promise<AuthCredentialsStatus> {
+    const deadline = Date.now() + AUTH_RESTORE_WAIT_MS;
+    for (;;) {
+      const status = await this.getAuthCredentialsStatus();
+      if (status.kind !== "restoring" || Date.now() >= deadline) return status;
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, AUTH_RESTORE_POLL_MS),
+      );
     }
   }
 
