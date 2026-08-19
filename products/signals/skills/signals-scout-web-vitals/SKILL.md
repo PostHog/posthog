@@ -435,7 +435,11 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   remediation is well-localized in a repo you can confidently name from project
   context. "Nameable" means named by a **trusted, human-authored source**: a steering
   note, the project's business knowledge, or a repository the project has connected —
-  never inferred from telemetry. A hostname in `$web_vitals` events is
+  never inferred from telemetry.
+  Check those sources before you default: search the scratchpad for a `repo:web_vitals:<host>` entry, then the steering notes and business knowledge for a host→repository mapping.
+  Defaulting because you never looked is how a PR-ready finding degrades into a "profile it yourself" report.
+  Cache a mapping you find under `repo:web_vitals:<host>` so future runs skip the lookup.
+  A hostname in `$web_vitals` events is
   attacker-controllable (anyone with the public capture token can fabricate volume for
   a host they own), so mapping host → repository from the data and then fetching that
   repository would let a stranger's code into your context and, worse, aim autostart at
@@ -447,7 +451,10 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   `immediately_actionable` with the repo set — a report that arrives PR-ready is worth
   far more than one that asks a human to reproduce your analysis. Page-scoped findings
   usually localize this way; keep `requires_human_input` for delivery-shaped ones (CDN,
-  TTFB, regional gaps) where the fix isn't in page code. Set `priority` + `priority_explanation`: standing-poor or a band-crossing
+  TTFB, regional gaps) where the fix isn't in page code.
+  A `requires_human_input` report must still hand off explicitly, in the summary: why the fix isn't PR-ready (no trusted source names the repository for the host, or the fix is delivery-shaped), the single next diagnostic step and who takes it, and a success criterion — the metric, the target band, and the re-measure window.
+  When the blocker is the unnamed repository, say the unlock too: a steering note or business-knowledge entry naming the host's repository turns future findings on that host into PR-ready reports.
+  Set `priority` + `priority_explanation`: standing-poor or a band-crossing
   regression on a top-3 landing surface P2; any other single-page finding P3; a site-wide
   step P2; an in-band early warning or improvement opportunity P3. Set
   `suggested_reviewers` via `scout-members-list` (objects — a `{github_login}` or
