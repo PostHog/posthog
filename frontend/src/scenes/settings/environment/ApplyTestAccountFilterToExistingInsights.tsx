@@ -63,8 +63,8 @@ export function ApplyTestAccountFilterToExistingInsights(): JSX.Element {
             {/* Sized below the settings section's own h2, so this reads as part of it rather than a sibling. */}
             <h3 className="text-sm font-semibold mb-1">Existing insights</h3>
             <p className="text-secondary text-sm">
-                Turning the filter on for new insights leaves the insights you already have alone. Use these to turn it
-                on or off across them.
+                Turn the internal and test user filter on or off for every insight in this project. This doesn't change
+                the default for new insights.
             </p>
             <div className="flex gap-2">
                 {[true, false].map((enabled) => (
