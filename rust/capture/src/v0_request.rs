@@ -221,8 +221,12 @@ pub fn is_ai_event(name: &str) -> bool {
 /// only after capture has read and processed the whole request. `0` disables
 /// the check.
 ///
-/// `body_bytes` is the serialized event, the same measure the AI byte budget
-/// charges, so a project's ceiling and its budget agree on what a byte is.
+/// `body_bytes` is whatever the calling path can measure cheaply, and the
+/// paths differ: v0, OTEL, and the multipart handler pass the serialized
+/// event, while v1 passes the properties blob, which dominates an AI event
+/// but omits the event name, distinct_id, uuid, timestamp, and their keys.
+/// The ceiling is sized with broker headroom well above that difference, so
+/// the looser measure still keeps an accepted event under the producer's cap.
 pub fn exceeds_max_ai_event_bytes(body_bytes: usize, max: u64) -> bool {
     max != 0 && body_bytes as u64 > max
 }
