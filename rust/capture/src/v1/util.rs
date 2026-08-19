@@ -6,6 +6,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use futures::StreamExt;
 use tokio::io::AsyncReadExt;
 
+use crate::extractors::drain_rejected_body;
 use crate::v1::constants::{CAPTURE_V1_BODY_READ_TIMEOUT, CAPTURE_V1_DECOMPRESSION_ERRORS};
 use crate::v1::Error;
 
@@ -58,6 +59,10 @@ pub async fn extract_body_with_timeout(
         match chunk_result {
             Some(Ok(chunk)) => {
                 if buf.len() + chunk.len() > payload_size_limit {
+                    // Consume what is left so the 413 reaches the client rather than a
+                    // connection reset. Bounded by the size we were willing to accept
+                    // in the first place.
+                    drain_rejected_body(&mut stream, payload_size_limit, chunk_timeout, path).await;
                     return Err(Error::PayloadTooLarge(format!(
                         "Request body exceeds limit of {payload_size_limit} bytes"
                     )));
@@ -249,6 +254,29 @@ mod tests {
         let body = Body::from("hello world this is a long message");
         let result = extract_body_with_timeout(body, 10, None, TEST_CHUNK_SIZE_KB, "/test").await;
         assert!(matches!(result, Err(Error::PayloadTooLarge(_))));
+    }
+
+    #[tokio::test]
+    async fn extract_body_drains_an_oversize_body_before_rejecting() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        // Four ten-byte chunks against a 25-byte limit: the third trips it, and the
+        // fourth must still be pulled so hyper can deliver the 413 on a live
+        // connection instead of resetting.
+        let pulled = Arc::new(AtomicUsize::new(0));
+        let counter = pulled.clone();
+        let chunks: Vec<Result<Bytes, axum::Error>> = (0..4)
+            .map(|_| Ok(Bytes::from_static(b"0123456789")))
+            .collect();
+        let body = Body::from_stream(stream::iter(chunks).inspect(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }));
+
+        let result = extract_body_with_timeout(body, 25, None, TEST_CHUNK_SIZE_KB, "/test").await;
+
+        assert!(matches!(result, Err(Error::PayloadTooLarge(_))));
+        assert_eq!(pulled.load(Ordering::SeqCst), 4);
     }
 
     #[tokio::test]
