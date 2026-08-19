@@ -1,6 +1,9 @@
 import re
 
+import pytest
+
 import yaml
+from parameterized import parameterized
 
 from products.skills.backend.api.community_publish_services import (
     CommunitySkillPublishError,
@@ -53,13 +56,10 @@ class TestRenderSkillMd:
         assert frontmatter["compatibility"] == "Requires gh"
         assert frontmatter["author_handle"] == "andymaguire"
 
-    def test_requires_name_and_description(self) -> None:
-        for kwargs in ({"name": "  ", "description": "d"}, {"name": "n", "description": ""}):
-            try:
-                render_skill_md(body="b", **kwargs)
-            except CommunitySkillPublishError:
-                continue
-            raise AssertionError(f"expected CommunitySkillPublishError for {kwargs}")
+    @parameterized.expand([("blank name", "  ", "d"), ("blank description", "n", "")])
+    def test_requires_name_and_description(self, _label: str, name: str, description: str) -> None:
+        with pytest.raises(CommunitySkillPublishError):
+            render_skill_md(name=name, description=description, body="b")
 
 
 class TestRenderCommunitySkillFiles:
