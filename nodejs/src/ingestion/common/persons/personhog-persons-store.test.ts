@@ -323,7 +323,7 @@ describe('PersonhogPersonsStore', () => {
 
         // A late prefetch response reporting absence must not erase the
         // resolved mapping.
-        ;(store as any).recordFetch(1, 'd1', null, 0)
+        ;(store as any).memo.record(1, 'd1', null, 0)
         const again = await bound.fetchForUpdate(1, 'd1')
         expect(again?.id).toBe('7')
     })
@@ -1262,7 +1262,7 @@ describe('PersonhogPersonsStore', () => {
             })
             await bound.mergePersons(mergeReq())
 
-            const projected = (store as any).personState.get('1:7')
+            const projected = (store as any).memo.getProjection('1:7')
             expect(projected.properties.pairKey).toBe('kept')
         })
     })
@@ -1409,7 +1409,7 @@ describe('PersonhogPersonsStore', () => {
 
             await bound.fetchForChecking(1, 'd2')
 
-            expect((store as any).resolutions.get('1:d2')).not.toBe('1:9')
+            expect((store as any).memo.resolutionOf('1:d2')).not.toBe('1:9')
         })
 
         it.each([
@@ -1433,7 +1433,7 @@ describe('PersonhogPersonsStore', () => {
                     carriedApplied: [],
                 })
                 await bound.mergePersons(mergeReq())
-                const projected = (store as any).personState.get('1:7')
+                const projected = (store as any).memo.getProjection('1:7')
                 expect(projected.properties.pairKey).toBe('kept')
             } else {
                 await bound.applyEventOps(
@@ -1643,7 +1643,7 @@ describe('PersonhogPersonsStore', () => {
             })
             await store.prefetchPersons([{ teamId: 1, distinctId: 'anon-2', batchId: 0 }])
 
-            expect((store as any).resolutions.get('1:anon-2')).not.toBe('1:9')
+            expect((store as any).memo.resolutionOf('1:anon-2')).not.toBe('1:9')
             void boundPrefetch
         })
 
@@ -1963,8 +1963,8 @@ describe('PersonhogPersonsStore', () => {
 
             // With nowhere to repoint, the id must at least stop naming the
             // destroyed person.
-            expect((store as any).resolutions.has('1:anon-1')).toBe(false)
-            expect((store as any).personState.has('1:9')).toBe(false)
+            expect((store as any).memo.resolutionOf('1:anon-1') !== undefined).toBe(false)
+            expect((store as any).memo.hasProjection('1:9')).toBe(false)
         })
 
         it('one batch releasing leaves a shared lane and its memos intact for the other', async () => {
@@ -2110,7 +2110,7 @@ describe('PersonhogPersonsStore', () => {
 
             const lane = (store as any).entries.get('1:7')
             expect(lane.demoted).toBeUndefined()
-            expect((store as any).resolutions.get('1:anon-1')).toBe('1:7')
+            expect((store as any).memo.resolutionOf('1:anon-1')).toBe('1:7')
         })
 
         it('a fold waits out a second merge fence installed behind the first', async () => {
@@ -2177,7 +2177,7 @@ describe('PersonhogPersonsStore', () => {
 
             // Without the repoint, every later event folds onto the dead
             // person and pays the redirect path forever.
-            expect((store as any).resolutions.get('1:d1')).toBe('1:12')
+            expect((store as any).memo.resolutionOf('1:d1')).toBe('1:12')
         })
 
         it('exhausting the refresh while identity still names the vanished person fails the flush', async () => {
@@ -2228,7 +2228,7 @@ describe('PersonhogPersonsStore', () => {
 
             // The service maps extras only on the creation branch; d2 may
             // belong to someone else entirely.
-            expect((store as any).resolutions.has('1:d2')).toBe(false)
+            expect((store as any).memo.resolutionOf('1:d2') !== undefined).toBe(false)
         })
 
         it('shutdown fails loudly while lanes still hold unwritten ops', async () => {
@@ -2399,7 +2399,7 @@ describe('PersonhogPersonsStore', () => {
 
             // The distinct id must still name the survivor, and the ops must
             // be on the survivor's lane rather than the destroyed person's.
-            expect((store as any).resolutions.get('1:anon-1')).toBe('1:7')
+            expect((store as any).memo.resolutionOf('1:anon-1')).toBe('1:7')
             expect((store as any).entries.get('1:7')?.segments.at(-1).set).toEqual({ after: 'merge' })
         })
 

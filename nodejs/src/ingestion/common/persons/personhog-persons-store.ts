@@ -20,6 +20,7 @@ import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from
 import { MergeMode, PersonMergeCallFailedError } from './person-merge-types'
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
 import { mergeOpIdFromRequest, mergePayloadFingerprint } from './person-uuid'
+import { PersonhogPersonMemo } from './personhog-person-memo'
 import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore } from './persons-store'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -290,54 +291,17 @@ export class PersonhogPersonsStore implements PersonsStore {
     /** How many open batches reference a person key. */
     private entryRefCount: Map<string, number> = new Map()
     /**
-     * Distinct-id resolution, `${teamId}:${distinctId}` to the person key
-     * or null for a known-absent id, shared by every open batch. Split
-     * from person state so every distinct id of a person reads the same
-     * pending projection, not just the one that triggered the update.
-     * Shared rather than per batch so one purge after a merge reaches
-     * every batch, as the Postgres cache's does.
+     * The shared memo: resolutions, projections, read grades, and their
+     * per-batch liveness. The predicate hands it the one lane fact it
+     * needs — a person with folded, unwritten ops keeps its projection.
      */
-    private resolutions: Map<string, string | null> = new Map()
-    /**
-     * Person state keyed by `${teamId}:${personId}`, shared across batches.
-     * Once ops fold for a person this holds the pending projection — the
-     * read-your-write view — and fetches must not clobber it with service
-     * state.
-     */
-    private personState: Map<string, InternalPerson> = new Map()
+    private memo: PersonhogPersonMemo = new PersonhogPersonMemo((personKey) => this.entries.has(personKey))
     /**
      * Persons held by an in-flight merge. A fold onto one waits for the
      * merge to settle and reconcile, so operations cannot accumulate behind
      * a request that has already been sent.
      */
     private fences: Map<string, Promise<void>> = new Map()
-    /**
-     * How many live resolutions name each person. A projection is the
-     * batch's read-your-write view, so it outlives its own lane only while
-     * some distinct id still points at it.
-     */
-    private projectionRefCount: Map<string, number> = new Map()
-    /**
-     * Distinct keys whose person state was read through the leader (the
-     * update-read class). A checking read resolves through identity, which
-     * the leader leads by writer apply lag, so serving a checking-grade
-     * memo entry to the update path would hand the property projection a
-     * stale baseline. The Postgres store keeps two caches for the same
-     * reason; here one memo carries a grade instead.
-     */
-    private updateGradeKeys: Set<string> = new Set()
-    /** Distinct keys each open batch referenced, for the release refcount. */
-    private batchDistinctKeys: Map<number, Set<string>> = new Map()
-    /** How many open batches reference a distinct key. */
-    private distinctKeyRefCount: Map<string, number> = new Map()
-    /**
-     * Bumped whenever a merge outcome rewrites the memo (reconcile or a
-     * failed-merge invalidation). A prefetch response issued before the
-     * bump must not fill afterwards: the absence it sees may be a
-     * resolution the merge just released, and filling would reinstall a
-     * dead person.
-     */
-    private memoGeneration = 0
     /**
      * Redirects in flight, keyed by the person being written TO. A redirect's
      * lane sits under its vanished person's key, so a merge fencing the
@@ -372,21 +336,21 @@ export class PersonhogPersonsStore implements PersonsStore {
      * read class's eventual contract, and it saves the leader hop.
      */
     async fetchForChecking(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
-        const cached = this.lookupMemo(teamId, distinctId, 'checking')
+        const cached = this.memo.lookup(teamId, distinctId, 'checking')
         if (cached !== undefined) {
-            return this.snapshotForCaller(cached)
+            return this.memo.snapshot(cached)
         }
-        const issuedAt = this.memoGeneration
+        const issuedAt = this.memo.generation
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
-        if (this.memoGeneration !== issuedAt) {
+        if (this.memo.generation !== issuedAt) {
             // A merge rewrote the memo mid-flight: this response may name a
             // person the merge destroyed, and installing it would overwrite
             // the survivor edge reconcile just recorded. The caller still
             // gets the answer; the memo keeps the merge's.
-            return this.snapshotForCaller(resolved?.person ?? null)
+            return this.memo.snapshot(resolved?.person ?? null)
         }
-        return this.snapshotForCaller(
-            this.recordFetch(teamId, distinctId, resolved?.person ?? null, batchId, { grade: 'checking' })
+        return this.memo.snapshot(
+            this.memo.record(teamId, distinctId, resolved?.person ?? null, batchId, { grade: 'checking' })
         )
     }
 
@@ -398,116 +362,28 @@ export class PersonhogPersonsStore implements PersonsStore {
      * must be the leader's.
      */
     async fetchForUpdate(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
-        const cached = this.lookupMemo(teamId, distinctId, 'update')
+        const cached = this.memo.lookup(teamId, distinctId, 'update')
         if (cached !== undefined) {
-            return this.snapshotForCaller(cached)
+            return this.memo.snapshot(cached)
         }
-        const issuedAt = this.memoGeneration
+        const issuedAt = this.memo.generation
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
         if (!resolved?.person) {
-            if (this.memoGeneration !== issuedAt) {
+            if (this.memo.generation !== issuedAt) {
                 return null
             }
-            return this.snapshotForCaller(this.recordFetch(teamId, distinctId, null, batchId, { grade: 'update' }))
+            return this.memo.snapshot(this.memo.record(teamId, distinctId, null, batchId, { grade: 'update' }))
         }
         // A null here means the person vanished between resolve and read
         // (merged or deleted mid-flight); record the resolution miss and
         // let the caller's create path re-resolve authoritatively.
         const person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
-        if (this.memoGeneration !== issuedAt) {
+        if (this.memo.generation !== issuedAt) {
             // A merge rewrote the memo mid-flight; hand back the read but
             // leave the memo with the merge's answer.
-            return this.snapshotForCaller(person)
+            return this.memo.snapshot(person)
         }
-        return this.snapshotForCaller(this.recordFetch(teamId, distinctId, person, batchId, { grade: 'update' }))
-    }
-
-    /** Callers get copies: a caller stamping its result must not edit the shared memo. */
-    private snapshotForCaller(person: InternalPerson): InternalPerson
-    private snapshotForCaller(person: InternalPerson | null): InternalPerson | null
-    private snapshotForCaller(person: InternalPerson | null): InternalPerson | null {
-        return person === null ? null : { ...person, properties: { ...person.properties } }
-    }
-
-    /**
-     * Resolves a distinct id through the batch memos, undefined on miss.
-     * The update class refuses checking-grade state: a hit requires the
-     * key to have been read through the leader, or a pending projection,
-     * whose baseline was. Absence (a null resolution) serves both classes,
-     * because resolution itself is identity-backed on either path.
-     */
-    private lookupMemo(
-        teamId: number,
-        distinctId: string,
-        readClass: 'checking' | 'update' = 'checking'
-    ): InternalPerson | null | undefined {
-        const distinctKey = `${teamId}:${distinctId}`
-        const resolution = this.resolutions.get(distinctKey)
-        if (resolution === undefined) {
-            return undefined
-        }
-        if (resolution === null) {
-            return null
-        }
-        if (readClass === 'update' && !this.updateGradeKeys.has(distinctKey) && !this.entries.has(resolution)) {
-            return undefined
-        }
-        return this.personState.get(resolution) ?? undefined
-    }
-
-    /**
-     * Records a fetch result in the batch memos and returns the state
-     * callers should see: an existing pending projection wins over the
-     * fetched snapshot, so a fetch never rolls the batch's view back to
-     * pre-update state.
-     */
-    private recordFetch(
-        teamId: number,
-        distinctId: string,
-        fetched: InternalPerson | null,
-        batchId: number,
-        options: { grade: 'checking' | 'update'; fillOnly?: boolean } = { grade: 'checking' }
-    ): InternalPerson | null {
-        const distinctKey = `${teamId}:${distinctId}`
-        if (fetched === null) {
-            // Never downgrade a live mapping: a stale prefetch response
-            // can land after the batch created or resolved this person,
-            // and absence must not overwrite presence.
-            const existing = this.resolutions.get(distinctKey)
-            if (existing === undefined || existing === null) {
-                this.recordResolution(batchId, distinctKey, null)
-            }
-            return existing != null ? (this.personState.get(existing) ?? null) : null
-        }
-        // A fill-only caller (the fire-and-forget prefetch) may deliver its
-        // response arbitrarily late, so it only ever fills a hole: a
-        // resolution recorded since — including a repoint by a merge — is
-        // newer than the response and must stand.
-        if (options.fillOnly && this.resolutions.has(distinctKey)) {
-            const existing = this.resolutions.get(distinctKey)
-            return existing != null ? (this.personState.get(existing) ?? null) : null
-        }
-        const personKey = `${teamId}:${fetched.id}`
-        this.recordResolution(batchId, distinctKey, personKey)
-        if (options.grade === 'update') {
-            this.updateGradeKeys.add(distinctKey)
-        }
-        const state = this.personState
-        // A projection behind a lane holds this batch's own unwritten
-        // writes, which no fetch can know about — it always wins. Without
-        // a lane, an awaited update-grade fetch read the leader and is
-        // fresher than whatever is cached, so it replaces. A checking
-        // fetch read identity, which the leader leads — and the state is
-        // shared per person while grades are per key, so letting it
-        // replace would degrade a baseline sibling keys still vouch for.
-        // It, like a fill-only response, only ever fills absence.
-        const hasPending = this.entries.has(personKey)
-        if (!hasPending && !options.fillOnly && options.grade === 'update') {
-            state.set(personKey, fetched)
-        } else if (!state.has(personKey)) {
-            state.set(personKey, fetched)
-        }
-        return state.get(personKey) ?? fetched
+        return this.memo.snapshot(this.memo.record(teamId, distinctId, person, batchId, { grade: 'update' }))
     }
 
     async createPerson(
@@ -524,7 +400,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         _tx: PersonRepositoryTransaction | undefined,
         batchId: number
     ): Promise<CreatePersonResult> {
-        const issuedAt = this.memoGeneration
+        const issuedAt = this.memo.generation
         const createResult = await this.repository.getOrCreatePersonByDistinctId(
             {
                 teamId,
@@ -550,38 +426,38 @@ export class PersonhogPersonsStore implements PersonsStore {
             const leaderDoc = await this.repository.fetchPersonById(teamId, person.id, CALLER_TAG)
             person = leaderDoc ?? person
             if (leaderDoc) {
-                this.updateGradeKeys.add(`${teamId}:${primaryDistinctId.distinctId}`)
+                this.memo.markUpdateGrade(`${teamId}:${primaryDistinctId.distinctId}`)
             }
         }
-        if (this.memoGeneration !== issuedAt) {
+        if (this.memo.generation !== issuedAt) {
             // A merge rewrote the memo while this call was in flight; the
             // response may describe a person the merge destroyed. The caller
             // still gets it — installing it is what must not happen.
-            return { success: true, person: this.snapshotForCaller(person), messages: [], created }
+            return { success: true, person: this.memo.snapshot(person), messages: [], created }
         }
         const personKey = `${teamId}:${person.id}`
-        this.recordResolution(batchId, `${teamId}:${primaryDistinctId.distinctId}`, personKey)
+        this.memo.recordResolution(batchId, `${teamId}:${primaryDistinctId.distinctId}`, personKey)
         if (created) {
             // Extras are mapped on the creation branch only: an extra that
             // already resolves elsewhere keeps its mapping, so memoizing it
             // here would invent an edge the service never made.
             for (const extra of extraDistinctIds ?? []) {
-                this.recordResolution(batchId, `${teamId}:${extra.distinctId}`, personKey)
-                this.updateGradeKeys.add(`${teamId}:${extra.distinctId}`)
+                this.memo.recordResolution(batchId, `${teamId}:${extra.distinctId}`, personKey)
+                this.memo.markUpdateGrade(`${teamId}:${extra.distinctId}`)
             }
             // Creation is leader-durable, so every id it mapped serves the
             // update read class.
-            this.updateGradeKeys.add(`${teamId}:${primaryDistinctId.distinctId}`)
+            this.memo.markUpdateGrade(`${teamId}:${primaryDistinctId.distinctId}`)
         }
         // A projection behind a lane carries this batch's own writes and
         // must not roll back to service state (the found branch can race a
         // fold under another distinct id of the same person).
-        if (!this.entries.has(personKey) || !this.personState.has(personKey)) {
-            this.personState.set(personKey, person)
+        if (!this.entries.has(personKey) || !this.memo.hasProjection(personKey)) {
+            this.memo.setProjection(personKey, person)
         }
         // The identity service publishes its own downstream messages on
         // the creation branch, so none are surfaced here.
-        return { success: true, person: this.snapshotForCaller(person), messages: [], created }
+        return { success: true, person: this.memo.snapshot(person), messages: [], created }
     }
 
     applyEventOps(
@@ -647,7 +523,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      * at the cost of stale enrichment until the flush.
      */
     private personAfterFence(person: InternalPerson, distinctId: string): InternalPerson {
-        const resolved = this.lookupMemo(person.team_id, distinctId)
+        const resolved = this.memo.lookup(person.team_id, distinctId, 'checking')
         return resolved ?? person
     }
 
@@ -752,9 +628,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         // The memo now holds the pending projection: every distinct id
         // resolving to this person sees the change pre-flush, and the
         // next event composes on top.
-        this.personState.set(personKey, projected)
-        this.recordResolution(batchId, `${person.team_id}:${distinctId}`, personKey)
-        return [this.snapshotForCaller(projected), []]
+        this.memo.setProjection(personKey, projected)
+        this.memo.recordResolution(batchId, `${person.team_id}:${distinctId}`, personKey)
+        return [this.memo.snapshot(projected), []]
     }
 
     /**
@@ -770,7 +646,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // resolve moves any edges: a fence has to cover what this pod
         // BELIEVES as well as what identity says, or a lane keyed on a
         // stale belief goes unguarded.
-        const memoOf = (distinctId: string) => this.resolutions.get(`${request.teamId}:${distinctId}`)
+        const memoOf = (distinctId: string) => this.memo.resolutionOf(`${request.teamId}:${distinctId}`)
         const memoSourceKeys = request.sources.map((source) => memoOf(source.distinctId))
         const memoTargetKey = memoOf(request.targetDistinctId)
         // Resolve every named id in one batched call, the way the saga
@@ -893,7 +769,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                     this.rebaseProjection(survivorLane, result.survivor)
                 }
             }
-            return { ...result, survivor: this.snapshotForCaller(result.survivor) }
+            return { ...result, survivor: this.memo.snapshot(result.survivor) }
         } finally {
             for (const { entry } of carried) {
                 this.releaseWritten(`${entry.teamId}:${entry.personId}`, entry)
@@ -959,7 +835,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             for (const entry of resolved) {
                 if (entry.person) {
                     resolvedKeys.set(entry.distinctId, `${teamId}:${entry.person.id}`)
-                    this.recordFetch(entry.teamId, entry.distinctId, entry.person, batchId, { grade: 'checking' })
+                    this.memo.record(entry.teamId, entry.distinctId, entry.person, batchId, { grade: 'checking' })
                 }
             }
         } catch (error) {
@@ -1272,9 +1148,9 @@ export class PersonhogPersonsStore implements PersonsStore {
             this.rebaseProjection(`${request.teamId}:${result.survivor.id}`, result.survivor)
             // The survivor is the folded document the leader produced —
             // authoritative, so these ids serve the update read class.
-            this.recordFetch(request.teamId, request.targetDistinctId, result.survivor, batchId, { grade: 'update' })
+            this.memo.record(request.teamId, request.targetDistinctId, result.survivor, batchId, { grade: 'update' })
             for (const distinctId of touched) {
-                this.recordFetch(request.teamId, distinctId, result.survivor, batchId, { grade: 'update' })
+                this.memo.record(request.teamId, distinctId, result.survivor, batchId, { grade: 'update' })
             }
         }
         return { survivor: result.survivor, results: result.results, carriedApplied: result.carriedApplied }
@@ -1289,7 +1165,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         return {
             dirtyEntryCount: [...this.entries.values()].filter((entry) => entry.segments.length > 0).length,
             referencedBatchCount: this.batchEntryKeys.size,
-            cacheEntryCount: this.personState.size,
+            cacheEntryCount: this.memo.projectionCount,
         }
     }
 
@@ -1353,7 +1229,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 return false
             }
             seen.add(key)
-            return this.lookupMemo(entry.teamId, entry.distinctId) === undefined
+            return this.memo.lookup(entry.teamId, entry.distinctId, 'checking') === undefined
         })
         if (unresolved.length === 0) {
             return
@@ -1361,7 +1237,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // Captured before the resolve goes out: a merge rewriting the memo
         // while this response is in flight makes every fill suspect — the
         // absence it would fill may be a resolution the merge released.
-        const issuedAt = this.memoGeneration
+        const issuedAt = this.memo.generation
         try {
             const resolved = await this.repository.resolvePersonsByDistinctIds(
                 unresolved.map((entry) => ({ teamId: entry.teamId, distinctId: entry.distinctId })),
@@ -1372,20 +1248,20 @@ export class PersonhogPersonsStore implements PersonsStore {
                 resolved.map((entry, i) =>
                     limit(async () => {
                         const { batchId } = unresolved[i]
-                        if (this.memoGeneration !== issuedAt) {
+                        if (this.memo.generation !== issuedAt) {
                             return
                         }
                         if (!entry.person) {
-                            this.recordFetch(entry.teamId, entry.distinctId, null, batchId, { grade: 'update' })
+                            this.memo.record(entry.teamId, entry.distinctId, null, batchId, { grade: 'update' })
                             return
                         }
                         const person = await this.repository.fetchPersonById(entry.teamId, entry.person.id, CALLER_TAG)
-                        if (this.memoGeneration !== issuedAt) {
+                        if (this.memo.generation !== issuedAt) {
                             return
                         }
                         // Fill-only: this response raced everything the batch
                         // did since the request went out.
-                        this.recordFetch(entry.teamId, entry.distinctId, person, batchId, {
+                        this.memo.record(entry.teamId, entry.distinctId, person, batchId, {
                             grade: 'update',
                             fillOnly: true,
                         })
@@ -1769,7 +1645,7 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     /**
      * Reinstates a merged person's projection on top of the merge's own
-     * result. `recordFetch` deliberately refuses to overwrite a projection
+     * result. the memo's record deliberately refuses to overwrite a projection
      * that has ops folded behind it, because an ordinary re-fetch answers
      * committed state that predates them; a merge survivor is the one
      * answer that is not stale, so it is installed here and the lane's
@@ -1778,7 +1654,7 @@ export class PersonhogPersonsStore implements PersonsStore {
     private rebaseProjection(personKey: string, survivor: InternalPerson): void {
         const entry = this.entries.get(personKey)
         if (!entry || entry.segments.length === 0) {
-            this.personState.set(personKey, survivor)
+            this.memo.setProjection(personKey, survivor)
             return
         }
         const properties = { ...survivor.properties }
@@ -1805,7 +1681,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 }
             }
         }
-        this.personState.set(personKey, { ...survivor, properties })
+        this.memo.setProjection(personKey, { ...survivor, properties })
     }
 
     /** Whether the leading segment predates a merge that destroyed this person. */
@@ -1996,7 +1872,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 // every later event on this id from folding onto the dead
                 // person and paying this path again — the same repoint the
                 // Postgres cache performs on this exact signal.
-                this.repointResolution(`${entry.teamId}:${entry.distinctId}`, `${entry.teamId}:${survivorId}`)
+                this.memo.repointResolution(`${entry.teamId}:${entry.distinctId}`, `${entry.teamId}:${survivorId}`)
                 return 'written'
             } catch (error) {
                 if (error instanceof NoRowsUpdatedError) {
@@ -2068,7 +1944,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             if (personKey !== undefined) {
                 claim(authoritative, personKey, rank)
             }
-            const resolved = this.resolutions.get(distinctKey)
+            const resolved = this.memo.resolutionOf(distinctKey)
             if (resolved != null) {
                 claim(inferred, resolved, rank)
             }
@@ -2106,7 +1982,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         let cleared = 0
         // Collected first: the loop repoints and releases edges in the same
         // map it walks.
-        const resolutionEdges = Array.from(this.resolutions.entries())
+        const resolutionEdges = this.memo.resolutionEdges()
         for (const [key, personKey] of resolutionEdges) {
             if (personKey === null) {
                 continue
@@ -2120,24 +1996,23 @@ export class PersonhogPersonsStore implements PersonsStore {
                     // change clears the key's grade; re-granted here because
                     // the survivor's installed state is the folded document —
                     // authoritative for the update class.
-                    this.recordResolution(batchId, key, survivorKey)
-                    this.updateGradeKeys.add(key)
+                    this.memo.recordResolution(batchId, key, survivorKey)
+                    this.memo.markUpdateGrade(key)
                 } else {
-                    this.releaseResolution(key)
+                    this.memo.releaseResolution(key)
                 }
                 cleared++
             } else if (inferred.has(personKey)) {
-                this.releaseResolution(key)
+                this.memo.releaseResolution(key)
                 cleared++
             }
         }
-        this.memoGeneration += 1
+        this.memo.bumpGeneration()
         personhogStoreMergeCacheCounter.inc({ action: 'resolution_cleared' }, cleared)
         for (const personKey of authoritative.keys()) {
             // The person no longer exists, so its projection goes whatever
             // still names it; the ids were just repointed or released.
-            this.personState.delete(personKey)
-            this.projectionRefCount.delete(personKey)
+            this.memo.deletePerson(personKey)
         }
         if (stranded > 0) {
             personhogStoreMergeCacheCounter.inc({ action: 'lane_stranded' }, stranded)
@@ -2156,28 +2031,13 @@ export class PersonhogPersonsStore implements PersonsStore {
      *
      * Person documents are dropped only for persons holding no folded ops.
      * A document with a pending lane behind it is the batch's own
-     * read-your-write view, and `recordFetch` will overwrite it with
+     * read-your-write view, and the memo's record will overwrite it with
      * service state once it is absent, so dropping it would hide this
      * batch's earlier updates from its own later events. Re-resolution
      * repoints the ids; the projection stays until its ops write.
      */
     private invalidateTeamAfterFailedMerge(teamId: number): void {
-        const teamPrefix = `${teamId}:`
-        let cleared = 0
-        // Collected first: releaseResolution deletes from the map under walk.
-        const resolutionKeys = Array.from(this.resolutions.keys())
-        for (const key of resolutionKeys) {
-            if (key.startsWith(teamPrefix)) {
-                // Releasing rather than deleting keeps the projection
-                // refcount honest; a projection with ops still folded behind
-                // it survives on the entry's claim, because dropping it would
-                // let a re-fetch install committed state predating this
-                // batch's own updates.
-                this.releaseResolution(key)
-                cleared++
-            }
-        }
-        this.memoGeneration += 1
+        const cleared = this.memo.invalidateTeam(teamId)
         personhogStoreMergeCacheCounter.inc({ action: 'invalidated_after_failure' }, cleared)
     }
 
@@ -2211,7 +2071,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
             this.retireEntry(personKey)
         }
-        this.releaseDistinctKeys(batchId)
+        this.memo.releaseBatch(batchId)
     }
 
     /**
@@ -2220,19 +2080,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      */
     private retireEntry(personKey: string): void {
         this.entries.delete(personKey)
-        this.evictProjection(personKey)
-    }
-
-    /**
-     * Frees a person's projection once nothing needs it: no lane holding
-     * unwritten ops, and no live resolution naming it. Called from both
-     * sides, because either can be the last to let go.
-     */
-    private evictProjection(personKey: string): void {
-        if (this.entries.has(personKey) || (this.projectionRefCount.get(personKey) ?? 0) > 0) {
-            return
-        }
-        this.personState.delete(personKey)
+        this.memo.evictProjection(personKey)
     }
 
     /** Records that this batch is folding into a person's shared entry. */
@@ -2259,103 +2107,5 @@ export class PersonhogPersonsStore implements PersonsStore {
             )
         }
         return Promise.resolve()
-    }
-
-    /** Records a resolution and this batch's reference to its distinct key. */
-    private recordResolution(batchId: number, distinctKey: string, personKey: string | null): void {
-        const previous = this.resolutions.get(distinctKey)
-        if (previous !== personKey) {
-            // The edge moved, so the projection counts move with it, and
-            // the key's read grade — earned on the old edge — no longer
-            // describes anything. Callers re-grade when they know better.
-            this.updateGradeKeys.delete(distinctKey)
-            if (previous != null) {
-                this.dropProjectionReference(previous)
-            }
-            if (personKey !== null) {
-                this.projectionRefCount.set(personKey, (this.projectionRefCount.get(personKey) ?? 0) + 1)
-            }
-        }
-        this.resolutions.set(distinctKey, personKey)
-        let keys = this.batchDistinctKeys.get(batchId)
-        if (!keys) {
-            keys = new Set()
-            this.batchDistinctKeys.set(batchId, keys)
-        }
-        if (keys.has(distinctKey)) {
-            return
-        }
-        keys.add(distinctKey)
-        this.distinctKeyRefCount.set(distinctKey, (this.distinctKeyRefCount.get(distinctKey) ?? 0) + 1)
-    }
-
-    /**
-     * Forgets one resolution and the claim it held on its person's
-     * projection. Idempotent, because a merge invalidation and the owning
-     * batch's release both reach for the same key.
-     */
-    private releaseResolution(distinctKey: string): void {
-        if (!this.resolutions.has(distinctKey)) {
-            return
-        }
-        const personKey = this.resolutions.get(distinctKey)
-        this.resolutions.delete(distinctKey)
-        this.updateGradeKeys.delete(distinctKey)
-        if (personKey != null) {
-            this.dropProjectionReference(personKey)
-        }
-    }
-
-    /**
-     * Repoints an existing resolution at another person, moving the
-     * projection refcounts with the edge. A key no batch recorded is left
-     * alone: creating it here would add a mapping nothing ever releases.
-     */
-    private repointResolution(distinctKey: string, personKey: string): void {
-        const previous = this.resolutions.get(distinctKey)
-        if (previous === undefined || previous === personKey) {
-            return
-        }
-        if (previous !== null) {
-            this.dropProjectionReference(previous)
-        }
-        // The new person's state was never read through this key, so the
-        // old grade does not carry over; the next update read re-reads.
-        this.updateGradeKeys.delete(distinctKey)
-        this.projectionRefCount.set(personKey, (this.projectionRefCount.get(personKey) ?? 0) + 1)
-        this.resolutions.set(distinctKey, personKey)
-    }
-
-    private dropProjectionReference(personKey: string): void {
-        const refs = (this.projectionRefCount.get(personKey) ?? 1) - 1
-        if (refs > 0) {
-            this.projectionRefCount.set(personKey, refs)
-            return
-        }
-        this.projectionRefCount.delete(personKey)
-        this.evictProjection(personKey)
-    }
-
-    /**
-     * Drops a batch's distinct-key references, forgetting a resolution no
-     * other batch holds. The person's projection goes with it unless ops
-     * are still folded behind it, which would make the eviction a lost
-     * read-your-write view rather than a freed cache slot.
-     */
-    private releaseDistinctKeys(batchId: number): void {
-        const keys = this.batchDistinctKeys.get(batchId)
-        this.batchDistinctKeys.delete(batchId)
-        if (!keys) {
-            return
-        }
-        for (const distinctKey of keys) {
-            const refs = (this.distinctKeyRefCount.get(distinctKey) ?? 1) - 1
-            if (refs > 0) {
-                this.distinctKeyRefCount.set(distinctKey, refs)
-                continue
-            }
-            this.distinctKeyRefCount.delete(distinctKey)
-            this.releaseResolution(distinctKey)
-        }
     }
 }
