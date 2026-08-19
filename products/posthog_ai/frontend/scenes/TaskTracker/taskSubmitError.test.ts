@@ -26,7 +26,9 @@ describe('describeTaskSubmitError', () => {
     })
 
     it('falls back to a step-specific message when the failure is not an ApiError', () => {
-        expect(describeTaskSubmitError(new Error(''), 'create').message).toBe('Could not create the task. Please try again.')
+        expect(describeTaskSubmitError(new Error(''), 'create').message).toBe(
+            'Could not create the task. Please try again.'
+        )
         expect(describeTaskSubmitError(new Error(''), 'run').message).toBe('Could not start the run. Please try again.')
     })
 })

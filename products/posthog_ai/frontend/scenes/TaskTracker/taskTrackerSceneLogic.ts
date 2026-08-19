@@ -537,7 +537,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
             const projectId = String(values.currentProjectId)
 
-            let newTask: Task
+            let newTask: Awaited<ReturnType<typeof tasksCreate>>
             try {
                 const taskData: TaskWriteApi = {
                     title: '',
