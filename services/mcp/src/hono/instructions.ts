@@ -24,6 +24,10 @@ import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
 
+/** Presence of this tool is the runtime signal that the notebook cell surface
+ *  (the `revamped-py-notebooks` flag) is live for this client. */
+const NOTEBOOK_ADD_CELL_TOOL = 'notebooks-add-cell'
+
 export class InstructionsBuilder {
     private readonly formatter: InstructionsFormatter
     private readonly guidelines: string
@@ -67,6 +71,7 @@ export class InstructionsBuilder {
             metadata: state.metadata,
             groupTypes: state.groupTypes,
             dataCatalogEnabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
+            notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
         }
     }
 
