@@ -44,9 +44,9 @@ STAMPHOG_BOT_REVIEW_MAX_POLLS = 10  # ~300s budget at 30s per poll, matching the
 # bot-labeler-skip) to the ReviewHog trigger endpoint. Kept here so the activity references the same
 # scalar the workflow gates on.
 STAMPHOG_REVIEWHOG_LABEL = "reviewhog"
-# The posthog-owners resolver package, expected by the engine as a sibling of its own dir
-# (gates.py resolves `../owners` for the hogli-resolver ownership format).
-STAMPHOG_SANDBOX_OWNERS_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/owners"
+# The posthog-owners resolver package, at the same checkout-relative path the monorepo uses
+# (gates.py resolves `packages/owners` for the hogli-resolver ownership format).
+STAMPHOG_SANDBOX_OWNERS_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/packages/owners"
 STAMPHOG_SANDBOX_CONTEXT_PATH = f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog_review_context.json"
 
 # Trusted review-norms prose the engine reads as its reviewer system guidance, and

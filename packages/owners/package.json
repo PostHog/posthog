@@ -1,0 +1,9 @@
+{
+    "name": "@posthog/owners",
+    "version": "0.0.1",
+    "private": true,
+    "description": "owners.yaml resolver (posthog_owners). Python uv workspace member; this manifest registers it in the turbo graph, where turbo-discover maps @posthog/owners to the tach module posthog_owners to find the products that depend on it.",
+    "scripts": {
+        "backend:test": "pytest tests -v --tb=short"
+    }
+}

@@ -99,9 +99,9 @@ rules:
     - match: '/services/llm-gateway/'
       owners: team-ai-gateway
     - match:
+          - '/packages/owners/'
           - '/tools/hogli-commands/'
           - '/tools/hogli/'
-          - '/tools/owners/'
           - '/tools/phrocs/'
           - '/tools/pr-approval-agent/'
       owners: team-devex

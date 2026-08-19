@@ -14,6 +14,7 @@
 !common/tailwind
 !packages/quill
 !packages/llm-normalizer
+!packages/owners
 !dags
 !docs/onboarding
 !ee
@@ -75,7 +76,6 @@ services/agent-*/.next
 !tailwind.config.js
 !tools/hogli
 !tools/openapi-codegen
-!tools/owners
 !tools/pr-approval-agent
 !tsconfig.json
 !unit.json.tpl

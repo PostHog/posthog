@@ -30,26 +30,25 @@ services/              # Independent services NOT owned by any one product
   stripe-app/          # Stripe integration app
 
 packages/              # Libraries shared across more than one product/service (e.g. quill)
+  owners/              # owners.yaml resolver (posthog_owners) — Python uv workspace member, runtime dependency
 
 common/                # Shared code — holding pen, NOT a destination (goal: shrink it)
   hogql_parser/        # HogQL parser
 
-tools/                 # Developer/CI tooling, with two exceptions noted below
+tools/                 # Developer/CI tooling, with one exception noted below
   hogli/               # Developer CLI framework (PyPI-publishable; uv workspace member)
   hogli-commands/      # PostHog-specific hogli commands (consumed via hogli.yaml)
-  owners/              # owners.yaml resolver (posthog_owners) — also a RUNTIME dependency
   pr-approval-agent/   # stamphog's review engine — shipped into the review sandbox at runtime
 
 devenv/                # Developer environment config (intent map, process model)
 ```
 
-`tools/` is developer and CI tooling by default, and two directories in it are not. `tools/owners`
-is installed into the production venv, because stamphog's digest resolves a team's Slack channel
-through `posthog_owners` rather than reparsing `owners.yaml` itself. `tools/pr-approval-agent` and
-`tools/owners` are also copied into the production image as source, because stamphog ships them
-into its review sandbox at runtime. Both stay under `tools/` rather than moving to `packages/`:
-downstream repos vendor `pr-approval-agent` with `owners` beside it, and `posthog_owners` is
-imported from that sibling path, so the layout is a contract, not an accident.
+`tools/` is developer and CI tooling by default, and `tools/pr-approval-agent` is the one exception.
+It's stamphog's review engine, shipped into the review sandbox at runtime and vendored by
+downstream repos under that same directory name, so it stays in `tools/`.
+`posthog_owners` lives in `packages/owners` as a Python workspace member.
+The review engine locates it as an installed package first, then at `packages/owners`, then falls
+back to a legacy `tools/owners` sibling for downstream repos that vendored the old layout.
 
 ### Products
 
@@ -79,7 +78,7 @@ Nest because tooling boundaries become path-scoped (`products/<product>/**` for 
 
 ### Packages
 
-This covers **pnpm workspace packages** (JS/TS). Python and Rust differ — there, location and import name matter directly (a top-level Python package can even shadow a stdlib module, which is why there's no top-level `platform/`), so these rules don't apply.
+Anything under `packages/` is a workspace member of its ecosystem: `package.json` for pnpm, `pyproject.toml` for uv. There is no loose-directory tier here; in-venv reuse that needs no package goes in `posthog/<mechanism>/` (see `posthog/egress/`) or in the owning product.
 
 For pnpm packages, location doesn't gate who can import them (pnpm resolves by name), so location is an ownership signal, not access control. Place by current ownership:
 
@@ -89,12 +88,23 @@ For pnpm packages, location doesn't gate who can import them (pnpm resolves by n
 
 `pnpm-workspace.yaml` globs are explicit (`products/*`, `packages/quill`, …) and don't yet match nested `products/<product>/packages/*` or a new top-level `packages/<name>/` — so register the package's path there when you add it, or `workspace:*` deps, filters, and scripts won't resolve.
 
+A Python package under `packages/<name>/` is a uv workspace member with its own `pyproject.toml`, registered in the root `pyproject.toml`'s `[tool.uv.workspace].members` and `[tool.uv.sources]`, and imported by a name independent of its location (`posthog_<name>`).
+Reach for one only when a consumer must install it outside the monorepo venv (a bare-python CI step, a sandbox, another repo); reuse inside the app is not a reason on its own.
+What puts it in `packages/` rather than `tools/` is that runtime code imports it (`posthog_owners` is installed in the production venv for stamphog); a distribution that only CI and developer workflows use is `tools/`, like `hogli`.
+Rules that follow from being a distribution rather than a module:
+
+- It is a leaf: no imports of `posthog/`, `ee/`, `products/`, `common/`, Django, or DRF. tach sees a uv distribution as third-party and cannot police this; import-linter resolves by installed name and can, so each package gets a `forbidden` contract in `pyproject.toml`'s `[tool.importlinter]` (see `packages/owners is a leaf`).
+- It carries a `package.json` (`@posthog/<name>`) and a `turbo.json` whose `backend:test` inputs cover its sources, so turbo can tell when it changed. `turbo-discover` maps `@posthog/<name>` to the import name `posthog_<name>`, finds the products that import it, and re-tests them and their tach dependents. Consumers declare nothing.
+- Core (`posthog/`, `ee/`) should not import it; a package change then re-tests its product consumers, not the Django suite. If core does import it, `turbo-discover` sees that too and runs the full suite.
+- Register its path in `pnpm-workspace.yaml` and in the Dockerfile bind-mount list (`uv sync` validates workspace membership at build time).
+- Same nest-then-promote rule as pnpm packages: promote on a second real consumer, not intent.
+
 ### Shared Python: which home
 
 - One product owns it: `products/<product>/`, exposed through its facade.
 - Several products import it, nothing from Django or the rest of `posthog/`: `posthog/libs/<name>/` (below).
 - It needs Django, Redis, settings, or core imports it: `posthog/<mechanism>/`, egress-style, accepting that a change runs the full suite.
-- A consumer installs it outside the monorepo venv: a uv workspace member under `packages/<name>/`.
+- A consumer installs it outside the monorepo venv: `packages/<name>/` (above).
 
 ### Libs
 

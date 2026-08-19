@@ -1,0 +1,8 @@
+{
+    "extends": ["//"],
+    "tasks": {
+        "backend:test": {
+            "inputs": ["posthog_owners/**/*.py", "tests/**/*.py", "pyproject.toml"]
+        }
+    }
+}

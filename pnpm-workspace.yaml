@@ -8,6 +8,7 @@ packages:
     - common/replay-headless
     - common/tailwind
     - packages/llm-normalizer
+    - packages/owners
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*

@@ -297,6 +297,9 @@ const TRIPWIRE_RULES = [
     // The root owners.yaml is the fallback every path resolves through when no
     // nearer file claims it, so it has the same readers as the tooling. A
     // product's own owners.yaml is not here: it keeps its product lane.
+    ['packages/owners/**', UNIVERSAL],
+    // Transitional: unrebased branches still have the resolver at tools/owners, where the
+    // tools/ fallback rule would give it the python lanes only. Drop once open PRs have rebased.
     ['tools/owners/**', UNIVERSAL],
     ['owners.yaml', UNIVERSAL],
     // pytest-split timing data, and nothing else reads it.

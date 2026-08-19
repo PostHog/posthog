@@ -298,7 +298,7 @@ exclude-newer = "7 days"
 exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
-members = ["tools/hogli", "tools/owners"]
+members = ["tools/hogli", "packages/owners"]
 
 [tool.uv.sources]
 hogli = { workspace = true }
@@ -508,7 +508,17 @@ exclude = [
 # Complements tach (inter-module boundaries) with intra-product enforcement.
 
 [tool.importlinter]
-root_packages = ["products"]
+root_packages = ["products", "posthog_owners"]
+include_external_packages = true
+
+# Python packages under packages/ are leaves: no imports of the app or Django.
+# tach sees a uv distribution as third-party and cannot police this; import-linter
+# resolves by installed import name, so it can.
+[[tool.importlinter.contracts]]
+name = "packages/owners is a leaf"
+type = "forbidden"
+source_modules = ["posthog_owners"]
+forbidden_modules = ["posthog", "ee", "products", "common", "django", "rest_framework"]
 
 # Presentation must only reach product internals through the facade.
 # Forbid all backend imports, then allowlist facade + self-imports.

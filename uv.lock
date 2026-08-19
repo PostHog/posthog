@@ -5970,7 +5970,7 @@ requires-dist = [
     { name = "pixelhog", specifier = "~=1.2.0" },
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
-    { name = "posthog-owners", editable = "tools/owners" },
+    { name = "posthog-owners", editable = "packages/owners" },
     { name = "posthoganalytics", specifier = "==7.39.1" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
@@ -6110,7 +6110,7 @@ sentiment = [
 [[package]]
 name = "posthog-owners"
 version = "0.1.0"
-source = { editable = "tools/owners" }
+source = { editable = "packages/owners" }
 dependencies = [
     { name = "click" },
     { name = "pyyaml" },

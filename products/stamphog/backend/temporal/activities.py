@@ -75,6 +75,9 @@ from products.tasks.backend.facade.sandbox import (
 # products/stamphog/backend/temporal/activities.py, so the repo root is five parents up.
 _SERVER_ENGINE_DIR = Path(__file__).resolve().parents[4] / "tools" / "pr-approval-agent"
 
+# Source of the posthog_owners package shipped into the sandbox, read from the server's own checkout.
+_SERVER_OWNERS_DIR = Path(__file__).resolve().parents[4] / "packages" / "owners"
+
 # Server-shipped default policy files, the base layer every repo's config sits on. Named by the
 # basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
 # config reviews under these as-is, a repo's policy.yml overlays its sections onto the default's
@@ -1128,11 +1131,11 @@ def _ship_owners_package(sandbox: SandboxBase) -> None:
     """Ship the posthog-owners resolver package the engine's ownership format imports.
 
     The default policy declares a ``hogli-resolver`` ownership source, and gates.py imports
-    ``posthog_owners`` from ``tools/owners`` next to the engine dir. Same trust posture as the
+    ``posthog_owners`` from ``packages/owners`` in the checkout. Same trust posture as the
     engine: always our copy, wiping whatever the PR head carried at that path. Repos without
     owners.yaml/product.yaml files simply resolve to "no ownership-source match".
     """
-    package_dir = _SERVER_ENGINE_DIR.parent / "owners" / "posthog_owners"
+    package_dir = _SERVER_OWNERS_DIR / "posthog_owners"
     if not package_dir.is_dir():
         raise RuntimeError(f"owners package source dir not found: {package_dir}")
     target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/posthog_owners"

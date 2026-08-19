@@ -65,6 +65,9 @@ jobs:
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
+                        - 'packages/owners/**'
+                        # Transitional: unrebased branches still have the resolver at
+                        # tools/owners. Drop once open PRs have rebased.
                         - 'tools/owners/**'
                         - 'hogli.yaml'
                         - 'bin/**'
@@ -201,7 +204,14 @@ jobs:
 
                   - name: Run owners resolver tests
                     shell: bash
-                    run: pytest tools/owners/tests -v --junitxml=junit-owners.xml
+                    # The tools/owners fallback covers unrebased branches; drop it once open PRs
+                    # have rebased past the move to packages/owners.
+                    run: |
+                        if [ -d packages/owners ]; then
+                            pytest packages/owners/tests -v --junitxml=junit-owners.xml
+                        else
+                            pytest tools/owners/tests -v --junitxml=junit-owners.xml
+                        fi
 
                   - name: Run query-performance-ai tests
                     shell: bash
