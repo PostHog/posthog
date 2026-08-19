@@ -2795,15 +2795,27 @@ When set, the specified dashboard's filters and date range override will be appl
         # equivalent today because team_id == project_id, and asymmetric only under the deprecated
         # multi-team-per-project path being removed. Same trade-off as the feature flag bulk endpoint.
         saved_insights = Insight.objects.filter(team__project_id=self.team.project_id, saved=True)
-        insight_ids = list(saved_insights.filter(query__isnull=False).order_by("id").values_list("id", flat=True))
         # Counted rather than silently dropped: these still carry the toggle through `filter_to_query`, so a run
         # that leaves them behind has to say so instead of reporting that nothing needed changing.
         legacy_count = saved_insights.filter(query__isnull=True).count()
 
         totals = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": 0, "legacy": legacy_count}
-        for start in range(0, len(insight_ids), INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE):
-            batch_ids = insight_ids[start : start + INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE]
-            for key, count in self._set_test_account_filter_on_batch(batch_ids, enabled=enabled).items():
+        considered = legacy_count
+        # Keyset pagination, so each batch scans forward from the previous batch's last id rather than re-walking
+        # the index from the start, and no project's whole insight list has to sit in memory. The writes below
+        # never touch `id`, so the cursor can't skip or repeat a row.
+        cursor = 0
+        while True:
+            batch = list(
+                saved_insights.filter(query__isnull=False, id__gt=cursor).order_by("id")[
+                    :INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE
+                ]
+            )
+            if not batch:
+                break
+            cursor = batch[-1].id
+            considered += len(batch)
+            for key, count in self._set_test_account_filter_on_batch(batch, enabled=enabled).items():
                 totals[key] += count
 
         if totals["updated"]:
@@ -2817,7 +2829,7 @@ When set, the specified dashboard's filters and date range override will be appl
             {
                 "enabled": enabled,
                 # Includes the legacy rows so the outcome counts still add up to what was considered.
-                "insights_considered": len(insight_ids) + legacy_count,
+                "insights_considered": considered,
                 **{f"insights_{outcome}": count for outcome, count in totals.items()},
             },
             team=self.team,
@@ -2828,8 +2840,8 @@ When set, the specified dashboard's filters and date range override will be appl
 
     # Annotated as Sequence rather than list because this viewset defines a `list` action, which shadows the
     # builtin inside the class body: `list[Insight]` here raises TypeError at import.
-    def _editable_insights(self, insight_ids: Sequence[int]) -> tuple[Sequence[Insight], int]:
-        """The insights from this project the caller may edit, and how many were held back.
+    def _editable_insights(self, insights: Sequence[Insight]) -> tuple[Sequence[Insight], int]:
+        """The insights from this batch the caller may edit, and how many were held back.
 
         Access has to be resolved one insight at a time. `filter_queryset_by_access_level` answers whether an
         insight is visible rather than whether it can be edited, so filtering in the query would let insights
@@ -2839,11 +2851,10 @@ When set, the specified dashboard's filters and date range override will be appl
         view, but `can_edit` short-circuits for anyone who `can_restrict`, which is every project admin, and the
         action already requires project admin. Relaxing that requirement would have to bring the check back.
         """
-        insights = list(Insight.objects.filter(id__in=insight_ids, team__project_id=self.team.project_id))
         if not self.user_access_control:
             return insights, 0
 
-        self.user_access_control.preload_object_access_controls(cast(list, insights))
+        self.user_access_control.preload_object_access_controls(cast(list, list(insights)))
         editable = [
             insight
             for insight in insights
@@ -2852,8 +2863,8 @@ When set, the specified dashboard's filters and date range override will be appl
         ]
         return editable, len(insights) - len(editable)
 
-    def _set_test_account_filter_on_batch(self, insight_ids: Sequence[int], *, enabled: bool) -> dict[str, int]:
-        editable, skipped = self._editable_insights(insight_ids)
+    def _set_test_account_filter_on_batch(self, insights: Sequence[Insight], *, enabled: bool) -> dict[str, int]:
+        editable, skipped = self._editable_insights(insights)
         counts = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": skipped}
 
         current_user = cast(User, self.request.user)

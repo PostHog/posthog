@@ -5344,6 +5344,18 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         self.assertEqual(self._reloaded_source(needs_change)["filterTestAccounts"], enabled)
         self.assertEqual(self._reloaded_source(already_set)["filterTestAccounts"], enabled)
 
+    @patch("products.product_analytics.backend.api.insight.INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE", 2)
+    def test_covers_every_insight_across_several_batches(self) -> None:
+        insights = [self._create_query_insight(name=f"Trend {n}", filter_test_accounts=False) for n in range(5)]
+
+        response = self._bulk_set(True)
+
+        # A cursor that doesn't advance reprocesses rows, one that advances too far leaves the tail untouched.
+        # Both are invisible while every insight fits in a single batch, which is every other case here.
+        self.assertEqual(response.json(), {"updated": 5, "unchanged": 0, "unsupported": 0, "skipped": 0, "legacy": 0})
+        for insight in insights:
+            self.assertTrue(self._reloaded_source(insight)["filterTestAccounts"])
+
     def test_treats_a_missing_filter_as_off(self) -> None:
         insight = self._create_query_insight()
 
