@@ -1,6 +1,6 @@
 import { toSentenceCase } from 'lib/utils/strings'
 
-import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry, InheritedAccessLevelReason } from '~/types'
+import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
 
 import type { InheritedAccess } from '../accessControlLogic'
 import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettingsEntry, InheritedReason } from './types'
@@ -89,6 +89,24 @@ export function getEntryId(entry: AccessControlSettingsEntry): string {
     throw new Error('Unknown entry type')
 }
 
+/**
+ * The settings UI's phrasing of why a subject falls back to a level, from the entry's inherited
+ * provenance: the org-admin bypass, a role's rule, or a default (a stored default rule or the
+ * built-in one — both are "the default" to a person editing overrides).
+ */
+export function inheritedReasonOf(inherited: EffectiveAccessControlEntry['inherited_access']): InheritedReason {
+    if (!inherited) {
+        return null
+    }
+    if (inherited.source === 'org_admin') {
+        return 'organization_admin'
+    }
+    if (inherited.source_subject === 'role') {
+        return 'role_override'
+    }
+    return 'project_default'
+}
+
 export function getInheritedReasonTooltip(reason: InheritedReason): string | undefined {
     switch (reason) {
         case 'project_default':
@@ -147,7 +165,7 @@ export function getLevelOptionsForResource(
     })
 }
 
-function inheritedReason(reason: InheritedAccessLevelReason | null, fallbackTo: string): string {
+function inheritedReason(reason: InheritedReason, fallbackTo: string): string {
     switch (reason) {
         case 'role_override':
             return 'Based on role permissions'
@@ -159,24 +177,17 @@ function inheritedReason(reason: InheritedAccessLevelReason | null, fallbackTo: 
 }
 
 /**
- * What applies to a resource when the subject has no rule of their own. The entry resolves explicit
- * defaults and role grants server-side; `systemDefault` covers resources with no rule anywhere.
+ * What applies to a resource when the subject has no rule of their own. The entry resolves it
+ * server-side, down to the built-in default when no rule exists anywhere.
  */
-export function inheritedFor(
-    res: EffectiveAccessControlEntry | undefined,
-    systemDefault: AccessControlLevel | undefined,
-    fallbackTo: string
-): InheritedAccess | null {
-    const level = res?.inherited_access_level ?? systemDefault
-    if (!level) {
+export function inheritedFor(res: EffectiveAccessControlEntry | undefined, fallbackTo: string): InheritedAccess | null {
+    const inherited = res?.inherited_access ?? null
+    if (!inherited) {
         return null
     }
     return {
-        label: humanizeAccessControlLevel(level),
-        reason: inheritedReason(
-            res?.inherited_access_level ? (res.inherited_access_level_reason ?? null) : null,
-            fallbackTo
-        ),
+        label: humanizeAccessControlLevel(inherited.access_level),
+        reason: inheritedReason(inheritedReasonOf(inherited), fallbackTo),
     }
 }
 
@@ -193,7 +204,7 @@ export function subjectDisabledReason(
     if (isMemberEntry(entry) && currentUserUuid && entry.user.uuid === currentUserUuid) {
         return 'You cannot change your own access'
     }
-    if (entry.project.inherited_access_level_reason === 'organization_admin') {
+    if (inheritedReasonOf(entry.project.inherited_access) === 'organization_admin') {
         return 'Organization admins always have full access'
     }
     return undefined

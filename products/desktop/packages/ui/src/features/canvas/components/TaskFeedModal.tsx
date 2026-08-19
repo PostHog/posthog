@@ -126,7 +126,7 @@ export function TaskFeedModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="overflow-visible sm:max-w-lg">
-        <DialogHeader>
+        <DialogHeader className="min-w-0">
           <DialogTitle>
             {feed ? "Edit saved search" : "Save search"}
           </DialogTitle>
@@ -135,7 +135,7 @@ export function TaskFeedModal({
             the command palette.
           </DialogDescription>
         </DialogHeader>
-        <DialogBody className="flex flex-col gap-4">
+        <DialogBody className="flex min-w-0 flex-col gap-4">
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-3">
               <label htmlFor="task-feed-query" className="font-medium text-sm">
@@ -217,7 +217,7 @@ export function TaskFeedModal({
             />
           </div>
         </DialogBody>
-        <DialogFooter>
+        <DialogFooter className="min-w-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
