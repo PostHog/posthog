@@ -84,6 +84,18 @@ class TestExpireCodeInvites(TestCase):
 
         assert self._expires_at_by_code() == {"A": None, "B": FUTURE_EXPIRY, "C": None, "EXPIRED": PAST_EXPIRY}
 
+    def test_leaves_invites_created_during_confirmation_alone(self) -> None:
+        def confirm(_prompt: str) -> str:
+            CodeInvite.objects.create(code="LATE", created_by=self.alice)
+            return "yes"
+
+        with patch("sys.stdin") as stdin, patch("builtins.input", side_effect=confirm):
+            stdin.isatty.return_value = True
+            output = self._call("--all")
+
+        assert self._expires_at_by_code()["LATE"] is None
+        assert "Expired 3 invite(s)." in output
+
     def test_refuses_without_yes_when_not_interactive(self) -> None:
         with patch("sys.stdin") as stdin, self.assertRaises(CommandError):
             stdin.isatty.return_value = False
