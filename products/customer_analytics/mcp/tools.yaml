@@ -1000,8 +1000,8 @@ tools:
 
             Customer Analytics stores its account usage metrics under the team's account group type index. That index
             identifies the account group type. It is `0` for Customer Analytics accounts, the same value that
-            `usage-metrics-create` writes. Pass `group_type_index: 0` unless your team set a different account group type
-            index. Example: `call usage-metrics-list {"group_type_index": 0}`.
+            `usage-metrics-create` writes. Pass `group_type_index: 0` unless your team set a different account group
+            type index. Example: `call usage-metrics-list {"group_type_index": 0}`.
 
             The result gives each metric's id, name, format, interval (days), display mode, math aggregation, and filter
             definition. A metric renders on both group and person profile pages; the index selects which stored metrics
