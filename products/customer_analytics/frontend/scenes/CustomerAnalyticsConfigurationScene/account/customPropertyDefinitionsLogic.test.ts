@@ -435,6 +435,20 @@ describe('customPropertyDefinitionsLogic', () => {
             ])
         })
 
+        it('keeps a started row that has a property but no column yet', async () => {
+            // A property typed before its column, or left after a source switch clears columns but keeps
+            // the name, must not be discarded by the bulk map.
+            await mapAll({
+                keyColumn: 'org_id',
+                columnMappings: [{ column: '', property: 'monthly_revenue', description: '' }],
+            })
+
+            expect(logic.values.customPropertyForm.columnMappings).toEqual([
+                { column: '', property: 'monthly_revenue', description: '' },
+                { column: 'mrr', property: 'mrr', description: '' },
+            ])
+        })
+
         it('offers nothing to map once every column is spoken for', async () => {
             await mapAll({ keyColumn: 'org_id' })
             expect(logic.values.mappableColumns).toEqual([])

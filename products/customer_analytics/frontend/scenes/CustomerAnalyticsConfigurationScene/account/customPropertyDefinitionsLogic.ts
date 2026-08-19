@@ -1122,9 +1122,13 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 return
             }
             // Rows the user already started are kept, and the columns behind them are excluded from
-            // mappableColumns, so a bulk map never duplicates or discards hand-entered work. Only the
-            // empty placeholder row drops out.
-            const started = values.customPropertyForm.columnMappings.filter((mapping) => mapping.column.trim())
+            // mappableColumns, so a bulk map never duplicates or discards hand-entered work. A row
+            // counts as started if it holds a column, property, or description, so a property typed
+            // before its column (including one left after a source switch clears columns but keeps
+            // the name) survives. Only fully empty placeholder rows drop out.
+            const started = values.customPropertyForm.columnMappings.filter(
+                (mapping) => mapping.column.trim() || mapping.property.trim() || mapping.description.trim()
+            )
             actions.setCustomPropertyFormValue('columnMappings', [
                 ...started,
                 ...values.mappableColumns.map((column) => ({
