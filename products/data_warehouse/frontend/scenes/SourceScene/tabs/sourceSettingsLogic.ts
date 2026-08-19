@@ -408,6 +408,9 @@ export interface sourceSettingsLogicActions {
     bulkEnable: (schemas: ExternalDataSourceSchema[]) => {
         schemas: ExternalDataSourceSchema[]
     }
+    enableSchemaWithDefaults: (schema: ExternalDataSourceSchema) => {
+        schema: ExternalDataSourceSchema
+    }
     bulkResync: (schemas: ExternalDataSourceSchema[]) => {
         schemas: ExternalDataSourceSchema[]
     }
@@ -674,6 +677,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         cancelSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
         bulkEnable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        enableSchemaWithDefaults: (schema: ExternalDataSourceSchema) => ({ schema }),
         setBulkEnableLoading: (loading: boolean) => ({ loading }),
         bulkDisable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval) => ({
@@ -875,6 +879,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             false as boolean,
             {
                 bulkEnable: () => true,
+                enableSchemaWithDefaults: () => true,
                 setBulkEnableLoading: (_, { loading }) => loading,
             },
         ],
@@ -1523,6 +1528,41 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     // Partial failures stay committed server-side; reload to show what did apply.
                     actions.loadSource()
                     lemonToast.error(e?.message || "Can't enable schemas at this time")
+                } finally {
+                    actions.setBulkEnableLoading(false)
+                    cache.bulkEnableInFlight = false
+                }
+            },
+            enableSchemaWithDefaults: async ({ schema }) => {
+                // Shares the bulk-enable guard so a single toggle and the bulk action can't overlap.
+                if (cache.bulkEnableInFlight) {
+                    lemonToast.info('Still enabling the previous tables. Try again in a moment')
+                    return
+                }
+                cache.bulkEnableInFlight = true
+                try {
+                    const updatedSchemas = await api.externalDataSources.bulkUpdateSchemas(values.sourceId, [
+                        { id: schema.id, should_sync: true, apply_sync_defaults: true },
+                    ])
+                    const nextSource = applySchemasToSource(values.source, updatedSchemas)
+                    if (nextSource) {
+                        actions.loadSourceSuccess(nextSource)
+                    }
+                    actions.loadJobs()
+                    lemonToast.success('Table enabled with default sync settings')
+                } catch (e: any) {
+                    // Defaults don't fit every table: a webhook-only table is rejected here. Send the
+                    // user to the sync-method page (webhook preselected) instead of a dead-end error.
+                    actions.loadSource()
+                    lemonToast.error(e?.message || "Can't enable this table with default settings")
+                    router.actions.push(
+                        urls.dataWarehouseSourceSchema(
+                            `managed-${values.sourceId}`,
+                            schema.id,
+                            'configuration',
+                            'sync-method'
+                        )
+                    )
                 } finally {
                     actions.setBulkEnableLoading(false)
                     cache.bulkEnableInFlight = false

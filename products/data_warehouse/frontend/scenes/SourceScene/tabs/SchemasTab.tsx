@@ -360,7 +360,7 @@ function ManagedSchemaTable({
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
     const { inProgressRowsBySchema, bulkEnableLoading } = useValues(sourceSettingsLogic)
-    const { setSelectedSchemas, bulkEnable } = useActions(sourceSettingsLogic)
+    const { setSelectedSchemas, enableSchemaWithDefaults } = useActions(sourceSettingsLogic)
     const [initialLoad, setInitialLoad] = useState(true)
 
     useEffect(() => {
@@ -566,7 +566,7 @@ function ManagedSchemaTable({
                                                 primaryButton: {
                                                     children: 'Enable',
                                                     type: 'primary',
-                                                    onClick: () => bulkEnable([schema]),
+                                                    onClick: () => enableSchemaWithDefaults(schema),
                                                 },
                                                 secondaryButton: {
                                                     children: 'Choose sync method',
