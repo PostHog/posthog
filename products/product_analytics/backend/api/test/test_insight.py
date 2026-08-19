@@ -5334,7 +5334,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         response = self._bulk_set(enabled)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(response.json(), {"updated": 1, "unchanged": 1, "unsupported": 0, "skipped": 0})
+        self.assertEqual(response.json(), {"updated": 1, "unchanged": 1, "unsupported": 0, "skipped": 0, "legacy": 0})
         self.assertEqual(self._reloaded_source(needs_change)["filterTestAccounts"], enabled)
         self.assertEqual(self._reloaded_source(already_set)["filterTestAccounts"], enabled)
 
@@ -5356,10 +5356,10 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
 
         response = self._bulk_set(True)
 
-        self.assertEqual(response.json(), {"updated": 0, "unchanged": 0, "unsupported": 1, "skipped": 0})
+        self.assertEqual(response.json(), {"updated": 0, "unchanged": 0, "unsupported": 1, "skipped": 0, "legacy": 0})
         self.assertNotIn("filterTestAccounts", self._reloaded_source(sql_insight))
 
-    def test_ignores_insights_that_only_have_legacy_filters(self) -> None:
+    def test_reports_insights_that_only_have_legacy_filters_rather_than_changing_them(self) -> None:
         mine = self._create_query_insight(filter_test_accounts=False)
         legacy = Insight.objects.create(
             team=self.team, name="Legacy", saved=True, filters={"insight": "TRENDS", "events": [{"id": "$pageview"}]}
@@ -5367,8 +5367,9 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
 
         response = self._bulk_set(True)
 
-        # `unsupported: 0` is the assertion that matters: legacy insights are out of scope, not merely unhandled.
-        self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 0})
+        # `legacy: 1` rather than `unsupported: 1`: these carry the toggle and have their own remedy, so the
+        # caller has to be able to tell them apart from a SQL insight that can never have one.
+        self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 0, "legacy": 1})
         self.assertTrue(self._reloaded_source(mine)["filterTestAccounts"])
         legacy.refresh_from_db()
         self.assertNotIn("filter_test_accounts", legacy.filters)
@@ -5392,7 +5393,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
 
         response = self._bulk_set(True)
 
-        self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 0})
+        self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 0, "legacy": 0})
         self.assertTrue(self._reloaded_source(mine)["filterTestAccounts"])
         self.assertFalse(self._reloaded_source(theirs)["filterTestAccounts"])
 
@@ -5420,7 +5421,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         self.client.force_login(member)
         response = self._bulk_set(True)
 
-        self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 1})
+        self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 1, "legacy": 0})
         self.assertTrue(self._reloaded_source(free)["filterTestAccounts"])
         self.assertFalse(self._reloaded_source(restricted_insight)["filterTestAccounts"])
 
@@ -5461,6 +5462,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
                 "insights_considered": 1,
                 "insights_unsupported": 0,
                 "insights_skipped": 0,
+                "insights_legacy": 0,
                 **expected_counts,
             },
             team=ANY,

@@ -80,13 +80,14 @@ export const applyTestAccountFilterLogic = kea<applyTestAccountFilterLogicType>(
             if (!bulkSetResponse) {
                 return
             }
-            const { updated, unsupported, skipped } = bulkSetResponse
+            const { updated, unsupported, skipped, legacy } = bulkSetResponse
             const direction = payload?.enabled ? 'on' : 'off'
             const noun = updated === 1 ? 'insight' : 'insights'
             const extras = [
                 unsupported > 0 ? `${unsupported} with no such filter, like SQL insights` : null,
-                // Access is the only one of the two with a next step: nothing can put the toggle on a SQL insight.
+                // The two with a next step say what it is. Nothing can put the toggle on a SQL insight.
                 skipped > 0 ? `${skipped} you can't edit (an organization admin can apply it to those)` : null,
+                legacy > 0 ? `${legacy} saved in an older format (open and save one to convert it)` : null,
             ].filter(Boolean)
             const leftAlone = extras.length > 0 ? ` Left alone: ${extras.join(', ')}.` : ''
             if (updated > 0) {

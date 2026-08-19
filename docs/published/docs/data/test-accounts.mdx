@@ -64,6 +64,7 @@ Some insights are left as they are:
 
 - **SQL insights**, which have no such toggle. Write the exclusion into the query itself if you need it.
 - **Insights you can't edit.** An organization admin can run it to cover those, or you can ask for edit access to them. See [access control](/docs/settings/access-control).
+- **Insights saved in an older format.** These keep whatever they were set to. Open one and save it to convert it, then run this again.
 
 After each run you get a summary of how many insights were changed, how many already matched, and how many were left alone.
 
@@ -106,7 +107,7 @@ The key needs the `insight:write` scope.
 The response counts the outcomes:
 
 ```json
-{ "updated": 42, "unchanged": 3, "unsupported": 2, "skipped": 0 }
+{ "updated": 42, "unchanged": 3, "unsupported": 2, "skipped": 0, "legacy": 0 }
 ```
 
 Insights are updated in batches, so a request that fails part way through leaves the finished batches applied.

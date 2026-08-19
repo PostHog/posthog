@@ -1640,6 +1640,13 @@ class InsightBulkSetTestAccountFilterResponseSerializer(serializers.Serializer):
         help_text="Number of insights with no test account filter to set, such as SQL insights."
     )
     skipped = serializers.IntegerField(help_text="Number of insights the requester cannot edit.")
+    legacy = serializers.IntegerField(
+        help_text=(
+            "Number of insights left as they are because they still store legacy `filters` rather than a query. "
+            "They keep whatever value they already had. Opening and saving one converts it, after which this "
+            "endpoint covers it."
+        )
+    )
 
 
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
@@ -2764,11 +2771,11 @@ When set, the specified dashboard's filters and date range override will be appl
         description=(
             "Turn 'filter out internal and test users' on or off for every existing insight in the project. The "
             "setting of the same name only decides the default for new insights; this applies it to the insights "
-            "that already exist. Only insights that store a query are considered, so insights still holding "
-            "legacy `filters` are not included. Insights with nowhere to put the toggle, such as SQL insights, "
-            "are left alone, as are insights the requester cannot edit. Dashboards follow their insights unless "
-            "the dashboard sets its own override. Insights are updated in batches, so a failure part way through "
-            "leaves the finished batches applied. Retrying is safe and picks up the rest."
+            "that already exist. Only insights that store a query are changed; insights still holding legacy "
+            "`filters` are counted in `legacy` and left as they are. Insights with nowhere to put the toggle, "
+            "such as SQL insights, are left alone, as are insights the requester cannot edit. Dashboards follow "
+            "their insights unless the dashboard sets its own override. Insights are updated in batches, so a "
+            "failure part way through leaves the finished batches applied. Retrying is safe and picks up the rest."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
@@ -2778,13 +2785,13 @@ When set, the specified dashboard's filters and date range override will be appl
         # are served under /environments/. The per-insight access check below resolves rows team-scoped, which is
         # equivalent today because team_id == project_id, and asymmetric only under the deprecated
         # multi-team-per-project path being removed. Same trade-off as the feature flag bulk endpoint.
-        insight_ids = list(
-            Insight.objects.filter(team__project_id=self.team.project_id, saved=True, query__isnull=False)
-            .order_by("id")
-            .values_list("id", flat=True)
-        )
+        saved_insights = Insight.objects.filter(team__project_id=self.team.project_id, saved=True)
+        insight_ids = list(saved_insights.filter(query__isnull=False).order_by("id").values_list("id", flat=True))
+        # Counted rather than silently dropped: these still carry the toggle through `filter_to_query`, so a run
+        # that leaves them behind has to say so instead of reporting that nothing needed changing.
+        legacy_count = saved_insights.filter(query__isnull=True).count()
 
-        totals = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": 0}
+        totals = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": 0, "legacy": legacy_count}
         for start in range(0, len(insight_ids), INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE):
             batch_ids = insight_ids[start : start + INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE]
             for key, count in self._set_test_account_filter_on_batch(batch_ids, enabled=enabled).items():
@@ -2800,7 +2807,8 @@ When set, the specified dashboard's filters and date range override will be appl
             "insights bulk test account filter set",
             {
                 "enabled": enabled,
-                "insights_considered": len(insight_ids),
+                # Includes the legacy rows so the outcome counts still add up to what was considered.
+                "insights_considered": len(insight_ids) + legacy_count,
                 **{f"insights_{outcome}": count for outcome, count in totals.items()},
             },
             team=self.team,

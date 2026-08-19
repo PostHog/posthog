@@ -42,6 +42,9 @@ export function ApplyTestAccountFilterToExistingInsights(): JSX.Element {
                                 ask for edit access to them.{' '}
                                 <Link to="https://posthog.com/docs/settings/access-control">About access control</Link>
                             </li>
+                            <li>
+                                Insights saved in an older format. Open and save one to convert it, then run this again.
+                            </li>
                         </ul>
                     </div>
                     <p className="mb-0">

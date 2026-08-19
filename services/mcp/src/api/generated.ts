@@ -43105,6 +43105,8 @@ export namespace Schemas {
       unsupported: number;
       /** Number of insights the requester cannot edit. */
       skipped: number;
+      /** Number of insights left as they are because they still store legacy `filters` rather than a query. They keep whatever value they already had. Opening and saving one converts it, after which this endpoint covers it. */
+      legacy: number;
     }
 
     /**
