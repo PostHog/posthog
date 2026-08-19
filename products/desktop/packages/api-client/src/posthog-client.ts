@@ -3,31 +3,23 @@ import type {
   Adapter,
   CloudMcpServerRelayDesignation,
   CloudRunSource,
-  CreateTaskAutomationOptions,
   ExecutionMode,
   McpServerConnection,
   PrAuthorshipMode,
   SourceProduct,
   SourceType,
   StoredLogEntry,
-  TaskAutomation,
   TaskRunArtifactMetadata,
-  UpdateTaskAutomationOptions,
 } from "@posthog/shared";
 import {
   buildCloudTaskConfigOptions,
   type CloudTaskConfigOption,
-  createTaskAutomationSchema,
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
   getCloudTaskGatewayUrl,
   isSupportedReasoningEffort,
   normalizeGatewayModelsResponse,
   resolveCloudInitialPermissionMode,
-  taskAutomationListSchema,
-  taskAutomationSchema,
-  taskAutomationValidationErrorSchema,
-  updateTaskAutomationSchema,
 } from "@posthog/shared";
 import type {
   AgentAnalyticsData,
@@ -242,6 +234,16 @@ export interface TaskListOptions {
   originProduct?: string;
   internal?: boolean;
   channel?: string;
+  /** Case-insensitive substring match over task title, description, and number. */
+  search?: string;
+  /** Filter by the status of the task's most recent run. */
+  status?: string;
+  /** Filter by the state of the latest run's pull request (open/draft/merged/closed). */
+  prState?: string;
+  /** Filter by the CI rollup on the latest run's pull request (passing/failing/pending/none). */
+  ciStatus?: string;
+  /** List only archived tasks; the server excludes them by default. */
+  archived?: boolean;
   /** Caller-side cap for surfaces that only show the newest few. */
   limit?: number;
   /**
@@ -250,6 +252,8 @@ export interface TaskListOptions {
    * few and a long-running session never makes the page.
    */
   ordering?: "-last_activity_at" | "-created_at";
+  /** Zero-based offset for fetching a later task-list page. */
+  offset?: number;
 }
 
 export interface TaskSearchResult {
@@ -308,36 +312,6 @@ export class CloudUsageLimitError extends Error {
     this.resetAt = params.resetAt;
     this.isPro = params.isPro;
   }
-}
-
-export class TaskAutomationValidationError extends Error {
-  readonly status = 400;
-  readonly code: string;
-  readonly attr: string | null;
-
-  constructor(details: {
-    detail: string;
-    code: string;
-    attr: string | null;
-  }) {
-    super(details.detail);
-    this.name = "TaskAutomationValidationError";
-    this.code = details.code;
-    this.attr = details.attr;
-  }
-}
-
-function rethrowTaskAutomationError(error: unknown): never {
-  if (error instanceof ApiRequestError && error.status === 400) {
-    const validationError = taskAutomationValidationErrorSchema.safeParse(
-      error.body,
-    );
-    if (validationError.success) {
-      throw new TaskAutomationValidationError(validationError.data);
-    }
-  }
-
-  throw error;
 }
 
 export const MCP_CATEGORIES = [
@@ -2311,6 +2285,30 @@ export class PostHogAPIClient {
     return (await this.getTasksPage(options)).tasks;
   }
 
+  async getTasksWithStatus(
+    options?: TaskListOptions,
+    pagination?: { maxPages?: number },
+  ): Promise<{ tasks: Task[]; isComplete: boolean }> {
+    const maxPages = pagination?.maxPages ?? 1;
+    const pageSize = Math.min(options?.limit ?? 100, 100);
+    const tasks: Task[] = [];
+    let count = 0;
+
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
+      const page = await this.getTasksPage({
+        ...options,
+        limit: pageSize,
+        offset: tasks.length,
+      });
+      tasks.push(...page.tasks);
+      count = page.count;
+      if (tasks.length >= count) return { tasks, isComplete: true };
+      if (page.tasks.length === 0) break;
+    }
+
+    return { tasks, isComplete: tasks.length >= count };
+  }
+
   async searchTasks(query: string, limit = 20): Promise<TaskSearchResult[]> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/tasks/search/`;
@@ -2336,6 +2334,10 @@ export class PostHogAPIClient {
       limit: options?.limit ?? 500,
     };
 
+    if (options?.offset !== undefined) {
+      params.offset = options.offset;
+    }
+
     if (options?.repository) {
       params.repository = options.repository;
     }
@@ -2354,6 +2356,26 @@ export class PostHogAPIClient {
 
     if (options?.channel) {
       params.channel = options.channel;
+    }
+
+    if (options?.search) {
+      params.search = options.search;
+    }
+
+    if (options?.status) {
+      params.status = options.status;
+    }
+
+    if (options?.prState) {
+      params.pr_state = options.prState;
+    }
+
+    if (options?.ciStatus) {
+      params.ci_status = options.ciStatus;
+    }
+
+    if (options?.archived) {
+      params.archived = "true";
     }
 
     if (options?.ordering) {
@@ -2442,101 +2464,6 @@ export class PostHogAPIClient {
     }
     const data = (await response.json()) as { pinned: boolean };
     return data.pinned;
-  }
-
-  async listTaskAutomations(options?: {
-    limit?: number;
-    offset?: number;
-  }): Promise<TaskAutomation[]> {
-    const teamId = await this.getTeamId();
-    const data = await this.api.get(
-      `/api/projects/{project_id}/task_automations/`,
-      {
-        path: { project_id: teamId.toString() },
-        query: {
-          limit: options?.limit ?? 500,
-          ...(options?.offset === undefined ? {} : { offset: options.offset }),
-        },
-      },
-    );
-
-    return taskAutomationListSchema.parse(data).results;
-  }
-
-  async getTaskAutomation(automationId: string): Promise<TaskAutomation> {
-    const teamId = await this.getTeamId();
-    const data = await this.api.get(
-      `/api/projects/{project_id}/task_automations/{id}/`,
-      {
-        path: { project_id: teamId.toString(), id: automationId },
-      },
-    );
-
-    return taskAutomationSchema.parse(data);
-  }
-
-  async createTaskAutomation(
-    options: CreateTaskAutomationOptions,
-  ): Promise<TaskAutomation> {
-    const teamId = await this.getTeamId();
-    const body = createTaskAutomationSchema.parse(options);
-
-    try {
-      const data = await this.api.post(
-        `/api/projects/{project_id}/task_automations/`,
-        {
-          path: { project_id: teamId.toString() },
-          body: body as Schemas.TaskAutomation,
-        },
-      );
-      return taskAutomationSchema.parse(data);
-    } catch (error) {
-      rethrowTaskAutomationError(error);
-    }
-  }
-
-  async updateTaskAutomation(
-    automationId: string,
-    updates: UpdateTaskAutomationOptions,
-  ): Promise<TaskAutomation> {
-    const teamId = await this.getTeamId();
-    const body = updateTaskAutomationSchema.parse(updates);
-
-    try {
-      const data = await this.api.patch(
-        `/api/projects/{project_id}/task_automations/{id}/`,
-        {
-          path: { project_id: teamId.toString(), id: automationId },
-          body,
-        },
-      );
-      return taskAutomationSchema.parse(data);
-    } catch (error) {
-      rethrowTaskAutomationError(error);
-    }
-  }
-
-  async deleteTaskAutomation(automationId: string): Promise<void> {
-    const teamId = await this.getTeamId();
-    await this.api.delete(`/api/projects/{project_id}/task_automations/{id}/`, {
-      path: { project_id: teamId.toString(), id: automationId },
-    });
-  }
-
-  async runTaskAutomation(automationId: string): Promise<TaskAutomation> {
-    const teamId = await this.getTeamId();
-    const path = `/api/projects/${teamId}/task_automations/${automationId}/run/`;
-
-    try {
-      const response = await this.api.fetcher.fetch({
-        method: "post",
-        path,
-        url: new URL(`${this.api.baseUrl}${path}`),
-      });
-      return taskAutomationSchema.parse(await response.json());
-    } catch (error) {
-      rethrowTaskAutomationError(error);
-    }
   }
 
   async createTask(

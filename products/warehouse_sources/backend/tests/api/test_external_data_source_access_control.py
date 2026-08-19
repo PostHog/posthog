@@ -385,6 +385,25 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertNotIn(str(external_source.id), returned_ids)
         self.assertNotIn(str(pending_source.id), returned_ids)
 
+    def test_connections_prefers_dynamic_service_source_over_project_reader(self) -> None:
+        project_reader = self._create_managed_source()
+        dynamic = self._create_managed_source(
+            job_inputs={},
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "duckgres_service",
+                "lifecycle_generation": 1,
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in response.json()], [str(dynamic.id)])
+        self.assertTrue(response.json()[0]["is_builtin_managed_warehouse"])
+        self.assertNotEqual(dynamic.id, project_reader.id)
+
     @parameterized.expand(
         [
             ("missing_system_managed", {"connection_metadata": {"engine": "duckdb"}}),
@@ -489,6 +508,15 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
     ) -> None:
         legacy_source = self._create_legacy_managed_source()
         ready_reader = self._create_managed_source()
+        dynamic_source = self._create_managed_source(
+            job_inputs={},
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "duckgres_service",
+                "lifecycle_generation": 1,
+            },
+        )
         pending_reader = self._create_managed_source(
             connection_metadata={
                 "engine": "duckdb",
@@ -532,6 +560,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             ]
         )
         self.assertNotIn(str(ready_reader.id), [item["id"] for item in response.json()])
+        self.assertNotIn(str(dynamic_source.id), [item["id"] for item in response.json()])
         self.assertNotIn(str(pending_reader.id), [item["id"] for item in response.json()])
         self.assertNotIn(str(malformed_legacy.id), [item["id"] for item in response.json()])
         self.assertNotIn(str(unknown_kind.id), [item["id"] for item in response.json()])
