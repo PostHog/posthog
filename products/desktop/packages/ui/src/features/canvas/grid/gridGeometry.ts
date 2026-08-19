@@ -3,6 +3,17 @@ import type {
   GridPlacement,
 } from "@posthog/core/canvas/gridLayoutSchemas";
 
+/** A single cell of the grid, by column and row. */
+export interface GridCell {
+  col: number;
+  row: number;
+}
+
+export function sameCell(a: GridCell | null, b: GridCell | null): boolean {
+  if (!a || !b) return a === b;
+  return a.col === b.col && a.row === b.row;
+}
+
 export interface GridRect {
   x: number;
   y: number;
@@ -46,7 +57,7 @@ export function cellFromPoint(
   pointerY: number,
   surface: { left: number; top: number; width: number },
   grid: GridDefinition,
-): { col: number; row: number } {
+): GridCell {
   const cellWidth = (surface.width + grid.gap) / grid.columns;
   const col = Math.floor((pointerX - surface.left) / cellWidth);
   const row = Math.floor(
@@ -59,10 +70,7 @@ export function cellFromPoint(
 }
 
 // The normalized rect spanned by two cells (a drag's anchor and current cell).
-export function rectFromCells(
-  anchor: { col: number; row: number },
-  current: { col: number; row: number },
-): GridRect {
+export function rectFromCells(anchor: GridCell, current: GridCell): GridRect {
   const x = Math.min(anchor.col, current.col);
   const y = Math.min(anchor.row, current.row);
   return {

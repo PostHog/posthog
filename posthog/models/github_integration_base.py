@@ -1442,6 +1442,148 @@ class GitHubIntegrationBase:
             "updated_at": pr.get("updatedAt"),
         }
 
+    _PR_BABYSIT_SNAPSHOT_QUERY = """
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $number) {
+          url state isDraft mergeable headRefOid
+          author { login }
+          reviewThreads(first: 100) {
+            nodes {
+              id isResolved path
+              comments(last: 1) {
+                nodes { id url body author { login } authorAssociation }
+              }
+            }
+          }
+          comments(last: 30) {
+            nodes { id url body author { login } authorAssociation }
+          }
+          reviews(last: 10) {
+            nodes { id url body author { login } authorAssociation }
+          }
+          commits(last: 1) {
+            nodes {
+              commit {
+                statusCheckRollup {
+                  state
+                  contexts(first: 100) {
+                    nodes {
+                      __typename
+                      ... on CheckRun {
+                        name conclusion detailsUrl
+                        checkSuite { workflowRun { workflow { name } } }
+                      }
+                      ... on StatusContext { context state targetUrl }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+
+    # Every completed conclusion GitHub does not accept for merging. CANCELLED and STALE
+    # leave a required check unsatisfied with no FAILURE beside it (a stopped run, or a
+    # sibling cancelled by matrix fail-fast), so the loop must still name them.
+    _FAILING_CHECK_RUN_CONCLUSIONS = frozenset(
+        {"FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "CANCELLED", "STALE"}
+    )
+    _FAILING_STATUS_CONTEXT_STATES = frozenset({"FAILURE", "ERROR"})
+    _FAILING_ROLLUP_STATES = frozenset({"FAILURE", "ERROR"})
+    _ROLLUP_FAILING_CHECK_KEY = "ci-rollup-failing"
+
+    @classmethod
+    def _extract_failing_checks(cls, rollup: dict[str, Any] | None) -> list[dict[str, Any]]:
+        failing: list[dict[str, Any]] = []
+        for node in ((rollup or {}).get("contexts") or {}).get("nodes") or []:
+            if not isinstance(node, dict):
+                continue
+            if node.get("__typename") == "CheckRun":
+                if node.get("conclusion") not in cls._FAILING_CHECK_RUN_CONCLUSIONS:
+                    continue
+                workflow = (((node.get("checkSuite") or {}).get("workflowRun") or {}).get("workflow") or {}).get("name")
+                name = node.get("name") or "unnamed check"
+                failing.append(
+                    {"key": f"{workflow}/{name}" if workflow else name, "details_url": node.get("detailsUrl")}
+                )
+            elif node.get("__typename") == "StatusContext":
+                if node.get("state") not in cls._FAILING_STATUS_CONTEXT_STATES:
+                    continue
+                failing.append({"key": node.get("context") or "unnamed status", "details_url": node.get("targetUrl")})
+        return failing
+
+    @staticmethod
+    def _feedback_item(node: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": node.get("id"),
+            "author": (node.get("author") or {}).get("login"),
+            "author_association": node.get("authorAssociation"),
+            "body": node.get("body") or "",
+            "url": node.get("url"),
+        }
+
+    def get_pull_request_babysit_snapshot(self, pr_url: str) -> dict[str, Any]:
+        """Fetch the per-item PR state the babysit loop dispatches on: every unresolved
+        review thread with its latest comment, top-level comments and review bodies,
+        each failing check with its details URL, and the merge-conflict state."""
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+
+        data = self._gh_graphql(
+            self._PR_BABYSIT_SNAPSHOT_QUERY,
+            {"owner": parsed.owner, "repo": parsed.repo, "number": parsed.number},
+            endpoint="/graphql:pullRequestBabysitSnapshot",
+        )
+        pr = ((data or {}).get("repository") or {}).get("pullRequest")
+        if not pr:
+            return {"success": False, "error": f"Pull request not found: {pr_url}"}
+
+        author_login = (pr.get("author") or {}).get("login")
+
+        unresolved_threads: list[dict[str, Any]] = []
+        for node in ((pr.get("reviewThreads") or {}).get("nodes")) or []:
+            if not isinstance(node, dict) or node.get("isResolved") is not False:
+                continue
+            comment_nodes = ((node.get("comments") or {}).get("nodes")) or []
+            item = self._feedback_item(comment_nodes[-1] if comment_nodes else {})
+            unresolved_threads.append(
+                {**item, "id": node.get("id"), "path": node.get("path"), "last_comment_id": item["id"] or ""}
+            )
+
+        feedback: list[dict[str, Any]] = []
+        for connection in ("comments", "reviews"):
+            for node in ((pr.get(connection) or {}).get("nodes")) or []:
+                if not isinstance(node, dict):
+                    continue
+                item = self._feedback_item(node)
+                if item["id"] and item["body"].strip() and item["author"] != author_login:
+                    feedback.append(item)
+
+        rollup_nodes = ((pr.get("commits") or {}).get("nodes")) or []
+        rollup = ((rollup_nodes[0] or {}).get("commit") or {}).get("statusCheckRollup") if rollup_nodes else None
+
+        html_url = pr.get("url") or pr_url
+        failing_checks = self._extract_failing_checks(rollup)
+        if not failing_checks and (rollup or {}).get("state") in self._FAILING_ROLLUP_STATES:
+            failing_checks.append({"key": self._ROLLUP_FAILING_CHECK_KEY, "details_url": f"{html_url}/checks"})
+
+        return {
+            "success": True,
+            "url": html_url,
+            "state": self._map_pr_state(pr.get("state"), bool(pr.get("isDraft"))),
+            "head_sha": pr.get("headRefOid") or "",
+            "has_conflict": self._map_mergeable(pr.get("mergeable")) is False,
+            "author_login": author_login,
+            "failing_checks": failing_checks,
+            "unresolved_threads": unresolved_threads,
+            "comments": feedback,
+        }
+
     def list_repositories(self, *, page: int = 1, per_page: int = 100) -> tuple[list[dict], bool]:
         """List one page of installation repositories from the GitHub API.
 

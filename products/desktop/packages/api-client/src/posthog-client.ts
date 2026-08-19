@@ -228,6 +228,12 @@ export interface TaskRunSessionLogsPage {
   matchingCount: number | null;
 }
 
+export interface TaskUsage {
+  token_cost_usd: number;
+  compute_cost_usd: number;
+  total_cost_usd: number;
+}
+
 export interface TaskListOptions {
   repository?: string;
   createdBy?: number;
@@ -242,6 +248,12 @@ export interface TaskListOptions {
   prState?: string;
   /** Filter by the CI rollup on the latest run's pull request (passing/failing/pending/none). */
   ciStatus?: string;
+  /** List only tasks the requesting user has pinned. */
+  pinned?: boolean;
+  /** Filter to tasks with a thread comment from this user ID. */
+  commentedBy?: number;
+  /** Filter to tasks whose thread mentions this user ID. */
+  mentions?: number;
   /** List only archived tasks; the server excludes them by default. */
   archived?: boolean;
   /** Caller-side cap for surfaces that only show the newest few. */
@@ -354,6 +366,20 @@ export interface UserGitHubIntegration {
   } | null;
   uses_shared_installation?: boolean;
   created_at?: string;
+}
+
+/** A personal GitHub App install awaiting (or granted) org-owner approval; the
+ * durable server-side counterpart to the in-flight connect spinner. Mirrors
+ * `GitHubInstallRequest` on the backend. */
+export interface GitHubInstallRequest {
+  id: string;
+  github_login: string;
+  /** `unidentified` means the requester could not be resolved, so approval can
+   *  never be detected and the user has to restart the connect flow. */
+  status: "pending" | "approved" | "unidentified";
+  installation_id?: string | null;
+  requested_at: string;
+  resolved_at?: string | null;
 }
 
 export interface LlmSkillCreatedBy {
@@ -928,6 +954,11 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+// DRF's generic placeholder for "no route matched" and an unhandled NotFound
+// alike — never a business-specific message, so it's less actionable than the
+// endpoint's own fallback plus status code.
+const DRF_GENERIC_NOT_FOUND_DETAIL = "Not found.";
+
 /** Unwrap the shared fetcher's `Failed request: [<status>] <json>` into the endpoint's clean message. */
 function extractRequestErrorMessage(error: unknown, fallback: string): string {
   const raw = error instanceof Error ? error.message : String(error);
@@ -938,7 +969,11 @@ function extractRequestErrorMessage(error: unknown, fallback: string): string {
   try {
     const body = JSON.parse(match[2]) as { error?: unknown; detail?: unknown };
     const message = body.error ?? body.detail;
-    if (typeof message === "string" && message.trim()) {
+    if (
+      typeof message === "string" &&
+      message.trim() &&
+      message !== DRF_GENERIC_NOT_FOUND_DETAIL
+    ) {
       return message;
     }
   } catch {
@@ -1753,6 +1788,27 @@ export class PostHogAPIClient {
     return data.results ?? [];
   }
 
+  async getGithubInstallRequests(): Promise<GitHubInstallRequest[]> {
+    const urlPath = `/api/users/@me/integrations/github/install_requests/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch GitHub install requests: ${response.statusText}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      results?: GitHubInstallRequest[];
+    };
+    return data.results ?? [];
+  }
+
   async disconnectGithubUserIntegration(installationId: string): Promise<void> {
     const urlPath = `/api/users/@me/integrations/github/${encodeURIComponent(installationId)}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -2374,6 +2430,18 @@ export class PostHogAPIClient {
       params.ci_status = options.ciStatus;
     }
 
+    if (options?.pinned) {
+      params.pinned = true;
+    }
+
+    if (options?.commentedBy) {
+      params.commented_by = options.commentedBy;
+    }
+
+    if (options?.mentions) {
+      params.mentions = options.mentions;
+    }
+
     if (options?.archived) {
       params.archived = "true";
     }
@@ -2433,6 +2501,20 @@ export class PostHogAPIClient {
       path: { project_id: teamId.toString(), id: taskId },
     });
     return normalizeTaskResponse(data, { teamId });
+  }
+
+  async getTaskUsage(taskId: string): Promise<TaskUsage> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/tasks/${taskId}/usage/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch task usage: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskUsage;
   }
 
   async getPinnedTaskIds(): Promise<string[]> {
@@ -3612,6 +3694,27 @@ export class PostHogAPIClient {
     });
     if (!response.ok) {
       throw new Error(`Failed to append log: ${response.statusText}`);
+    }
+  }
+
+  /**
+   * Record a `/clear` boundary in a finished run's log, so the next run in the
+   * chain resumes past it with an empty conversation. Only valid for a finished
+   * run, because an active one has an agent that owns the clear (409 otherwise).
+   */
+  async clearTaskRunConversation(taskId: string, runId: string): Promise<void> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/clear_conversation/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any non-2xx, so
+    // unwrap that into the endpoint's clean `error` message rather than surfacing the raw string.
+    try {
+      await this.api.fetcher.fetch({ method: "post", url, path });
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Couldn’t clear the conversation."),
+      );
     }
   }
 
