@@ -44,11 +44,11 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
     # uv sync validates workspace membership even with --no-dev, so every
-    # workspace member must be present in the build context. tools/owners is also a real install
+    # workspace member must be present in the build context. packages/owners is also a real install
     # source here: posthog-owners is a runtime dependency (stamphog's digest reads owners.yaml
     # through it, and posthog/urls.py imports that chain unconditionally), and --no-editable copies
     # it into the venv so the image never depends on this bind mount's path surviving.
-    --mount=type=bind,source=tools/owners,target=tools/owners \
+    --mount=type=bind,source=packages/owners,target=packages/owners \
     uv sync --locked --no-dev --no-editable --no-install-project --group sentiment --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -57,9 +57,9 @@ ENV PATH=/python-runtime/bin:$PATH \
     TIKTOKEN_CACHE_DIR=/code/.tiktoken_cache
 
 # posthog-owners is installed from a bind mount that does not survive into the image, so a missing
-# --no-editable above leaves an editable install pointing at /code/tools/owners and every Django
+# --no-editable above leaves an editable install pointing at /code/packages/owners and every Django
 # entrypoint dies on `import posthog_owners` at runtime instead of here. The root Dockerfile asserts
-# the same invariant with `test -d tools/owners/posthog_owners`; this image never copies that source
+# the same invariant with `test -d packages/owners/posthog_owners`; this image never copies that source
 # tree, so assert importability instead of presence.
 RUN python -c "import posthog_owners"
 

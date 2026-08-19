@@ -9,13 +9,26 @@
 // Products without contract-check are non-isolated: any change in them
 // triggers the full test suite (all products + Django).
 //
-// Internal libs are the other kind of workspace package with a backend:test
-// task: plain Python packages under posthog/libs/<name>/, imported as
-// posthog.libs.<name>. Because tach's source root resolves them, each one is a
-// real tach module and every consumer has to list it in depends_on for
-// `tach check` to pass, so their dependents are declared and enforced and
-// tach.toml answers who they are. They do become matrix entries: a lib's own
-// tests only exist as its workspace package's backend:test task, so the product
+// Lib packages are the workspace's non-product Python packages that carry a
+// backend:test task (@posthog/owners and the like). They never become matrix
+// entries: their own tests run in ci-python.yml's code-quality step. They
+// matter here as cascade sources, and finding their consumers takes an import
+// scan rather than tach. Each is a uv distribution, so tach resolves imports of
+// it as third-party and never records an edge to it, which means a declared
+// tach module for a lib would go unenforced and drift. So a changed lib's
+// direct consumers come from scanning products/ for its import statements, and
+// tach.toml then supplies only the product-to-product closure over those
+// consumers. The same scan covers posthog/, ee/ and common/, where an importer
+// has no product id to select, so the only sound answer is the full suite.
+//
+// Internal libs are the second kind of non-product package: plain Python
+// packages under posthog/libs/<name>/, imported as posthog.libs.<name> rather
+// than installed as a distribution. Because tach's source root resolves them,
+// each one is a real tach module and every consumer has to list it in
+// depends_on for `tach check` to pass. So unlike the packages/ libs above,
+// their dependents are declared and enforced, and tach.toml answers who they
+// are without an import scan. They do become matrix entries: a lib's own tests
+// only exist as its workspace package's backend:test task, so the product
 // matrix is what runs them, one entry per lib.
 //
 // Products under SMALL_THRESHOLD duration get grouped into one matrix entry
@@ -135,6 +148,7 @@ function parseAffectedTasks(raw) {
 const PRODUCT_PACKAGE_PREFIX = '@posthog/products-'
 const INTERNAL_LIB_PACKAGE_PREFIX = '@posthog/lib-'
 const TACH_INTERNAL_LIB_PREFIX = 'posthog.libs.'
+const POSTHOG_PACKAGE_PREFIX = '@posthog/'
 
 function isProductPackage(name) {
     return name.startsWith(PRODUCT_PACKAGE_PREFIX)
@@ -148,11 +162,27 @@ function packageToProduct(pkg) {
     return pkg.replace(PRODUCT_PACKAGE_PREFIX, '')
 }
 
+// A lib package @posthog/<name> ships the Python package posthog_<name>, which
+// is the name its consumers import it by. A package name this convention can't
+// map throws rather than returning a guess: a module name nothing imports scans
+// clean, which reads as "no consumer to test" and skips exactly the products
+// the cascade exists to select. The character check also keeps the derived name
+// safe to interpolate into the import-scan regex.
+function libPackageToModule(pkg) {
+    const name = pkg.startsWith(POSTHOG_PACKAGE_PREFIX) ? pkg.slice(POSTHOG_PACKAGE_PREFIX.length) : ''
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
+        throw new Error(
+            `cannot map package '${pkg}' to a Python module — lib packages must be named @posthog/<name> with a lowercase, dashed name`
+        )
+    }
+    return `posthog_${name.replace(/-/g, '_')}`
+}
+
 // An internal lib package @posthog/lib-<name> is the tach module
-// posthog.libs.<name>. A name this convention can't map throws rather than
-// returning a guess: a module path nothing declares has no dependents in
-// tach.toml, so a bad mapping reads as "no consumer to test" instead of
-// erroring.
+// posthog.libs.<name>.
+// Same fail-closed rule as libPackageToModule, for a different consequence: a
+// module path nothing declares has no dependents in tach.toml, so a bad mapping
+// reads as "no consumer to test" instead of erroring.
 function internalLibPackageToModule(pkg) {
     const name = pkg.startsWith(INTERNAL_LIB_PACKAGE_PREFIX) ? pkg.slice(INTERNAL_LIB_PACKAGE_PREFIX.length) : ''
     if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
@@ -175,16 +205,15 @@ function getAffectedTaskProducts(tasks) {
     return [...new Set(tasks.map((t) => t.package.name).filter(isProductPackage).map(packageToProduct))].sort()
 }
 
-// The matrix filters and the cascades below only understand two kinds of
-// workspace package. Anything else carrying a backend:test task would fall out
-// of every filter and quietly run no tests at all, so name it and fail the run.
-function assertKnownBackendTestPackages(names) {
-    for (const name of names) {
-        if (isProductPackage(name) || isInternalLibPackage(name)) {continue}
-        throw new Error(
-            `unsupported workspace package '${name}' with a backend:test task: expected ${PRODUCT_PACKAGE_PREFIX}* or ${INTERNAL_LIB_PACKAGE_PREFIX}*`
-        )
-    }
+function getAffectedLibModules(tasks) {
+    return [
+        ...new Set(
+            tasks
+                .map((t) => t.package.name)
+                .filter((name) => !isProductPackage(name) && !isInternalLibPackage(name))
+                .map(libPackageToModule)
+        ),
+    ].sort()
 }
 
 function getAffectedInternalLibModules(tasks) {
@@ -612,6 +641,84 @@ function productPrefix(product) {
     return `products/${productToModule(product)}/`
 }
 
+// --- Lib package consumers (import scan) ---
+// tach can't answer who uses a lib package: each one is a uv distribution, so
+// tach resolves `import posthog_owners` as third-party and no consumer declares
+// a dependency on it. The import statements themselves are the only record, and
+// unlike a declared edge they cannot drift from what the code does.
+const PRODUCTS_DIR = 'products'
+// Roots that hold no product, so an importer here can only be answered with the
+// full suite.
+const CORE_SCAN_DIRS = ['posthog', 'ee', 'common']
+// Enough core importers to name in the log; the decision needs only the first.
+const CORE_IMPORTER_SAMPLE = 3
+const SKIPPED_SCAN_DIRS = new Set(['__pycache__', 'node_modules', '.venv'])
+
+function collectPythonFiles(dir) {
+    const files = []
+    let entries
+    try {
+        entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+        return files
+    }
+    for (const entry of entries) {
+        if (SKIPPED_SCAN_DIRS.has(entry.name)) {continue}
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+            files.push(...collectPythonFiles(full))
+        } else if (entry.isFile() && entry.name.endsWith('.py')) {
+            files.push(full)
+        }
+    }
+    return files
+}
+
+// Matches `import <module>` / `from <module> ...`. Anchoring at the start of a
+// line keeps mentions in comments, docstrings and other prose out, and requiring
+// a `.` or whitespace after the name stops posthog_owners from matching
+// posthog_owners_extra. Imports guarded by `if TYPE_CHECKING:` still match,
+// which over-tests rather than missing a consumer.
+function importPatternFor(module) {
+    return new RegExp(`^[ \\t]*(from|import)[ \\t]+${module}([. \\t]|$)`, 'm')
+}
+
+// Products with at least one file importing the module, as product ids.
+function productsImportingModule(module, productsDir = PRODUCTS_DIR) {
+    const importPattern = importPatternFor(module)
+    let entries
+    try {
+        entries = fs.readdirSync(productsDir, { withFileTypes: true })
+    } catch {
+        return []
+    }
+    const consumers = []
+    for (const entry of entries) {
+        if (!entry.isDirectory() || SKIPPED_SCAN_DIRS.has(entry.name)) {continue}
+        const files = collectPythonFiles(path.join(productsDir, entry.name))
+        if (files.some((file) => importPattern.test(fs.readFileSync(file, 'utf-8')))) {
+            consumers.push(moduleToProduct(entry.name))
+        }
+    }
+    return consumers.sort()
+}
+
+// Core importers of a lib, as file paths. Core carries no product id, so the
+// only sound response to one is the full suite, and running this scan is what
+// keeps the "a lib change can skip Django" path honest without a separate lint.
+function coreFilesImportingModule(module, dirs = CORE_SCAN_DIRS) {
+    const importPattern = importPatternFor(module)
+    const found = []
+    for (const dir of dirs) {
+        for (const file of collectPythonFiles(dir)) {
+            if (!importPattern.test(fs.readFileSync(file, 'utf-8'))) {continue}
+            found.push(file)
+            if (found.length >= CORE_IMPORTER_SAMPLE) {return found}
+        }
+    }
+    return found
+}
+
 // Check if .test_durations is stale for a product by comparing on-disk test
 // file coverage vs recorded entries. Returns { stale, fileCount, coveredCount, coverage }.
 function checkProductStaleness(product, durations) {
@@ -870,7 +977,10 @@ module.exports = {
     tachDependents,
     checkInternalLibConsistency,
     internalLibDependents,
+    libPackageToModule,
     internalLibPackageToModule,
+    productsImportingModule,
+    coreFilesImportingModule,
     buildMatrix,
 }
 
@@ -897,8 +1007,6 @@ try {
     }
     process.exit(1)
 }
-assertKnownBackendTestPackages(allTestTasks.map((t) => t.package))
-
 const allProducts = getAllProducts(allTestTasks)
 const allProductSet = new Set(allProducts)
 
@@ -970,6 +1078,50 @@ if (legacyChanged) {
         console.error('No product changes detected')
         products = []
         runLegacy = false
+    }
+
+    const affectedLibs = getAffectedLibModules(affectedTestTasks)
+    if (affectedLibs.length > 0) {
+        // The scan only ever yields product directory names, so a lib can never
+        // reach the matrix, whose filters resolve @posthog/products-* packages.
+        const directConsumers = new Set()
+        for (const libModule of affectedLibs) {
+            const importers = productsImportingModule(libModule).filter((p) => allProductSet.has(p))
+            console.error(`Lib package changed: ${libModule} — imported by ${JSON.stringify(importers)}`)
+            for (const importer of importers) {
+                directConsumers.add(importer)
+            }
+            const coreImporters = coreFilesImportingModule(libModule)
+            if (coreImporters.length > 0) {
+                console.error(`lib ${libModule} is imported by core (${coreImporters.join(', ')}) — Django will run`)
+                runLegacy = true
+            }
+        }
+        if (directConsumers.size === 0) {
+            console.error('No product imports the changed lib packages — nothing cascaded in')
+        } else {
+            const tachGraph = loadTachModuleGraph()
+            if (tachGraph === null) {
+                // Same fail-toward-over-testing rule as the contract cascade below.
+                console.error('Lib dependent cascade unavailable — testing all products rather than risk skipping a dependent')
+                products = allProducts
+                runLegacy = true
+            } else {
+                const transitive = tachDependents([...directConsumers], tachGraph).filter((p) => allProductSet.has(p))
+                if (transitive.length > 0) {
+                    console.error(`Products depending on those importers via tach.toml: ${JSON.stringify(transitive)}`)
+                }
+                const cascaded = [...new Set([...directConsumers, ...transitive])].sort()
+                products = [...new Set([...products, ...cascaded])].sort()
+                const nonIsolatedCascaded = cascaded.filter((p) => !isolatedProducts.has(p))
+                if (nonIsolatedCascaded.length > 0) {
+                    console.error(
+                        `Non-isolated products cascaded in from a lib change: ${JSON.stringify(nonIsolatedCascaded)} — Django will run, since core can import their internals`
+                    )
+                    runLegacy = true
+                }
+            }
+        }
     }
 
     const affectedInternalLibs = getAffectedInternalLibModules(affectedTestTasks)

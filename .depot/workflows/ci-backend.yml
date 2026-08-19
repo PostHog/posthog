@@ -316,6 +316,15 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/hints.py'
                         - 'tools/hogli-commands/hogli_commands/product/**'
                         - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
+                        # posthog_owners is a runtime dependency of product code (stamphog reads
+                        # owners.yaml through it), so a resolver change has to re-run its
+                        # dependents; turbo-discover finds the products that import it.
+                        # Deliberately not in `legacy` — a leaf-package change should run its
+                        # dependents, not the whole Django suite.
+                        - 'packages/owners/**'
+                        # Transitional: unrebased branches still have the resolver at
+                        # tools/owners. Drop once open PRs have rebased.
+                        - 'tools/owners/**'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -428,6 +437,9 @@ jobs:
                         - 'products/*/product.yaml'
                         - '**/owners.yaml'
                         # Resolver changes must re-run the owners.yaml lint too.
+                        - 'packages/owners/**'
+                        # Transitional: unrebased branches still have the resolver at
+                        # tools/owners. Drop once open PRs have rebased.
                         - 'tools/owners/**'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema

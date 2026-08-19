@@ -42,7 +42,7 @@ owners = "posthog_owners.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/PostHog/posthog"
-Documentation = "https://github.com/PostHog/posthog/tree/master/tools/owners"
+Documentation = "https://github.com/PostHog/posthog/tree/master/packages/owners"
 Repository = "https://github.com/PostHog/posthog"
 
 [tool.hatch.build.targets.wheel]

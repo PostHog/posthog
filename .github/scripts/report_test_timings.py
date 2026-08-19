@@ -10,7 +10,7 @@
 # ]
 #
 # [tool.uv.sources]
-# posthog-owners = { path = "../../tools/owners" }
+# posthog-owners = { path = "../../packages/owners" }
 # ///
 """Emit OTLP traces from CI JUnit XML artifacts.
 
@@ -704,7 +704,7 @@ def owner_team_lookup() -> Callable[[str], str]:
 
     Resolution is capture-time on purpose: a test is attributed to whoever owned it when it
     ran. Ownership is best-effort next to the timings themselves, so every failure — a resolver
-    that can't load (a base checkout predating `tools/owners`) or one file that won't resolve —
+    that can't load (a base checkout predating `packages/owners`) or one file that won't resolve —
     degrades to no stamp, leaving those spans in the reader's `unowned` bucket rather than
     losing the emit.
     """

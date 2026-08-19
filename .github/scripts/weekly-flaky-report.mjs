@@ -217,7 +217,7 @@ function resolveOwners(items, toRepoPaths = repoPathResolver()) {
             const out = execFileSync('python3', ['-m', 'posthog_owners'], {
                 encoding: 'utf8',
                 input: allPaths.join('\n'),
-                env: { ...process.env, PYTHONPATH: 'tools/owners' },
+                env: { ...process.env, PYTHONPATH: 'packages/owners' },
             })
             resolved = JSON.parse(out)
         } catch (err) {

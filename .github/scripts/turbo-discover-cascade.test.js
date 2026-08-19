@@ -1,13 +1,18 @@
 // Run with: node --test .github/scripts/turbo-discover-cascade.test.js
 //
 // Unit tests for the dependent-cascade logic in turbo-discover.js:
-// parseTachModules, tachDependents, and the internal-lib cascade. Uses a
-// synthetic graph throughout — never asserts against the real tach.toml, which
-// would turn into a change-detector test that breaks on every unrelated
-// dependency edit.
+// parseTachModules, tachDependents, and the lib-package import scan
+// (libPackageToModule, productsImportingModule, coreFilesImportingModule).
+// Uses a synthetic graph and a temp-dir tree throughout — never asserts against
+// the real tach.toml or the real products/, which would turn into
+// change-detector tests that break on every unrelated dependency edit.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
 
 const {
     parseTachModules,
@@ -15,7 +20,10 @@ const {
     tachDependents,
     checkInternalLibConsistency,
     internalLibDependents,
+    libPackageToModule,
     internalLibPackageToModule,
+    productsImportingModule,
+    coreFilesImportingModule,
     buildMatrix,
 } = require('./turbo-discover')
 
@@ -272,6 +280,86 @@ layer = "modules"
     const graph = parseTachModules(toml)
     assert.deepEqual(graph.get('a'), ['b'])
     assert.equal(graph.has('no_deps'), false)
+})
+
+// --- Lib packages as cascade sources ---
+//
+// A lib package is a uv distribution, so tach reports imports of it as
+// third-party and no consumer declares an edge to it. Its consumers are found
+// by scanning for import statements instead.
+
+function writePythonTree(files) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'turbo-discover-scan-'))
+    for (const [relative, contents] of Object.entries(files)) {
+        const full = path.join(root, relative)
+        fs.mkdirSync(path.dirname(full), { recursive: true })
+        fs.writeFileSync(full, contents)
+    }
+    return root
+}
+
+test('the import scan finds a product that imports the lib and ignores mentions that are not imports', () => {
+    const root = writePythonTree({
+        'foo/backend/x.py': 'from posthog_owners.resolver import team_channel\n',
+        'bar/backend/y.py': '# posthog_owners is mentioned here\nMESSAGE = "import posthog_owners"\n',
+        'baz/backend/z.py': 'from posthog_owners_extra import y\n',
+        'multi_word/backend/w.py': 'import posthog_owners\n',
+    })
+    try {
+        assert.deepEqual(productsImportingModule('posthog_owners', root), ['foo', 'multi-word'])
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+})
+
+test('the import scan reports the core files importing a lib, which is what forces Django to run', () => {
+    const root = writePythonTree({
+        'posthog/models/thing.py': 'import os\n',
+        'ee/billing/thing.py': 'from posthog_owners.resolver import OwnersResolver\n',
+        'common/util/thing.py': 'x = "posthog_owners"\n',
+    })
+    try {
+        const dirs = ['posthog', 'ee', 'common'].map((d) => path.join(root, d))
+        assert.deepEqual(coreFilesImportingModule('posthog_owners', dirs), [path.join(root, 'ee/billing/thing.py')])
+        assert.deepEqual(coreFilesImportingModule('posthog_missing', dirs), [])
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+})
+
+test('a lib change reaches both its importers and the products that depend on those importers', () => {
+    const toml = `
+[[modules]]
+path = "products.stamphog"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[modules]]
+path = "products.downstream"
+depends_on = ["products.stamphog"]
+layer = "modules"
+`
+    const root = writePythonTree({ 'stamphog/backend/logic.py': 'from posthog_owners.resolver import team_channel\n' })
+    try {
+        const direct = productsImportingModule('posthog_owners', root)
+        assert.deepEqual(direct, ['stamphog'])
+        const transitive = tachDependents(direct, parseTachModules(toml))
+        assert.deepEqual([...new Set([...direct, ...transitive])].sort(), ['downstream', 'stamphog'])
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true })
+    }
+})
+
+test('lib package names map to their Python module, with dashes becoming underscores', () => {
+    assert.equal(libPackageToModule('@posthog/owners'), 'posthog_owners')
+    assert.equal(libPackageToModule('@posthog/code-review'), 'posthog_code_review')
+})
+
+test('fail closed: a package name outside the @posthog/<name> convention throws rather than inventing a module', () => {
+    assert.throws(() => libPackageToModule('owners'), /@posthog/)
+    assert.throws(() => libPackageToModule('@posthog/'), /@posthog/)
+    assert.throws(() => libPackageToModule('@acme/owners'), /@posthog/)
+    assert.throws(() => libPackageToModule('@posthog/Owners'), /@posthog/)
 })
 
 // --- Internal libs (posthog/libs/<name>) as cascade sources ---

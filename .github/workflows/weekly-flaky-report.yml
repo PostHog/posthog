@@ -4,7 +4,7 @@ name: Weekly flaky test report
 # model, sibling of eng-analytics-weekly-digest.yml: the script reads the
 # engineering_analytics product's flaky_tests endpoint and relays one table to
 # Slack via the DevEx bot — it does not re-derive the flake signal. Owner
-# attribution runs in the script through the tools/owners resolver, which is why
+# attribution runs in the script through the packages/owners resolver, which is why
 # the sparse checkout includes the ownership files.
 #
 # Requires (no-ops with a warning until set, so it never spams failures):
@@ -48,7 +48,7 @@ jobs:
                   sparse-checkout: |
                       .github/scripts/weekly-flaky-report.mjs
                       .nvmrc
-                      tools/owners
+                      packages/owners
                       owners.yaml
                       **/owners.yaml
                       **/product.yaml

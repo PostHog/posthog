@@ -124,6 +124,7 @@ deny:
                 - 'AGENT_APPROVALS\.md'
                 - 'tools/pr-approval-agent/'
                 - 'products/stamphog/backend/logic/policy_defaults/'
+                - 'packages/owners/'
                 - 'tools/owners/'
                 - 'CODEOWNERS'
                 - 'owners\.yaml'
