@@ -1,12 +1,6 @@
-"""Pins the custom-agent sandbox run's ai_stage stamp.
-
-The stamp is what gives custom-agent LLM spend a stage (and, via the agent
-server, the `signals_custom_agent` product) instead of landing unlabelled under
-broad `signals`. It must also stay equal to STEP_CUSTOM_AGENT so
-`signals-pipeline-models` payload authors can target the vocabulary they see in
-LLM analytics. Deleting the kwarg keeps every other suite green, so this test
-is the only thing that fails on a silent revert.
-"""
+"""Pins the custom-agent run's ai_stage stamp: it must equal STEP_CUSTOM_AGENT so
+`signals-pipeline-models` payload authors target the vocabulary they see in LLM
+analytics. Deleting the kwarg keeps every other suite green."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
