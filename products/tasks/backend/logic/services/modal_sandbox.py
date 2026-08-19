@@ -1785,9 +1785,12 @@ class ModalSandbox(SandboxBase):
                 key, _, value = line.partition(" ")
                 if key == "usage_usec":
                     return int(value)
-        cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
-        if cpuacct_usage.strip():
-            return int(cpuacct_usage) // 1000
+        try:
+            cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
+            if cpuacct_usage.strip():
+                return int(cpuacct_usage) // 1000
+        except Exception:
+            pass
         return None
 
     def start_cpu_billing_sampler(self) -> bool:
@@ -1813,7 +1816,10 @@ class ModalSandbox(SandboxBase):
         if current_cpu is None:
             return None
         elapsed_ns = max(0, time.time_ns() - previous_time)
-        floor_usec = round(self.config.effective_cpu_request_cores * elapsed_ns / 1000)
+        request_cores = (
+            self.config.effective_cpu_request_cores if self.config.burstable_resources else self.config.cpu_cores
+        )
+        floor_usec = round(request_cores * elapsed_ns / 1000)
         return billed_usec + max(current_cpu - previous_cpu, floor_usec)
 
     def is_running(self) -> bool:

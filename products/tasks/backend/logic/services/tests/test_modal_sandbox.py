@@ -17,6 +17,7 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from parameterized import parameterized
 from requests.exceptions import ConnectionError, Timeout
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
@@ -1081,6 +1082,15 @@ class TestModalSandboxResourceUsage:
 
         assert sandbox.read_cpu_usage_usec() == 12_345_678
 
+    def test_returns_none_when_cpu_usage_is_unavailable(self):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.side_effect = FileNotFoundError
+
+        assert sandbox.read_cpu_usage_usec() is None
+
     def test_reads_current_billed_cpu_usage(self, monkeypatch):
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-usage"
@@ -1094,8 +1104,7 @@ class TestModalSandboxResourceUsage:
 
         assert sandbox.read_billed_cpu_usage_usec() == 3_500_000
 
-    @pytest.mark.parametrize(
-        "burstable_resources,expected_request",
+    @parameterized.expand(
         [(True, "0.5"), (False, "4.0")],
     )
     def test_starts_cpu_billing_sampler(self, burstable_resources: bool, expected_request: str):
@@ -1112,6 +1121,19 @@ class TestModalSandboxResourceUsage:
         assert CPU_BILLING_STATE_PATH in command
         assert CPU_BILLING_SAMPLER_PATH in command
         assert expected_request in command
+
+    def test_reads_current_billed_cpu_usage_with_fixed_cpu_floor(self, monkeypatch):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage", cpu_cores=4, burstable_resources=False)
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.side_effect = [
+            "2000000 1000000 1000000000",
+            "usage_usec 1500000\n",
+        ]
+        monkeypatch.setattr("products.tasks.backend.logic.services.modal_sandbox.time.time_ns", lambda: 3000000000)
+
+        assert sandbox.read_billed_cpu_usage_usec() == 10_000_000
 
 
 class TestModalSandboxAgentServerStartupHelpers:
