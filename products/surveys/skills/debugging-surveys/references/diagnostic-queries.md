@@ -187,8 +187,11 @@ LIMIT 1 BY coalesce(nullIf(properties.$survey_submission_id, ''), toString(uuid)
 LIMIT 60
 ```
 
-Beats arguing about whether a submission was intentional. Every `survey sent` / `dismissed` /
-`abandoned` event carries `sessionRecordingUrl`. The `LIMIT 1 BY` collapses partial mode's
+Beats arguing about whether a submission was intentional — when a recording exists. Every
+`survey sent` / `dismissed` / `abandoned` event carries `sessionRecordingUrl`, but that only points
+at a session id: replay is off by default, and the default cloud retention of 30 days is shorter
+than this 180-day window, so the recording may never have been captured or may have aged out. Open
+the link before citing it. The `LIMIT 1 BY` collapses partial mode's
 per-question `survey sent` rows to the latest one per submission — matching how the results table
 dedupes — so you get one link per response, not one per intermediate save. The `coalesce` falls
 back to the event UUID for pre-1.240.0 events, which have no `$survey_submission_id`, so those are

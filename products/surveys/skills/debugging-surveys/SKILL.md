@@ -150,8 +150,10 @@ inverted.
 `surveyPopupDelaySeconds`, so shown→sent latency is real time-on-popup), `survey sent`,
 `survey dismissed` (explicit close), `survey abandoned` (`handlePageUnload` →
 `sendSurveyAbandonedEvent`). `$survey_partially_completed` appears on `dismissed` and `abandoned`
-only, never on `sent`. All of them carry `sessionRecordingUrl`, so a disputed submission can be
-**watched** instead of theorised about.
+only, never on `sent`. All of them carry `sessionRecordingUrl`, so a disputed submission can often
+be **watched** instead of theorised about. A populated URL only proves a session id was captured,
+not that a recording exists: replay is off by default, and the default cloud retention of 30 days is
+well short of these queries' 180-day window. Open the link before offering it as evidence.
 
 ### Never guess response property keys
 
