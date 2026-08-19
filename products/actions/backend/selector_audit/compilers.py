@@ -13,10 +13,10 @@ from posthog.dataclasses import frozen
 
 from . import _new_compiler, _old_compiler
 
-# The character class of the old compiler's part tail. A selector whose own class
-# names, ids, or attribute values use characters outside this set compiled into a
-# regex that could not traverse them, so it matched zero events under the old
-# compiler.
+# The tail character class the old compiler used before #83169 widened it to
+# [^;]. Selectors with characters outside this set matched zero events until
+# that fix deployed (2026-08-18), so their "old" baseline jumped mid-history;
+# the flag marks them so owners can read counts spanning that deploy correctly.
 OLD_TAIL_ALLOWED_CHARS = frozenset('-_.:"= [](),abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
 
 STRUCTURE_SINGLE_SIMPLE = "single_simple"
@@ -42,7 +42,12 @@ def rewrite_direct_descendants(selector: str) -> str:
     Returns the input unchanged (including spacing) when it has no `>` token, so
     `rewrite != selector` reliably means "a rewrite exists".
     """
-    tokens = [token for token in _split_selector(selector) if token != ""]
+    # Both compilers blindly erase these star hops before parsing (see
+    # Selector.__init__), so split the same normalized string. Splitting the raw
+    # string keeps the star as a real part, and `div * button` demands an
+    # intermediate element the compiled original never required.
+    normalized = selector.replace("> * > ", "").replace("> *", "")
+    tokens = [token for token in _split_selector(normalized) if token != ""]
     if ">" not in tokens:
         return selector
     return " ".join(token for token in tokens if token != ">")

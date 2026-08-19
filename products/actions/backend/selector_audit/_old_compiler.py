@@ -1,8 +1,10 @@
 """Frozen copy of the pre-#80653 selector compiler.
 
-Vendored verbatim from master @ 15f1adfe:
+Vendored verbatim from master @ 1b114bf0, the #83169 merge that widened the
+part tail to `[^;]` and normalized attribute-quote escaping — production
+behavior since 2026-08-18, and the baseline "old" counts must reflect:
 - `SelectorPart`, `Selector` from posthog/models/event/event.py
-- `build_selector_regex` from posthog/models/property/util.py
+- `build_selector_regex` and `_chain_escaped_value` from posthog/models/property/util.py
 
 This copy must keep compiling selectors exactly the way production did before
 PR #80653, so the audit can compute "what would the old compiler have matched"
@@ -109,6 +111,14 @@ class Selector:
         yield "".join(part)
 
 
+def _chain_escaped_value(value: str) -> str:
+    # A quoted value in the chain escapes double quotes as \" (_escape in
+    # posthog/models/element/element.py). A selector can write the quote either
+    # pre-escaped ([title="say \"hi\""]) or bare inside single quotes
+    # ([title='say "hi"']), so normalize to the chain's form to match both.
+    return value.replace(r"\"", '"').replace('"', r"\"")
+
+
 def build_selector_regex(selector: Selector) -> str:
     regex = r""
     for tag in selector.parts:
@@ -120,8 +130,11 @@ def build_selector_regex(selector: Selector) -> str:
         if tag.ch_attributes:
             regex += r".*?"
             for key, value in sorted(tag.ch_attributes.items()):
-                regex += rf'{re.escape(key)}="{re.escape(str(value))}".*?'
-        regex += r'([-_a-zA-Z0-9\.:"= \[\]\(\),]*?)?($|;|:([^;^\s]*(;|$|\s)))'
+                regex += rf'{re.escape(key)}="{re.escape(_chain_escaped_value(str(value)))}".*?'
+        # The rest of the element can carry characters an allowlist cannot
+        # anticipate (classes like w-1/2 or !mt-0), so skip anything up to the
+        # `;` element separator.
+        regex += r"[^;]*?($|;|:([^;^\s]*(;|$|\s)))"
         if tag.direct_descendant:
             regex += r".*"
     if regex:

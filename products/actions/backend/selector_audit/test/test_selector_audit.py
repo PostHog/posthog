@@ -58,6 +58,7 @@ GAPPED_BUTTON_CHAIN = (
 JUNK_DIV_CHAIN = 'button.btn:text="pay div now";body:nth-child="1"'
 CLEAN_DIV_CHAIN = 'button.btn:text="pay now";div.wrap:nth-child="1";body:nth-child="1"'
 SIBLING_SLASH_CHAIN = 'div.flex.w-1/2:nth-child="1";main:nth-child="1"'
+ESCAPED_QUOTE_CHAIN = 'a.link:attr__data-name="say \\"hi\\""href="/x"nth-child="1"'
 
 
 def _noop_log(_message: str) -> None:
@@ -100,7 +101,8 @@ class TestCompilerSemantics(SimpleTestCase):
             ("adjacent_bare_tags_match_both", "section div button", ADJACENT_BUTTON_CHAIN, True, True),
             ("old_matches_tag_inside_text", "div > button", JUNK_DIV_CHAIN, True, False),
             ("real_parent_matches_both", "div > button", CLEAN_DIV_CHAIN, True, True),
-            ("old_rejects_sibling_slash_class", "div.flex", SIBLING_SLASH_CHAIN, False, True),
+            ("widened_tail_traverses_sibling_slash_class", "div.flex", SIBLING_SLASH_CHAIN, True, True),
+            ("old_normalizes_bare_quotes_in_attr_value", "[data-name='say \"hi\"']", ESCAPED_QUOTE_CHAIN, True, False),
             ("simple_attr_matches_both", '[data-attr="menu-item"]', DATA_ATTR_CHAIN, True, True),
         ]
     )
@@ -117,6 +119,9 @@ class TestRewriteDirectDescendants(SimpleTestCase):
             ("attr_then_direct", '[id="root"] > span', '[id="root"] span'),
             ("bare_tag_chain", "section > div > button", "section div button"),
             ("gt_inside_attr_value_kept", 'a[data-x="a > b"] > span', 'a[data-x="a > b"] span'),
+            ("star_hop_erased_like_compiler", "section > div > * > button", "section div button"),
+            ("trailing_star_leaves_no_rewrite", "#root > *", "#root > *"),
+            ("leading_star_kept", "* > a", "* a"),
             ("no_combinator_unchanged", ".btn", ".btn"),
             ("spacing_preserved_without_gt", "div  span", "div  span"),
         ]
