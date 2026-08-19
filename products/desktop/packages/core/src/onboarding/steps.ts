@@ -25,13 +25,18 @@ export interface DetectedRepo {
   branch?: string;
 }
 
-export function computeActiveSteps(
-  hasCodeAccess: boolean | null | undefined,
-  hasImportableConfig: boolean,
-): OnboardingStep[] {
+export function computeActiveSteps(options: {
+  hasCodeAccess: boolean | null | undefined;
+  hasImportableConfig: boolean;
+  /** Undefined while the integrations query is loading; the step only drops on a confirmed connection. */
+  hasGithubIntegration: boolean | undefined;
+}): OnboardingStep[] {
   return ONBOARDING_STEPS.filter((step) => {
-    if (step === "invite-code" && hasCodeAccess === true) return false;
-    if (step === "import-config" && !hasImportableConfig) return false;
+    if (step === "invite-code" && options.hasCodeAccess === true) return false;
+    if (step === "import-config" && !options.hasImportableConfig) return false;
+    if (step === "install-cli" && options.hasGithubIntegration === true) {
+      return false;
+    }
     return true;
   });
 }

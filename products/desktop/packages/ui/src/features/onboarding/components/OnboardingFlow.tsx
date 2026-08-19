@@ -16,6 +16,7 @@ import { StepIndicator } from "@posthog/ui/features/onboarding/components/StepIn
 import { WelcomeScreen } from "@posthog/ui/features/onboarding/components/WelcomeScreen";
 import { useOnboardingFlow } from "@posthog/ui/features/onboarding/hooks/useOnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { shipIt } from "@posthog/ui/primitives/confetti";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
@@ -48,6 +49,9 @@ export function OnboardingFlow() {
     detectedRepo,
     isDetectingRepo,
     handleDirectoryChange,
+    selectedCloudRepo,
+    handleCloudRepoChange,
+    hasGithubIntegration,
   } = useOnboardingFlow();
   const completeOnboarding = useOnboardingStore(
     (state) => state.completeOnboarding,
@@ -58,6 +62,9 @@ export function OnboardingFlow() {
     (state) => state.status === "authenticated",
   );
   const { data: githubUserIntegrations = [] } = useUserGithubIntegrations();
+  const setLastUsedWorkspaceMode = useSettingsStore(
+    (state) => state.setLastUsedWorkspaceMode,
+  );
 
   const flowStartedAtRef = useRef(Date.now());
   const stepEnteredAtRef = useRef(Date.now());
@@ -113,7 +120,11 @@ export function OnboardingFlow() {
   };
 
   const handleNext = (context?: StepCompletedContext) => {
-    trackStepCompleted(context);
+    // `onClick={onNext}` would pass the click event here; a DOM event spread
+    // into capture properties poisons the whole analytics batch.
+    const safeContext =
+      context && "nativeEvent" in context ? undefined : context;
+    trackStepCompleted(safeContext);
     trackStepViewed(currentIndex + 1);
     next();
   };
@@ -147,6 +158,11 @@ export function OnboardingFlow() {
         repoSkipped,
       }),
     );
+    if (githubUserIntegrations.length > 0) {
+      // GitHub is connected, so the first task should start in the cloud even
+      // if an earlier session left a local run-mode preference behind.
+      setLastUsedWorkspaceMode("cloud");
+    }
     shipIt();
     completeOnboarding();
     openTaskInput();
@@ -316,6 +332,9 @@ export function OnboardingFlow() {
                 detectedRepo={detectedRepo}
                 isDetectingRepo={isDetectingRepo}
                 onDirectoryChange={handleDirectoryChange}
+                selectedCloudRepo={selectedCloudRepo}
+                onCloudRepoChange={handleCloudRepoChange}
+                hasGithubIntegration={hasGithubIntegration}
               />
             </motion.div>
           )}
