@@ -18,6 +18,14 @@ export function fractionalRolloutPercentages(filterGroups: FeatureFlagGroupType[
         .filter((percentage): percentage is number => typeof percentage === 'number' && !Number.isInteger(percentage))
 }
 
+/** Trims a stored rollout to something readable. A flag saved through the API can carry far more
+ *  precision than the editor's two decimal places, and 33.333333333333336 reads as a bug rather
+ *  than a warning. Significant digits rather than fixed decimals, so a sub-0.01 rollout such as
+ *  0.00015 doesn't render as 0. */
+function formatPercentage(percentage: number): string {
+    return `${Number(percentage.toPrecision(4))}%`
+}
+
 /** Warns that a fractional release-condition rollout breaks local evaluation on older SDKs.
  *
  *  Not gated on the flag's evaluation runtime: the local evaluation payload carries client-only flags
@@ -34,13 +42,18 @@ export function FractionalRolloutWarning({
         return null
     }
 
+    const formatted = percentages.map(formatPercentage).join(', ')
+
     return (
         <LemonBanner type="warning" className={className}>
-            This flag has a fractional rollout percentage ({percentages.join('%, ')}%). The .NET and Java server-side
-            SDKs read rollout percentages as whole numbers before .NET {MIN_DOTNET_VERSION} and Java {MIN_JAVA_VERSION}.
-            On an older version the flag definitions payload fails to parse, so local evaluation stops working for{' '}
-            <strong>every flag in the project</strong> and each evaluation goes to the <code>/flags</code> endpoint
-            instead. Upgrade those SDKs, or use a whole number here.{' '}
+            {percentages.length === 1
+                ? `This flag has a fractional rollout percentage (${formatted}).`
+                : `This flag has fractional rollout percentages (${formatted}).`}{' '}
+            The .NET and Java server-side SDKs read rollout percentages as whole numbers before .NET{' '}
+            {MIN_DOTNET_VERSION} and Java {MIN_JAVA_VERSION}. On an older version the flag definitions payload fails to
+            parse, so local evaluation stops working for <strong>every flag in the project</strong> and each evaluation
+            goes to the <code>/flags</code> endpoint instead. Upgrade those SDKs, or change the rollout to a whole
+            number.{' '}
             <Link to="https://posthog.com/docs/feature-flags/local-evaluation" target="_blank">
                 Learn more about local evaluation
             </Link>
