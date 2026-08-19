@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     google_search_console_session,
     google_search_console_source,
     list_sites,
+    list_sites_with_retry,
     normalize_site_url,
     suggest_registered_site,
 )
@@ -105,13 +106,15 @@ class GoogleSearchConsoleSource(
                 "Please reconnect your Google account."
             )
         try:
-            sites = list_sites(session)
+            # Retries a 401/403 from a just-granted token that hasn't propagated yet, so a freshly
+            # connected account no longer reads as permanently broken (see `list_sites_with_retry`).
+            sites = list_sites_with_retry(session)
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             if status in (401, 403):
-                # The token refreshed fine but the connected Google account isn't authorized to read
-                # Search Console — a customer-side connection issue. Surface an actionable message the
-                # endpoint turns into a 400 rather than an unhandled 500.
+                # The token still refreshed fine but the connected Google account isn't authorized to
+                # read Search Console — a customer-side connection issue. Surface an actionable message
+                # the endpoint turns into a 400 rather than an unhandled 500.
                 raise IntegrationAccountListingError(
                     "Google Search Console rejected the credentials. Please reconnect your account "
                     "and ensure it has read access to the property."

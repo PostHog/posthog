@@ -70,6 +70,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     VersionDeprecation,
     WebhookCreationResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import ConfigValueError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_CUSTOM_SOURCES_PER_TEAM,
@@ -207,6 +208,32 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["message"], INVALID_CREDENTIALS_FALLBACK_MESSAGE)
+        self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.parse_config",
+        side_effect=ConfigValueError("Config field 'search_types' has a value that could not be parsed"),
+    )
+    def test_create_surfaces_400_when_config_value_cannot_be_parsed(self, _mock_parse_config):
+        # `validate_config` only checks that fields are present; a value that fails its converter
+        # raises `ConfigValueError` (a ValueError subclass) later, inside `parse_config`. That must
+        # come back as an actionable 400 naming the field rather than an unhandled 500.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": name, "should_sync": True, "sync_type": "full_refresh"} for name in STRIPE_ENDPOINTS
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("search_types", response.json()["detail"])
         self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     def test_api_version_pin_is_read_only_via_api(self):

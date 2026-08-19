@@ -173,6 +173,7 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import ConfigValueError
 
 logger = structlog.get_logger(__name__)
 
@@ -272,6 +273,20 @@ def _credentials_validation_failed(source: AnySource, team_id: int, error: Excep
     discovery already gives an unexpected error just below the credential check."""
     capture_exception(error, {"source_type": str(source.source_type), "team_id": team_id})
     return False, INVALID_CREDENTIALS_FALLBACK_MESSAGE
+
+
+def _parse_config_or_400(source: AnySource, payload: dict) -> Config:
+    """Turn a payload into a typed config, returning a 400 instead of a 500 on a bad field value.
+
+    ``validate_config`` only checks that fields are present. The converters that coerce each value
+    to its declared type run later, inside ``parse_config``, where a value that cannot be parsed
+    (e.g. a malformed list field) raises ``ConfigValueError`` — a ``ValueError`` subclass, so it
+    would otherwise escape as an unhandled server error rather than an actionable bad request. The
+    message names the field but never its value, so it is safe to surface to the caller."""
+    try:
+        return source.parse_config(payload)
+    except ConfigValueError as e:
+        raise ValidationError(str(e))
 
 
 def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
@@ -2281,7 +2296,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"You can create at most {max_instances} sources of this type per project."},
             )
         if skip_credential_validation:
-            source_config: Config = source.parse_config(payload)
+            source_config: Config = _parse_config_or_400(source, payload)
         else:
             error_response, validated_config = self._validate_source_config_and_credentials(
                 source, source_type_model, payload, access_method=access_method
@@ -3676,7 +3691,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 ),
                 None,
             )
-        source_config: Config = source.parse_config(payload)
+        source_config: Config = _parse_config_or_400(source, payload)
 
         try:
             if isinstance(source, (PostgresSource, MySQLSource)):

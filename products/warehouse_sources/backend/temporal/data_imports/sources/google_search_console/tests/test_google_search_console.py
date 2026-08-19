@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     google_search_console as gsc,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (
+    ACCOUNT_LISTING_MAX_ATTEMPTS,
     FRESHNESS_LAG_DAYS,
     HISTORY_DAYS,
     QUOTA_MAX_RETRIES,
@@ -33,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     _resolve_window,
     _row_to_dict,
     google_search_console_source,
+    list_sites_with_retry,
     normalize_site_url,
     suggest_registered_site,
 )
@@ -203,6 +205,65 @@ def test_get_integration_reraises_after_exhausting_attempts(monkeypatch):
     # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry the activity.
     assert get.call_count == 4
     assert sleeps == [2, 4, 6]
+
+
+def _list_sites_http_error(status_code: int) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status_code
+    return requests.HTTPError(response=response)
+
+
+@pytest.mark.parametrize("status_code", [401, 403])
+def test_list_sites_with_retry_recovers_from_fresh_token_propagation(monkeypatch, status_code):
+    # A token Google just granted can read as 401/403 until it propagates. The listing must retry
+    # rather than reporting a permanent rejection on the very first attempt.
+    sites = [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}]
+    list_sites = mock.Mock(side_effect=[_list_sites_http_error(status_code), sites])
+    monkeypatch.setattr(gsc, "list_sites", list_sites)
+    sleeps: list[float] = []
+    monkeypatch.setattr(gsc.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    result = list_sites_with_retry(mock.MagicMock())
+
+    assert result == sites
+    assert list_sites.call_count == 2
+    assert sleeps == [1.0]
+
+
+@pytest.mark.parametrize("status_code", [401, 403])
+def test_list_sites_with_retry_reraises_after_exhausting_attempts(monkeypatch, status_code):
+    list_sites = mock.Mock(side_effect=_list_sites_http_error(status_code))
+    monkeypatch.setattr(gsc, "list_sites", list_sites)
+    monkeypatch.setattr(gsc.time, "sleep", lambda seconds: None)
+
+    with pytest.raises(requests.HTTPError):
+        list_sites_with_retry(mock.MagicMock())
+
+    assert list_sites.call_count == ACCOUNT_LISTING_MAX_ATTEMPTS
+
+
+def test_list_sites_with_retry_does_not_retry_other_http_errors(monkeypatch):
+    # A 404/5xx isn't a propagation lag, so it surfaces immediately without burning retries.
+    list_sites = mock.Mock(side_effect=_list_sites_http_error(500))
+    monkeypatch.setattr(gsc, "list_sites", list_sites)
+    monkeypatch.setattr(gsc.time, "sleep", lambda seconds: None)
+
+    with pytest.raises(requests.HTTPError):
+        list_sites_with_retry(mock.MagicMock())
+
+    assert list_sites.call_count == 1
+
+
+def test_list_sites_with_retry_does_not_retry_permanent_refresh_error(monkeypatch):
+    # invalid_grant never recovers, so it must not be retried.
+    list_sites = mock.Mock(side_effect=RefreshError("invalid_grant: Bad Request"))
+    monkeypatch.setattr(gsc, "list_sites", list_sites)
+    monkeypatch.setattr(gsc.time, "sleep", lambda seconds: None)
+
+    with pytest.raises(RefreshError):
+        list_sites_with_retry(mock.MagicMock())
+
+    assert list_sites.call_count == 1
 
 
 def _make_response(config: GoogleSearchConsoleSourceConfig, rows_per_call: list[list[dict]]):

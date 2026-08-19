@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
 
@@ -111,11 +112,24 @@ export const integrationAccountsLogic = kea<integrationAccountsLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, props }) => ({
         setSearch: async (_, breakpoint) => {
             // Debounce keystrokes into a single server-side query.
             await breakpoint(SEARCH_DEBOUNCE_MS)
             actions.loadAccounts()
+        },
+        // The wizard scene reports a create-step rejection with this event, but the connect scene
+        // surfaces an account-listing rejection only through the `accountsError` reducer and emitted
+        // nothing — so those failures were invisible outside session recordings. Fire the same event
+        // here so the next occurrence shows up in data.
+        loadAccountsFailure: ({ error, errorObject }) => {
+            posthog.capture('warehouse credentials invalid', {
+                sourceType: props.sourceType,
+                errorMessage: errorObject?.data?.detail ?? errorObject?.detail ?? error,
+                // Keep the raw error (status code etc.) so server-side failures stay triageable.
+                rawError: errorObject?.message,
+                status: errorObject?.status,
+            })
         },
     })),
 ])

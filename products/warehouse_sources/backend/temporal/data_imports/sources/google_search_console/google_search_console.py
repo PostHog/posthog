@@ -238,6 +238,32 @@ def list_sites(session: AuthorizedSession) -> list[dict[str, Any]]:
     return response.json().get("siteEntry", [])
 
 
+# A token Google has just granted can take a few seconds to propagate. A 401/403 (or a transient
+# token-refresh blip) on the first sites listing right after OAuth is usually that lag rather than a
+# real permission problem, which is why deleting and re-adding the source a few times eventually
+# works. Retry a couple of times with a short backoff before treating it as a genuine rejection.
+# Kept short and inline because this runs inside the interactive "list your properties" request,
+# not a background sync.
+ACCOUNT_LISTING_MAX_ATTEMPTS = 3
+_ACCOUNT_LISTING_BACKOFF_SECONDS = 1.0
+
+
+def list_sites_with_retry(session: AuthorizedSession) -> list[dict[str, Any]]:
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return list_sites(session)
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status not in (401, 403) or attempt >= ACCOUNT_LISTING_MAX_ATTEMPTS:
+                raise
+        except RefreshError as e:
+            if not _is_transient_refresh_error(e) or attempt >= ACCOUNT_LISTING_MAX_ATTEMPTS:
+                raise
+        time.sleep(_ACCOUNT_LISTING_BACKOFF_SECONDS * attempt)
+
+
 def list_sitemaps(session: AuthorizedSession, site_url: str) -> list[dict[str, Any]]:
     response = session.get(f"{GSC_API_BASE}/sites/{quote(site_url, safe='')}/sitemaps")
     response.raise_for_status()
