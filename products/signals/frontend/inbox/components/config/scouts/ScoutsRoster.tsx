@@ -5,7 +5,7 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { captureScoutFleetViewed } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
+import { SCOUT_ROSTER_WINDOW_LABEL, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
 import { ScoutAlphaBanner } from './ScoutAlphaBanner'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutsEmptyState } from './ScoutsEmptyState'
@@ -79,9 +79,10 @@ export function ScoutsRoster(): JSX.Element {
             <ScoutsRosterGroups />
             <div className="flex flex-col gap-1 px-6 py-4">
                 <span className="text-xs text-muted">
-                    Run counts cover each scout's {SCOUT_RUNS_PER_SCOUT_LABEL}, so scouts on different schedules stay
-                    comparable. New scouts are created as <span className="font-mono text-[11px]">signals-scout-*</span>{' '}
-                    skills in your PostHog project.
+                    The totals above cover the {SCOUT_ROSTER_WINDOW_LABEL}. Each scout's run strip shows its{' '}
+                    {SCOUT_RUNS_PER_SCOUT_LABEL}, so scouts on different schedules stay comparable. New scouts are
+                    created as <span className="font-mono text-[11px]">signals-scout-*</span> skills in your PostHog
+                    project.
                 </span>
                 <ScoutHelperSkillLinks />
             </div>

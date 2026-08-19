@@ -950,8 +950,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         extra: { scout_origin: config.scout_origin, success: true },
                     })
                     lemonToast.success(`Deleted ${displayName}`)
-                    // The scout's own page has nothing left to show once it is gone.
-                    if (router.values.location.pathname.endsWith(urls.inboxScout(config.skill_name))) {
+                    // The scout's own page (and any finding deep link under it) has nothing left to show
+                    // once it is gone.
+                    const scoutPath = urls.inboxScout(config.skill_name)
+                    const { pathname } = router.values.location
+                    if (pathname.endsWith(scoutPath) || pathname.includes(`${scoutPath}/`)) {
                         router.actions.push(urls.inbox('scouts'))
                     }
                 } catch (error: any) {
@@ -1021,6 +1024,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 const interval = setInterval(() => {
                     actions.loadScoutRuns()
                     actions.loadFleetFindingsSummary()
+                    // The coordinator stamps `last_run_at` on dispatch, and the next-run labels derive from
+                    // it, so a page left open across a scheduled run would otherwise read "Due now" forever.
+                    actions.loadScoutConfigs()
                 }, RUNS_REFETCH_INTERVAL_MS)
                 return () => clearInterval(interval)
             }, 'runsPoll')
