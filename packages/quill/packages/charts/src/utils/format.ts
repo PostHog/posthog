@@ -102,32 +102,22 @@ export function humanFriendlyDuration(
     return units.slice(0, maxUnits ?? undefined).join(' ')
 }
 
-const MAX_DURATION_DECIMAL_PLACES = 4
+const threeSignificantDigits = (value: number): number =>
+    Math.min(Math.max(0, 2 - Math.floor(Math.log10(Math.abs(value)))), 4)
 
-/** Fraction digits keeping three significant digits, capped so float residue doesn't render as a wall
- *  of digits. Keeps 3.5 as "3.5" while leaving 556 whole. */
-function durationDecimalPlaces(value: number): number {
-    if (!isFinite(value) || value === 0) {
-        return 0
-    }
-    return Math.min(Math.max(0, 2 - Math.floor(Math.log10(Math.abs(value)))), MAX_DURATION_DECIMAL_PLACES)
-}
-
-/** Format a duration given in milliseconds, keeping enough precision below a minute that neighbouring
- *  axis ticks stay distinct. {@link humanFriendlyDuration} rounds to whole milliseconds under a second
- *  and to whole seconds under a minute, which collapses a tightly-spaced axis into repeated labels:
- *  ticks at 3.5ms and 4ms both render as "4ms". From a minute up the unit breakdown is precise enough. */
+/** Below a minute `humanFriendlyDuration` rounds to whole milliseconds or seconds, which collapses
+ *  neighbouring axis ticks onto one label — 3.5ms and 4ms both render as "4ms". */
 export function formatDurationMilliseconds(milliseconds: number): string {
     const absolute = Math.abs(milliseconds)
     if (absolute === 0) {
         return '0s'
     }
     if (absolute < 1_000) {
-        return `${humanFriendlyNumber(milliseconds, durationDecimalPlaces(milliseconds))}ms`
+        return `${humanFriendlyNumber(milliseconds, threeSignificantDigits(milliseconds))}ms`
     }
     const seconds = milliseconds / 1_000
     if (absolute < 60_000) {
-        return `${humanFriendlyNumber(seconds, durationDecimalPlaces(seconds))}s`
+        return `${humanFriendlyNumber(seconds, threeSignificantDigits(seconds))}s`
     }
     return humanFriendlyDuration(seconds)
 }
