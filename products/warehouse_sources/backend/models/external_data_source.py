@@ -314,6 +314,8 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # this is a models module; the service import below pulls it anyway, but only at call time
         import temporalio.service  # noqa: PLC0415
 
+        from posthog.temporal.common.client import TemporalConnectionError
+
         from products.data_warehouse.backend.facade.api import (
             sync_external_data_job_workflow,
             trigger_external_data_workflow,
@@ -333,6 +335,12 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             except temporalio.service.RPCError as e:
                 if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
                     sync_external_data_job_workflow(schema, create=True, should_sync=True)
+
+            except TemporalConnectionError:
+                # Temporal is unreachable (transient network or DNS blip), not a per-schema failure.
+                # Don't swallow it here — let the reload endpoint surface a 503 so the caller retries,
+                # instead of reporting a sync that never started or a schedule that was never recreated.
+                raise
 
             except Exception as e:
                 logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)

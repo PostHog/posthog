@@ -17,6 +17,7 @@ from django.utils import timezone
 
 import psycopg
 import requests
+import temporalio.service
 from google.auth.exceptions import RefreshError
 from parameterized import parameterized
 from rest_framework import status
@@ -2902,6 +2903,36 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(mock_trigger.call_count, 1)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
+
+    @patch("products.data_warehouse.backend.facade.api.trigger_external_data_workflow")
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.trigger_external_data_source_workflow"
+    )
+    def test_reload_returns_503_when_temporal_unreachable_reloading_schemas(
+        self, mock_trigger_source, mock_trigger_schema
+    ):
+        # The source schedule is gone (RPCError NOT_FOUND), so reload falls back to triggering each
+        # enabled schema's schedule. A transient connect blip there means the reload triggered
+        # nothing, so it must return 503 to retry rather than a 200 that reports a sync never started.
+        source = self._create_external_data_source()
+        ExternalDataSchema.objects.create(
+            name="Customers",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        mock_trigger_source.side_effect = temporalio.service.RPCError(
+            "not found", temporalio.service.RPCStatusCode.NOT_FOUND, b""
+        )
+        mock_trigger_schema.side_effect = TemporalConnectionError("Could not connect to Temporal")
+
+        response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/reload/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        source.refresh_from_db()
+        # The reload triggered no schedules, so the source must not be reported as running.
+        assert source.status != "Running"
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_source):

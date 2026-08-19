@@ -3144,7 +3144,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         except temporalio.service.RPCError:
             # if the source schedule has been removed - trigger the schema schedules
-            instance.reload_schemas()
+            try:
+                instance.reload_schemas()
+            except TemporalConnectionError as e:
+                # Same transient blip as above, hit while triggering the per-schema schedules. The
+                # source is unchanged, so ask the caller to retry instead of reporting a 200 for a
+                # reload that triggered no schedules.
+                logger.warning("Could not reach Temporal to reload external data source schemas", exc_info=e)
+                raise SyncSchedulerUnavailable() from e
 
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
