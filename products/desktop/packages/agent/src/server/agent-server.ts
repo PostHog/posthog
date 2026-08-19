@@ -4244,17 +4244,17 @@ ${commonInstructions}
       task_user_id: taskUserId,
       task_title: taskTitle,
     };
-    // The Claude path appends `team_id` in buildEnvironment from
-    // POSTHOG_PROJECT_ID; the codex path has no such hook, so fold it into the
-    // record here to keep team attribution working for both adapters.
+    // The Claude path appends the project scope in buildEnvironment from
+    // POSTHOG_PROJECT_ID; the codex path has no such hook, so its record below
+    // carries the same scope.
     let customHeaders: string;
     let openaiCustomHeaders: Record<string, string>;
     if (isAiGateway) {
       // The Go gateway reads one X-PostHog-Properties JSON blob and ignores
       // per-property headers, and it has no product route, so `ai_product`
       // has to travel in the blob or the spend lands unattributed. `team_id`
-      // is included for both adapters since the Claude hook sets it as a
-      // per-property header the Go gateway does not read.
+      // is included for both adapters because the Go gateway does not read
+      // the Python gateway's project-scope header.
       const properties = {
         ...gatewayProperties,
         ai_product: aiProduct,

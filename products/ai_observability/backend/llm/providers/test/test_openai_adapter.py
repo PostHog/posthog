@@ -68,7 +68,7 @@ class TestBuildAnalyticsKwargs:
     def test_wrapped_clients_get_analytics_kwargs_when_capture_enabled(self, _name, client_cls):
         adapter = OpenAIAdapter()
         client = MagicMock(spec=client_cls)
-        analytics = AnalyticsContext(distinct_id="user-1", trace_id="trace-1", capture=True)
+        analytics = AnalyticsContext(distinct_id="user-1", trace_id="trace-1", capture=True, privacy_mode=True)
 
         kwargs = adapter._build_analytics_kwargs(analytics, client)
 
@@ -77,6 +77,7 @@ class TestBuildAnalyticsKwargs:
             "posthog_trace_id": "trace-1",
             "posthog_properties": {},
             "posthog_groups": {},
+            "posthog_privacy_mode": True,
         }
 
     def test_capture_disabled_returns_empty_kwargs(self):
