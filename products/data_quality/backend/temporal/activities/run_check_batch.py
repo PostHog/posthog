@@ -10,14 +10,12 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 from ...facade.enums import CheckRunStatus, CheckSeverity
-from ...logic.runner import record_unrunnable_check, run_check
-from ...logic.staged_audit import build_staged_database
+from ...logic.runner import STAGED_FILES_UNREADABLE, record_unrunnable_check, run_check, staged_subject_is_reachable
+from ...logic.staged_audit import StagedSubjectOverride
 from ...models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from ..contracts import BatchOutcome, RunCheckBatchInputs
 
 LOGGER = get_logger(__name__)
-
-STAGED_FILES_UNREADABLE = "The staged files could not be read, so this data was not audited."
 
 
 @activity.defn
@@ -51,17 +49,23 @@ def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
         suite_run=suite_run, quality_check_id__in=inputs.check_ids
     ).delete()
 
-    staged_database = None
+    staged = None
+    staged_database_cache: dict = {}
     if inputs.staged_queryable_folder and inputs.staged_saved_query_id:
-        staged_database = build_staged_database(team, inputs.staged_saved_query_id, inputs.staged_queryable_folder)
-        if staged_database is None:
+        staged = StagedSubjectOverride(
+            saved_query_id=inputs.staged_saved_query_id,
+            queryable_folder=inputs.staged_queryable_folder,
+        )
+        if not staged_subject_is_reachable(team, staged, staged_database_cache):
             return _record_unaudited_batch(checks, suite_run, team)
 
     counts: Counter[str] = Counter()
     failed_blocking = 0
     newly_failing: list[str] = []
     for check in checks:
-        result = run_check(check, suite_run, team, database=staged_database)
+        # run_check records a compile or query failure as an errored run rather than raising: one
+        # broken check must not fail the activity and take its whole batch down with it.
+        result = run_check(check, suite_run, team, staged=staged, staged_database_cache=staged_database_cache)
         counts[result.status] += 1
         if result.status is CheckRunStatus.FAILED and check.severity == CheckSeverity.ERROR:
             failed_blocking += 1
