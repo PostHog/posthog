@@ -24,10 +24,15 @@ from posthog.models.instance_setting import get_instance_setting
 
 from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_reviewer_resolver
-from products.stamphog.backend.logic.approval_retention import RetentionReason, classify_delta
+from products.stamphog.backend.logic.approval_retention import (
+    MAX_RETAINED_HEADS,
+    RETAINED_HEADS_KEY,
+    RetentionReason,
+    classify_delta,
+)
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
-from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.github_client import MAX_PR_FILES, StamphogGitHubClient
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 from products.tasks.backend.facade.api import find_signal_implementation_run
@@ -558,12 +563,44 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
     if standing is None:
         return None
 
+    if standing.posted_review_id is None:
+        return None
+
     approved_files = (standing.output or {}).get("files")
     if not isinstance(approved_files, list):
         return None
 
-    current_files = StamphogGitHubClient(repo_config.installation_id).get_pr_files(repo_config.repository, pr_number)
-    return classify_delta(approved_files, current_files)
+    client = StamphogGitHubClient(repo_config.installation_id)
+    # posted_review_id records that stamphog approved, not that the approval still stands. A
+    # maintainer dismissing it by hand on GitHub updates nothing here, and retaining over a dismissed
+    # approval would skip the replacement review and leave the PR with no approval at all. An
+    # unreadable or unconfigured identity yields an empty list, which falls through to the review.
+    active_ids = {review.get("id") for review in client.list_own_active_approvals(repo_config.repository, pr_number)}
+    if standing.posted_review_id not in active_ids:
+        return None
+
+    current_files = client.get_pr_files(repo_config.repository, pr_number)
+    reason = classify_delta(approved_files, current_files, max_files=MAX_PR_FILES)
+    if reason is not None:
+        _record_retained_head(standing, head_sha)
+    return reason
+
+
+def _record_retained_head(run: ReviewRun, head_sha: str) -> None:
+    """Note that this run's approval also covers ``head_sha``.
+
+    ``_record_merged_pull_request`` matches an approving run on ``head_sha`` alone, so without this a
+    retained PR merges as unapproved and drops out of the daily digest permanently, because
+    ``merged_at`` makes the redelivery a no-op. The reviewed head stays on ``head_sha`` itself, which
+    the dismissal sweep and ``post_verdict``'s guards key off.
+    """
+    stored = (run.output or {}).get(RETAINED_HEADS_KEY) or []
+    retained = [sha for sha in stored if isinstance(sha, str)]
+    if head_sha in retained:
+        return
+    retained.append(head_sha)
+    run.output = {**(run.output or {}), RETAINED_HEADS_KEY: retained[-MAX_RETAINED_HEADS:]}
+    run.save(update_fields=["output", "updated_at"])
 
 
 def _retract_stale_approvals_on_skip(repo_config: StamphogRepoConfig, pr: dict[str, Any], message: str) -> None:
@@ -695,6 +732,22 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
             .order_by("-created_at")
             .first()
         )
+    if approving_run is None and pr_head_sha:
+        # A retained approval covers a head it was never posted at (see _record_retained_head). The
+        # content at that head was verified identical or inert, so the merge is stamphog-approved.
+        approving_run = (
+            ReviewRun.objects.for_team(team_id)
+            .using(router.db_for_write(ReviewRun))
+            .filter(
+                pull_request=pr_obj,
+                verdict=ReviewVerdict.APPROVED,
+                approval_dismissed_at__isnull=True,
+                **{f"output__{RETAINED_HEADS_KEY}__contains": [pr_head_sha]},
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
     approved = approving_run is not None
     if repo_config.digest_enabled and approving_run is not None:
         # The approving run reviewed exactly the head that merged, so its summary describes what

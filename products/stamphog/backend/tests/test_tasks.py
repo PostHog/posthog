@@ -12,8 +12,9 @@ from posthog.models import Project, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
-from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus
-from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.logic.audiences import ResolvedAudience
+from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     _INBOX_OPT_OUT_DISMISS_MESSAGE,
     _parse_pr_url,
@@ -98,6 +99,7 @@ def _run_task(
     author_permission: str = "write",
     app_slug: str = APP_SLUG,
     pr_files: list[dict[str, Any]] | None = None,
+    active_approval_ids: list[int] | None = None,
 ):
     # transaction.on_commit never fires on its own outside a real commit, so run it
     # inline; execute_stamphog_review_workflow is a Temporal network call and gets mocked, as is
@@ -112,6 +114,11 @@ def _run_task(
     ):
         mock_client.return_value.get_collaborator_permission.return_value = author_permission
         mock_client.return_value.get_pr_files.return_value = pr_files or []
+        # Retention only trusts an approval GitHub still reports as active; default to the id the
+        # retention tests post so the check passes unless a test deliberately empties it.
+        mock_client.return_value.list_own_active_approvals.return_value = [
+            {"id": review_id} for review_id in (active_approval_ids if active_approval_ids is not None else [9])
+        ]
         process_pull_request_event(payload, delivery_id)
     return mock_execute
 
@@ -1286,3 +1293,71 @@ def test_trivial_push_retains_standing_approval(team, repo_config, changed_file,
     else:
         mock_execute.assert_called_once()
         assert run_count == 2
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_manually_dismissed_approval_is_not_retained(team, repo_config):
+    # A maintainer dismissing stamphog's review on GitHub updates nothing in the product DB, so the
+    # stored review id still looks like a standing approval. Retaining over it would skip the
+    # replacement review and leave the PR with no approval at all.
+    _run_task(_pr_payload(), "delivery-dismissed-approved", team.id)
+    with team_scope(team.id):
+        ReviewRun.objects.filter(pull_request__pr_number=42).update(
+            posted_review_id=9, output={"files": [{"filename": "docs/thing.md", "sha": "aaa"}]}
+        )
+
+    mock_execute = _run_task(
+        _pr_payload(action="synchronize", head_sha="sha-2"),
+        "delivery-dismissed-push",
+        team.id,
+        pr_files=[{"filename": "docs/thing.md", "sha": "bbb"}],
+        active_approval_ids=[],
+    )
+
+    mock_execute.assert_called_once()
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 2
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_retained_approval_still_counts_as_approved_at_merge(team, repo_config):
+    # The merge handler matches an approving run on head_sha alone. A retained approval was posted at
+    # an earlier head, so without the retained-head record the merge reads as unapproved and the PR
+    # drops out of the daily digest for good, since merged_at makes the redelivery a no-op.
+    with team_scope(team.id):
+        repo_config.digest_enabled = True
+        repo_config.save()
+    _run_task(_pr_payload(), "delivery-retain-merge-approved", team.id)
+    with team_scope(team.id):
+        ReviewRun.objects.filter(pull_request__pr_number=42).update(
+            verdict=ReviewVerdict.APPROVED,
+            posted_review_id=9,
+            output={"files": [{"filename": "docs/thing.md", "sha": "aaa"}]},
+        )
+
+    _run_task(
+        _pr_payload(action="synchronize", head_sha="sha-2"),
+        "delivery-retain-merge-push",
+        team.id,
+        pr_files=[{"filename": "docs/thing.md", "sha": "bbb"}],
+    )
+    with team_scope(team.id):
+        run = ReviewRun.objects.get(pull_request__pr_number=42)
+        assert run.output["retained_head_shas"] == ["sha-2"]
+
+    payload = _pr_payload(action="closed", head_sha="sha-2")
+    payload["pull_request"]["merged"] = True
+    payload["pull_request"]["merged_at"] = "2026-08-19T00:00:00Z"
+    # Audience resolution reaches GitHub for team membership; stub it so the assertion is about
+    # whether the merge counted as approved, which is the only thing the retained head decides.
+    audience = ResolvedAudience(key="team:devex", reason=AudienceReason.AUTHORED)
+    with patch("products.stamphog.backend.tasks.tasks.resolve_audiences", return_value=[audience]) as resolve:
+        _run_task(payload, "delivery-retain-merge-closed", team.id)
+
+    resolve.assert_called_once()
+    with team_scope(team.id):
+        merged = PullRequest.objects.get(repo_config=repo_config, pr_number=42)
+        assert merged.merged_at is not None
+        assert list(PullRequestAudience.objects.filter(pull_request=merged).values_list("audience_key", flat=True)) == [
+            "team:devex"
+        ]

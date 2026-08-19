@@ -531,24 +531,29 @@ class ApprovalRetentionTests(SimpleTestCase):
             ("docs/how-to.md", True),
             ("README.md", True),
             ("products/x/CHANGELOG.mdx", True),
-            ("uv.lock", True),
-            ("pnpm-lock.yaml", True),
-            ("posthog/test/test_thing.py", True),
-            ("frontend/src/thing.test.ts", True),
-            ("products/x/frontend/generated/api.ts", True),
             ("frontend/__snapshots__/x.snap", True),
             ("posthog/api/thing.py", False),
             (".github/workflows/ci.yml", False),
             ("Dockerfile", False),
             ("bin/deploy.sh", False),
-            ("Makefile", False),
-            ("go.sum", False),
-            ("config.yaml", False),
-            # The gate's own files are markdown or config that every other rule here calls trivial,
-            # so without the explicit exclusion a retained approval would absorb an edit to the
-            # policy that produced it.
+            # A lockfile selects the dependency code that actually gets installed.
+            ("uv.lock", False),
+            ("pnpm-lock.yaml", False),
+            # Tests run in CI with CI's credentials.
+            ("posthog/test/test_thing.py", False),
+            ("frontend/src/thing.test.ts", False),
+            # A file under a generated/ directory can be hand-edited and still compiles into a service.
+            ("products/x/frontend/generated/api.ts", False),
+            # docs/onboarding is aliased into the production frontend, so a .tsx there ships.
+            ("docs/onboarding/snippet.tsx", False),
+            # A name prefix says nothing about whether the file runs.
+            ("posthog/readme_parser.py", False),
+            ("scripts/changelog_build.sh", False),
+            # The gate's own files are markdown or config the suffix rule would otherwise call inert.
             (".stamphog/policy.yml", False),
             ("products/visual_review/AGENT_APPROVALS.md", False),
+            ("products/stamphog/packages/pr-approval-agent/gates.py", False),
+            # Vendored copies keep the engine under tools/, and the rule must not care where it sits.
             ("tools/pr-approval-agent/gates.py", False),
             (".github/CODEOWNERS", False),
         ]
@@ -562,13 +567,13 @@ class ApprovalRetentionTests(SimpleTestCase):
         # would drop the PR out of merge readiness for no reason.
         approved = [_file("posthog/api/thing.py", "aaa"), _file("docs/thing.md", "bbb")]
 
-        assert classify_delta(approved, list(approved)) == RetentionReason.UNCHANGED_DIFF
+        assert classify_delta(approved, list(approved), max_files=100) == RetentionReason.UNCHANGED_DIFF
 
     def test_trivial_paths_retain(self) -> None:
         approved = [_file("posthog/api/thing.py", "aaa"), _file("docs/thing.md", "bbb")]
         current = [_file("posthog/api/thing.py", "aaa"), _file("docs/thing.md", "ccc")]
 
-        assert classify_delta(approved, current) == RetentionReason.TRIVIAL_PATHS
+        assert classify_delta(approved, current, max_files=100) == RetentionReason.TRIVIAL_PATHS
 
     @parameterized.expand(
         [
@@ -583,7 +588,7 @@ class ApprovalRetentionTests(SimpleTestCase):
     def test_non_trivial_delta_dismisses(self, _name: str, current: list[dict]) -> None:
         approved = [_file("posthog/api/thing.py", "aaa")]
 
-        assert classify_delta(approved, current) is None
+        assert classify_delta(approved, current, max_files=100) is None
 
     def test_missing_blob_sha_fails_closed(self) -> None:
         # Two file objects with no sha would compare equal and retain an approval over a diff nobody
@@ -591,4 +596,11 @@ class ApprovalRetentionTests(SimpleTestCase):
         approved = [{"filename": "posthog/api/thing.py"}]
         current = [{"filename": "posthog/api/thing.py"}]
 
-        assert classify_delta(approved, current) is None
+        assert classify_delta(approved, current, max_files=100) is None
+
+    def test_truncated_file_listing_fails_closed(self) -> None:
+        # get_pr_files stops at a page cap without saying so, and a listing at the cap is a prefix of
+        # the diff. A change past it would be invisible, so the whole comparison is unusable.
+        approved = [_file(f"docs/f{i}.md", "aaa") for i in range(3)]
+
+        assert classify_delta(approved, list(approved), max_files=3) is None
