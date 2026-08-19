@@ -741,6 +741,10 @@ def collect_runs(args: argparse.Namespace, token: str, now: datetime) -> Collect
             complete = False
             continue
         if not raw_jobs:
+            # Startup failures and very early cancellations report zero jobs. A bare root
+            # span holds no job time to attribute, and an empty list from a transient API
+            # fault would look the same as a run that genuinely had none, so it is skipped.
+            # This is also why `startup_failure` in RUN_ERROR_CONCLUSIONS never fires here.
             logger.info("run %s attempt %s has no jobs; nothing to trace", run_id, attempt)
             continue
         run = parse_run(raw, raw_jobs)
