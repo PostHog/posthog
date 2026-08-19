@@ -10,8 +10,8 @@ export interface ChannelIdentity {
   name: string;
 }
 
-// A server that predates `system_role`, or a row not yet stamped with it, sends
-// null; fall back to the pre-role checks so those still resolve.
+// Stamping is lazy (it happens when the default spaces are provisioned), so a
+// legacy row can still send a null role; fall back to the pre-role checks.
 export function isPersonalChannel(channel: ChannelIdentity): boolean {
   return channel.system_role != null
     ? channel.system_role === "personal"
