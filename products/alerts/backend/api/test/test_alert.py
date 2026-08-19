@@ -107,7 +107,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert len(alerts.json()["results"]) == 0
 
     def test_create_forecast_alert(self) -> None:
-        # Forecasting needs a time series (not a single BoldNumber value), unlike self.insight.
         time_series_insight_data: dict[str, Any] = {
             "query": {
                 "kind": "TrendsQuery",
@@ -142,8 +141,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.json()["forecast_config"]["condition"] == "future_breach"
 
     def test_create_forecast_alert_flag_disabled_returns_400(self) -> None:
-        # forecast_config is accepted purely on presence with no server-side flag check unless this
-        # gate is wired up — an alert could otherwise be created with the frontend hidden but the API open.
         with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
@@ -1862,9 +1859,6 @@ class TestAlertSimulateForecast(APIBaseTest):
 
     @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_simulate_forecast_series_index_out_of_range_returns_400(self, mock_calculate) -> None:
-        # series_index is user-controlled and unbounded; TrendsForecastExtractor.simulate indexes
-        # straight into the query's result list, so an out-of-range index used to raise an uncaught
-        # IndexError (500) instead of the 400 every other bad-input path returns.
         mock_calculate.return_value = mock.MagicMock(
             result=[
                 {
@@ -1916,9 +1910,6 @@ class TestAlertSimulateForecast(APIBaseTest):
 
 class TestFinishedTargetAlertIsEditable(APIBaseTest):
     def test_a_finished_target_alert_can_still_be_patched(self) -> None:
-        """Validating an inherited target date on every PATCH locked a finished alert against every
-        edit, including turning it off. A direct validator test misses this: it only shows up
-        through the serializer, which is the path the editor uses."""
         insight = self.client.post(
             f"/api/projects/{self.team.id}/insights",
             data={
@@ -1955,7 +1946,6 @@ class TestFinishedTargetAlertIsEditable(APIBaseTest):
             assert created.status_code == status.HTTP_201_CREATED, created.content
             alert_id = created.json()["id"]
 
-            # The date passes. A rename and a disable must both still work.
             AlertConfiguration.objects.filter(pk=alert_id).update(
                 forecast_config={
                     "type": "ForecastConfig",
@@ -2028,14 +2018,11 @@ class TestForecastTargetProjection(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         projection = response.json()["target_projection"]
         assert projection["target"] == 1000000
-        # An unreachable target: even the favorable edge falls short, which is what fires by default.
         assert projection["misses_on_best_case"] is True
 
 
 class TestForecastFlagGate(APIBaseTest):
     def test_existing_forecast_alert_can_be_disabled_once_the_flag_is_off(self) -> None:
-        """Gating an inherited forecast_config would 400 every edit to an existing alert when the
-        flag goes off, leaving no way to turn a firing alert off."""
         insight = self.client.post(
             f"/api/projects/{self.team.id}/insights",
             data={
@@ -2082,15 +2069,10 @@ class TestForecastFlagGate(APIBaseTest):
             )
         assert disabled.status_code == status.HTTP_200_OK, disabled.content
         assert disabled.json()["enabled"] is False
-        # Creating a new one still requires the flag.
         assert recreated.status_code == status.HTTP_400_BAD_REQUEST, recreated.content
 
 
 class TestForecastSimulateGuards(APIBaseTest):
-    """The preview must reject the same insight shapes the save path rejects. Before this, a
-    breakdown insight previewed series[0] as if it were the whole insight, so a user could draw a
-    forecast they could not then save."""
-
     def _insight(self, query_extra: dict) -> dict:
         query = {
             "kind": "TrendsQuery",

@@ -1360,12 +1360,6 @@ class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
 
 
 class ForecastSimulateThrottle(PersonalApiKeyOrUserRateThrottle):
-    # Cap how often a team can trigger a forecast preview.
-    #
-    # The endpoint runs an uncached ClickHouse scan and a synchronous Prophet fit, and the request
-    # controls the cost: a fine-grained insight at the maximum horizon fits thousands of rows and
-    # allocates hundreds of megabytes in the web worker. band_deviation pays a second fit on top.
-    # Keyed per team, matching AlertTestDeliveryThrottle, so extra API keys do not raise the limit.
     scope = "forecast_simulate"
     rate = "10/minute"
 

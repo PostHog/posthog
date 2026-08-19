@@ -180,9 +180,6 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 
         try:
             insight = alert.insight
-            # Before validating: a target alert whose date has arrived is finished, not
-            # misconfigured. Validating first would reject its own saved date as "in the past" and
-            # auto-disable it with an email, which reads to the user as a broken alert.
             finished_fields = disable_if_target_date_passed(alert, datetime.now(UTC).date())
             if finished_fields:
                 alert.save(update_fields=finished_fields)
@@ -264,12 +261,6 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         except CH_TRANSIENT_ERRORS:
             raise
         except InsufficientHistoryError:
-            # The alert is fine, the insight is just young. Record a check so next_check_at
-            # advances, under the same lock the other write paths take.
-            #
-            # Deliberately no error payload: insight alerts set errors_set_errored_state, so
-            # passing one would mark the alert ERRORED and open a failure streak that suppresses
-            # the next genuine error, which is the opposite of "nothing is wrong yet".
             with transaction.atomic():
                 locked = (
                     AlertConfiguration.objects.select_for_update(of=("self",))

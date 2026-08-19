@@ -74,7 +74,6 @@ class RecordFailedEvaluationResult:
 @dataclasses.dataclass(frozen=True)
 class EvaluateAlertResult:
     # AlertCheck PK is a UUIDT; stringified here so Temporal's JSON codec can pass it through.
-    # None when the check ended without recording one, as a finished target alert does.
     alert_check_id: str | None
     should_notify: bool
     new_state: AlertState

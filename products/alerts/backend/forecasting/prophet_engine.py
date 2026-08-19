@@ -8,31 +8,15 @@ from posthog.schema import IntervalType
 
 from products.alerts.backend.forecasting.engine import SUPPORTED_FORECAST_INTERVALS, ForecastResult
 
-# cmdstanpy reattaches its own stderr handler during optimize(), so setLevel alone does not hold.
-# Disabling the logger outright is what actually keeps per-fit chain logs out of the worker output.
 logging.getLogger("cmdstanpy").disabled = True
 logging.getLogger("prophet").setLevel(logging.WARNING)
 
 logger = structlog.get_logger(__name__)
 
-# Prophet draws its uncertainty interval through numpy's global RNG, so two identical fits return
-# different band edges: measured at 3.7% of band width, with fit_coverage swinging 0.95 to 1.00.
-# That is enough to flip a band_deviation firing decision and a fit-quality verdict between checks.
-# An alert has to decide the same way twice on the same data, so the draw is pinned. The global
-# state is restored afterwards, because it belongs to the worker rather than to this fit.
 _UNCERTAINTY_SEED = 20260818
 
-# Seeding a global is only deterministic if one fit owns it at a time. evaluate_alert runs under
-# thread_sensitive=False, so a worker fits several alerts concurrently: without this lock two fits
-# interleave their seed and restore, neither is reproducible, and the worker is left permanently
-# seeded. The lock is correctness, not throughput tuning.
 _FIT_LOCK = threading.Lock()
 
-# cmdstanpy shells out to a Stan subprocess with no deadline of its own, so a pathological series
-# could hold both a worker thread and the lock above indefinitely. Measured worst case under the
-# training bound is well under a second, so this never fires in normal operation; it exists so a
-# stuck fit fails instead of hanging. cmdstanpy kills the subprocess and raises, which unwinds the
-# lock through the with-block rather than leaking it.
 _FIT_TIMEOUT_SECONDS = 60
 
 _FREQ: dict[IntervalType, str] = {
@@ -42,8 +26,6 @@ _FREQ: dict[IntervalType, str] = {
     IntervalType.MONTH: "MS",
 }
 
-# Validation rejects anything outside this set, so a missing key here would be a silent daily fit.
-# Raised rather than asserted because python -O strips asserts, and this invariant is load-bearing.
 if set(_FREQ) != set(SUPPORTED_FORECAST_INTERVALS):
     raise RuntimeError(f"Prophet frequency map {set(_FREQ)} does not match {set(SUPPORTED_FORECAST_INTERVALS)}")
 
@@ -63,7 +45,6 @@ class ProphetEngine:
         from prophet import Prophet  # noqa: PLC0415 — keeps the heavy dep off the django.setup() path
 
         df = pd.DataFrame({"ds": pd.to_datetime(dates), "y": values})
-        # mcmc_samples=0 pins the deterministic MAP fit; seasonalities stay on Prophet's auto-detection.
         model = Prophet(interval_width=interval_width, mcmc_samples=0)
 
         start = time.monotonic()
@@ -82,7 +63,6 @@ class ProphetEngine:
             "forecast_fit_completed", engine="prophet", horizon=horizon, n_points=len(values), duration_ms=duration_ms
         )
 
-        # Without history rows the frame is the horizon alone, so there is nothing to split off.
         history = prediction.iloc[: len(values)] if include_history else None
         forecast = prediction.iloc[len(values) :] if include_history else prediction
 
@@ -91,8 +71,6 @@ class ProphetEngine:
         history_lower: list[float] | None = None
         history_upper: list[float] | None = None
         if history is not None:
-            # How far off the fitted values are, and whether the band's observed coverage matches the
-            # requested interval_width. The simulate UI turns these into a verdict and a band.
             actuals = df["y"].to_numpy()
             fitted = history["yhat"].to_numpy()
             nonzero = actuals != 0

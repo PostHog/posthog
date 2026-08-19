@@ -53,6 +53,14 @@ def extract_trends_series(
     date_from: str | None = None,
     user: Optional[User] = None,
 ) -> ExtractionResult:
+    """Run a trends insight over the lookback window and normalize it into series.
+
+    Each ``ComparableSeries`` carries the full (complete-interval) history the detector scores —
+    the incomplete current interval is already dropped by ``_prepare_series``. Raises on a ``None``
+    result (swallowed query error). A genuinely empty query result yields an empty series list with
+    ``empty_query_result=True``; rows that exist but are too short to score are dropped, also leaving
+    an empty series list, but with the flag False — the two cases evaluate to 0 and None respectively.
+    """
     """Run a trends insight over the detector's lookback window and normalize it into series.
 
     Each ``ComparableSeries`` carries the full (complete-interval) history the detector scores —
@@ -121,7 +129,6 @@ def extract_detector_series(
     date_from: str | None = None,
     user: Optional[User] = None,
 ) -> ExtractionResult:
-    """Detector-path wrapper around ``extract_trends_series``, sizing the lookback from the detector config."""
     return extract_trends_series(
         insight,
         team,

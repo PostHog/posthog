@@ -648,7 +648,6 @@ class TestForecastConfigValidation:
             ("hour", "hour", 7),
             ("day", "day", 7),
             ("week", "week", 7),
-            # 7 monthly intervals would reach 213 days, past the 6 month cap.
             ("month", "month", 6),
         ]
     )
@@ -664,7 +663,6 @@ class TestForecastConfigValidation:
 
     @parameterized.expand(
         [
-            # The same horizon reaches very different distances, which is why the cap is a duration.
             ("7 weeks is fine", "week", 7, True),
             ("7 months reaches 213 days", "month", 7, False),
             ("6 months is the most that fits", "month", 6, True),
@@ -691,8 +689,6 @@ class TestForecastConfigValidation:
 
     @parameterized.expand(
         [
-            # Prophet has no frequency for these, so they would silently fit daily, and the
-            # point-count lookback would widen the query to 91 of that unit.
             ("minute", "minute"),
             ("quarter", "quarter"),
             ("year", "year"),
@@ -710,8 +706,6 @@ class TestForecastConfigValidation:
             )
 
     def test_future_breach_rejects_percentage_threshold(self) -> None:
-        # The evaluator compares a predicted count against the raw bound, so a percentage bound of
-        # 0.2 would read as an absolute 0.2 and fire on every check.
         with pytest.raises(ValueError, match="absolute threshold"):
             validate_alert_config(
                 TRENDS_QUERY,
@@ -723,7 +717,6 @@ class TestForecastConfigValidation:
             )
 
     def test_band_deviation_allows_percentage_threshold(self) -> None:
-        # band_deviation never reads the threshold, so it has no reason to constrain its type.
         validate_alert_config(
             TRENDS_QUERY,
             {"type": "relative_increase"},
@@ -768,9 +761,6 @@ class TestForecastConfigValidation:
             )
 
     def test_a_finished_target_alert_still_validates(self) -> None:
-        """Once the date passes, the scheduled check and any PATCH revalidate the alert's own saved
-        config. Rejecting the date it was saved with would auto-disable it with an error email and
-        make it uneditable, including turning it off."""
         validate_alert_config(
             TRENDS_QUERY,
             {"type": "absolute_value"},
@@ -788,7 +778,6 @@ class TestForecastConfigValidation:
         )
 
     def test_target_by_date_config_is_accepted(self) -> None:
-        # Far enough out to be useful, inside the six month cap on a daily insight.
         target_date = (datetime.now(UTC).date() + timedelta(days=90)).isoformat()
         validate_alert_config(
             TRENDS_QUERY,
@@ -816,7 +805,6 @@ class TestForecastConfigValidation:
         ]
     )
     def test_band_deviation_modes_are_rejected(self, _name: str, extra: dict, message: str) -> None:
-        # A mode whose threshold is missing would compare against zero and fire on every check.
         with pytest.raises(ValueError, match=message):
             validate_alert_config(
                 TRENDS_QUERY,
@@ -837,7 +825,6 @@ class TestForecastConfigValidation:
             ("percentage mode", {"error_mode": "relative", "error_threshold_pct": 0.2}),
             ("fixed amount mode", {"error_mode": "absolute", "error_threshold_abs": 50}),
             ("interval mode with a score", {"score_threshold": 0.5}),
-            # Above a full half-width is the quiet end of the range, and the cap used to reject it.
             ("interval mode with a quiet score", {"score_threshold": 2.5}),
             ("direction only", {"direction": "above"}),
         ]

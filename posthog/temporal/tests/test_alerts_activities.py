@@ -314,8 +314,6 @@ class TestPrepareAlert:
 
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
         assert refreshed.enabled is False
-        # Finished, not errored: validating first rejected the alert's own saved date as being in
-        # the past, which auto-disabled it with an ERRORED check and emailed every subscriber.
         assert refreshed.state != AlertState.ERRORED
         checks = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
         assert checks == 0

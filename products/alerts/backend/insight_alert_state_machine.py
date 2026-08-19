@@ -79,8 +79,6 @@ def apply_disable(alert: AlertConfiguration) -> list[str]:
 
 
 def disable_if_target_date_passed(alert: AlertConfiguration, today: date) -> list[str]:
-    """A target alert has nothing left to say once its date arrives. Disabling stops the check
-    without a new AlertState: the editor derives "target date passed" from the config plus enabled."""
     config = alert.forecast_config or {}
     if config.get("condition") != ForecastConditionType.TARGET_BY_DATE.value:
         return []

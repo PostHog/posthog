@@ -56,8 +56,6 @@ class _AlertConfigValidationContext:
 
     @property
     def bounds_required(self) -> bool:
-        # Detector and forecast alerts derive their own trigger, so a threshold bound is only
-        # mandatory for the plain threshold path.
         return self.require_threshold_bounds and self.detector_config is None and self.forecast_config is None
 
 
@@ -221,9 +219,6 @@ def _validate_metrics_alert_config(ctx: _AlertConfigValidationContext) -> None:
 
 
 def _validate_band_deviation(parsed: ForecastConfig) -> None:
-    """The three expected-range controls only mean anything for band_deviation, and each error mode
-    reads exactly one threshold. Reject a mode whose threshold is missing rather than silently
-    treating it as zero, which would fire on every check."""
     if parsed.error_mode == ForecastErrorMode.RELATIVE:
         if parsed.error_threshold_pct is None:
             raise ValueError("A percentage expected-range alert needs a percentage to compare against.")
@@ -241,8 +236,6 @@ def _validate_band_deviation(parsed: ForecastConfig) -> None:
 def _validate_target_by_date(
     parsed: ForecastConfig, interval: IntervalType | None, *, require_future_date: bool
 ) -> None:
-    """A target alert turns on three fields the other conditions don't use, so reject a half-filled
-    one at save rather than at the first check."""
     if parsed.target is None:
         raise ValueError("A target alert needs a target value.")
     if parsed.target_direction is None:
@@ -253,12 +246,7 @@ def _validate_target_by_date(
         target_date = date.fromisoformat(str(parsed.target_date))
     except ValueError:
         raise ValueError(f"Target date isn't a valid date: {parsed.target_date}")
-    # Reuses the horizon derivation so the date bounds can't drift from what evaluation accepts.
-    # A date already in the past is only rejected when this request is setting it. Re-rejecting an
-    # inherited one would make a finished alert uneditable, including turning it off.
     today = datetime.now(UTC).date()
-    # Save is the only place that enforces the reach cap. Evaluation derives its own horizon from
-    # the last completed bucket and does not re-check, so the two cannot disagree.
     if require_future_date or target_date > today:
         horizon_for_target_date(target_date, interval, today)
 
@@ -294,8 +282,6 @@ def _validate_forecast_config(
     validate_forecast_interval(trends_query.interval)
     if parsed.condition == ForecastConditionType.FUTURE_BREACH:
         validate_threshold_bounds_required(threshold_config)
-        # The evaluator compares the point forecast against the raw bound, so a percentage bound
-        # would be read as an absolute count and fire on every check.
         if threshold_config is not None:
             threshold = InsightThreshold.model_validate(threshold_config)
             if threshold.type != InsightThresholdType.ABSOLUTE:

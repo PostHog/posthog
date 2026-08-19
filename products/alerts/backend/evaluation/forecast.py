@@ -46,7 +46,6 @@ from products.product_analytics.backend.models.insight import Insight
 
 
 def _resolve_horizon(forecast_config: dict[str, Any]) -> int:
-    # `or` rather than a get() default so an explicit null or 0 falls back too.
     return int(forecast_config.get("horizon") or DEFAULT_HORIZON)
 
 
@@ -55,16 +54,11 @@ def _resolve_interval_width(forecast_config: dict[str, Any]) -> float:
 
 
 def _forecast_min_samples(forecast_config: dict[str, Any], interval: IntervalType | None = None) -> int:
-    """Enough history for seasonality plus the horizon we predict past it, bounded so the window
-    cannot grow into a multi-year scan on a coarse interval or a huge fit on a fine one."""
     requested = max(FORECAST_LOOKBACK_POINTS, 4 * _resolve_horizon(forecast_config)) + 1
     return bounded_training_points(requested, interval)
 
 
 def _required_points(condition: str | None, interval_type: IntervalType | None) -> int:
-    """How much history a condition needs. band_deviation holds out the latest point as the actual
-    to compare against, fitting on one fewer point than it is given, so it needs one extra to still
-    fit on a full window. Shared so the preview cannot accept a series the alert then rejects."""
     min_points = min_forecast_points(interval_type)
     if condition == ForecastConditionType.BAND_DEVIATION.value:
         return min_points + 1
@@ -79,20 +73,11 @@ def _clean_points(result: ExtractionResult) -> tuple[list[str], list[float]]:
         if p.date is not None and p.value is not None:
             dates.append(p.date)
             values.append(p.value)
-    # Clamp what reaches the engine, rather than trusting how the window was chosen. The simulate
-    # caller's date_from wins over the computed minimum whenever it reaches further back, so an
-    # absolute date on an hourly insight would otherwise hand Prophet tens of thousands of points.
     limit = bounded_training_points(len(values), result.interval_type)
     return dates[-limit:], values[-limit:]
 
 
 def _decomposition_suffix(forecast: ForecastResult, index: int) -> str:
-    """Say why the forecast sits where it does, in the metric's own terms.
-
-    Why the alert fired is the first thing a person asks, so this belongs in the message rather
-    than in metadata. The engine's component names are model vocabulary, so they are stated as
-    plain observations about the series instead.
-    """
     if not forecast.components:
         return ""
     trend_series = forecast.components.get("trend")
@@ -101,8 +86,6 @@ def _decomposition_suffix(forecast: ForecastResult, index: int) -> str:
         return ""
 
     parts = [f"usual level around {trend:,.0f}"]
-    # A share of the trend only reads as higher or lower while the trend is positive. On a negative
-    # trend the division flips the sign, so the sentence would state the opposite of what happened.
     if trend > 0:
         for name, phrasing in (("weekly", "on this day of the week"), ("yearly", "at this time of year")):
             series = forecast.components.get(name)
@@ -126,15 +109,8 @@ def _band_deviation_verdict(
     error_threshold_abs: float | None,
     score_threshold: float,
 ) -> tuple[bool, str]:
-    """Decide whether the latest point counts as off, and describe the range it was judged against.
-
-    Split from the fit so the direction and error-mode matrix is testable without an engine.
-    """
     half_width = max((upper - lower) / 2, 0.0)
     if error_mode == ForecastErrorMode.RELATIVE.value:
-        # A share of the forecast is undefined near zero, which is an ordinary state for a count
-        # metric in a quiet period. The band's half-width is the series' own scale, so it floors
-        # the denominator without introducing a constant that only suits one kind of metric.
         denominator = max(abs(yhat), half_width)
         deviation = abs(actual - yhat) / denominator if denominator else 0.0
         outside = deviation > (error_threshold_pct or 0.0)
@@ -147,9 +123,6 @@ def _band_deviation_verdict(
         outside = actual < lower or actual > upper
         described = f"{lower:.2f} to {upper:.2f}"
         if outside and score_threshold > 0 and half_width > 0:
-            # How far past the range the point sits, measured in band half-widths, so the control
-            # is comparable across metrics. The interval already carries the residual scale, so
-            # this needs no in-sample output and no second fit.
             excess = (actual - upper) if actual > upper else (lower - actual)
             outside = (excess / half_width) >= score_threshold
 
@@ -172,8 +145,6 @@ def _evaluate_band_deviation(
     interval_type: IntervalType | None,
     forecast_config: dict[str, Any] | None = None,
 ) -> AlertEvaluationResult:
-    """Fit on history excluding the latest completed point, predict one interval, fire if that
-    actual point counts as off under the configured mode and direction."""
     config = forecast_config or {}
     interval_value = interval_type.value if interval_type else None
     forecast = engine.forecast(dates[:-1], values[:-1], 1, interval_width, interval_type)
@@ -220,12 +191,6 @@ def _evaluate_future_breach_values(
     fallback_value: float | None = None,
     decomposition: Callable[[int], str] = lambda _i: "",
 ) -> AlertEvaluationResult:
-    """Fire on the first predicted point that crosses a bound. Split out from the fit so the
-    sensitivity matrix is testable without an engine.
-
-    `best_case` reads the edge that keeps the metric on the acceptable side, which is the lower
-    edge against a ceiling and the upper edge against a floor, so it always fires later.
-    """
     best_case = sensitivity == ForecastSensitivity.BEST_CASE.value
     against_upper = lower if best_case else yhat
     against_lower = upper if best_case else yhat
@@ -276,8 +241,6 @@ def _evaluate_future_breach(
     interval_type: IntervalType | None,
     threshold: InsightThreshold | None,
 ) -> AlertEvaluationResult:
-    """Fit on the full history, predict `horizon` intervals, fire if the forecast crosses the
-    threshold bounds."""
     interval_value = interval_type.value if interval_type else None
     horizon = _resolve_horizon(forecast_config)
     forecast = engine.forecast(dates, values, horizon, interval_width, interval_type)
@@ -301,13 +264,6 @@ def _evaluate_future_breach(
 
 
 def _resolve_sensitivity(forecast_config: dict[str, Any]) -> str:
-    """Which line the comparison reads. `best_case` is always the edge most favorable to the user,
-    so it always fires later than `forecast`.
-
-    The default depends on the condition. A target has months of runway, so flapping is the failure
-    mode and the conservative reading wins. A breach alert exists for lead time, so defaulting it to
-    the quiet end would blunt the one thing it is for, and it keeps reading the point forecast.
-    """
     explicit = forecast_config.get("sensitivity")
     if explicit:
         return str(explicit)
@@ -327,8 +283,6 @@ def _evaluate_target_by_date_values(
     target_date: str,
     label: str,
 ) -> AlertEvaluationResult:
-    """Compare the value predicted for the target date against the target. Split out from the fit so
-    the direction and sensitivity matrix is testable without an engine."""
     best_case = sensitivity == ForecastSensitivity.BEST_CASE.value
     if direction == ForecastTargetDirection.AT_LEAST.value:
         predicted = upper if best_case else yhat
@@ -369,13 +323,10 @@ def _evaluate_target_by_date(
     interval_width: float,
     interval_type: IntervalType | None,
 ) -> AlertEvaluationResult:
-    """Forecast to a fixed calendar date and compare the value predicted there against the target."""
     target = forecast_config.get("target")
     target_date = forecast_config.get("target_date")
     if target is None or not target_date:
         raise AlertExtractionError("A target alert needs both a target and a target date.")
-    # Count from the last completed bucket, which is where Prophet extends from. Counting from
-    # today lands the final point one interval short of the date the user asked about.
     horizon = intervals_between(date.fromisoformat(dates[-1][:10]), date.fromisoformat(str(target_date)), interval_type)
     if horizon > max_evaluable_horizon(interval_type):
         raise InsufficientHistoryError(
@@ -399,8 +350,6 @@ def _evaluate_target_by_date(
 def evaluate_with_forecast(
     result: ExtractionResult, forecast_config: dict[str, Any], threshold: InsightThreshold | None
 ) -> AlertEvaluationResult:
-    """Evaluate an extracted trends series against a forecast (the third alert path). Dispatches to
-    ``_evaluate_band_deviation`` or ``_evaluate_future_breach`` by ``forecast_config["condition"]``."""
     interval_value = result.interval_type.value if result.interval_type else None
 
     if not result.series:
@@ -444,9 +393,6 @@ def evaluate_with_forecast(
 
 
 class TrendsForecastExtractor:
-    """Forecast-path extractor for trends insights — same shape as TrendsDetectorExtractor, but the
-    lookback is sized by the forecast config instead of a detector window."""
-
     def extract(
         self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
     ) -> ExtractionResult:
@@ -467,8 +413,6 @@ class TrendsForecastExtractor:
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
         trends_query = TrendsQuery.model_validate(query)
-        # Simulate is an explicit user action, so recompute rather than serve a cached result. A stale
-        # cache here shows a preview that disagrees with what the alert would do on the same insight.
         execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
         result = extract_trends_series(
             insight,
@@ -492,7 +436,6 @@ def simulate_forecast_on_insight(
     date_from: str | None = None,
     user: Optional[User] = None,
 ) -> dict[str, Any]:
-    """Run a forecast over historical insight data for chart visualization. Read-only (no AlertCheck)."""
     if insight.query is None:
         raise ValueError("Insight has no valid query.")
 
@@ -514,9 +457,6 @@ def simulate_forecast_on_insight(
     if extractor is None:
         raise ValueError(f"Forecast simulation isn't supported for {kind} insights")
 
-    # Reject the same shapes the save path rejects, before paying for the query. Otherwise the
-    # preview is more permissive than saving: a breakdown insight would forecast series[0] and
-    # present it as the whole insight.
     trends_query = TrendsQuery.model_validate(query)
     if is_non_time_series_trend(trends_query):
         raise ValueError("Forecast alerts require a time series trends insight")
@@ -577,8 +517,6 @@ def simulate_forecast_on_insight(
 
 
 def _index_for_target_date(forecast_dates: list[str], target_date: str) -> int:
-    """First predicted point that reaches the target date. Prophet extends from the last completed
-    bucket rather than from today, so the last point is not the target date."""
     for i, d in enumerate(forecast_dates):
         if d[:10] >= target_date[:10]:
             return i
@@ -586,9 +524,6 @@ def _index_for_target_date(forecast_dates: list[str], target_date: str) -> int:
 
 
 def _target_projection(forecast: ForecastResult, forecast_config: dict[str, Any]) -> dict[str, Any] | None:
-    """Both crossings for the preview: what the forecast says, and what the favorable edge says.
-    Returning both is what makes the choice between the two sensitivities visible rather than
-    theoretical, so a user can see which one their target sits between."""
     if forecast_config.get("condition") != ForecastConditionType.TARGET_BY_DATE.value:
         return None
     target = forecast_config.get("target")
@@ -618,8 +553,6 @@ def _latest_deviation(
     interval_width: float,
     interval_type: IntervalType | None,
 ) -> dict[str, Any] | None:
-    """The band-deviation check the alert would actually run, so the preview and the evaluation can't
-    disagree. Costs a second fit, so only the condition that uses it pays for it."""
     if forecast_config.get("condition") != ForecastConditionType.BAND_DEVIATION.value:
         return None
     held_out = engine.forecast(dates[:-1], values[:-1], 1, interval_width, interval_type)
@@ -629,8 +562,6 @@ def _latest_deviation(
 
 
 def _fit_verdict(mape: float | None, coverage: float | None, interval_width: float) -> str:
-    """Distill in-sample fit stats into a user-facing verdict so the preview can warn about
-    unreliable fits (thresholds per the design spec's fit-quality section)."""
     if mape is None or coverage is None:
         return "unknown"
     coverage_gap = abs(coverage - interval_width)

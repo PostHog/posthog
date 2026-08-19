@@ -84,7 +84,6 @@ INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
 
 def _target_date_is_changing(forecast_config: dict | None, instance: AlertConfiguration | None) -> bool:
-    """Whether this request sets a target date different from the stored one."""
     if not forecast_config:
         return False
     stored = (instance.forecast_config or {}) if instance is not None else {}
@@ -196,7 +195,6 @@ class DetectorConfigField(serializers.JSONField):
 @extend_schema_field(ForecastConfig)  # type: ignore[arg-type]
 class ForecastConfigField(serializers.JSONField):
     def to_internal_value(self, data):
-        # A null forecast_config never reaches here: allow_null short-circuits it in run_validation.
         value = super().to_internal_value(data)
         try:
             ForecastConfig.model_validate(value)
@@ -796,9 +794,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         else:
             forecast_config = None
 
-        # Gate on the config this request sets, not on one inherited from the instance. Gating the
-        # inherited value would 400 every edit to an existing forecast alert once the flag is off,
-        # including disabling or snoozing it, leaving no way to turn a firing alert off.
         if attrs.get("forecast_config") and not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
             raise ValidationError("Forecast alerts are not enabled for your account.")
 
@@ -836,10 +831,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 detector_config=detector_config,
                 require_threshold_bounds=require_threshold_bounds,
                 forecast_config=forecast_config,
-                # Only a target date this request actually changes has to be in the future. An
-                # unchanged one was legitimate when it was saved, and re-rejecting it would lock
-                # the alert. Compared against the stored value rather than trusting the payload,
-                # so a client that echoes the whole object back is not penalised for it.
                 require_future_target_date=_target_date_is_changing(forecast_config, self.instance),
             )
         except ValueError as e:
@@ -1069,17 +1060,12 @@ class ForecastSimulateRequestSerializer(serializers.Serializer):
 
     def validate_insight(self, value):
         _require_insight_viewer_access(self.context, value)
-        # Same gate as create/update and the detector preview, so a flag-gated insight kind can't
-        # reach the forecast preview through the one path that skips it.
         _enforce_alert_feature_flags(self.context, value)
         return value
 
     def validate_forecast_config(self, value):
         if not _insight_alert_flag_enabled(self.context, "forecast-alerts"):
             raise serializers.ValidationError("Forecast alerts are not enabled for your account.")
-        # Shape is already validated by ForecastConfigField.to_internal_value; only the width
-        # remains here. The horizon bound depends on the insight's interval, which this field
-        # validator cannot see, so simulate_forecast_on_insight checks it once the query is known.
         try:
             validate_forecast_horizon_and_width(ForecastConfig.model_validate(value), None, check_horizon=False)
         except ValueError as e:
@@ -1540,15 +1526,11 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: ForecastSimulateResponseSerializer},
         description="Simulate a forecast on an insight's historical data. Read-only — no AlertCheck records are created.",
     )
-    # Returns an insight's computed result series, so it requires insight read in addition to
-    # alert read — an alert-scoped token must not read insight/query data it isn't scoped for.
-    # (Object-level insight viewer access is enforced separately in ForecastSimulateRequestSerializer.)
     @action(
         detail=False,
         methods=["POST"],
         url_path="simulate_forecast",
         required_scopes=["alert:read", "insight:read"],
-        # Synchronous Prophet fit with request-controlled cost, so it is throttled like test-delivery.
         throttle_classes=[ForecastSimulateThrottle],
     )
     def simulate_forecast(self, request, *args, **kwargs):

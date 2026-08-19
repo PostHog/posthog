@@ -35,13 +35,13 @@ class TestProphetEngine:
             get_forecast_engine({"type": "ForecastConfig", "engine": "nonsense"})
 
     def test_forecast_shape(self):
-        np.random.seed(42)  # Prophet's uncertainty sampling uses the global numpy RNG
+        np.random.seed(42)
         engine = get_forecast_engine({"engine": "prophet"})
         values = [float(100 + 2 * i) for i in range(60)]
         result = engine.forecast(_daily_dates(60), values, horizon=7, interval_width=0.95, interval=IntervalType.DAY)
         assert isinstance(result, ForecastResult)
         assert len(result.dates) == len(result.yhat) == len(result.lower) == len(result.upper) == 7
-        assert result.dates[0].startswith("2026-03-02")  # day after the last input date
+        assert result.dates[0].startswith("2026-03-02")
 
     @parameterized.expand(
         [
@@ -66,21 +66,16 @@ class TestProphetEngine:
     def test_fit_quality_and_components_populated(self):
         np.random.seed(42)
         engine = get_forecast_engine({"engine": "prophet"})
-        # Tiny alternating jitter avoids a perfectly noiseless line, where Prophet's MAP-estimated
-        # observation noise collapses far below its own optimizer convergence residual, making the
-        # uncertainty band pathologically narrower than the fit itself and starving fit_coverage.
         values = [float(100 + 2 * i + (-1) ** i * 0.3) for i in range(60)]
         result = engine.forecast(
             _daily_dates(60), values, horizon=7, interval_width=0.95, interval=IntervalType.DAY, include_history=True
         )
-        assert result.fit_mape is not None and result.fit_mape < 0.1  # near-perfect fit on a clean line
+        assert result.fit_mape is not None and result.fit_mape < 0.1
         assert result.fit_coverage is not None and result.fit_coverage > 0.8
         assert result.components is not None
         assert len(result.components["trend"]) == 7
 
     def test_history_band_is_opt_in_and_aligned(self):
-        # Scheduled checks read none of the in-sample output, so it is off by default; the preview
-        # asks for it and needs one band point per input point to draw against `dates`/`data`.
         np.random.seed(42)
         engine = get_forecast_engine({"engine": "prophet"})
         values = [float(100 + 2 * i + (-1) ** i * 0.3) for i in range(60)]
@@ -96,7 +91,6 @@ class TestProphetEngine:
         )
         assert with_history.history_lower is not None and len(with_history.history_lower) == len(values)
         assert with_history.history_upper is not None and len(with_history.history_upper) == len(values)
-        # Dropping the history rows must not move the forecast itself.
         assert len(with_history.dates) == len(without.dates) == 7
 
 
@@ -123,8 +117,6 @@ class TestForecastReach:
 
     @parameterized.expand(
         [
-            # The same cap now binds the interval-count horizon the other two conditions use, so
-            # 30 stops meaning 30 days on one insight and 2.5 years on another.
             ("30 days is fine", 30, IntervalType.DAY, True),
             ("30 weeks reaches 7 months", 30, IntervalType.WEEK, False),
             ("30 months reaches 2.5 years", 30, IntervalType.MONTH, False),
@@ -136,13 +128,10 @@ class TestForecastReach:
 
     @parameterized.expand(
         [
-            # Worst reachable config per interval, before bounding. Left unbounded, every scheduled
-            # check would scan years of events, and hourly would fit 17.5k rows.
             ("hourly caps on fit cost", 17569, IntervalType.HOUR, 1000),
             ("monthly caps on duration", 91, IntervalType.MONTH, 24),
             ("daily caps on duration", 733, IntervalType.DAY, 730),
             ("a small window is untouched", 91, IntervalType.DAY, 91),
-            # Never below what the interval needs to fit at all.
             ("never below the fit minimum", 1, IntervalType.HOUR, 48),
         ]
     )
@@ -156,8 +145,6 @@ class TestForecastReach:
 
     @parameterized.expand(
         [
-            # The last complete bucket is calendar aligned, so its distance from today varies
-            # across the cycle. These are real distances, not a formula restated.
             ("daily, one day back", IntervalType.DAY, 1),
             ("weekly, just after a boundary", IntervalType.WEEK, 7),
             ("weekly, just before one", IntervalType.WEEK, 13),
@@ -166,13 +153,10 @@ class TestForecastReach:
         ]
     )
     def test_evaluation_reaches_any_date_save_accepted(self, _name, interval, bucket_age_days) -> None:
-        """Save caps reach from today; evaluation counts from the last complete bucket. No constant
-        offset can reconcile the two, so evaluation must not re-check the cap at all."""
         today = datetime.date(2026, 3, 1)
         furthest_saveable = today + datetime.timedelta(days=MAX_FORECAST_REACH_DAYS)
         horizon_for_target_date(furthest_saveable, interval, today)
 
         last_bucket = today - datetime.timedelta(days=bucket_age_days)
         horizon = intervals_between(last_bucket, furthest_saveable, interval)
-        # Must stay evaluable however far back the bucket sits.
         assert horizon <= max_evaluable_horizon(interval)

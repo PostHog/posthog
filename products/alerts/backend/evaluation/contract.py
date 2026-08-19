@@ -80,11 +80,7 @@ class AlertExtractionError(Exception):
 
 
 class InsufficientHistoryError(Exception):
-    """The alert is configured correctly, the insight is just too young to forecast yet.
-
-    Deliberately not an AlertExtractionError: that path disables the alert and emails subscribers
-    that it is misconfigured, which is wrong for a condition that fixes itself as data arrives.
-    """
+    pass
 
 
 def lookback_intervals_for(condition: AlertCondition) -> int:
@@ -112,10 +108,9 @@ def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: b
 
 @frozen
 class SimulationContext:
-    """Alert-less inputs for a read-only detector or forecast simulation. Each extractor reads only the
-    fields its kind needs: trends uses ``series_index``/``date_from``, SQL uses ``config``; both use
-    ``team``, ``user``, and ``extractor_config`` (the detector or forecast config — either way, the
-    field that sizes the lookback window)."""
+    """Alert-less inputs for a read-only detector simulation. Each extractor reads only the fields its
+    kind needs: trends uses ``series_index``/``date_from``, SQL uses ``config``; both use ``team``,
+    ``user``, and ``detector_config`` (the latter sizes the lookback window)."""
 
     team: Team
     extractor_config: dict[str, Any]
@@ -137,9 +132,7 @@ class DetectorExtractor(Extractor, Protocol):
     """An ``Extractor`` that can also build its series for a read-only simulation (no
     ``AlertConfiguration``). One implementation per detector-supported kind, registered in
     ``dispatcher.DETECTOR_EXTRACTORS`` — the single source of truth for both the alert-check path
-    (``extract``) and the simulation path (``simulate``). Also serves the forecast registry
-    (``dispatcher.FORECAST_EXTRACTORS``) for the same reason — forecast extractors implement this
-    same protocol so simulation can't drift between the two modes."""
+    (``extract``) and the simulation path (``simulate``)."""
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
         """Return the extracted series plus the chart interval (None for kinds with no time interval)."""

@@ -33,7 +33,6 @@ DETECTOR_EXTRACTORS: dict[NodeKind, DetectorExtractor] = {
     NodeKind.HOG_QL_QUERY: HogQLDetectorExtractor(),
 }
 
-# The forecast path mirrors DETECTOR_EXTRACTORS: trends-only in v1.
 FORECAST_EXTRACTORS: dict[NodeKind, DetectorExtractor] = {
     NodeKind.TRENDS_QUERY: TrendsForecastExtractor(),
 }
@@ -66,7 +65,6 @@ def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: obj
 
 
 def check_forecast_alert(alert: AlertConfiguration, insight: Insight, query: object) -> AlertEvaluationResult:
-    """Route a forecast alert to its kind's extractor, then evaluate the forecast condition."""
     forecast_config = alert.forecast_config
     if not forecast_config:
         raise ValueError("check_forecast_alert requires forecast_config — dispatcher invariant violated")
