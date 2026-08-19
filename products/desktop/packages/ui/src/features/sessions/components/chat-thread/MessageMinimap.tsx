@@ -14,7 +14,9 @@ import {
 } from "@posthog/ui/primitives/OverflowTickerText";
 import { useCallback, useMemo, useRef, useState } from "react";
 
-/** Ticks drawn in the collapsed rail. Older turns fall off the top so the rail stays small. */
+/** Ticks drawn in the collapsed rail. The tick window slides with the reading
+ *  position so the current turn always has a tick, wherever it sits in the
+ *  loaded history. */
 const MAX_TICKS = 12;
 const MAX_LABEL_LENGTH = 200;
 /** Message length (chars) at which a tick reaches full width. */
@@ -136,6 +138,19 @@ export function MessageMinimap({
     return result;
   }, [items]);
 
+  const railEntries = useMemo<MinimapEntry[]>(() => {
+    if (entries.length <= MAX_TICKS) return entries;
+    const anchorIndex = entries.findIndex(
+      (entry) => entry.id === currentAnchorId,
+    );
+    if (anchorIndex === -1) return entries.slice(-MAX_TICKS);
+    const start = Math.min(
+      Math.max(0, anchorIndex - Math.floor(MAX_TICKS / 2)),
+      entries.length - MAX_TICKS,
+    );
+    return entries.slice(start, start + MAX_TICKS);
+  }, [entries, currentAnchorId]);
+
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     if (!nextOpen) reopenBlockedUntil.current = Date.now() + 250;
     setOpen(nextOpen);
@@ -178,7 +193,7 @@ export function MessageMinimap({
             "focus-visible:outline-(--accent-8) focus-visible:outline-2 focus-visible:outline-offset-1",
           )}
         >
-          {entries.slice(-MAX_TICKS).map((entry) => (
+          {railEntries.map((entry) => (
             <span
               key={entry.id}
               aria-hidden="true"

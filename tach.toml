@@ -333,6 +333,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
+    "products.data_quality",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
     "products.warehouse_sources_queue",
@@ -702,6 +703,7 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "ee",
+    "products.canvas",
     "products.cohorts",
     "posthog",
     "products.actions",
@@ -839,6 +841,14 @@ layer = "modules"
 [[interfaces]]
 expose = [
     "backend\\.routes.*",
+]
+from = [
+    "products.canvas",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.report_canvas.*",
 ]
 from = [
     "products.canvas",
@@ -1293,6 +1303,7 @@ path = "products.data_quality"
 depends_on = [
     "posthog",
     "products.data_modeling",
+    "products.notifications",
     "products.warehouse_sources",
 ]
 layer = "modules"
@@ -1309,6 +1320,7 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
+    "backend\\.presentation\\.serializers.*",
     "backend\\.presentation\\.views.*",
 ]
 from = [

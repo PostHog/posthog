@@ -15,6 +15,8 @@ from typing import ClassVar
 from django.core.cache import cache
 
 import structlog
+from django_redis.exceptions import ConnectionInterrupted
+from redis.exceptions import RedisError
 from rest_framework.request import Request
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
@@ -54,11 +56,22 @@ class StripeFixedWindowThrottle(BaseThrottle):
         try:
             cache.add(cache_key, 0, timeout=RATE_LIMIT_WINDOW_SECONDS)
             self.count = cache.incr(cache_key)
-        except (ValueError, ConnectionError, TimeoutError) as e:
+        except ValueError as e:
+            # incr raises ValueError when the key expired between add and incr.
             logger.warning("stripe_provisioning_rate_limit_cache_error", endpoint=self.endpoint, error=str(e))
-            # cache.add preserves any counter a concurrent request already initialized,
-            # so a transient cache error doesn't reset the window when at the limit.
-            cache.add(cache_key, 1, timeout=RATE_LIMIT_WINDOW_SECONDS)
+            try:
+                # cache.add preserves any counter a concurrent request already initialized,
+                # so a transient cache error doesn't reset the window when at the limit.
+                cache.add(cache_key, 1, timeout=RATE_LIMIT_WINDOW_SECONDS)
+            except (RedisError, ConnectionInterrupted):
+                pass
+            self.count = 1
+        except (RedisError, ConnectionInterrupted) as e:
+            # Redis is unreachable (its errors subclass RedisError/Exception, not the
+            # builtin ConnectionError/TimeoutError). Fail open without touching the
+            # cache again: a second cache call would raise the same way and turn every
+            # provisioning request into a 500 for as long as Redis is down.
+            logger.warning("stripe_provisioning_rate_limit_cache_error", endpoint=self.endpoint, error=str(e))
             self.count = 1
 
         return self.count <= self.limit
