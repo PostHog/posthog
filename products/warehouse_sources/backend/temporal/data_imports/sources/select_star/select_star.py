@@ -65,6 +65,12 @@ def select_star_source(
                 "location": "header",
             },
             "paginator": JSONResponsePaginator(next_url_path="next"),
+            # Pagination follows the absolute `next` URL straight out of the response body, and
+            # the API token is replayed on every request via the Authorization header, so pin
+            # follow-up requests to the API host and refuse redirects: a tampered `next` link must
+            # not be able to retarget the token off-host (SSRF).
+            "allowed_hosts": [],
+            "allow_redirects": False,
         },
         "resource_defaults": {
             "write_disposition": {"disposition": "merge", "strategy": "upsert"} if use_incremental else "replace",
