@@ -3,13 +3,16 @@ from datetime import timedelta
 from importlib import import_module
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.core.cache import cache
+from django.db import IntegrityError, InternalError
 from django.test import RequestFactory
 from django.utils import timezone
 
+import psycopg.errors
 from loginas import settings as la_settings
 
 from posthog.models import User
@@ -22,6 +25,13 @@ from posthog.session.activity import (
     sync_current_session_metadata,
 )
 from posthog.session.models import Session
+
+
+def _read_only_error() -> InternalError:
+    cause = psycopg.errors.ReadOnlySqlTransaction("cannot execute UPDATE in a read-only transaction")
+    wrapped = InternalError("cannot execute UPDATE in a read-only transaction")
+    wrapped.__cause__ = cause
+    return wrapped
 
 
 class TestSessionActivity(BaseTest):
@@ -192,6 +202,29 @@ class TestSessionActivity(BaseTest):
         # handled IntegrityError raises when the write runs.
         with self.assertNumQueries(0):
             sync_current_session_metadata(request, force=True)
+
+    def test_sync_metadata_swallows_read_only_writer(self):
+        # The write runs on a response the admin read-only handler already redirected; a read-only
+        # writer must not raise here and replace that redirect with a 500.
+        user = self._make_user()
+        key = self._login_session(user)
+        request = self._request(user, key)
+
+        with patch("posthog.session.activity.Session.objects") as mock_objects:
+            mock_objects.filter.return_value.update.side_effect = _read_only_error()
+            with self.captureOnCommitCallbacks(execute=True):
+                sync_current_session_metadata(request, force=True)  # must not raise
+
+    def test_sync_metadata_reraises_other_db_errors(self):
+        user = self._make_user()
+        key = self._login_session(user)
+        request = self._request(user, key)
+
+        with patch("posthog.session.activity.Session.objects") as mock_objects:
+            mock_objects.filter.return_value.update.side_effect = IntegrityError("unrelated")
+            with self.assertRaises(IntegrityError):
+                with self.captureOnCommitCallbacks(execute=True):
+                    sync_current_session_metadata(request, force=True)
 
     def test_user_deletion_purges_their_sessions(self):
         # user_id is a plain BigIntegerField (no FK cascade), so a deleted user's rows — and their

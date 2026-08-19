@@ -4,18 +4,25 @@ from typing import Optional
 
 from django.contrib.auth import BACKEND_SESSION_KEY
 from django.core.cache import cache
-from django.db import transaction
+from django.db import (
+    Error as DjangoDBError,
+    transaction,
+)
 from django.db.models import F
 from django.http import HttpRequest
 from django.utils import timezone
 
+import structlog
 from loginas.utils import is_impersonated_session
 
 from posthog.constants import AUTH_BACKEND_KEYS
+from posthog.db_read_only import is_read_only_transaction_error
 from posthog.geoip import get_geoip_properties
 from posthog.models import User
 from posthog.session.models import Session
 from posthog.utils import _is_valid_ip_address, get_ip_address, get_short_user_agent
+
+logger = structlog.get_logger(__name__)
 
 # Fixed, arbitrary namespace for deriving a session's public id. We expose `uuid5(namespace, key)`
 # rather than the session key itself so the key — which can revoke a session — is never leaked, while
@@ -97,7 +104,16 @@ def sync_current_session_metadata(request: HttpRequest, force: bool = False) -> 
     # autocommit (no open transaction) on_commit runs immediately; mark the throttle only once the
     # write actually commits, so a rollback lets the next request retry.
     def _write() -> None:
-        Session.objects.filter(session_key=session_key).update(**fields)
+        try:
+            Session.objects.filter(session_key=session_key).update(**fields)
+        except DjangoDBError as err:
+            # Best-effort display data: a brief writer read-only window (a failover) must not turn an
+            # authenticated response into a 500. Skip this refresh, leave the throttle unset, and let
+            # a later request retry once the writer is writable again.
+            if not is_read_only_transaction_error(err):
+                raise
+            logger.warning("session_metadata_sync_skipped_read_only")
+            return
         cache.set(cache_key, True, timeout=METADATA_SYNC_INTERVAL_SECONDS)
 
     transaction.on_commit(_write)
