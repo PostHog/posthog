@@ -172,8 +172,8 @@ function SidebarMenuComponent() {
     pruneSelection(allSidebarTaskIds);
   }, [allSidebarTaskIds, pruneSelection]);
 
-  // The active (routed) task is implicitly part of any bulk selection — the
-  // user expects to see and act on it together with cmd/shift-clicked tasks.
+  // Bulk actions include the routed task, but selection styling stays tied to
+  // explicit picks so selecting another row does not highlight the open row.
   const activeTaskId = sidebarData.activeTaskId;
   const effectiveBulkIds = useMemo(
     () => computeEffectiveBulkIds(selectedTaskIds, activeTaskId),
@@ -487,7 +487,7 @@ function SidebarMenuComponent() {
               groupedTasks={sidebarData.groupedTasks}
               activeTaskId={sidebarData.activeTaskId}
               editingTaskId={editingTaskId}
-              selectedTaskIds={effectiveBulkIds}
+              selectedTaskIds={selectedTaskIds}
               onTaskClick={handleTaskClick}
               onTaskDoubleClick={handleTaskDoubleClick}
               onTaskContextMenu={handleTaskContextMenu}
