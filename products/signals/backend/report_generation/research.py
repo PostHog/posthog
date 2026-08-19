@@ -79,7 +79,7 @@ Then give it light structure so a busy reader can scan the rest, three short sec
 Within each section write a sentence or two of natural, flowing prose, not bullet soup. Bold the few phrases a reader should catch at a glance (the core symptom, the key number, the root cause, the proposed change) so it's scannable without becoming a wall of labels. Don't over-bold: if everything's bold, nothing is.
 
 Hard rules:
-- Keep the whole summary under 200 words. This is the part a busy reader actually finishes, and the signals, evidence, and research artefacts already carry the full trail for anyone who wants to go deeper. Length is not thoroughness: cutting a paragraph of supporting detail you researched is the right call, and a report nobody reads to the end has surfaced nothing.
+- Aim the whole summary at 200 words, and never go past 300. This is the part a busy reader actually finishes, and the signals, evidence, and research artefacts already carry the full trail for anyone who wants to go deeper. Length is not thoroughness: cutting a paragraph of supporting detail you researched is the right call, and a report nobody reads to the end has surfaced nothing.
 - Everything must be factual, grounded in what you actually researched and what has actually happened. Never invent, never speculate as if it were fact. If something's a hypothesis, say so plainly.
 - Be specific. Reference the concrete signals, errors, metrics, or code paths you found; vagueness reads as not having done the work.
 - No filler ("various issues detected", "it's worth noting", "in conclusion").
