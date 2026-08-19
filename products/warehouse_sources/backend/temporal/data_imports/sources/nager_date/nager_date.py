@@ -36,7 +36,7 @@ _CODE_SEPARATORS = re.compile(r"[,\s]+")
 _COUNTRY_CODE_RE = re.compile(r"^[A-Za-z]{2}$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class NagerDateResumeConfig:
     # Position in the endpoint's flattened work list (countries, or country/year pairs).
     index: int = 0
