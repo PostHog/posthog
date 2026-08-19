@@ -12812,6 +12812,10 @@ export type ExternalDataSchemasListParams = {
     search?: string
 }
 
+export type ExternalDataSchemasCancelCreate200 = {
+    detail?: string
+}
+
 export type ExternalDataSchemasCancelCreate400 = {
     detail?: string
 }
@@ -12846,6 +12850,14 @@ export type ExternalDataSchemasLogsRetrieveParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type ExternalDataSchemasReloadCreate400 = {
+    detail?: string
+}
+
+export type ExternalDataSchemasResyncCreate400 = {
+    detail?: string
 }
 
 export type ExternalDataSourcesListParams = {
