@@ -93,7 +93,9 @@ HogQL is intentionally more restrictive here, and it's a known limitation.
 
 ## 2. Warehouse tables and views
 
-Gated by the `hogql-warehouse-access-control` feature flag (checked in `Database._fetch_sources`).
+Active for every organization.
+The `hogql-warehouse-access-control` flag that once gated this level (checked in `Database._fetch_sources`) has been at 100% rollout, with no targeting, since 2026-06-19.
+So the honest answer to "is warehouse access control live for my organization?" is yes, for every organization.
 
 ### Resource-level: the `warehouse_objects` umbrella
 
@@ -163,6 +165,23 @@ execute_hogql_query(query=..., team=team, bypass_warehouse_access_control=True)
 5. **Project secret API keys:** these run as a `SyntheticUser` — `ProjectSecretAPIKeyUser` (`posthog/auth.py`) — which also isn't restricted on warehouse tables or views.
    That's intentional: a project secret API key is authorized by the scopes granted to the key, not by role-based access control.
    System tables are gated by the key's scopes via `readable_system_table_access_scopes()`.
+
+### What table-level denial does not cover: `events` and `persons`
+
+Table-level denial (levels 1 and 2) applies to `system.*` tables, warehouse tables, and warehouse views only.
+The raw `events` and `persons` tables cannot be denied at the table level.
+They are core ClickHouse tables, not system tables and not `DataWarehouseTable`s, so the schema build runs no deny check for them.
+No resource for them exists in `ACCESS_CONTROL_RESOURCES` (`posthog/rbac/user_access_control.py`) either, so no `AccessControl` row can name them.
+There is no way to grant one member access to `events` while denying it to another.
+
+For these two tables, access control stops at two lower levels:
+
+1. **Tenant isolation** (level 0): the mandatory `team_id` filter keeps one team's rows out of another team's results. This is the only whole-table boundary they have.
+2. **Property masking** (level 3): individual sensitive properties (e.g. `email`) are masked to `NULL` or stripped from the JSON blob per user. This is the finest control available on `events` and `persons`.
+
+Making `events` and `persons` deniable at the table level would need more than a new `AccessControl` row.
+The [query cache](#query-cache-partitioning) shares one entry across all users for a plain events or persons query (see the note at `queried_access_controlled_resources()` — warehouse scopes enter the cache key only when the query reads warehouse tables or views).
+Any future table-level control on `events` or `persons` must first partition that cache per user, or a denied user would be served an allowed user's cached rows.
 
 ## 3. Property access control
 
