@@ -7988,7 +7988,12 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(
             sandbox.method_calls,
-            [call.stop_agent_server(), call.read_cpu_usage_usec(), call.destroy()],
+            [
+                call.stop_agent_server(),
+                call.read_cpu_usage_usec(),
+                call.read_billed_cpu_usage_usec(),
+                call.destroy(),
+            ],
         )
         publish_complete.assert_called_once_with(str(run.id), False)
         run.refresh_from_db()
@@ -8021,7 +8026,12 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(
             sandbox.method_calls,
-            [call.stop_agent_server(), call.read_cpu_usage_usec(), call.destroy()],
+            [
+                call.stop_agent_server(),
+                call.read_cpu_usage_usec(),
+                call.read_billed_cpu_usage_usec(),
+                call.destroy(),
+            ],
         )
         publish_complete.assert_not_called()
         run.refresh_from_db()
@@ -8053,7 +8063,12 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(second_response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             sandbox.method_calls,
-            [call.stop_agent_server(), call.read_cpu_usage_usec(), call.destroy()],
+            [
+                call.stop_agent_server(),
+                call.read_cpu_usage_usec(),
+                call.read_billed_cpu_usage_usec(),
+                call.destroy(),
+            ],
         )
         self.assertEqual(publish_complete.call_count, 2)
         run.refresh_from_db()
