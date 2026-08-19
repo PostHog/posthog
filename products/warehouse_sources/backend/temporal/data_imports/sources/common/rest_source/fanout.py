@@ -96,7 +96,6 @@ def build_dependent_resource(
     incremental_config_factory: Callable[[str], IncrementalConfig] | None = None,
     parent_endpoint_extra: Endpoint | None = None,
     child_endpoint_extra: Endpoint | None = None,
-    parent_params_extra: dict[str, Any] | None = None,
     child_params_extra: dict[str, Any] | None = None,
     page_size_param: str | None = "limit",
     resume_hook: Callable[[dict[str, Any] | None], None] | None = None,
@@ -113,12 +112,6 @@ def build_dependent_resource(
     # (unpaginated, full-collection responses) — sending one would be an undocumented param.
     parent_params: dict[str, Any] = {} if page_size_param is None else {page_size_param: parent_config.page_size}
     parent_params.update(fanout.parent_params)
-    # Run-time parent params, for bounds a static config can't express (a window computed from
-    # now, or from the child's watermark). A parent fetch that sends no bound inherits whatever
-    # the vendor defaults to, which is a row set we can neither see nor reproduce from the
-    # warehouse — pass the same bound here and in `parent_row_filter` so both paths agree.
-    if parent_params_extra:
-        parent_params.update(parent_params_extra)
 
     parent_path = parent_config.path
     for key, value in path_format_values.items():

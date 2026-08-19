@@ -626,16 +626,7 @@ class TestSentrySourceValidation:
         row = rows[0]
         assert row["issue_id"] == "100"
         assert row["tag_key"] == "browser"
-        assert len(seen_issues_params) == 1
-        # start/end carry the fan-out window and move with the clock; the window itself is
-        # asserted in TestFanoutParentWindow.
-        issues_params = seen_issues_params[0]
-        assert issues_params is not None
-        assert {k: v for k, v in issues_params.items() if k not in ("start", "end")} == {
-            "limit": 100,
-            "query": "",
-            "sort": "date",
-        }
+        assert seen_issues_params == [{"limit": 100, "query": "", "sort": "date"}]
         assert seen_values_params == [{"limit": 100, "sort": "-date"}]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
@@ -970,6 +961,8 @@ class TestIssueTagValuesResumable:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
             resumable_source_manager=manager,
         )
 
@@ -984,8 +977,6 @@ class TestIssueTagValuesResumable:
             ("watermark_inside_window", timedelta(days=2), timedelta(days=2)),
             # A watermark older than the window can't widen it back out.
             ("watermark_older_than_window", timedelta(days=120), None),
-            # A full refresh has no watermark, so the window alone bounds the scan.
-            ("full_refresh", None, None),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
@@ -1001,9 +992,9 @@ class TestIssueTagValuesResumable:
         self, _name, watermark_ago, expected_floor_ago, mock_reader, _mock_resolve, mock_get
     ) -> None:
         # Without a floor the scan reads every issue ever synced and discards most of them
-        # per row, which is the fan-out inflation the config-driven children already fixed.
+        # per row, which is the fan-out inflation the retention findings traced.
         mock_get.return_value.get.side_effect = lambda url, **kwargs: _response([])
-        watermark = None if watermark_ago is None else (datetime.now(UTC) - watermark_ago).isoformat()
+        watermark = (datetime.now(UTC) - watermark_ago).isoformat()
 
         resp = sentry_source(
             auth_token="token",
@@ -1014,7 +1005,7 @@ class TestIssueTagValuesResumable:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
-            should_use_incremental_field=watermark is not None,
+            should_use_incremental_field=True,
             db_incremental_field_last_value=watermark,
         )
         list(cast(Any, resp.items()))
@@ -1024,6 +1015,32 @@ class TestIssueTagValuesResumable:
         now = datetime.now(UTC)
         expected_floor = now - (expected_floor_ago if expected_floor_ago is not None else SENTRY_FANOUT_PARENT_WINDOW)
         assert abs(row_filter.floor(now) - expected_floor) < timedelta(seconds=5)
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.try_resolve_parent_table"
+    )
+    def test_full_refresh_takes_the_api_parent_even_with_the_flag_on(self, mock_resolve, mock_get) -> None:
+        # No watermark means the only floor is our window constant, and Sentry clamps its own
+        # listing to the org's plan retention below it, so the snapshot can't reproduce the
+        # API's row set. The run must not even resolve the warehouse table.
+        mock_get.return_value.get.side_effect = lambda url, **kwargs: _response([])
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            source_id="source-1",
+            use_warehouse_parent=True,
+        )
+        list(cast(Any, resp.items()))
+
+        mock_resolve.assert_not_called()
+        issues_urls = [c.args[0] for c in mock_get.return_value.get.call_args_list if c.args[0].endswith("/issues/")]
+        assert issues_urls, "expected the API issues listing to drive the fan-out"
 
     @parameterized.expand(
         [
@@ -1069,6 +1086,8 @@ class TestIssueTagValuesResumable:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=use_warehouse_parent,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
             resumable_source_manager=manager,
         )
 
@@ -1879,8 +1898,8 @@ class TestSentryCustomIteratorEndpoints:
 class TestWarehouseParentReuse:
     @parameterized.expand(
         [
-            ("issue_events", ["issues"]),
-            ("issue_hashes", ["issues"]),
+            ("issue_events", []),
+            ("issue_hashes", []),
             ("issue_tag_values", ["issues"]),
             ("issues", []),
             ("projects", []),
@@ -1918,6 +1937,8 @@ class TestWarehouseParentReuse:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
         )
 
         rows = list(cast(Any, resp.items()))
@@ -1954,6 +1975,8 @@ class TestWarehouseParentReuse:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
         )
 
         rows = list(cast(Any, resp.items()))
@@ -1965,7 +1988,7 @@ class TestWarehouseParentReuse:
             columns=["id", "lastSeen"],
             page_size=100,
             schema_name="issue_tag_values",
-            row_filter=_issues_parent_row_filter(None),
+            row_filter=_issues_parent_row_filter(datetime(2020, 1, 1, tzinfo=UTC)),
         )
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
@@ -2052,6 +2075,8 @@ class TestWarehouseParentReuse:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
         )
 
         rows = list(cast(Any, resp.items()))
@@ -2093,6 +2118,8 @@ class TestWarehouseParentReuse:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
         )
 
         rows = list(cast(Any, resp.items()))
@@ -2111,6 +2138,8 @@ class TestWarehouseParentReuse:
             job_id="job-id",
             source_id="source-1",
             use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2020-01-01T00:00:00Z",
         )
 
         kwargs = mock_build.call_args.kwargs
@@ -2118,66 +2147,14 @@ class TestWarehouseParentReuse:
         assert kwargs["use_warehouse_parent"] is True
 
 
-def test_every_warehouse_fanout_child_bounds_its_parent_scan():
-    # The issues API windows its listing server-side, so an unbounded snapshot scan fans out
-    # over issues the API path never would. Any endpoint opting into the warehouse parent
-    # must carry the floor.
-    warehouse_children = {
-        name: config.fanout
+def test_no_sentry_endpoint_reads_its_parent_from_the_warehouse():
+    # Sentry's issue listing is clamped by per-org event retention, a bound a snapshot scan
+    # cannot reproduce, so config-driven warehouse fan-out shipped 3-5x row inflation on
+    # aged orgs. Re-enabling parent_source="warehouse" here needs a parity story first —
+    # see SENTRY_FANOUT_PARENT_WINDOW in settings.
+    warehouse_children = [
+        name
         for name, config in SENTRY_ENDPOINTS.items()
         if config.fanout is not None and config.fanout.parent_source == "warehouse"
-    }
-    assert warehouse_children, "expected Sentry to have warehouse-mode fan-out children"
-    for name, fanout in warehouse_children.items():
-        assert fanout.parent_row_filter is not None, f"{name} reads its parent unbounded"
-        assert fanout.parent_row_filter.field == "lastSeen"
-
-
-class TestFanoutParentWindow:
-    @parameterized.expand(["issue_events", "issue_hashes"])
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.build_dependent_resource")
-    def test_api_parent_listing_carries_the_same_window_as_the_warehouse_scan(self, endpoint, mock_build) -> None:
-        # The API listing used to send no time bound, so Sentry chose the window and the
-        # warehouse scan fanned out over ~5x the issues. Both sides read one constant now.
-        mock_build.return_value = []
-
-        sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint=endpoint,
-            team_id=123,
-            job_id="job-id",
-            source_id="source-1",
-        )
-
-        parent_params = mock_build.call_args.kwargs["parent_params_extra"]
-        window_start = datetime.strptime(parent_params["start"], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
-        fanout = SENTRY_ENDPOINTS[endpoint].fanout
-        assert fanout is not None
-        row_filter = fanout.parent_row_filter
-        assert row_filter is not None
-        assert abs(window_start - row_filter.floor(datetime.now(UTC))) < timedelta(seconds=5)
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
-    def test_tag_values_api_listing_carries_the_window_too(self, mock_get) -> None:
-        # issue_tag_values walks the same parent through its own iterator, so an unbounded
-        # listing here would reintroduce the mismatch for the one child that has no config.
-        mock_get.return_value.get.side_effect = lambda url, **kwargs: _response([])
-
-        resp = sentry_source(
-            auth_token="token",
-            organization_slug="acme",
-            api_base_url="https://sentry.io",
-            endpoint="issue_tag_values",
-            team_id=123,
-            job_id="job-id",
-            source_id="source-1",
-        )
-        list(cast(Any, resp.items()))
-
-        issues_call = next(c for c in mock_get.return_value.get.call_args_list if c.args[0].endswith("/issues/"))
-        params = issues_call.kwargs["params"]
-        window_start = datetime.strptime(params["start"], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
-        expected = datetime.now(UTC) - SENTRY_FANOUT_PARENT_WINDOW
-        assert abs(window_start - expected) < timedelta(seconds=5)
+    ]
+    assert warehouse_children == []

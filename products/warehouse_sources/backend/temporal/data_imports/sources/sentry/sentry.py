@@ -45,7 +45,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.set
     PROJECT_STAT_NAMES,
     REQUIRED_SENTRY_SCOPES,
     SENTRY_ENDPOINTS,
-    SENTRY_FANOUT_PARENT_WINDOW,
     SENTRY_RETENTION_DAYS,
     TRACE_ITEM_DATASETS,
     TRACE_ITEM_STATS_TYPES,
@@ -408,20 +407,6 @@ def _skip_rows_on_stale_issue_404(
 _ISSUES_PARENT_COLUMNS = ["id", "lastSeen"]
 
 
-def _issues_parent_api_params() -> dict[str, str]:
-    """Time bound for the API-side issues listing a fan-out walks.
-
-    The same window `ISSUES_PARENT_ROW_FILTER` applies to the warehouse scan, sent the way
-    every other timed Sentry call in this source sends one. Without it Sentry picks the
-    window, and a snapshot scan has no way to reproduce a bound it cannot see.
-    """
-    now = datetime.now(UTC)
-    return {
-        "start": _start_param_for_sentry(now - SENTRY_FANOUT_PARENT_WINDOW),
-        "end": _start_param_for_sentry(now),
-    }
-
-
 def _issues_parent_row_filter(cutoff_last_seen: datetime | None) -> ParentRowFilter:
     """Floor for the issues scan: Sentry's list window, tightened by the incremental cutoff.
 
@@ -429,12 +414,10 @@ def _issues_parent_row_filter(cutoff_last_seen: datetime | None) -> ParentRowFil
     reader applies, so an incremental run stops reading issues it would only discard. The
     per-row check stays the authority, and the floor is never tighter than it.
 
-    The window half is the same constant `issue_events` and `issue_hashes` use, so all three
-    children fan out over one row set instead of each bounding the parent differently. It does
-    drop issues this iterator used to yield, in the two cases where the per-row check bounded
-    nothing: a full refresh (no cutoff at all) and a watermark older than the window. Those are
-    issues Sentry's own listing no longer returns, so the API path never fanned out over them
-    either.
+    The window half caps a watermark older than the window from widening the scan back out.
+    The no-watermark case never reaches this filter: `sentry_source` sends full refreshes down
+    the API parent path, because Sentry clamps its listing to the org's plan retention and a
+    snapshot floor cannot reproduce that bound — see SENTRY_FANOUT_PARENT_WINDOW.
     """
     return dataclasses.replace(ISSUES_PARENT_ROW_FILTER, not_before=cutoff_last_seen)
 
@@ -505,9 +488,7 @@ def _iter_issue_tag_values_rows(
             base_api_url=base_api_url,
             path=f"/organizations/{organization_slug}/issues/",
             headers=headers,
-            # Same window the warehouse branch above floors its scan with, so this iterator
-            # walks one issue set whichever parent it read.
-            params={"limit": 100, "query": "", "sort": "date", **_issues_parent_api_params()},
+            params={"limit": 100, "query": "", "sort": "date"},
         )
 
     # A pinned Delta version enumerates its files in a fixed order, so a warehouse run
@@ -1292,7 +1273,12 @@ def sentry_source(
         headers = _auth_headers(auth_token)
         incremental_last_seen_max = db_incremental_field_last_value if should_use_incremental_field else None
         issues_table: ParentTableRef | None = None
-        if use_warehouse_parent:
+        # Warehouse reuse only with a watermark: the per-row cutoff then bounds the fan-out to
+        # issues newer than the last run, the regime whose volume matched the API path in
+        # production. Without one (a full refresh), the only available floor is our window
+        # constant, and Sentry clamps its own listing to the org plan retention below it --
+        # see SENTRY_FANOUT_PARENT_WINDOW -- so the API path is the only faithful parent.
+        if use_warehouse_parent and _parse_datetime_value(incremental_last_seen_max) is not None:
             if team_id is None or not source_id:
                 raise ValueError("team_id and source_id are required when reading the issues parent from the warehouse")
             # noqa reason: keeps deltalake/pyarrow off the import path of this module (imported
@@ -1366,7 +1352,6 @@ def sentry_source(
                 source_id=source_id,
                 use_warehouse_parent=use_warehouse_parent,
                 page_size_param=endpoint_config.page_size_param,
-                parent_params_extra=_issues_parent_api_params() if endpoint_config.fanout.parent_row_filter else None,
             ),
         )
         # Sentry gates the service hooks API at the org level, so it 403s even

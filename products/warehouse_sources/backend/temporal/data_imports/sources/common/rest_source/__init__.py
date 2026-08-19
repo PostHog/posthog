@@ -4,6 +4,7 @@ import graphlib  # type: ignore[import,unused-ignore]
 from collections.abc import Callable, Iterator
 from typing import Any, Optional, cast
 
+import structlog
 from dateutil import parser
 
 from .config_setup import (
@@ -22,6 +23,8 @@ from .resource import Resource
 from .rest_client import DEFAULT_RETRY_ATTEMPTS, DEFAULT_RETRY_BACKOFF_MAX_SECONDS, RESTClient, RESTClientRetryableError
 from .typing import ClientConfig, Endpoint, EndpointResource, HTTPMethodBasic, ResolvedParam, RESTAPIConfig
 from .utils import exclude_keys  # noqa: F401
+
+logger = structlog.get_logger(__name__)
 
 
 def convert_types(
@@ -150,6 +153,7 @@ def _make_paginate_dependent_resource(
     ``{"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}``.
     """
     # Closure state persists across parent-page invocations within a single run.
+    parent_rows_consumed = 0
     seed: dict[str, Any] = dict(initial_state) if initial_state else {}
     completed: set[str] = set(seed.get("completed") or [])
     current_path: Optional[str] = seed.get("current")
@@ -169,8 +173,19 @@ def _make_paginate_dependent_resource(
         hooks: Optional[dict[str, Any]],
         columns_config: Optional[Any] = None,
     ) -> Iterator[list[Any]]:
-        nonlocal current_path, current_child_state
+        nonlocal current_path, current_child_state, parent_rows_consumed
         effective_columns_config = columns_config if columns_config is not None else default_columns_config
+
+        parent_rows_consumed += len(items)
+        # A running total instead of a final one: this generator has no end-of-parent signal,
+        # so the last line of a run carries the fan-out's true size. The warehouse parent logs
+        # what it STREAMED (fanout_parent_rows_streamed); this is the count either parent kind
+        # actually HANDED to the child, which the API path never surfaced anywhere.
+        logger.info(
+            "data_imports.fanout_parent_rows_consumed",
+            page_rows=len(items),
+            rows_total=parent_rows_consumed,
+        )
 
         if incremental_object:
             params = _set_incremental_params(

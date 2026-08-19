@@ -33,17 +33,20 @@ REQUIRED_SENTRY_SCOPES = (
 # carry a floor rather than the 1970 sentinel the issue endpoints tolerate.
 SENTRY_RETENTION_DAYS = 90
 
-# How far back a fan-out reaches for the issues it fans out over. Both paths carry this
-# window: the API fetch sends it as `start`/`end`, and the warehouse scan applies it as a
-# floor on `lastSeen`, so the two select one issue set.
+# The issues listing cannot drive a warehouse fan-out with row-set parity, so issue_events
+# and issue_hashes stay on parent_source="api" and only issue_tag_values reads the warehouse,
+# gated on having an incremental watermark. Sentry's issue search matches groups against the
+# events snuba still holds, and snuba holds events only for the org's PLAN retention (30 or
+# 90 days) — a per-customer bound that is silent, unqueryable, and clamps any wider request.
+# A 90-day snapshot floor therefore fans out over up to 3x the issues the API lists on a
+# 30-day-retention org: all alive (their group objects outlive event retention, so child
+# fetches return 200, not 404), all invisible to the API listing. Measured in production as
+# 8,213 fanned issues against ~1.7k on the API path, with zero stale 404s.
 #
-# 90 days is the window the issues endpoint already applies when a request sends no bound.
-# Sentry's `organization_group_index` GET resolves its range through
-# `get_date_range_from_stats_period`, which falls back to `default_start_end_dates`, which
-# returns `now - MAX_STATS_PERIOD` where `MAX_STATS_PERIOD = timedelta(days=90)`
-# (`src/sentry/api/utils.py`). Sending it explicitly leaves the API path's row set unchanged
-# and gives the warehouse scan a bound it can reproduce rather than infer. This mirrors
-# Sentry's own default, so narrowing it would drop issues the API path still lists.
+# The request default window is 90 days (`MAX_STATS_PERIOD`, `src/sentry/api/utils.py`), and
+# a present-but-empty `query=` disables the `is:unresolved` default (verified live: absent
+# query returned 502 issues, empty query 512, exactly the 10 resolved ones apart). Neither
+# fact rescues parity, because retention clamps below the request window per org.
 SENTRY_FANOUT_PARENT_WINDOW = timedelta(days=90)
 
 ISSUES_PARENT_ROW_FILTER = ParentRowFilter(field="lastSeen", not_older_than=SENTRY_FANOUT_PARENT_WINDOW)
@@ -275,8 +278,9 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             parent_params={"query": "", "sort": "date"},
             # full=true makes Sentry return complete event bodies (incl. stacktrace entries).
             child_params={"full": "true"},
-            parent_source="warehouse",
-            parent_row_filter=ISSUES_PARENT_ROW_FILTER,
+            # Not "warehouse": the issues listing is clamped by per-org event retention, which a
+            # snapshot scan cannot reproduce — see SENTRY_FANOUT_PARENT_WINDOW.
+            parent_source="api",
         ),
     ),
     "issue_hashes": SentryEndpointConfig(
@@ -295,8 +299,8 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             # this per-issue fetch, which 404s. That's expected churn, not a broken sync — treat
             # it as "no hashes for this issue" instead of failing the whole schema.
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
-            parent_source="warehouse",
-            parent_row_filter=ISSUES_PARENT_ROW_FILTER,
+            # Not "warehouse": same per-org retention clamp as issue_events.
+            parent_source="api",
         ),
     ),
     "issue_tag_values": SentryEndpointConfig(
