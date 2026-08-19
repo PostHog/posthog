@@ -234,13 +234,14 @@ def _input_value(inputs: dict[str, Any], key: str) -> Any:
     return entry.get("value") if isinstance(entry, dict) else None
 
 
-def read_alert_destination_data(*, destination_type: DestinationType, inputs: dict[str, Any]) -> AlertDestinationData:
-    """Recover the destination config a HogFunction was built from.
+_WEBHOOK_URL_INPUT_KEY: dict[DestinationType, str] = {
+    DestinationType.WEBHOOK: "url",
+    DestinationType.DISCORD: "webhookUrl",
+    DestinationType.TEAMS: "webhookUrl",
+}
 
-    Inverse of build_alert_destination_config, so the two have to change together.
-    slack_channel_name is not recovered: it only shapes the HogFunction name and is never
-    written into inputs.
-    """
+
+def read_alert_destination_data(*, destination_type: DestinationType, inputs: dict[str, Any]) -> AlertDestinationData:
     data: AlertDestinationData = {"type": destination_type}
 
     if destination_type == DestinationType.SLACK:
@@ -252,8 +253,7 @@ def read_alert_destination_data(*, destination_type: DestinationType, inputs: di
             data["slack_channel_id"] = slack_channel_id
         return data
 
-    # Plain webhooks post to `url`; Discord and Teams both use `webhookUrl`.
-    webhook_url = _input_value(inputs, "url" if destination_type == DestinationType.WEBHOOK else "webhookUrl")
+    webhook_url = _input_value(inputs, _WEBHOOK_URL_INPUT_KEY[destination_type])
     if isinstance(webhook_url, str):
         data["webhook_url"] = webhook_url
     return data

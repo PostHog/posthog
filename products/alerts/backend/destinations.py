@@ -142,7 +142,7 @@ def _active_alert_destinations_qs(
     ).filter(enabled=True)
 
 
-def _raise_if_alert_destination_exists(
+def _raise_if_alert_already_has_this_destination_config(
     *,
     team_id: int,
     alert_id: str,
@@ -150,11 +150,6 @@ def _raise_if_alert_destination_exists(
     template_id: str,
     inputs: dict[str, Any],
 ) -> None:
-    """Refuse a second destination with the same config on one alert.
-
-    A duplicate sends every notification twice, and its rows join the original's delete group, so
-    afterwards the two can only be removed together.
-    """
     config_key = alert_destination_group_key(template_id=template_id, inputs=inputs)
     if not config_key.is_config_readable:
         return
@@ -179,7 +174,7 @@ def create_alert_destination_hog_functions(
     hog_function_ids_by_team: dict[int, list[UUID]] = {}
     with transaction.atomic():
         any_event_kind_config = configs[0]
-        _raise_if_alert_destination_exists(
+        _raise_if_alert_already_has_this_destination_config(
             team_id=any_event_kind_config.team.id,
             alert_id=alert_id,
             allowed_event_ids=allowed_event_ids,
@@ -257,11 +252,9 @@ def soft_delete_alert_destinations(
 
         _report_unreadable_destination_configs(team_id=team_id, alert_id=alert_id, rows=owned_rows)
 
-        # A destination is deleted whole or not at all, so every live row of a group the request
-        # touches has to be named. Whether the group covers all of allowed_event_ids is not
-        # checked: a destination missing an event kind still has to be removable.
         for group_key, group_ids in group_alert_destination_rows(owned_rows).items():
-            if group_ids & unique_ids and not group_ids <= unique_ids:
+            names_only_part_of_the_group = bool(group_ids & unique_ids) and not group_ids <= unique_ids
+            if names_only_part_of_the_group:
                 message = (
                     "Delete every HogFunction in the destination group together."
                     if group_key.is_config_readable

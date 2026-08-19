@@ -23,7 +23,7 @@ from products.alerts.backend.destinations import (
     AlertDelivery,
     AlertDestinationGroupKey,
     AlertDestinationRow,
-    _raise_if_alert_destination_exists,
+    _raise_if_alert_already_has_this_destination_config,
     alert_destination_group_key,
     alert_internal_event_delivered,
     group_alert_destination_rows,
@@ -57,18 +57,18 @@ def webhook_inputs(url: str) -> dict[str, Any]:
     return {"url": {"value": url}}
 
 
-# Grouping reads the destination config out of inputs, so a fixture without one does not stand
-# for a real destination. Each template gets the config build_alert_destination_config writes.
-_DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
+_READABLE_INPUTS_BY_TEMPLATE: dict[str, dict[str, Any]] = {
     "template-slack": slack_inputs("C-ENG"),
     "template-webhook": webhook_inputs("https://example.com/hook"),
     "template-microsoft-teams": {"webhookUrl": {"value": "https://teams.example.com/hook"}},
 }
 
 
-class AlertDestinationTestCase(APIBaseTest):
-    """HogFunction fixtures shared by the destination grouping tests."""
+def _schema_declaring_every_input(inputs: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"key": key, "type": "string"} for key in inputs]
 
+
+class AlertDestinationTestCase(APIBaseTest):
     def _make_hog_function(
         self,
         *,
@@ -79,16 +79,14 @@ class AlertDestinationTestCase(APIBaseTest):
         team: Team | None = None,
         name: str = "Test destination",
     ) -> HogFunction:
-        resolved_inputs = _DEFAULT_INPUTS.get(template_id, {}) if inputs is None else inputs
+        resolved_inputs = _READABLE_INPUTS_BY_TEMPLATE.get(template_id, {}) if inputs is None else inputs
         return HogFunction.objects.create(
             team=team or self.team,
             name=name,
             type="destination",
             template_id=template_id,
             enabled=True,
-            # HogFunction.save drops any input whose key is not in inputs_schema, so declare one
-            # entry per input the fixture sets. The real templates mark none of these secret.
-            inputs_schema=[{"key": key, "type": "string"} for key in resolved_inputs],
+            inputs_schema=_schema_declaring_every_input(resolved_inputs),
             inputs=resolved_inputs,
             hog="return event",
             filters={
@@ -220,9 +218,9 @@ class TestGroupAlertDestinationRows:
         ]
 
 
-class TestRaiseIfAlertDestinationExists(AlertDestinationTestCase):
+class TestRaiseIfAlertAlreadyHasThisDestinationConfig(AlertDestinationTestCase):
     def _raise_if_exists(self, *, template_id: str, inputs: dict[str, Any], alert_id: str = "alert-1") -> None:
-        _raise_if_alert_destination_exists(
+        _raise_if_alert_already_has_this_destination_config(
             team_id=self.team.id,
             alert_id=alert_id,
             allowed_event_ids=ALLOWED_EVENT_IDS,
@@ -255,8 +253,6 @@ class TestRaiseIfAlertDestinationExists(AlertDestinationTestCase):
         self._raise_if_exists(template_id="template-webhook", inputs=webhook_inputs("https://a"))
 
     def test_rejects_a_duplicate_of_a_disabled_destination(self) -> None:
-        # A disabled destination is still in the delete group, so a duplicate of it would be stuck
-        # to it the same way an enabled one would.
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1", inputs=slack_inputs("C-ENG"))
         HogFunction.objects.filter(id__in=[destination.id for destination in destinations]).update(enabled=False)
 
@@ -337,6 +333,21 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
 
         self._assert_deleted(second)
 
+    def test_destination_missing_an_event_kind_is_still_deletable(self) -> None:
+        destinations = [
+            self._make_hog_function(template_id="template-slack", alert_id="alert-1", event_id=event_id)
+            for event_id in ALLOWED_EVENT_IDS[:-1]
+        ]
+
+        soft_delete_alert_destinations(
+            team_id=self.team.id,
+            alert_id="alert-1",
+            allowed_event_ids=ALLOWED_EVENT_IDS,
+            hog_function_ids=[destination.id for destination in destinations],
+        )
+
+        self._assert_deleted(destinations)
+
     def test_a_disabled_row_must_be_deleted_with_the_rest_of_its_group(self) -> None:
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
         HogFunction.objects.filter(id=destinations[0].id).update(enabled=False)
@@ -377,8 +388,6 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         self._assert_intact([*first, *second])
 
     def test_deletes_a_pre_existing_duplicate_pair_together(self) -> None:
-        # Two destinations built from the same config are indistinguishable, so they form one
-        # group. Naming every row of it is the way an already-duplicated alert gets cleaned up.
         first = self._make_group(template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://x"))
         second = self._make_group(
             template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://x")
@@ -410,8 +419,6 @@ class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
         self._assert_intact([*first, *second])
 
     def test_rejects_partial_delete_when_a_row_config_cannot_be_read(self) -> None:
-        # An unreadable row could belong to any Slack destination of the alert, so deleting the
-        # readable ones without it could leave part of a live destination still sending.
         orphan = self._make_hog_function(template_id="template-slack", alert_id="alert-1", inputs={})
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 

@@ -115,3 +115,26 @@ class TestDestinationTemplateContract:
         stored_inputs = _inputs_a_hog_function_would_keep(template, config.payload["inputs"])
 
         assert read_alert_destination_data(destination_type=destination_type, inputs=stored_inputs) == data
+
+    def test_slack_channel_name_shapes_the_hog_function_name_and_is_never_stored_in_inputs(self) -> None:
+        data: AlertDestinationData = {
+            "type": DestinationType.SLACK,
+            "slack_workspace_id": 42,
+            "slack_channel_id": "C123",
+            "slack_channel_name": "eng",
+        }
+        config = build_alert_destination_config(
+            team=None,
+            spec=DEFAULT_SPEC,
+            alert_id="alert-1",
+            alert_name="Signups",
+            data=data,
+            slack_context_elements=(),
+        )
+
+        assert config.payload["name"].endswith("Slack #eng")
+        assert read_alert_destination_data(destination_type=DestinationType.SLACK, inputs=config.payload["inputs"]) == {
+            "type": DestinationType.SLACK,
+            "slack_workspace_id": 42,
+            "slack_channel_id": "C123",
+        }

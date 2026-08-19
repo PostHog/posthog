@@ -1137,9 +1137,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         get_locked_alert.assert_called_once()
 
-    def _clone_hog_function(self, hog_function: HogFunction) -> HogFunction:
-        # A duplicate can no longer be created through the API, so an alert that already had one
-        # is reproduced by copying its rows.
+    def _clone_row_without_the_duplicate_check(self, hog_function: HogFunction) -> HogFunction:
         return HogFunction.objects.create(
             team=self.team,
             name=hog_function.name,
@@ -1153,14 +1151,12 @@ class TestLogsAlertAPI(APIBaseTest):
         )
 
     def test_delete_destination_removes_a_pre_existing_duplicate_pair(self):
-        # Duplicates predating the create-time check are indistinguishable, so they share one
-        # delete group and come out only when every row of it is named. That is what the UI
-        # already sends, since it groups by config too.
         self._sync_destination_templates()
         created = self._create_via_api()
         ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
         duplicate_ids = [
-            str(self._clone_hog_function(hog_function).id) for hog_function in HogFunction.objects.filter(id__in=ids)
+            str(self._clone_row_without_the_duplicate_check(hog_function).id)
+            for hog_function in HogFunction.objects.filter(id__in=ids)
         ]
 
         response = self.client.post(
