@@ -40,7 +40,7 @@ export const availableSourcesLogic = kea<availableSourcesLogicType>([
     path(['products', 'dataWarehouse', 'availableSourcesLogic']),
     loaders({
         availableSources: [
-            cachedAvailableSources,
+            cachedAvailableSources as Record<string, SourceConfig> | null,
             {
                 load: async () => {
                     if (cachedAvailableSources !== null) {

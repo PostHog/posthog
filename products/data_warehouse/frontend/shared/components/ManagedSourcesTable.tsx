@@ -2,15 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPlusSmall } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDialog,
-    LemonInput,
-    LemonTable,
-    LemonTag,
-    Spinner,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
