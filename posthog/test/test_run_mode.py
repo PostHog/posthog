@@ -1,8 +1,11 @@
 import unittest
 from unittest import mock
 
+from django.test import SimpleTestCase, override_settings
+
 from parameterized import parameterized
 
+from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.run_mode import RunMode, derive_run_mode, run_mode
 
 
@@ -54,3 +57,22 @@ class TestDeriveRunMode(unittest.TestCase):
             self.assertIs(run_mode(), RunMode.CLOUD_EU)
         with mock.patch("posthog.settings.CLOUD_DEPLOYMENT", "US"):
             self.assertIs(run_mode(), RunMode.CLOUD_US)
+
+
+class TestCloudUtilsRunMode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("US", False, True, False),
+            ("EU", False, True, False),
+            ("DEV", False, True, False),
+            ("E2E", False, True, False),
+            (None, True, False, False),
+            (None, False, False, True),
+        ]
+    )
+    def test_honors_override_settings(
+        self, cloud_deployment: str | None, debug: bool, cloud: bool, hobby: bool
+    ) -> None:
+        with override_settings(CLOUD_DEPLOYMENT=cloud_deployment, DEBUG=debug):
+            self.assertEqual(is_cloud(), cloud)
+            self.assertEqual(is_hobby(), hobby)

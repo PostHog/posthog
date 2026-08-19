@@ -1,7 +1,5 @@
 from enum import StrEnum
 
-from posthog import settings
-
 __all__ = ["RunMode", "derive_run_mode", "run_mode"]
 
 
@@ -74,4 +72,8 @@ def run_mode() -> RunMode:
     module scope, and their tests re-import those modules under a patched
     `posthog.settings.CLOUD_DEPLOYMENT` to check each deployment's branch.
     """
+    # Module-level import would cycle: posthog.settings -> posthog.settings.utils ->
+    # posthog.utils -> posthog.cloud_utils, and cloud_utils imports this module.
+    from posthog import settings  # noqa: PLC0415
+
     return derive_run_mode(settings.CLOUD_DEPLOYMENT, settings.DEBUG)

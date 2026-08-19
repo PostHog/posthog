@@ -7,6 +7,7 @@ from django.db.utils import ProgrammingError
 from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
+from posthog.run_mode import RunMode, derive_run_mode
 
 if TYPE_CHECKING:
     from ee.models.license import License
@@ -16,10 +17,20 @@ is_instance_licensed_cached: Optional[bool] = None
 instance_license_cached: Optional["License"] = None
 
 
+def _run_mode() -> RunMode:
+    """Resolve the run mode from `django.conf.settings`, so `override_settings` applies.
+
+    `posthog.run_mode.run_mode` reads the `posthog.settings` module instead, which is what
+    ClickHouse migrations and their `mock.patch`-based tests need. Both spell the mapping
+    with `derive_run_mode`; only the settings object they read differs.
+    """
+    return derive_run_mode(settings.CLOUD_DEPLOYMENT, settings.DEBUG)
+
+
 # Keep this in sync with isCloud() in nodejs/src/utils/env-utils.ts.
 # "dev" refers to the hosted development environment, not local development (which is "local").
 def is_cloud() -> bool:
-    return (settings.CLOUD_DEPLOYMENT or "").upper() in ("EU", "US", "DEV", "E2E")
+    return _run_mode().is_cloud
 
 
 def is_dev_mode() -> bool:
@@ -27,12 +38,8 @@ def is_dev_mode() -> bool:
 
 
 def is_hobby() -> bool:
-    """Self-hosted install: neither cloud nor local dev. Mirrors `isHobby` in preflightLogic.
-
-    Does not use `posthog.run_mode.RunMode.is_hobby`, because importing that module here
-    closes the `posthog.utils` -> `posthog.cloud_utils` import cycle.
-    """
-    return not is_cloud() and not is_dev_mode()
+    """Self-hosted install: neither cloud nor local dev. Mirrors `isHobby` in preflightLogic."""
+    return _run_mode().is_hobby
 
 
 def is_ci() -> bool:
