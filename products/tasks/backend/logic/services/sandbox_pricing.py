@@ -52,7 +52,7 @@ class SandboxComputeCost:
 COMPUTE_RATE_CARDS: tuple[ComputeRateCard, ...] = (
     ComputeRateCard(
         version="v1",
-        effective_at=datetime(2026, 8, 25, 12, tzinfo=UTC),
+        effective_at=datetime(2026, 8, 21, 16, tzinfo=UTC),
         expires_at=None,
         cpu_core_second_usd=Decimal("0.000075"),
         memory_gib_second_usd=Decimal("0.000008"),
