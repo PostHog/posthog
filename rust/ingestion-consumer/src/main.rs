@@ -261,6 +261,7 @@ async fn async_main(config: Config) -> Result<()> {
         TransportMode::Grpc => Transport::Grpc(Arc::new(GrpcTransport::new(
             config.ingestion_worker_grpc_port,
             config.ingestion_worker_concurrent_batches,
+            Duration::from_millis(config.ingestion_lane_ack_timeout_ms),
         ))),
     };
     info!(

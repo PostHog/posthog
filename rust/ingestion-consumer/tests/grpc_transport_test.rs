@@ -183,7 +183,7 @@ fn worker_url(addr: SocketAddr) -> String {
 #[tokio::test]
 async fn sub_batches_reach_the_worker_in_enqueue_order() {
     let mock = start_mock(AckMode::Immediate, None).await;
-    let transport = GrpcTransport::new(mock.addr.port(), 2);
+    let transport = GrpcTransport::new(mock.addr.port(), 2, Duration::from_secs(30));
     let url = worker_url(mock.addr);
 
     // Enqueue three sub-batches back to back — more than the un-acked cap, so
@@ -207,7 +207,7 @@ async fn sub_batches_reach_the_worker_in_enqueue_order() {
 async fn out_of_order_acks_resolve_the_right_sends() {
     let (ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
-    let transport = GrpcTransport::new(mock.addr.port(), 2);
+    let transport = GrpcTransport::new(mock.addr.port(), 2, Duration::from_secs(30));
     let url = worker_url(mock.addr);
 
     let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1), msg("d1", 2)], false);
@@ -236,7 +236,7 @@ async fn a_nack_fences_everything_outstanding_in_order() {
     // nothing may be silently retried on the next stream — a later sub-batch
     // surviving the fence would leapfrog the failed one and reorder its keys.
     let mock = start_mock(AckMode::NackSeq(1), None).await;
-    let transport = GrpcTransport::new(mock.addr.port(), 1);
+    let transport = GrpcTransport::new(mock.addr.port(), 1, Duration::from_secs(30));
     let url = worker_url(mock.addr);
 
     // With max_unacked=1, the second and third wait in the queue behind the
@@ -272,7 +272,7 @@ async fn a_nack_fences_everything_outstanding_in_order() {
 #[tokio::test]
 async fn the_lane_reconnects_with_a_new_stream_epoch_after_a_fence() {
     let mock = start_mock(AckMode::NackSeq(1), None).await;
-    let transport = GrpcTransport::new(mock.addr.port(), 2);
+    let transport = GrpcTransport::new(mock.addr.port(), 2, Duration::from_secs(30));
     let url = worker_url(mock.addr);
 
     let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
@@ -303,7 +303,7 @@ async fn a_dead_worker_fences_instead_of_hanging() {
     // Connect failure (nothing listening): the send must resolve with its
     // messages rather than waiting forever — the caller's deferral path owns
     // the retry pacing.
-    let transport = GrpcTransport::new(1, 1);
+    let transport = GrpcTransport::new(1, 1, Duration::from_secs(30));
     let pending = transport.begin_send(
         "http://127.0.0.1:9001",
         "batch-1",
@@ -315,4 +315,24 @@ async fn a_dead_worker_fences_instead_of_hanging() {
         .expect("must resolve, not hang")
         .expect_err("connect failure");
     assert_eq!(err.messages.len(), 1);
+}
+
+#[tokio::test]
+async fn a_worker_that_stops_acking_fences_after_the_watchdog_window() {
+    // Regression: a worker at capacity (or wedged) simply never acks, and the
+    // lane has no per-send timeout — without the watchdog the consumer waits
+    // forever and the whole pod wedges, as seen in production. The fence must
+    // hand the messages back so the deferral path re-routes them.
+    let (_ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(mock.addr.port(), 2, Duration::from_millis(200));
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    let err = tokio::time::timeout(Duration::from_secs(10), pending.wait())
+        .await
+        .expect("watchdog must fence, not wait forever")
+        .expect_err("un-acked send fails back to the caller");
+    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages[0].offset, 1);
 }

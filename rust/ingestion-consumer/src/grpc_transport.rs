@@ -81,6 +81,8 @@ pub struct GrpcTransport {
     /// Max un-acked sub-batches per lane (aligned with the worker's
     /// `concurrentBatches`, like the HTTP semaphore it replaces).
     max_unacked: usize,
+    /// Fence the lane when un-acked work sees no ack for this long.
+    ack_timeout: Duration,
     /// Bumped on Kafka partition assignment; stamped on every sub-batch so
     /// the worker sentinel rebaselines across rebalances.
     assignment_epoch: Arc<AtomicU64>,
@@ -89,13 +91,14 @@ pub struct GrpcTransport {
 }
 
 impl GrpcTransport {
-    pub fn new(grpc_port: u16, max_unacked: usize) -> Self {
+    pub fn new(grpc_port: u16, max_unacked: usize, ack_timeout: Duration) -> Self {
         assert!(max_unacked > 0, "max_unacked must be > 0");
         Self {
             lanes: DashMap::new(),
             consumer_id: make_consumer_id(),
             grpc_port,
             max_unacked,
+            ack_timeout,
             assignment_epoch: Arc::new(AtomicU64::new(1)),
             probe_client: reqwest::Client::new(),
         }
@@ -153,6 +156,7 @@ impl GrpcTransport {
             grpc_url: grpc_url(worker_url, self.grpc_port),
             consumer_id: self.consumer_id.clone(),
             max_unacked: self.max_unacked,
+            ack_timeout: self.ack_timeout,
             assignment_epoch: Arc::clone(&self.assignment_epoch),
         };
         let task = tokio::spawn(async move { runner.run(rx).await });
@@ -218,6 +222,7 @@ struct LaneRunner {
     grpc_url: String,
     consumer_id: String,
     max_unacked: usize,
+    ack_timeout: Duration,
     assignment_epoch: Arc<AtomicU64>,
 }
 
@@ -328,6 +333,10 @@ impl LaneRunner {
         let mut next_seq = 1u64;
         gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
             .set(0.0);
+        // Ack-progress deadline: pushed forward on every ack, and re-armed
+        // when the ledger goes from empty to non-empty (a quiet lane must not
+        // inherit a stale deadline).
+        let mut ack_deadline = tokio::time::Instant::now() + self.ack_timeout;
 
         loop {
             // Send the held first item, then pull more only while the ledger
@@ -364,33 +373,68 @@ impl LaneRunner {
                     ledger.push_back(LedgerEntry { seq, item });
                     return self.fence(None, &mut ledger, queue, "stream closed mid-send");
                 }
+                if ledger.is_empty() {
+                    ack_deadline = tokio::time::Instant::now() + self.ack_timeout;
+                }
                 ledger.push_back(LedgerEntry { seq, item });
                 gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
                     .set(ledger.len() as f64);
             }
 
-            // Wait for an ack, or for new work when the ledger has room.
-            let ack = if ledger.len() < self.max_unacked {
-                tokio::select! {
-                    ack = acks.message() => Some(ack),
-                    item = queue.recv() => {
-                        match item {
-                            Some(item) => {
-                                pending_first = Some(item);
-                                continue;
-                            }
-                            None => {
-                                return if ledger.is_empty() {
-                                    StreamEnd::QueueClosed
-                                } else {
-                                    self.fence(None, &mut ledger, queue, "queue closed")
-                                };
+            // Wait for an ack, or for new work when the ledger has room. The
+            // ack-progress watchdog bounds how long un-acked work may sit with
+            // no acks at all: a worker that stops acking (saturated by other
+            // consumers, wedged, half-dead network) must become a fence — and
+            // so a defer-and-reroute — rather than a silent forever-wait, the
+            // way an HTTP timeout would have surfaced it.
+            let ack = if ledger.is_empty() {
+                match queue.recv().await {
+                    Some(item) => {
+                        pending_first = Some(item);
+                        continue;
+                    }
+                    None => return StreamEnd::QueueClosed,
+                }
+            } else {
+                let watchdog = tokio::time::sleep_until(ack_deadline);
+                if ledger.len() < self.max_unacked {
+                    tokio::select! {
+                        ack = acks.message() => Some(ack),
+                        _ = watchdog => {
+                            warn!(
+                                worker = %self.worker_url,
+                                unacked = ledger.len(),
+                                timeout_ms = self.ack_timeout.as_millis() as u64,
+                                "No ack progress within the watchdog window — fencing lane"
+                            );
+                            return self.fence(pending_first.take(), &mut ledger, queue, "ack progress timeout");
+                        }
+                        item = queue.recv() => {
+                            match item {
+                                Some(item) => {
+                                    pending_first = Some(item);
+                                    continue;
+                                }
+                                None => {
+                                    return self.fence(None, &mut ledger, queue, "queue closed");
+                                }
                             }
                         }
                     }
+                } else {
+                    tokio::select! {
+                        ack = acks.message() => Some(ack),
+                        _ = watchdog => {
+                            warn!(
+                                worker = %self.worker_url,
+                                unacked = ledger.len(),
+                                timeout_ms = self.ack_timeout.as_millis() as u64,
+                                "No ack progress within the watchdog window — fencing lane"
+                            );
+                            return self.fence(pending_first.take(), &mut ledger, queue, "ack progress timeout");
+                        }
+                    }
                 }
-            } else {
-                Some(acks.message().await)
             };
 
             match ack {
@@ -418,6 +462,7 @@ impl LaneRunner {
                     gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
                         .set(ledger.len() as f64);
                     let _ = entry.item.reply.send(Ok(response.accepted));
+                    ack_deadline = tokio::time::Instant::now() + self.ack_timeout;
                 }
                 Some(Ok(None)) => {
                     return if ledger.is_empty() && pending_first.is_none() {
