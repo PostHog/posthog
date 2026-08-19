@@ -130,8 +130,29 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
     await _update()
 
 
-async def set_initial_sync_complete(schema_id: str, team_id: int) -> None:
-    await database_sync_to_async_pool(mark_initial_sync_complete)(schema_id=schema_id, team_id=team_id)
+def _purge_stale_buffer_then_mark_initial_sync_complete(
+    schema_id: str, team_id: int, logger: FilteringBoundLogger
+) -> None:
+    # cdc.buffer pulls in pipeline_v3, whose package __init__ imports common.load, which imports
+    # this module back — a true cycle only a deferred import breaks.
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import purge_buffer_prefix  # noqa: PLC0415
+
+    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
+    # About to flip a CDC schema snapshot→streaming: every buffer file predates the snapshot
+    # that just landed (capture only writes buffer files once initial_sync_complete is True),
+    # so anything in the prefix is stale — a leftover from before a TRUNCATE, a re-enable, or
+    # this run's own capture tail — and merging it after the flip would resurrect rows the
+    # snapshot wiped. Purge-then-flip is race-free for the same reason: nothing can write to
+    # the prefix until the flip commits. Strict because a survived stale file corrupts the table.
+    if schema.is_cdc and not schema.initial_sync_complete and schema.cdc_mode == "snapshot":
+        purge_buffer_prefix(team_id, str(schema_id), logger, strict=True)
+    mark_initial_sync_complete(schema_id=schema_id, team_id=team_id)
+
+
+async def set_initial_sync_complete(schema_id: str, team_id: int, logger: FilteringBoundLogger) -> None:
+    await database_sync_to_async_pool(_purge_stale_buffer_then_mark_initial_sync_complete)(
+        schema_id=schema_id, team_id=team_id, logger=logger
+    )
 
 
 def _refresh_cumulative_row_count(table: DataWarehouseTable, logger: FilteringBoundLogger, context: str) -> None:

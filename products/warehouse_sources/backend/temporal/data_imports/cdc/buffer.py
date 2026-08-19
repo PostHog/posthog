@@ -243,15 +243,23 @@ class CDCBufferWriter:
         return removed
 
 
-def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogger) -> None:
-    """Best-effort removal of a schema's entire buffer prefix.
+def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogger, *, strict: bool = False) -> None:
+    """Remove a schema's entire buffer prefix.
 
-    Called on schema reset (TRUNCATE / lost-slot re-snapshot): the legacy table is
-    wiped and re-seeded through the snapshot lane the buffer never sees, so every
-    existing buffer file predates a discontinuity no consumer could order across.
+    Called on schema reset (TRUNCATE / lost-slot re-snapshot) and again right before the
+    snapshot→streaming flip: the table is wiped and re-seeded through the snapshot lane the
+    buffer never sees, so every existing buffer file predates a discontinuity no consumer
+    could order across. Best-effort by default; `strict` propagates failures (except a
+    missing prefix) for callers where a survived stale file would corrupt the table.
     """
     prefix = strip_s3_protocol(get_buffer_prefix(team_id, schema_id))
-    with suppress(Exception):
+    try:
         s3 = get_s3_client()
         s3.rm(prefix, recursive=True)
         logger.info("cdc_buffer_prefix_purged", schema_id=schema_id)
+    except FileNotFoundError:
+        pass
+    except Exception:
+        if strict:
+            raise
+        logger.warning("cdc_buffer_prefix_purge_failed", schema_id=schema_id, exc_info=True)
