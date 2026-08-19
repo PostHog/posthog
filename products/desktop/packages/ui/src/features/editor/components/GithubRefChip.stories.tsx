@@ -10,6 +10,19 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+export const WithoutLiveDetails: Story = {
+  render: () => (
+    <div className="text-[13px]">
+      <GithubRefChip
+        href="https://github.com/example-org/example-repo/pull/101"
+        kind="pr"
+      >
+        example-org/example-repo#101
+      </GithubRefChip>
+    </div>
+  ),
+};
+
 export const LifecycleStates: Story = {
   render: () => (
     <div className="flex flex-wrap items-center gap-3 text-[13px]">
