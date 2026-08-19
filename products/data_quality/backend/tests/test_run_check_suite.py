@@ -50,7 +50,9 @@ class _ActivityInfo:
 class TestCheckSuiteActivities(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.view = DataWarehouseSavedQuery.objects.create(team=self.team, name="orders", query={"kind": "HogQLQuery"})
+        self.view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS customer_id"}
+        )
         flag = patch(PREPARE_FLAG, return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
@@ -130,7 +132,7 @@ class TestCheckSuiteActivities(BaseTest):
         erroring = self._check(check_type=CheckType.CUSTOM_SQL, column_name="", config={"query": "nonsense ((("})
         prepared = self._prepare()
 
-        def _fake_query(query, team, query_type):
+        def _fake_query(query, team, query_type, **kwargs):
             failure_count = 4 if "total" in str(query.to_hogql()) else 0
             return _Response(["failure_count", "observed_value"], [failure_count, failure_count])
 
@@ -169,6 +171,27 @@ class TestCheckSuiteActivities(BaseTest):
         assert outcome.passed == 1
         runs = DataQualityCheckRun.objects.for_team(self.team.id).filter(suite_run_id=prepared.suite_run_id)
         assert list(runs.values_list("quality_check_id", flat=True)) == [stays.id]
+
+    def test_a_staged_audit_that_cannot_reach_the_staged_files_runs_no_check(self) -> None:
+        check = self._check()
+        prepared = self._prepare()
+
+        with patch(RUNNER_QUERY) as query:
+            outcome = _run_batch(
+                RunCheckBatchInputs(
+                    team_id=self.team.id,
+                    suite_run_id=prepared.suite_run_id,
+                    check_ids=[str(check.id)],
+                    staged_queryable_folder="query_2000000000000",
+                    staged_saved_query_id=str(self.view.id),
+                )
+            )
+
+        query.assert_not_called()
+        assert (outcome.errored, outcome.failed_blocking) == (1, 0)
+        run = DataQualityCheckRun.objects.for_team(self.team.id).get(suite_run_id=prepared.suite_run_id)
+        assert run.status == CheckRunStatus.ERRORED
+        assert "staged files" in run.error
 
     def test_finalize_sums_batch_outcomes_into_the_report(self) -> None:
         prepared = self._prepare()

@@ -111,7 +111,6 @@ def _build_context(
     )
 
 
-@pytest.mark.django_db
 def test_activity_error_properties_includes_failed_activity_context():
     error = ActivityError(
         "Activity task timed out",
@@ -134,6 +133,23 @@ def test_activity_error_properties_includes_failed_activity_context():
         "cause_error_type": "TimeoutError",
         "cause_error_message": "start-to-close timeout",
     }
+
+
+def test_activity_error_properties_names_the_application_failure_class():
+    error = ActivityError(
+        "Activity task failed",
+        scheduled_event_id=10,
+        started_event_id=11,
+        identity="worker-1",
+        activity_type="create_sandbox_for_repository",
+        activity_id="activity-1",
+        retry_state=RetryState.NON_RETRYABLE_FAILURE,
+    )
+    error.__cause__ = ApplicationError("Failed to create sandbox", type="SandboxProvisionError")
+
+    properties = ProcessTaskWorkflow._activity_error_properties(error)
+
+    assert properties["cause_error_type"] == "SandboxProvisionError"
 
 
 @pytest.mark.django_db(transaction=True)

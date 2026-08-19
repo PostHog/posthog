@@ -1,3 +1,4 @@
+import os
 import atexit
 import threading
 from collections.abc import Mapping
@@ -5,6 +6,8 @@ from contextlib import contextmanager
 from numbers import Number
 from typing import Any
 from uuid import UUID
+
+from django.conf import settings
 
 import structlog
 import posthoganalytics
@@ -158,6 +161,11 @@ def get_client(region: str = "US", **kwargs: Any):
         host = PH_US_HOST
     else:
         return
+
+    # A fresh client does not inherit the module-level `disabled` flag that apps.py sets
+    # under TEST, so without this a test that runs in cloud mode captures to the real
+    # project. Callers can still pass `disabled` explicitly to override.
+    kwargs.setdefault("disabled", bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)))
 
     return Posthog(
         api_key,

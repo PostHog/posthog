@@ -11,14 +11,20 @@ which keeps the outbound/inbound pair loop-free.
 Before the Integration rows are deleted, any Loop (products/tasks) referencing them is
 auto-paused and flagged for attention, so a disconnected integration never leaves a loop
 silently pointed at a repository it can no longer reach.
+
+``action == "created"`` is the other direction: an org owner approved a pending install
+request (see ``posthog.api.github_callback.install_requests``). The payload's ``requester.id``
+is who asked, so matching pending ``GitHubInstallRequest`` rows on ``github_user_id`` flip to
+approved, which is how the desktop learns the wait is over without polling GitHub itself.
 """
 
 from django.http import HttpResponse
+from django.utils import timezone
 
 import structlog
 
 from posthog.models.integration import Integration
-from posthog.models.user_integration import UserIntegration
+from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 
 logger = structlog.get_logger(__name__)
 
@@ -27,10 +33,13 @@ def handle_installation_event(payload: dict) -> HttpResponse:
     """Process a pre-verified GitHub ``installation`` webhook event.
 
     Called from ``posthog.urls.github_webhook`` after signature verification and
-    JSON parsing. Only ``action == "deleted"`` triggers cleanup; reversible
-    actions (suspend/unsuspend) and lifecycle noise (created, etc.) are ignored.
+    JSON parsing. ``action == "deleted"`` triggers integration cleanup; ``"created"``
+    resolves matching pending install requests. Reversible actions (suspend/unsuspend)
+    and other lifecycle noise are ignored.
     """
     action = payload.get("action")
+    if action == "created":
+        return _handle_installation_created(payload)
     if action != "deleted":
         logger.debug("github_installation_webhook_ignored_action", action=action)
         return HttpResponse(status=200)
@@ -78,3 +87,33 @@ def _pause_loops_referencing_integrations(integrations: list[Integration], insta
         return
 
     pause_loops_referencing_integrations(integrations, installation_id)
+
+
+def _handle_installation_created(payload: dict) -> HttpResponse:
+    installation_id = (payload.get("installation") or {}).get("id")
+    requester_id = (payload.get("requester") or {}).get("id")
+    if installation_id is None or requester_id is None:
+        # An owner installing for themselves has no requester, so this is the common case.
+        logger.debug(
+            "github_installation_webhook_created_no_requester",
+            installation_id=installation_id,
+            has_requester=requester_id is not None,
+        )
+        return HttpResponse(status=200)
+
+    resolved_count = GitHubInstallRequest.objects.filter(
+        github_user_id=requester_id, status=GitHubInstallRequest.Status.PENDING
+    ).update(
+        status=GitHubInstallRequest.Status.APPROVED,
+        installation_id=str(installation_id),
+        resolved_at=timezone.now(),
+    )
+
+    logger.info(
+        "github_installation_webhook_created",
+        installation_id=str(installation_id),
+        requester_id=requester_id,
+        resolved_count=resolved_count,
+    )
+
+    return HttpResponse(status=200)
