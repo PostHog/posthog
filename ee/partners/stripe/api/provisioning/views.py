@@ -107,17 +107,23 @@ class StripeProvisioningAPIView(RegionProxyMixin, APIView):
     def check_throttles(self, request: Request) -> None:
         """Reject in the view's spec envelope: DRF's default ``{"detail": ...}``
         shape is not part of this namespace's wire contract and must not leak
-        out of it, whichever throttle refuses."""
+        out of it, whichever throttle refuses. Consults every throttle and keeps
+        the longest wait, mirroring DRF's own ``check_throttles`` so
+        ``Retry-After`` is the real time until the request would be allowed,
+        not the first refusing throttle's shorter window."""
+        durations: list[float | None] = []
         for throttle in self.get_throttles():
-            if throttle.allow_request(request, self):
-                continue
-            wait = throttle.wait()
-            raise SpecError(
-                "rate_limited",
-                "Rate limit exceeded. Try again later.",
-                status=429,
-                retry_after=int(wait) if wait else None,
-            )
+            if not throttle.allow_request(request, self):
+                durations.append(throttle.wait())
+        if not durations:
+            return
+        wait = max((d for d in durations if d is not None), default=None)
+        raise SpecError(
+            "rate_limited",
+            "Rate limit exceeded. Try again later.",
+            status=429,
+            retry_after=int(wait) if wait else None,
+        )
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, PreRenderedError):
