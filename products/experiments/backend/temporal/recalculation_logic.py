@@ -41,6 +41,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
+from products.experiments.backend.result_serialization import sanitize_non_finite
 from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
@@ -649,7 +650,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 client_query_id=client_query_id,
             )
             result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-            result_dict = result.model_dump(mode="json")
+            result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
             _store_result(
                 experiment_id=experiment_id,

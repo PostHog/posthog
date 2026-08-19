@@ -1,7 +1,26 @@
 """Shared helpers for shaping ExperimentMetricResult payloads before they leave the backend."""
 
+import math
 from collections.abc import Mapping
 from typing import Any
+
+
+def sanitize_non_finite(value: Any) -> Any:
+    """Replace `inf`, `-inf`, and `nan` floats anywhere in the payload with `None`.
+
+    A ClickHouse division by zero returns a non-finite float instead of raising, so a
+    revenue metric can produce `inf` in `sum` or `nan` in a `confidence_interval`. Django's
+    JSONField serializes those to the tokens `Infinity` / `NaN`, which Postgres rejects, so
+    the whole result row fails to write. Nulling them keeps the row storable; the frontend
+    reads `None` as "no value" rather than crashing the insert.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Mapping):
+        return {k: sanitize_non_finite(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [sanitize_non_finite(item) for item in value]
+    return value
 
 
 def strip_step_sessions(result: Any) -> Any:
