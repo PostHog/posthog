@@ -1,6 +1,5 @@
 from typing import Literal, cast
 
-from django.core.cache import cache
 from django.http import HttpRequest, HttpResponseRedirect
 from django.views.decorators.http import require_http_methods
 
@@ -26,19 +25,10 @@ def _parse_callback(request: HttpRequest, entry: Literal["setup_url", "oauth_red
     )
 
     user = cast(User, request.user)
-    token: str | None = None
-    if state_raw:
-        token, _ = state.parse_github_authorize_state_param(state_raw)
-    if token is None:
-        pending_token = cache.get(state.unified_authorize_pending_cache_key(user.id))
-        if pending_token is not None:
-            token = str(pending_token)
-
-    if token:
-        ctx.authorize_state = state.load_authorize_state(token, user_id=user.id)
-        if ctx.authorize_state is not None:
-            ctx.flow = ctx.authorize_state.flow
-            return ctx
+    ctx.authorize_state = state.callback_authorize_state(user.id, state_raw)
+    if ctx.authorize_state is not None:
+        ctx.flow = ctx.authorize_state.flow
+        return ctx
 
     if entry == "setup_url" and is_personal_github_setup_state(state_raw):
         ctx.flow = FlowKind.PERSONAL_INSTALL

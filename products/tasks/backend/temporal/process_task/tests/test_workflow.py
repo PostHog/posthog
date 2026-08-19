@@ -60,6 +60,8 @@ from products.tasks.backend.temporal.process_task.activities import (
     track_workflow_event,
     update_task_run_status,
 )
+from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
+from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import SendFollowupToSandboxInput
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
@@ -590,6 +592,54 @@ class TestProcessTaskFollowupDispatch:
         assert deliveries == [("finish in green", True), ("finish in green", False)]
         assert workflow._pending_followup is None
         assert workflow._pending_followups == []
+
+
+class TestFollowupDeliveryFailureBookkeeping:
+    def _workflow(self, monkeypatch, *, mode: str, patched: bool):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": mode})
+        emitted: list[EmitProgressInput] = []
+
+        async def fake_execute_activity(_activity, activity_input, **_kwargs):
+            if isinstance(activity_input, SendFollowupToSandboxInput):
+                raise RuntimeError("delivery failed")
+            if isinstance(activity_input, EmitProgressInput):
+                emitted.append(activity_input)
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=patched))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        return workflow, emitted
+
+    async def test_failed_interactive_delivery_releases_the_message_for_retry(self, monkeypatch):
+        workflow, emitted = self._workflow(monkeypatch, mode="interactive", patched=True)
+
+        await workflow.send_followup_message("try this", [], "msg-1")
+        assert len(workflow._pending_followups) == 1
+
+        result = await workflow._send_followup_to_sandbox("try this", [], message_id="msg-1")
+
+        assert result is None
+        assert workflow._task_completed is False
+        assert workflow._completion_status == "completed"
+        assert [(e.step, e.status) for e in emitted] == [("followup_delivery", "failed")]
+
+        await workflow.send_followup_message("try this", [], "msg-1")
+        assert len(workflow._pending_followups) == 2
+
+    @pytest.mark.parametrize("mode,patched", [("interactive", False), ("background", True)])
+    async def test_failed_delivery_terminalizes_when_keep_alive_does_not_apply(self, monkeypatch, mode, patched):
+        workflow, emitted = self._workflow(monkeypatch, mode=mode, patched=patched)
+
+        result = await workflow._send_followup_to_sandbox("try this", [], message_id="msg-1")
+
+        assert result is None
+        assert workflow._task_completed is True
+        assert workflow._completion_status == "failed"
+        assert workflow._completion_error_type == "followup_delivery_failed"
+        assert emitted == []
 
 
 @pytest.mark.django_db
