@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -32,6 +33,7 @@ class TestTaskUsageQueryTagging(SimpleTestCase):
             patch.object(task_usage, "execute_hogql_query", side_effect=capture_query_tags),
         ):
             task_usage.get_local_task_token_cost(
+                team_id=1,
                 task_id=UUID("00000000-0000-0000-0000-000000000001"),
                 task_created_at=datetime(2026, 8, 1, tzinfo=UTC),
             )
@@ -53,17 +55,23 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_token_cost_only_includes_generations_for_the_task_and_product(self) -> None:
-        for task_id, product, cost in (
-            (str(self.task.id), "posthog_code", 2.5),
-            (str(self.task.id), "background_agents", 10),
-            ("00000000-0000-0000-0000-000000000001", "posthog_code", 20),
+        for team_id, task_id, product, cost in (
+            (self.team.id, str(self.task.id), "posthog_code", 2.5),
+            (self.team.id, str(self.task.id), "background_agents", 10),
+            (self.team.id, "00000000-0000-0000-0000-000000000001", "posthog_code", 20),
+            (self.team.id + 1, str(self.task.id), "posthog_code", 40),
         ):
             _create_event(
                 event="$ai_generation",
                 team=self.team,
                 distinct_id=str(self.user.distinct_id),
                 timestamp=self.task.created_at + timedelta(seconds=1),
-                properties={"task_id": task_id, "ai_product": product, "$ai_total_cost_usd": cost},
+                properties={
+                    "team_id": team_id,
+                    "task_id": task_id,
+                    "ai_product": product,
+                    "$ai_total_cost_usd": cost,
+                },
             )
         flush_persons_and_events()
 
@@ -129,24 +137,36 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
         ):
             post.return_value.json.return_value = {"token_cost_usd": 1.25}
             token_cost = task_usage._get_task_token_cost(
+                team_id=self.team.id,
                 task_id=self.task.id,
                 task_created_at=self.task.created_at,
             )
 
         assert token_cost == Decimal("1.25")
         assert post.call_args.args[0] == "https://us.posthog.com/api/code/internal/task_usage/"
+        assert json.loads(post.call_args.kwargs["data"]) == {
+            "team_id": self.team.id,
+            "task_id": str(self.task.id),
+            "task_created_at": self.task.created_at.isoformat(),
+        }
 
     def test_eu_token_cost_is_unavailable_without_cross_region_secret(self) -> None:
         with (
             self.settings(CLOUD_DEPLOYMENT="EU", PERSONAL_SPEND_CROSS_REGION_SECRET=""),
             self.assertRaises(task_usage.TaskTokenUsageUnavailable),
         ):
-            task_usage._get_task_token_cost(task_id=self.task.id, task_created_at=self.task.created_at)
+            task_usage._get_task_token_cost(
+                team_id=self.team.id, task_id=self.task.id, task_created_at=self.task.created_at
+            )
 
     def test_token_cost_is_cached(self) -> None:
         with patch.object(task_usage, "get_local_task_token_cost", return_value=Decimal("1.25")) as get_cost:
-            first = task_usage._get_task_token_cost(task_id=self.task.id, task_created_at=self.task.created_at)
-            second = task_usage._get_task_token_cost(task_id=self.task.id, task_created_at=self.task.created_at)
+            first = task_usage._get_task_token_cost(
+                team_id=self.team.id, task_id=self.task.id, task_created_at=self.task.created_at
+            )
+            second = task_usage._get_task_token_cost(
+                team_id=self.team.id, task_id=self.task.id, task_created_at=self.task.created_at
+            )
 
         assert first == second == Decimal("1.25")
         get_cost.assert_called_once()
