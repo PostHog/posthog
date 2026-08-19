@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, NotRequired, TypedDict
-from urllib.parse import urlparse
 
 from django.db import models
 
@@ -258,24 +257,3 @@ def read_alert_destination_data(*, destination_type: DestinationType, inputs: di
     if isinstance(webhook_url, str):
         data["webhook_url"] = webhook_url
     return data
-
-
-def redact_webhook_url(url: str) -> str:
-    """Reduce a webhook URL to scheme and host for read responses.
-
-    A Slack, Teams or Discord webhook URL is a bearer credential: the secret is in the path or
-    query, so whoever holds the URL can post to the channel. Keep enough for a reader to see
-    where notifications go, and drop the path, the query, and any `user:pass@` userinfo, which
-    `netloc` would carry. IPv6 hosts keep their brackets.
-    """
-    try:
-        parsed = urlparse(url)
-        hostname, port = parsed.hostname, parsed.port
-    except ValueError:
-        # urlparse rejects malformed IPv6 brackets and out-of-range ports.
-        return "(hidden)"
-    if not parsed.scheme or not hostname:
-        return "(hidden)"
-    host = f"[{hostname}]" if ":" in hostname else hostname
-    authority = f"{host}:{port}" if port else host
-    return f"{parsed.scheme}://{authority}/…"

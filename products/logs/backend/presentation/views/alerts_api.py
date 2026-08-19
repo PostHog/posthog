@@ -23,6 +23,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
+from posthog.helpers.url_redaction import redact_webhook_url
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -38,7 +39,6 @@ from products.alerts.backend.facade.api import (
     build_alert_destination_config,
     create_alert_destination_hog_functions,
     list_alert_destination_groups,
-    redact_webhook_url,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_and_normalize_schedule_restriction,
@@ -766,21 +766,12 @@ class LogsAlertDestinationResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerializer):
-    """A configured destination, with the fields it was created with.
-
-    Two of those fields do not come back as sent. slack_channel_name has no counterpart at all:
-    creation puts it in the HogFunction name rather than its inputs, so there is nothing to read
-    back. webhook_url comes back redacted to scheme and host, because the full URL is a bearer
-    credential and logs:read includes viewers — so a caller cannot use this response to compare
-    the stored URL against the one it sent.
-    """
-
     type = serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES, help_text="Notification destination type.")
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Present when type=slack."
     )
     slack_channel_id = serializers.CharField(required=False, help_text="Slack channel ID. Present when type=slack.")
-    webhook_url = serializers.URLField(
+    webhook_url = serializers.CharField(
         required=False,
         help_text=(
             "Endpoint posted to, redacted to scheme and host because the full URL is a credential. "
@@ -1043,9 +1034,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             allowed_destination_types=LOGS_DESTINATION_TYPES,
         )
-        # A plain list, not a queryset — destinations are regrouped in Python. DRF paginates it
-        # anyway: get_count falls back to len() and the page is a slice. Groups come back in
-        # HogFunction creation order, so page boundaries are stable.
         destinations = [{"hog_function_ids": list(group.hog_function_ids), **group.data} for group in groups]
 
         page = self.paginate_queryset(destinations)

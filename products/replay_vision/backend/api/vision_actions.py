@@ -27,6 +27,7 @@ from rest_framework.serializers import BaseSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.helpers.url_redaction import redact_webhook_url
 from posthog.models.integration import Integration
 
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
@@ -246,19 +247,6 @@ MAX_ENABLED_ALERTS_PER_SCANNER = 10
 MAX_DELIVERY_TARGETS = 5
 
 
-def _redact_webhook_url(url: str) -> str:
-    # Show the scheme + host so a viewer can see *where* it delivers, but drop everything a credential
-    # can hide in: the path, the query, AND any `user:pass@` userinfo (which `netloc` would carry, so
-    # rebuild the authority from hostname/port only). IPv6 hosts keep their brackets. Falls back to a
-    # fully-opaque marker if the URL can't be parsed.
-    parsed = urlparse(url)
-    if parsed.scheme and parsed.hostname:
-        host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
-        authority = f"{host}:{parsed.port}" if parsed.port else host
-        return f"{parsed.scheme}://{authority}/…"
-    return "(hidden)"
-
-
 class VisionActionSerializer(serializers.ModelSerializer):
     """A Replay Vision action: a scheduled "and then…" automation over a scanner's observations."""
 
@@ -411,7 +399,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
         # it in full so the edit form can round-trip it.
         if not self._can_edit(instance):
             data["delivery_config"] = [
-                {**target, "url": _redact_webhook_url(target["url"])}
+                {**target, "url": redact_webhook_url(target["url"])}
                 if target.get("type") == "webhook" and target.get("url")
                 else target
                 for target in data.get("delivery_config") or []

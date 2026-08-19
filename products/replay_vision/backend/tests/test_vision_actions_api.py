@@ -16,7 +16,6 @@ from products.replay_vision.backend.api.vision_actions import (
     MAX_DELIVERY_TARGETS,
     MAX_ENABLED_ALERTS_PER_SCANNER,
     DeliveryTargetSerializer,
-    _redact_webhook_url,
 )
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
@@ -826,15 +825,3 @@ class TestDeliveryTargetSerializer(SimpleTestCase):
         # The per-type shape (slack needs integration+channel, webhook needs a well-formed https url) is
         # pure in-memory validation — a bad target must be rejected before it reaches provisioning.
         self.assertEqual(DeliveryTargetSerializer(data=target).is_valid(), expected_valid)
-
-    @parameterized.expand(
-        [
-            ("path_and_query", "https://hooks.example.com/svc/tok?k=v", "https://hooks.example.com/…"),
-            # Defense in depth: even if userinfo slipped past validation, the redaction must not echo it.
-            ("userinfo", "https://token:secret@hooks.example.com/path", "https://hooks.example.com/…"),
-            ("port", "https://hooks.example.com:8443/path", "https://hooks.example.com:8443/…"),
-            ("ipv6", "https://[2001:db8::1]:9000/path", "https://[2001:db8::1]:9000/…"),
-        ]
-    )
-    def test_redact_webhook_url(self, _label: str, url: str, expected: str) -> None:
-        self.assertEqual(_redact_webhook_url(url), expected)

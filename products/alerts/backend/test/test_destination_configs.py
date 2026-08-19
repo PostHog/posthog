@@ -1,12 +1,4 @@
-import pytest
-
-from products.alerts.backend.destination_configs import (
-    AlertDestinationAction,
-    EventKindSpec,
-    redact_webhook_url,
-    slack_blocks,
-    teams_text,
-)
+from products.alerts.backend.destination_configs import AlertDestinationAction, EventKindSpec, slack_blocks, teams_text
 
 DEFAULT_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",
@@ -62,22 +54,3 @@ class TestSpecVocabularyRendering:
         assert teams_text(DEFAULT_SPEC) == (
             "**Insight alert firing**\n\n**Threshold:** 30\n\n[View insight](https://example.com/insight)"
         )
-
-
-class TestRedactWebhookUrl:
-    @pytest.mark.parametrize(
-        "url,expected",
-        [
-            ("https://hooks.slack.com/services/T0/B0/tok", "https://hooks.slack.com/…"),
-            # Defense in depth: creation rejects embedded credentials, but redaction must not
-            # echo them if one ever reaches the read path.
-            ("https://token:secret@hooks.example.com/path", "https://hooks.example.com/…"),
-            ("https://hooks.example.com:8443/path?key=v", "https://hooks.example.com:8443/…"),
-            ("https://[2001:db8::1]:9000/path", "https://[2001:db8::1]:9000/…"),
-            ("not-a-url", "(hidden)"),
-            ("https://example.com:99999/path", "(hidden)"),
-            ("", "(hidden)"),
-        ],
-    )
-    def test_keeps_only_scheme_and_host(self, url: str, expected: str) -> None:
-        assert redact_webhook_url(url) == expected

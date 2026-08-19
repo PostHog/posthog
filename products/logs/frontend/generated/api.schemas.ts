@@ -678,15 +678,6 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly updated_at?: string | null
 }
 
-/**
- * A configured destination, with the fields it was created with.
- *
- * Two of those fields do not come back as sent. slack_channel_name has no counterpart at all:
- * creation puts it in the HogFunction name rather than its inputs, so there is nothing to read
- * back. webhook_url comes back redacted to scheme and host, because the full URL is a bearer
- * credential and logs:read includes viewers — so a caller cannot use this response to compare
- * the stored URL against the one it sent.
- */
 export interface LogsAlertDestinationConfigApi {
     hog_function_ids: string[]
     /** Notification destination type.
