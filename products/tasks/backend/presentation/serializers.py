@@ -1623,6 +1623,16 @@ class ChannelSerializer(DataclassSerializer):
     """Response shape for a task channel, read from a frozen ``ChannelDTO``."""
 
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    system_role = serializers.ChoiceField(
+        choices=tasks_facade.Channel.SystemRole.choices,
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "Identifies this channel as one of the two system-provisioned spaces "
+            "('personal' for the user's own #me space, 'general' for the team's "
+            "shared #general space). Null for an ordinary channel."
+        ),
+    )
 
     class Meta:
         dataclass = ChannelDTO
@@ -1635,7 +1645,26 @@ class ChannelSerializer(DataclassSerializer):
             "created_at",
             "created_by",
             "starred",
+            "system_role",
         ]
+
+
+class ProvisionedChannelsSerializer(serializers.Serializer):
+    """The requester's default channels, plus whether this call is what created them."""
+
+    channels = ChannelSerializer(
+        many=True,
+        help_text="The full channel list after provisioning, same shape as the list endpoint.",
+    )
+    personal_created = serializers.BooleanField(
+        help_text="Whether this call created the requester's personal #me channel."
+    )
+    general_created = serializers.BooleanField(
+        help_text=(
+            "Whether this call created the team's shared #general channel. True only for "
+            "the first user to provision it, so clients can branch first-user setup on it."
+        )
+    )
 
 
 class ChannelDeleteConflictSerializer(serializers.Serializer):
@@ -1657,6 +1686,13 @@ class ChannelWriteSerializer(serializers.Serializer):
         ),
     )
 
+    def validate_name(self, value: str) -> str:
+        # "general" resolves the team's general space here, so only the personal names are
+        # refused.
+        if tasks_facade.is_personal_space_name(value):
+            raise serializers.ValidationError("That name is reserved for private spaces. Pick another name.")
+        return value
+
 
 class ChannelUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(
@@ -1676,6 +1712,11 @@ class ChannelUpdateSerializer(serializers.Serializer):
         max_length=10,
         help_text="GitHub repositories inherited by new tasks in this channel.",
     )
+
+    def validate_name(self, value: str) -> str:
+        if tasks_facade.is_reserved_channel_name(value):
+            raise serializers.ValidationError("That name is reserved for a default space. Pick another name.")
+        return value
 
     def validate_github_integration(self, value):
         if value is not None and value.team_id != self.context["team_id"]:
