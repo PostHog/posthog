@@ -1,4 +1,9 @@
-from django.db.models import Case, Count, QuerySet, When
+from datetime import datetime, timedelta
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from django.db.models import Case, Count, Q, QuerySet, When
+from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -21,11 +26,40 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.models.health_issue import HealthIssue
 from posthog.rate_limit import HealthIssueRefreshThrottle
+from posthog.utils import relative_date_parse
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
 class HealthIssuePayloadField(serializers.JSONField):
     """Arbitrary, check-specific detail. Typed as a free-form object downstream."""
+
+
+MAX_SNOOZE_DAYS = 90
+
+
+@extend_schema_field(
+    {
+        "type": "string",
+        "nullable": True,
+        "description": (
+            f"A relative duration to snooze for, such as '7d', '30d' or '90d'. Resolved to an absolute "
+            f"UTC time on write, and capped at {MAX_SNOOZE_DAYS} days. Pass null to end the snooze."
+        ),
+    }
+)
+class SnoozeDurationField(serializers.DateTimeField):
+    def to_internal_value(self, data: Any) -> datetime:
+        # relative_date_parse falls back to "now" for anything it can't read, so an unparseable
+        # duration is indistinguishable from a zero-length one. Both fail the lower bound below.
+        snoozed_until = relative_date_parse(str(data), ZoneInfo("UTC"), increase=True)
+        now = timezone.now()
+        if snoozed_until <= now:
+            raise serializers.ValidationError(
+                f"Expected a duration in the future, such as '7d'. Got: {data!r}",
+            )
+        if snoozed_until > now + timedelta(days=MAX_SNOOZE_DAYS):
+            raise serializers.ValidationError(f"Cannot snooze for longer than {MAX_SNOOZE_DAYS} days.")
+        return snoozed_until
 
 
 class HealthIssueSerializer(serializers.ModelSerializer):
@@ -42,6 +76,17 @@ class HealthIssueSerializer(serializers.ModelSerializer):
         ),
     )
 
+    snoozed_until = SnoozeDurationField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "When the issue's snooze ends, or null if it isn't snoozed. A snoozed issue still appears in "
+            "every list; it just stops counting towards the health badge in the navigation. Write a relative "
+            f"duration such as '7d' to snooze, capped at {MAX_SNOOZE_DAYS} days, or null to end the snooze. "
+            "Unlike `dismissed`, this expires on its own."
+        ),
+    )
+
     class Meta:
         model = HealthIssue
         fields = [
@@ -50,12 +95,13 @@ class HealthIssueSerializer(serializers.ModelSerializer):
             "severity",
             "status",
             "dismissed",
+            "snoozed_until",
             "payload",
             "created_at",
             "updated_at",
             "resolved_at",
         ]
-        read_only_fields = [f for f in fields if f != "dismissed"]
+        read_only_fields = [f for f in fields if f not in {"dismissed", "snoozed_until"}]
         extra_kwargs = {
             "id": {"help_text": "Unique identifier for the health issue."},
             "kind": {
@@ -81,15 +127,27 @@ class HealthIssueSerializer(serializers.ModelSerializer):
         }
 
 
-class HealthIssueSummarySerializer(serializers.Serializer):
-    total = serializers.IntegerField(help_text="Total number of active, non-dismissed health issues for the project.")
+class HealthIssueCountsSerializer(serializers.Serializer):
+    total = serializers.IntegerField(help_text="Total number of issues in this group.")
     by_severity = serializers.DictField(
         child=serializers.IntegerField(),
-        help_text="Count of active, non-dismissed issues keyed by severity ('critical', 'warning', 'info').",
+        help_text="Count of issues in this group keyed by severity ('critical', 'warning', 'info').",
     )
     by_kind = serializers.DictField(
         child=serializers.IntegerField(),
-        help_text="Count of active, non-dismissed issues keyed by check kind (e.g. 'sdk_outdated').",
+        help_text="Count of issues in this group keyed by check kind (e.g. 'sdk_outdated').",
+    )
+
+
+class HealthIssueSummarySerializer(serializers.Serializer):
+    unsnoozed = HealthIssueCountsSerializer(
+        help_text="Counts for active, non-dismissed issues that are not currently snoozed."
+    )
+    snoozed = HealthIssueCountsSerializer(
+        help_text=(
+            "Counts for active, non-dismissed issues whose snooze has not expired yet. Reported separately "
+            "so callers can decide for themselves whether a snoozed issue is worth surfacing."
+        )
     )
 
 
@@ -196,6 +254,14 @@ VALID_STATUSES = {choice.value for choice in HealthIssue.Status}
 VALID_SEVERITIES = {choice.value for choice in HealthIssue.Severity}
 
 
+def _issue_counts(queryset: QuerySet) -> dict[str, Any]:
+    by_severity = {
+        row["severity"]: row["count"] for row in queryset.order_by().values("severity").annotate(count=Count("id"))
+    }
+    by_kind = {row["kind"]: row["count"] for row in queryset.order_by().values("kind").annotate(count=Count("id"))}
+    return {"total": sum(by_severity.values()), "by_severity": by_severity, "by_kind": by_kind}
+
+
 @extend_schema(extensions={"x-product": "health_issues"})
 @extend_schema_view(
     list=extend_schema(
@@ -255,7 +321,7 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
 
     http_method_names = ["get", "patch", "post", "head"]
 
-    WRITABLE_FIELDS = {"dismissed"}
+    WRITABLE_FIELDS = {"dismissed", "snoozed_until"}
 
     def partial_update(self, request: Request, **kwargs) -> Response:
         unknown_fields = set(request.data.keys()) - self.WRITABLE_FIELDS
@@ -306,30 +372,21 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
     @extend_schema(
         summary="Summarize active health issues",
         description=(
-            "Returns aggregated counts of active, non-dismissed health issues for the project, broken "
-            "down by severity and by kind. Use for a quick overview of overall project health before "
-            "drilling in with the list endpoint."
+            "Returns aggregated counts of active, non-dismissed health issues for the project, split into "
+            "`unsnoozed` and `snoozed` groups and broken down by severity and by kind within each. Use for "
+            "a quick overview of overall project health before drilling in with the list endpoint."
         ),
         responses={200: HealthIssueSummarySerializer},
     )
     @action(methods=["GET"], detail=False, required_scopes=["health_issue:read"])
     def summary(self, request: Request, **kwargs) -> Response:
         active_issues = self.get_queryset().filter(status=HealthIssue.Status.ACTIVE, dismissed=False)
-
-        by_severity = {
-            row["severity"]: row["count"]
-            for row in active_issues.order_by().values("severity").annotate(count=Count("id"))
-        }
-
-        by_kind = {
-            row["kind"]: row["count"] for row in active_issues.order_by().values("kind").annotate(count=Count("id"))
-        }
+        currently_snoozed = Q(snoozed_until__gt=timezone.now())
 
         return Response(
             {
-                "total": sum(by_severity.values()),
-                "by_severity": by_severity,
-                "by_kind": by_kind,
+                "unsnoozed": _issue_counts(active_issues.exclude(currently_snoozed)),
+                "snoozed": _issue_counts(active_issues.filter(currently_snoozed)),
             }
         )
 
