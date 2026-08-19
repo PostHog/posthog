@@ -8,6 +8,7 @@ import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { initKea } from '~/initKea'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { loadPostHogJS } from '~/loadPostHogJS'
+import { RootErrorBoundary } from '~/RootErrorBoundary'
 
 import { RenderQueryApp } from './RenderQueryApp'
 
@@ -26,14 +27,19 @@ function renderApp(): void {
     }
 
     createRoot(root).render(
-        <ErrorBoundary>
-            {/* Standalone root with no outer ChunkLoadErrorBoundary: mount one here so a
-                stale-deploy chunk failure reloads once instead of blanking the page (the
-                shared ErrorBoundary rethrows chunk-load errors for an outer boundary to catch). */}
-            <ChunkLoadErrorBoundary>
-                <RenderQueryApp />
-            </ChunkLoadErrorBoundary>
-        </ErrorBoundary>
+        // Terminal boundary stack mirroring the main app (index.tsx). ChunkLoadErrorBoundary
+        // auto-reloads once on a stale-deploy chunk failure; the shared ErrorBoundary shows its
+        // panel for normal errors and rethrows chunk errors. A chunk error that survives the
+        // reload guard (a second failure within the guard window) is rethrown by both inner
+        // boundaries, so RootErrorBoundary catches it here and offers a manual reload instead of
+        // leaving a blank frame.
+        <RootErrorBoundary>
+            <ErrorBoundary>
+                <ChunkLoadErrorBoundary>
+                    <RenderQueryApp />
+                </ChunkLoadErrorBoundary>
+            </ErrorBoundary>
+        </RootErrorBoundary>
     )
 }
 

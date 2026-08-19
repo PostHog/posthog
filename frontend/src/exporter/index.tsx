@@ -11,6 +11,7 @@ import { Exporter } from '~/exporter/Exporter'
 import { ExportType, ExportedData } from '~/exporter/types'
 import { initKea } from '~/initKea'
 import { loadPostHogJS } from '~/loadPostHogJS'
+import { RootErrorBoundary } from '~/RootErrorBoundary'
 
 import { ErrorBoundary } from '../layout/ErrorBoundary'
 
@@ -82,14 +83,19 @@ function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
         createRoot(root).render(
-            <ErrorBoundary>
-                {/* Standalone root with no outer ChunkLoadErrorBoundary: mount one here so a
-                    stale-deploy chunk failure reloads once instead of blanking the page (the
-                    shared ErrorBoundary rethrows chunk-load errors for an outer boundary to catch). */}
-                <ChunkLoadErrorBoundary>
-                    <Exporter {...exportedData} />
-                </ChunkLoadErrorBoundary>
-            </ErrorBoundary>
+            // Terminal boundary stack mirroring the main app (index.tsx). ChunkLoadErrorBoundary
+            // auto-reloads once on a stale-deploy chunk failure; the shared ErrorBoundary shows its
+            // panel for normal errors and rethrows chunk errors. A chunk error that survives the
+            // reload guard (a second failure within the guard window) is rethrown by both inner
+            // boundaries, so RootErrorBoundary catches it here and offers a manual reload instead of
+            // leaving a blank frame.
+            <RootErrorBoundary>
+                <ErrorBoundary>
+                    <ChunkLoadErrorBoundary>
+                        <Exporter {...exportedData} />
+                    </ChunkLoadErrorBoundary>
+                </ErrorBoundary>
+            </RootErrorBoundary>
         )
     } else {
         console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')

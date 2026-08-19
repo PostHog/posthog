@@ -4,6 +4,9 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 import { Component, type ReactNode } from 'react'
 
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
+
+import { RootErrorBoundary } from '~/RootErrorBoundary'
 import { initKeaTests } from '~/test/init'
 
 import { ErrorBoundary } from './ErrorBoundary'
@@ -37,6 +40,7 @@ describe('ErrorBoundary', () => {
 
     afterEach(() => {
         consoleErrorSpy.mockRestore()
+        window.localStorage.clear()
         cleanup()
     })
 
@@ -70,5 +74,29 @@ describe('ErrorBoundary', () => {
 
         expect(screen.getByText('An error has occurred')).toBeInTheDocument()
         expect(screen.queryByText(/parent caught/)).not.toBeInTheDocument()
+    })
+
+    it('recovers a chunk error surfacing after a recent reload via the terminal RootErrorBoundary', () => {
+        // Mirrors the standalone-root stack (exporter/index.tsx, render-query/index.tsx). A second
+        // chunk failure inside the 20s guard window makes ChunkLoadErrorBoundary surface (rethrow)
+        // the error, and the shared ErrorBoundary rethrows it too, so without a terminal boundary
+        // the tree would unmount and blank the frame. RootErrorBoundary must catch it instead.
+        window.localStorage.setItem('posthog-chunk-reload-at', String(Date.now()))
+        const chunkError = new TypeError('Failed to fetch dynamically imported module: /static/WebVitals.js')
+
+        render(
+            <Provider>
+                <RootErrorBoundary>
+                    <ErrorBoundary>
+                        <ChunkLoadErrorBoundary reload={jest.fn()}>
+                            <Throw error={chunkError} />
+                        </ChunkLoadErrorBoundary>
+                    </ErrorBoundary>
+                </RootErrorBoundary>
+            </Provider>
+        )
+
+        expect(screen.getByRole('alert')).toHaveTextContent('PostHog failed to load.')
+        expect(screen.queryByText('An error has occurred')).not.toBeInTheDocument()
     })
 })
