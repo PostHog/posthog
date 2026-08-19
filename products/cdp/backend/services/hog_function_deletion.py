@@ -14,12 +14,17 @@ from products.cdp.backend.models.hog_functions.utils import humanize_hog_functio
 def bulk_soft_delete_hog_functions(functions: Iterable[HogFunction], *, deleted: bool = True) -> int:
     """Soft-delete (or restore) hog functions and write one activity log entry per function.
 
-    Backend removal paths (data migrations, Celery tasks, management commands) must call this
-    instead of a queryset `update(deleted=True)`. A bare `update()` skips two things: the activity
-    log, so a customer's transformation or destination disappears with no record of who removed it;
-    and the `post_save` reload, so workers keep executing a deleted function until their cache
-    refreshes. This helper writes system-triggered audit rows (no request user) and reloads the
-    affected workers after the transaction commits.
+    Backend removal paths (Celery tasks, management commands) should call this instead of a
+    queryset `update(deleted=True)`. A bare `update()` skips two things: the activity log, so a
+    customer's transformation or destination disappears with no record of who removed it; and the
+    `post_save` reload, so workers keep executing a deleted function until their cache refreshes.
+    This helper writes system-triggered audit rows (no request user) and reloads the affected
+    workers after the transaction commits.
+
+    Not for data migrations: it binds current model classes and writes the current `ActivityLog`
+    schema, so a later column change would break the migration on a fresh install or rollback. In a
+    migration, resolve models with `apps.get_model("posthog", "HogFunction")` and soft-delete
+    directly.
 
     Returns the count of functions changed.
     """
