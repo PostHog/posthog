@@ -96,6 +96,8 @@ export function useTaskFeedResults(query: string | undefined): {
               status: request.status,
               originProduct: request.originProduct,
               archived: request.archived,
+              prState: request.prState,
+              ciStatus: request.ciStatus,
             }) as unknown as Promise<Task[]>,
         ),
       );

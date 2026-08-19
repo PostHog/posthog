@@ -77,9 +77,14 @@ export const PR_VALUES = [
 ] as const;
 export type PrValue = (typeof PR_VALUES)[number];
 
-/** PR states the task payload can answer today (a PR exists or it doesn't).
- * The rest need the indexed PR/CI state the backend doesn't persist yet. */
-const SUPPORTED_PR_VALUES: ReadonlySet<string> = new Set(["any", "none"]);
+/** PR states beyond presence, in the backend's snapshot vocabulary
+ * (`TaskRun.output.pr_state`, kept fresh by the PR webhook). */
+const PR_STATE_VALUES: ReadonlySet<string> = new Set([
+  "open",
+  "draft",
+  "merged",
+  "closed",
+]);
 
 export const CI_VALUES = [
   "red",
@@ -87,7 +92,15 @@ export const CI_VALUES = [
   "green",
   "passing",
   "pending",
+  "none",
 ] as const;
+
+/** Friendlier spellings onto the backend's snapshot vocabulary
+ * (`TaskRun.output.ci_status`, kept fresh by the CI follow-up loop). */
+const CI_ALIASES: Record<string, string> = {
+  red: "failing",
+  green: "passing",
+};
 
 export interface FeedQueryToken {
   /** The chunk as typed, for chips and error messages. */
@@ -185,14 +198,6 @@ function validateToken(token: FeedQueryToken, issues: FeedQueryIssue[]): void {
           kind: "unknown-value",
           message: `Unknown "pr:" value "${token.value}". Expected one of: ${PR_VALUES.join(", ")}`,
         });
-        return;
-      }
-      if (!SUPPORTED_PR_VALUES.has(value)) {
-        issues.push({
-          raw: token.raw,
-          kind: "unsupported",
-          message: `"pr:${value}" isn't available yet, so it is ignored for now`,
-        });
       }
       return;
     }
@@ -203,13 +208,7 @@ function validateToken(token: FeedQueryToken, issues: FeedQueryIssue[]): void {
           kind: "unknown-value",
           message: `Unknown "ci:" value "${token.value}". Expected one of: ${CI_VALUES.join(", ")}`,
         });
-        return;
       }
-      issues.push({
-        raw: token.raw,
-        kind: "unsupported",
-        message: `"ci:${value}" isn't available yet, so it is ignored for now`,
-      });
       return;
     }
     case "type": {
@@ -242,7 +241,8 @@ export interface FeedQuerySegment {
     negated: boolean;
     /** The parser flagged this token's value. */
     invalid: boolean;
-    /** Valid, but nothing can act on it yet (pr states, ci). */
+    /** Valid, but nothing can act on it yet. No key produces this today;
+     * kept so a future key can ship its syntax before its filter. */
     unsupported: boolean;
   };
 }
@@ -322,6 +322,10 @@ export interface FeedQueryServerParams {
   status?: TaskRunStatus;
   originProduct?: string;
   archived?: boolean;
+  /** PR state of the latest run's pull request (open/draft/merged/closed). */
+  prState?: string;
+  /** CI rollup on the latest run's pull request (passing/failing/pending/none). */
+  ciStatus?: string;
 }
 
 /** The structural slice of a task the client-side predicate reads. */
@@ -414,7 +418,10 @@ export function suggestFeedName(query: string): string {
   const spaces = positives("space").map((t) => t.value.replace(/^#/, ""));
   const prValue = positives("pr")
     .map((t) => normalize(t.value))
-    .find((v) => v === "any" || v === "none");
+    .find((v) => PR_VALUES.includes(v as PrValue));
+  const ciValue = positives("ci")
+    .map((t) => CI_ALIASES[normalize(t.value)] ?? normalize(t.value))
+    .find((v) => v === "failing" || v === "passing" || v === "pending");
 
   const head = [
     possessive,
@@ -425,9 +432,18 @@ export function suggestFeedName(query: string): string {
     .filter(Boolean)
     .join(" ");
   const places = [...spaces, ...repos];
+  const prPhrase =
+    prValue === "any"
+      ? "with a PR"
+      : prValue === "none"
+        ? "without a PR"
+        : prValue
+          ? `with ${/^[aeiou]/.test(prValue) ? "an" : "a"} ${prValue} PR`
+          : "";
   const tail = [
     places.length > 0 ? `in ${places.join(" or ")}` : "",
-    prValue === "any" ? "with a PR" : prValue === "none" ? "without a PR" : "",
+    prPhrase,
+    ciValue ? `with ${ciValue} CI` : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -705,17 +721,102 @@ export function planFeedQuery(
 
   const pr = groups.get("pr");
   if (pr) {
-    const hasPr = (task: FeedQueryTask) =>
-      typeof task.latest_run?.output?.pr_url === "string";
-    const addPrPredicate = (token: FeedQueryToken, positive: boolean) => {
-      const value = normalize(token.value);
-      if (!SUPPORTED_PR_VALUES.has(value)) return; // flagged as unsupported
-      // `pr:none` ≡ `-pr:any`; fold the four spellings into one boolean.
-      const mustHave = positive === (value === "any");
-      predicates.push((task) => hasPr(task) === mustHave);
+    // The state the API last observed for the run's PR. Runs merged before
+    // pr_state existed only carry the older pr_merged flag; honor both.
+    const prStateOf = (task: FeedQueryTask): string | undefined => {
+      const output = task.latest_run?.output;
+      const state = output?.pr_state;
+      if (typeof state === "string") return state;
+      return output?.pr_merged === true ? "merged" : undefined;
     };
-    for (const token of pr.positives) addPrPredicate(token, true);
-    for (const token of pr.negatives) addPrPredicate(token, false);
+    const hasPr = (task: FeedQueryTask) =>
+      typeof task.latest_run?.output?.pr_url === "string" ||
+      prStateOf(task) !== undefined;
+    const testFor = (value: string) =>
+      value === "any"
+        ? hasPr
+        : value === "none"
+          ? (task: FeedQueryTask) => !hasPr(task)
+          : (task: FeedQueryTask) => prStateOf(task) === value;
+
+    // Unknown values were flagged by the parser; filtering on them would
+    // silently match nothing, so they take no part in the plan.
+    const valid = (values: FeedQueryToken[]) => [
+      ...new Set(
+        values
+          .map((t) => normalize(t.value))
+          .filter((v) => PR_VALUES.includes(v as PrValue)),
+      ),
+    ];
+    const positives = valid(pr.positives);
+    const negatives = valid(pr.negatives);
+    const states = positives.filter((v) => PR_STATE_VALUES.has(v));
+
+    if (
+      negatives.length === 0 &&
+      positives.length === 1 &&
+      states.length === 1
+    ) {
+      server.prState = states[0];
+    } else {
+      // Presence (any/none) has no server spelling, so a group carrying it
+      // stays client-side; a pure state OR fans out like the other keys.
+      if (
+        negatives.length === 0 &&
+        states.length > 1 &&
+        states.length === positives.length
+      ) {
+        fanouts.push(states.map((prState) => ({ prState })));
+      }
+      if (positives.length > 0) {
+        const tests = positives.map(testFor);
+        predicates.push((task) => tests.some((test) => test(task)));
+      }
+      for (const value of negatives) {
+        const test = testFor(value);
+        predicates.push((task) => !test(task));
+      }
+    }
+  }
+
+  const ci = groups.get("ci");
+  if (ci) {
+    const ciStatusOf = (task: FeedQueryTask): string | undefined => {
+      const status = task.latest_run?.output?.ci_status;
+      return typeof status === "string" ? status : undefined;
+    };
+    const valid = (values: FeedQueryToken[]) => [
+      ...new Set(
+        values
+          .map((t) => normalize(t.value))
+          .filter((v) => CI_VALUES.includes(v as (typeof CI_VALUES)[number]))
+          .map((v) => CI_ALIASES[v] ?? v),
+      ),
+    ];
+    const positives = valid(ci.positives);
+    const negatives = valid(ci.negatives);
+
+    if (negatives.length === 0 && positives.length === 1) {
+      server.ciStatus = positives[0];
+    } else {
+      if (negatives.length === 0 && positives.length > 1) {
+        fanouts.push(positives.map((ciStatus) => ({ ciStatus })));
+      }
+      if (positives.length > 0) {
+        const wanted = new Set(positives);
+        predicates.push((task) => {
+          const status = ciStatusOf(task);
+          return status !== undefined && wanted.has(status);
+        });
+      }
+      if (negatives.length > 0) {
+        const excluded = new Set(negatives);
+        predicates.push((task) => {
+          const status = ciStatusOf(task);
+          return status === undefined || !excluded.has(status);
+        });
+      }
+    }
   }
 
   const matches =

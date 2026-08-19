@@ -1,11 +1,15 @@
 import {
   ArchiveIcon,
   AtIcon,
+  CheckCircleIcon,
   CircleHalfIcon,
+  GitMergeIcon,
   GitPullRequestIcon,
   HashIcon,
   PackageIcon,
+  PencilSimpleIcon,
   UserCircleIcon,
+  XIcon,
 } from "@phosphor-icons/react";
 import {
   type FeedQuerySegment,
@@ -92,13 +96,66 @@ const KEY_SUGGESTIONS: Suggestion[] = [
   {
     insert: "pr:",
     label: "pr:",
-    hint: "any, none",
+    hint: "any, none, open, draft, merged, closed",
     icon: keyIcon(<GitPullRequestIcon size={14} />),
+  },
+  {
+    insert: "ci:",
+    label: "ci:",
+    hint: "failing, passing, pending",
+    icon: keyIcon(<CheckCircleIcon size={14} />),
   },
 ];
 
 const IS_VALUES = ["archived", "running", "done", "failed"];
-const PR_SUGGESTED_VALUES = ["any", "none"];
+
+const PR_SUGGESTIONS: Suggestion[] = [
+  {
+    insert: "any",
+    label: "any",
+    hint: "has a pull request",
+    icon: keyIcon(<GitPullRequestIcon size={14} />),
+  },
+  {
+    insert: "none",
+    label: "none",
+    hint: "no pull request",
+    icon: keyIcon(<XIcon size={14} />),
+  },
+  {
+    insert: "open",
+    label: "open",
+    hint: "PR open for review",
+    icon: keyIcon(<GitPullRequestIcon size={14} />),
+  },
+  {
+    insert: "draft",
+    label: "draft",
+    hint: "PR still a draft",
+    icon: keyIcon(<PencilSimpleIcon size={14} />),
+  },
+  {
+    insert: "merged",
+    label: "merged",
+    hint: "PR merged",
+    icon: keyIcon(<GitMergeIcon size={14} />),
+  },
+  {
+    insert: "closed",
+    label: "closed",
+    hint: "PR closed without merging",
+    icon: keyIcon(<XIcon size={14} />),
+  },
+];
+
+/** Canonical first; the red/green spellings parse but aren't offered. */
+const CI_SUGGESTED_VALUES = ["failing", "passing", "pending"];
+
+const CI_DOT_TONE: Record<string, string> = {
+  failing: DOT_TONE_VAR.red,
+  passing: DOT_TONE_VAR.green,
+  pending: DOT_TONE_VAR.yellow,
+};
 
 const STATUS_DOT_TONE: Record<string, string> = {
   failed: DOT_TONE_VAR.red,
@@ -418,11 +475,22 @@ export function FeedQueryInput({
       case "pr":
         return {
           heading: "Pull request",
-          items: PR_SUGGESTED_VALUES.filter(startsWith).map((v) => ({
+          items: PR_SUGGESTIONS.filter((s) => startsWith(s.label)),
+        };
+      case "ci":
+        return {
+          heading: "CI checks",
+          items: CI_SUGGESTED_VALUES.filter(startsWith).map((v) => ({
             insert: v,
             label: v,
-            hint: v === "any" ? "has a pull request" : "no pull request",
-            icon: keyIcon(<GitPullRequestIcon size={14} />),
+            icon: (
+              <span className="flex size-4 items-center justify-center">
+                <span
+                  className="size-2 rounded-full"
+                  style={{ backgroundColor: CI_DOT_TONE[v] }}
+                />
+              </span>
+            ),
           })),
         };
       default:

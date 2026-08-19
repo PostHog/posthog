@@ -246,6 +246,10 @@ export interface TaskListOptions {
   search?: string;
   /** Filter by the status of the task's most recent run. */
   status?: string;
+  /** Filter by the state of the latest run's pull request (open/draft/merged/closed). */
+  prState?: string;
+  /** Filter by the CI rollup on the latest run's pull request (passing/failing/pending/none). */
+  ciStatus?: string;
   /** List only archived tasks; the server excludes them by default. */
   archived?: boolean;
   /** Caller-side cap for surfaces that only show the newest few. */
@@ -2368,6 +2372,14 @@ export class PostHogAPIClient {
 
     if (options?.status) {
       params.status = options.status;
+    }
+
+    if (options?.prState) {
+      params.pr_state = options.prState;
+    }
+
+    if (options?.ciStatus) {
+      params.ci_status = options.ciStatus;
     }
 
     if (options?.archived) {

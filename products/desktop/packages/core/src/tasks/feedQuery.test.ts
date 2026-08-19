@@ -107,8 +107,6 @@ describe("feedQuery", () => {
       ["pr:sideways", "unknown-value"],
       ["ci:sideways", "unknown-value"],
       ["type:canvas", "unknown-value"],
-      ["pr:merged", "unsupported"],
-      ["ci:red", "unsupported"],
     ])("flags %s as %s", (query, kind) => {
       const parsed = parseFeedQuery(query);
       expect(parsed.issues).toHaveLength(1);
@@ -148,12 +146,12 @@ describe("feedQuery", () => {
       });
     });
 
-    it("flags invalid and unsupported values for the highlighter", () => {
+    it("flags invalid values for the highlighter", () => {
       const segments = lexFeedQuery("status:sideways ci:red");
       expect(segments[0].token).toMatchObject({ invalid: true });
       expect(segments[2].token).toMatchObject({
         invalid: false,
-        unsupported: true,
+        unsupported: false,
       });
     });
   });
@@ -283,13 +281,80 @@ describe("feedQuery", () => {
       expect(plan.matches(task())).toBe(withoutPr);
     });
 
-    it("ignores unsupported pr/ci values instead of matching nothing", () => {
+    it("compiles pr states and ci status into server params", () => {
       const plan = planFeedQuery(parseFeedQuery("pr:merged ci:red"), context);
-      expect(plan.matches(task())).toBe(true);
-      expect(plan.issues.map((i) => i.kind)).toEqual([
-        "unsupported",
-        "unsupported",
+      expect(plan.requests).toEqual([
+        { prState: "merged", ciStatus: "failing" },
       ]);
+      expect(plan.issues).toEqual([]);
+    });
+
+    it("fans repeated pr states out into one request per state", () => {
+      const plan = planFeedQuery(parseFeedQuery("pr:open pr:draft"), context);
+      expect(plan.requests).toEqual([
+        { prState: "open" },
+        { prState: "draft" },
+      ]);
+      const openTask = task({
+        latest_run: {
+          status: "completed",
+          output: { pr_url: "https://github.com/x/y/pull/1", pr_state: "open" },
+        },
+      });
+      expect(plan.matches(openTask)).toBe(true);
+      expect(plan.matches(task())).toBe(false);
+    });
+
+    it("matches pr:merged on the legacy pr_merged flag client-side", () => {
+      // Two values force the client predicate; a legacy run carries only
+      // pr_merged, and must still count as merged.
+      const plan = planFeedQuery(
+        parseFeedQuery("pr:merged pr:closed"),
+        context,
+      );
+      const legacyMerged = task({
+        latest_run: {
+          status: "completed",
+          output: { pr_url: "https://github.com/x/y/pull/1", pr_merged: true },
+        },
+      });
+      expect(plan.matches(legacyMerged)).toBe(true);
+      expect(plan.matches(task())).toBe(false);
+    });
+
+    it("keeps pr presence values client-side", () => {
+      const plan = planFeedQuery(parseFeedQuery("pr:any pr:merged"), context);
+      expect(plan.requests).toEqual([{}]);
+      const prTask = task({
+        latest_run: {
+          status: "completed",
+          output: { pr_url: "https://github.com/x/y/pull/1" },
+        },
+      });
+      expect(plan.matches(prTask)).toBe(true);
+      expect(plan.matches(task())).toBe(false);
+    });
+
+    it("filters ci status client-side when negated", () => {
+      const plan = planFeedQuery(parseFeedQuery("-ci:red"), context);
+      expect(plan.requests).toEqual([{}]);
+      const failing = task({
+        latest_run: {
+          status: "completed",
+          output: {
+            pr_url: "https://github.com/x/y/pull/1",
+            ci_status: "failing",
+          },
+        },
+      });
+      expect(plan.matches(failing)).toBe(false);
+      expect(plan.matches(task())).toBe(true);
+    });
+
+    it("takes no predicate from an unknown pr value", () => {
+      const plan = planFeedQuery(parseFeedQuery("pr:sideways"), context);
+      expect(plan.matches(task())).toBe(true);
+      expect(plan.issues.map((i) => i.kind)).toEqual(["unknown-value"]);
     });
 
     it("reports an unresolved teammate and matches nothing", () => {

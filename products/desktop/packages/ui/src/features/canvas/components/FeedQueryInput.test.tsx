@@ -118,12 +118,13 @@ describe("FeedQueryHighlight", () => {
     expect(container.querySelector(".decoration-wavy")).toBeTruthy();
   });
 
-  it("marks not-yet-supported values with the dotted underline", () => {
+  it("renders a now-supported ci value without warning marks", () => {
     const { container } = render(
       <Theme>
         <FeedQueryHighlight query="ci:red" />
       </Theme>,
     );
-    expect(container.querySelector(".decoration-dotted")).toBeTruthy();
+    expect(container.querySelector(".decoration-dotted")).toBeNull();
+    expect(container.querySelector(".decoration-wavy")).toBeNull();
   });
 });
