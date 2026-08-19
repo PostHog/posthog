@@ -24,8 +24,11 @@ Requires `gh` CLI authenticated and ANTHROPIC_API_KEY in env.
 import os
 import json
 import time
+import uuid
 import argparse
+import tempfile
 import subprocess
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -141,6 +144,10 @@ _NON_RETRYABLE_PATTERNS = (
 )
 
 
+class WorktreeUnavailableError(RuntimeError):
+    """The PR head tree required for a stacked review could not be created."""
+
+
 def _is_retryable_error(err_msg: str) -> bool:
     """Return True if the error looks like an infrastructure/transient issue
     that is worth retrying (API timeouts, rate limits, overload).
@@ -193,7 +200,14 @@ class Pipeline:
     """Orchestrates the full PR review: fetch → classify → gates → LLM review."""
 
     def __init__(
-        self, pr_number: int, repo: str, *, dry_run: bool = False, verbose: bool = False, self_driving: bool = False
+        self,
+        pr_number: int,
+        repo: str,
+        *,
+        dry_run: bool = False,
+        verbose: bool = False,
+        self_driving: bool = False,
+        head_checkout: bool = False,
     ):
         self.pr_number = pr_number
         self.repo = repo
@@ -203,6 +217,10 @@ class Pipeline:
         # implementation run. It relaxes two gates (bot author, draft) and swaps author trust for
         # task provenance.
         self.self_driving = self_driving
+        # True when REPO_ROOT already holds the PR head (the hosted sandbox clones and checks out
+        # the head for every review). The Action reviews from a trunk checkout, so a stacked PR
+        # needs a separate head worktree there — see _pr_head_worktree.
+        self.head_checkout = head_checkout
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.provenance: CommitProvenance | None = None
@@ -552,9 +570,7 @@ class Pipeline:
         cleanup so the file never lingers in the repo working tree.
         """
         if self._diff_path is None:
-            self._diff_path = write_pr_diff(
-                self.pr.base_sha, self.pr.head_sha, REPO_ROOT / ".pr-review-diff.patch", REPO_ROOT
-            )
+            self._diff_path = write_pr_diff(self.pr.base_sha, self.pr.head_sha, REPO_ROOT)
         return self._diff_path
 
     def _run_gates(self) -> None:
@@ -695,9 +711,161 @@ class Pipeline:
             return True, f"T0 auto-approve: {summary}"
         return True, summary
 
+    @staticmethod
+    def _tracked_symlinks(rev: str) -> dict[str, str]:
+        """Symlinks tracked at ``rev`` as path -> blob; the same blob means the same target."""
+        try:
+            listing = subprocess.run(
+                ["git", "ls-tree", "-r", "--full-tree", rev],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=REPO_ROOT,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise WorktreeUnavailableError(f"symlink check timed out for {rev}") from exc
+        if listing.returncode != 0:
+            raise WorktreeUnavailableError(f"symlink check failed for {rev}: {listing.stderr.strip()}")
+        links: dict[str, str] = {}
+        for line in listing.stdout.splitlines():
+            if not line.startswith("120000 "):
+                continue
+            meta, path = line.split("\t", 1)
+            links[path] = meta.split()[2]
+        return links
+
+    @contextmanager
+    def _pr_head_worktree(self):
+        """Yield a detached worktree at the PR head, or None when none is needed.
+
+        Only stacked PRs reviewed from a trunk checkout need this: their head
+        contains code from parent PRs that aren't on the base branch yet, so
+        without materializing the head tree those parents' symbols look like
+        broken imports and the reviewer false-refuses. A non-stacked PR reviews
+        from the trunk checkout exactly as before, and a runtime whose checkout
+        already IS the head (hosted sandbox, head_checkout=True) needs nothing
+        extra — both yield None and skip the full-tree checkout. In the Action
+        the main checkout stays master (the workflow hardcodes that so a PR
+        can't swap the review script), so the worktree is the only place the
+        head tree is materialized. Cleaned up on exit; stacked PRs fail closed
+        if creation fails rather than reviewing against the wrong source tree.
+
+        SECURITY: the worktree is PR-authored content; isolation from it as
+        *configuration* is enforced by setting_sources=[] in Reviewer.
+        """
+        if self.head_checkout or not self.pr.stacked:
+            yield None
+            return
+
+        worktree_dir = Path(tempfile.gettempdir()) / f"pr-review-{self.pr_number}-{uuid.uuid4().hex[:8]}"
+        # A symlink in the head tree can point outside the worktree, and the agent's Read follows
+        # it — so only symlinks the trunk already carries (same path, same target) are trusted; a
+        # stacked PR's base is PR-authored too, so the baseline is the default branch, not the base.
+        trusted_links = self._tracked_symlinks(f"origin/{self.pr.default_branch}")
+        added_links = sorted(
+            path for path, blob in self._tracked_symlinks(self.pr.head_sha).items() if trusted_links.get(path) != blob
+        )
+        if added_links:
+            raise WorktreeUnavailableError(f"PR head adds symbolic links: {', '.join(added_links)}")
+
+        try:
+            result = subprocess.run(
+                ["git", "worktree", "add", "--detach", str(worktree_dir), self.pr.head_sha],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=REPO_ROOT,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise WorktreeUnavailableError("worktree creation timed out") from exc
+        if result.returncode != 0:
+            raise WorktreeUnavailableError(f"worktree creation failed: {result.stderr.strip()}")
+
+        print(_dim(f"  Exploring PR head in worktree: {worktree_dir}"))
+
+        try:
+            yield worktree_dir
+        finally:
+            try:
+                cleanup = subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(worktree_dir)],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    cwd=REPO_ROOT,
+                )
+                if cleanup.returncode != 0:
+                    print(_warn(f"Worktree cleanup failed (ignored): {cleanup.stderr.strip()}"))
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                print(_warn(f"Worktree cleanup failed (ignored): {exc}"))
+
+    def _run_reviewer_with_retries(self, reviewer: Reviewer, gate_context: dict, diff_path: Path) -> bool:
+        """Call the reviewer with backoff; set self.reviewer_output.
+
+        Returns True when the reviewer never produced a verdict (an ERROR
+        stand-in was synthesized instead) so the caller retains the label.
+        Retryable failures (LLM backend) back off; non-retryable ones (e.g.
+        turn-limit) fail immediately with a distinct message.
+        """
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.reviewer_output = reviewer.review(
+                    self.pr,
+                    self.classification,
+                    gate_context,
+                    diff_path=diff_path,
+                )
+                return False
+            except Exception as e:
+                err_str = str(e)
+                is_retryable = _is_retryable_error(err_str)
+
+                if is_retryable and attempt < max_retries - 1:
+                    wait = 2 ** (attempt + 1)
+                    print(_warn(f"Reviewer failed (attempt {attempt + 1}/{max_retries}): {e}"))
+                    print(_dim(f"  Retrying in {wait}s..."))
+                    time.sleep(wait)
+                    continue
+
+                if is_retryable:
+                    print(_fail(f"Reviewer failed after {max_retries} attempts: {e}"))
+                    print(
+                        _warn(
+                            "  This is an LLM backend failure (credentials, credit, or outage), "
+                            "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
+                            "secret (or local ANTHROPIC_API_KEY)."
+                        )
+                    )
+                    self.reviewer_output = {
+                        "verdict": "ERROR",
+                        "reasoning": (
+                            "The review agent couldn't reach its LLM backend — an infrastructure "
+                            "or credentials issue, not a problem with this PR. The `stamphog` label "
+                            "has been kept; the review retries automatically on the next push, or "
+                            "re-apply the label once the backend recovers."
+                        ),
+                        "risk": "unknown",
+                        "issues": [err_str],
+                    }
+                else:
+                    print(_fail(f"Reviewer hit a non-retryable error: {e}"))
+                    self.reviewer_output = {
+                        "verdict": "ERROR",
+                        "reasoning": (
+                            "The review agent could not complete its analysis for this PR "
+                            "(likely too complex for the allocated turn budget). "
+                            "The `stamphog` label has been kept; a human review is needed."
+                        ),
+                        "risk": "unknown",
+                        "issues": [err_str],
+                    }
+                return True
+
+        raise AssertionError("review retry loop exhausted without a verdict")
+
     def _llm_review(self, gate_verdict: str) -> None:
         print(f"\n{_bold('LLM Review')}")
-        reviewer = Reviewer(REPO_ROOT, verbose=self.verbose)
         # Outside the retry loop: a diff-write hiccup must not masquerade as a
         # retryable reviewer failure and burn the backoff budget.
         diff_path = self._ensure_diff_path()
@@ -708,61 +876,21 @@ class Pipeline:
         }
 
         print(_dim("  Calling reviewer..."))
-        max_retries = 3
-        reviewer_unavailable = False
-        for attempt in range(max_retries):
-            try:
-                self.reviewer_output = reviewer.review(
-                    self.pr,
-                    self.classification,
-                    gate_context,
-                    diff_path=diff_path,
-                )
-                break
-            except Exception as e:
-                err_str = str(e)
-                is_retryable = _is_retryable_error(err_str)
-
-                if is_retryable and attempt < max_retries - 1:
-                    wait = 2 ** (attempt + 1)
-                    print(_warn(f"Reviewer failed (attempt {attempt + 1}/{max_retries}): {e}"))
-                    print(_dim(f"  Retrying in {wait}s..."))
-                    time.sleep(wait)
-                else:
-                    reviewer_unavailable = True
-                    if is_retryable:
-                        print(_fail(f"Reviewer failed after {max_retries} attempts: {e}"))
-                        print(
-                            _warn(
-                                "  This is an LLM backend failure (credentials, credit, or outage), "
-                                "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
-                                "secret (or local ANTHROPIC_API_KEY)."
-                            )
-                        )
-                        self.reviewer_output = {
-                            "verdict": "ERROR",
-                            "reasoning": (
-                                "The review agent couldn't reach its LLM backend — an infrastructure "
-                                "or credentials issue, not a problem with this PR. The `stamphog` label "
-                                "has been kept; the review retries automatically on the next push, or "
-                                "re-apply the label once the backend recovers."
-                            ),
-                            "risk": "unknown",
-                            "issues": [err_str],
-                        }
-                    else:
-                        print(_fail(f"Reviewer hit a non-retryable error: {e}"))
-                        self.reviewer_output = {
-                            "verdict": "ERROR",
-                            "reasoning": (
-                                "The review agent could not complete its analysis for this PR "
-                                "(likely too complex for the allocated turn budget). "
-                                "The `stamphog` label has been kept; a human review is needed."
-                            ),
-                            "risk": "unknown",
-                            "issues": [err_str],
-                        }
-                    break
+        try:
+            with self._pr_head_worktree() as explore_root:
+                reviewer = Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+                reviewer_unavailable = self._run_reviewer_with_retries(reviewer, gate_context, diff_path)
+        except WorktreeUnavailableError as exc:
+            reviewer_unavailable = True
+            self.reviewer_output = {
+                "verdict": "ERROR",
+                "reasoning": (
+                    "The review agent could not create the isolated worktree required to review this stacked PR. "
+                    "The `stamphog` label has been kept; retry after the checkout issue is resolved."
+                ),
+                "risk": "unknown",
+                "issues": [str(exc)],
+            }
 
         llm_verdict = self.reviewer_output.get("verdict", "UNKNOWN")
         print(f"  Verdict: {llm_verdict}")
@@ -913,6 +1041,7 @@ class Pipeline:
             "repo": self.pr.repo,
             "title": self.pr.title,
             "author": self.pr.author,
+            "base_sha": self.pr.base_sha,
             "head_sha": self.pr.head_sha,
             "classification": {
                 # .get() not [] — the bot-author REFUSE returns before _classify(),

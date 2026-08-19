@@ -16,6 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleAdsSourceConfig,
 )
 
+# Declared as the source's `history_lookback`. Not an API limit — Google serves older rows, so
+# this costs first-sync catch-up time rather than correctness.
+GOOGLE_ADS_INITIAL_BACKFILL_DAYS = 2 * 365
+
 
 @dataclasses.dataclass
 class GoogleAdsResumeConfig:
