@@ -48,9 +48,9 @@ export const SpanEvent = (): JSX.Element => {
                             </td>
                             <td>
                                 <p>
-                                    <em>(Optional)</em> Groups related traces together. Use this to organize traces by
-                                    whatever grouping makes sense for your application (user sessions, workflows,
-                                    conversations, or other logical boundaries).
+                                    <em>(Optional)</em> Groups related traces into a session, which is what the Sessions
+                                    tab reads. Set it if your product has multi-turn conversations. A workload that
+                                    finishes in a single trace does not need it.
                                     <br />
                                     Example: <code>session-abc-123</code>, <code>conv-user-456</code>
                                 </p>

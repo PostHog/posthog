@@ -29,6 +29,11 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             If you use a different server-side SDK, or prefer to use the API, capture the data
                             manually. Call the \`capture\` method, or use the [capture
                             API](https://posthog.com/docs/api/capture).
+
+                            \`$ai_trace_id\` groups the events of one LLM interaction into a trace.
+                            \`$ai_session_id\` is optional and groups related traces into a session, which is what the
+                            Sessions tab reads. Set it if your product has multi-turn conversations. Workloads that
+                            finish in a single trace, like batch jobs or one-shot generation, do not need it.
                         `}
                     </Markdown>
 
@@ -69,6 +74,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             event: '$ai_generation',
                                                             properties: {
                                                                 $ai_trace_id: 'trace_id_here',
+                                                                $ai_session_id: 'conversation-abc', // optional: groups traces into one session
                                                                 $ai_model: 'gpt-5-mini',
                                                                 $ai_provider: 'openai',
                                                                 $ai_input: [{ role: 'user', content: 'Tell me a fun fact about hedgehogs' }],
@@ -113,6 +119,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             event='$ai_generation',
                                                             properties={
                                                                 '$ai_trace_id': 'trace_id_here',
+                                                                '$ai_session_id': 'conversation-abc',  # optional: groups traces into one session
                                                                 '$ai_model': 'gpt-5-mini',
                                                                 '$ai_provider': 'openai',
                                                                 '$ai_input': [{'role': 'user', 'content': 'Tell me a fun fact about hedgehogs'}],
@@ -161,6 +168,8 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             Event:      "$ai_generation",
                                                             Properties: map[string]interface{}{
                                                                 "$ai_trace_id":        "trace_id_here",
+                                                                // $ai_session_id is optional: it groups traces into one session
+                                                                "$ai_session_id":      "conversation-abc",
                                                                 "$ai_model":           "gpt-5-mini",
                                                                 "$ai_provider":        "openai",
                                                                 "$ai_input_tokens":    10,
@@ -204,6 +213,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             event: '$ai_generation',
                                                             properties: {
                                                             '$ai_trace_id' => 'trace_id_here',
+                                                            '$ai_session_id' => 'conversation-abc', # optional: groups traces into one session
                                                             '$ai_model' => 'gpt-5-mini',
                                                             '$ai_provider' => 'openai',
                                                             '$ai_input_tokens' => 10,
@@ -251,6 +261,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                             'event' => '$ai_generation',
                                                             'properties' => [
                                                                 '$ai_trace_id' => 'trace_id_here',
+                                                                '$ai_session_id' => 'conversation-abc', // optional: groups traces into one session
                                                                 '$ai_model' => 'gpt-5-mini',
                                                                 '$ai_provider' => 'openai',
                                                                 '$ai_input_tokens' => 10,
@@ -280,6 +291,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                                     "properties": {
                                                                         "distinct_id": "user_123",
                                                                         "$ai_trace_id": "trace_id_here",
+                                                                        "$ai_session_id": "conversation-abc",
                                                                         "$ai_model": "gpt-5-mini",
                                                                         "$ai_provider": "openai",
                                                                         "$ai_input": [{"role": "user", "content": "Tell me a fun fact about hedgehogs"}],
