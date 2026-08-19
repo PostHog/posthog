@@ -18,8 +18,6 @@ export function MultiSelectFilterDropdown<T extends string = string>(props: {
     }, [props.options, searchTerm])
 
     return (
-        // The popover sets its maximum height from the space on the screen. This container fills
-        // that height, and does not set a second, taller limit.
         <div className="w-96 flex flex-col min-h-0 overflow-hidden max-h-full">
             <div className="p-2 border-b space-y-2">
                 <div className="flex justify-between items-center">
