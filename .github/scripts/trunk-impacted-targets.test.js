@@ -1516,7 +1516,6 @@ test('cross-domain tools are tripwires rather than backend-only', () => {
         computeTargets(['frontend/src/products.json'], CONTEXT)
     )
     assert.deepEqual(computeTargets(['packages/owners/posthog_owners/__init__.py'], CONTEXT), EVERYTHING)
-    assert.deepEqual(computeTargets(['tools/owners/posthog_owners/__init__.py'], CONTEXT), EVERYTHING)
 })
 
 // Prose overlaps only other prose, and has to reach that lane through the

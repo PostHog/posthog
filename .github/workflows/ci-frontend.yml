@@ -930,9 +930,8 @@ jobs:
               run: |
                   available=false
                   # The owners resolver is a path dep of the reporter, so a base ref predating it
-                  # can't resolve its deps. The tools/owners fallback covers base refs from before
-                  # the move to packages/owners; drop it once open PRs have rebased.
-                  if [[ -f .github/scripts/report_test_timings.py && ( -d packages/owners || -d tools/owners ) ]] && grep -q -- '"jest"' .github/scripts/report_test_timings.py; then
+                  # can't resolve its deps.
+                  if [[ -f .github/scripts/report_test_timings.py && -d packages/owners ]] && grep -q -- '"jest"' .github/scripts/report_test_timings.py; then
                     available=true
                   fi
                   if [[ "$GITHUB_RUN_ATTEMPT" != "1" ]] && ! grep -q "def partition_run_attempt" .github/scripts/report_test_timings.py 2>/dev/null; then

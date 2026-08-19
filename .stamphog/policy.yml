@@ -125,7 +125,6 @@ deny:
                 - 'tools/pr-approval-agent/'
                 - 'products/stamphog/backend/logic/policy_defaults/'
                 - 'packages/owners/'
-                - 'tools/owners/'
                 - 'CODEOWNERS'
                 - 'owners\.yaml'
                 - 'product\.yaml'

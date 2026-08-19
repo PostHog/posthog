@@ -36,15 +36,8 @@ jobs:
                   python-version-file: pyproject.toml
 
             # defusedxml + opentelemetry + the owners resolver are report_test_timings.py's script deps.
-            # The tools/owners fallback covers unrebased branches; drop it once open PRs have
-            # rebased past the move to packages/owners.
             - name: Install pytest
-              run: |
-                  owners_dir=packages/owners
-                  if [ ! -d "$owners_dir" ]; then
-                      owners_dir=tools/owners
-                  fi
-                  python -m pip install --quiet pytest defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 "./$owners_dir"
+              run: python -m pip install --quiet pytest defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./packages/owners
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
             # pytest-django, which we don't install here). `--noconftest` skips the

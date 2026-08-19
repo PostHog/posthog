@@ -206,9 +206,6 @@ jobs:
                         # Deliberately not in `legacy` — a leaf-package change should run its
                         # dependents, not the whole Django suite.
                         - 'packages/owners/**'
-                        # Transitional: unrebased branches still have the resolver at
-                        # tools/owners. Drop once open PRs have rebased.
-                        - 'tools/owners/**'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -328,9 +325,6 @@ jobs:
                         - '**/owners.yaml'
                         # Resolver changes must re-run the owners.yaml lint too.
                         - 'packages/owners/**'
-                        # Transitional: unrebased branches still have the resolver at
-                        # tools/owners. Drop once open PRs have rebased.
-                        - 'tools/owners/**'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -3910,10 +3904,9 @@ jobs:
               shell: bash
               run: |
                   # The owners resolver is a path dep of the reporter, so a base ref predating it
-                  # can't resolve its deps. The tools/owners fallback covers base refs from before
-                  # the move to packages/owners; drop it once open PRs have rebased.
+                  # can't resolve its deps.
                   available=false
-                  if [[ -f .github/scripts/report_test_timings.py && ( -d packages/owners || -d tools/owners ) ]]; then
+                  if [[ -f .github/scripts/report_test_timings.py && -d packages/owners ]]; then
                     available=true
                   fi
                   # A re-run may emit only through an attempt-aware reporter: an older script would
