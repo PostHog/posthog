@@ -544,9 +544,38 @@ class TestTableDiscovery:
         with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
             assert get_tables(credentials()) == [AUTH_USERS_TABLE]
 
-    def test_other_firestore_errors_propagate(self) -> None:
+    def test_datastore_mode_database_does_not_hide_the_other_tables(self) -> None:
         session = FakeSession(
-            request_responses=[FakeResponse(status_code=500, payload={"error": {"status": "INTERNAL"}})],
+            request_responses=[
+                FakeResponse(
+                    status_code=400,
+                    payload={
+                        "error": {
+                            "code": 400,
+                            "status": "FAILED_PRECONDITION",
+                            "message": "The Cloud Firestore API is not available for Firestore in Datastore Mode database.",
+                        }
+                    },
+                )
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
+            assert get_tables(credentials()) == [AUTH_USERS_TABLE]
+
+    @pytest.mark.parametrize(
+        "status,payload",
+        [
+            (500, {"error": {"status": "INTERNAL"}}),
+            # A 400 for any other reason is a real, actionable failure and must not be conflated
+            # with the Datastore-mode case above just because the status code matches.
+            (400, {"error": {"status": "INVALID_ARGUMENT", "message": "Invalid pageToken."}}),
+        ],
+    )
+    def test_other_firestore_errors_propagate(self, status: int, payload: dict[str, Any]) -> None:
+        session = FakeSession(
+            request_responses=[FakeResponse(status_code=status, payload=payload)],
             post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
         )
 
