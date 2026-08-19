@@ -1,6 +1,5 @@
 import json
 import hashlib
-from dataclasses import dataclass
 from uuid import UUID
 
 from django.conf import settings
@@ -9,13 +8,19 @@ from django.utils import timezone
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.scoping import with_team_scope
 
 from products.canvas.backend import report_canvas as canvas_api
 from products.signals.backend.artefact_schemas import ArtefactContentValidationError, parse_artefact_content
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCanvas
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCanvas,
+    SignalReportCanvasGeneration,
+)
 from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
@@ -28,19 +33,22 @@ from products.signals.backend.sandbox import (
 from products.tasks.backend.facade import api as tasks_facade
 
 REPORT_CANVAS_FEATURE_FLAG = "signals-report-canvases"
+REPORT_CANVAS_PUBLISH_FEATURE_FLAG = "signals-report-canvases-publish"
 REPORT_CANVAS_CHANNEL_NAME = "general"
+REPORT_CANVAS_PROMPT_VERSION = "2026-08-17"
 _MAX_CONTEXT_ARTEFACTS = 16
 _MAX_CONTEXT_SIGNALS = 8
 _MAX_CONTEXT_STRING_LENGTH = 4_000
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
 class ReportCanvasGeneration:
     canvas_id: UUID
     discussion_task_id: UUID
     generation_task_id: UUID | None
     generation_run_id: UUID | None
     fingerprint: str
+    generation_id: UUID | None = None
     skipped: bool = False
 
 
@@ -59,6 +67,24 @@ def report_canvases_enabled(team: Team) -> bool:
         return bool(
             posthoganalytics.feature_enabled(
                 REPORT_CANVAS_FEATURE_FLAG,
+                str(team.organization_id),
+                groups={"organization": str(team.organization_id)},
+                group_properties={"organization": {"id": str(team.organization_id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
+
+
+def report_canvas_publishing_enabled(team: Team) -> bool:
+    if settings.DEBUG:
+        return True
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                REPORT_CANVAS_PUBLISH_FEATURE_FLAG,
                 str(team.organization_id),
                 groups={"organization": str(team.organization_id)},
                 group_properties={"organization": {"id": str(team.organization_id)}},
@@ -135,13 +161,13 @@ def _generation_prompt(
     report: SignalReport,
     canvas_id: UUID,
     *,
-    collaborative: bool,
+    draft: bool,
     signals: list[dict],
     pr_url: str | None,
 ) -> str:
     save_instruction = (
         "Stage the complete result as a draft. Do not publish or replace the live head."
-        if collaborative
+        if draft
         else "Publish the complete result as the live canvas."
     )
     context = {
@@ -243,6 +269,7 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
                 discussion_task_id=session.discussion_task_id,
                 generation_task_id=session.generation_task_id,
                 generation_run_id=None,
+                generation_id=None,
                 fingerprint=fingerprint,
                 skipped=True,
             )
@@ -254,11 +281,18 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
             latest_run = tasks_facade.get_latest_run_by_task([session.generation_task_id]).get(
                 str(session.generation_task_id)
             )
+            attempt = (
+                SignalReportCanvasGeneration.objects.for_team(team_id)
+                .filter(generation_task_id=session.generation_task_id)
+                .order_by("-created_at")
+                .first()
+            )
             return ReportCanvasGeneration(
                 canvas_id=session.canvas_id,
                 discussion_task_id=session.discussion_task_id,
                 generation_task_id=session.generation_task_id,
                 generation_run_id=latest_run.id if latest_run else None,
+                generation_id=attempt.id if attempt else None,
                 fingerprint=fingerprint,
             )
         session.generation_status = SignalReportCanvas.GenerationStatus.GENERATING
@@ -279,7 +313,10 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
         prompt = _generation_prompt(
             report,
             session.canvas_id,
-            collaborative=session.collaboration_mode == SignalReportCanvas.CollaborationMode.COLLABORATIVE,
+            draft=(
+                session.collaboration_mode == SignalReportCanvas.CollaborationMode.COLLABORATIVE
+                or not report_canvas_publishing_enabled(team)
+            ),
             signals=signals,
             pr_url=pr_url,
         )
@@ -304,12 +341,24 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
         canvas_api.set_generation_task(team_id=team_id, canvas_id=session.canvas_id, task_id=generation.task_id)
         session.generation_task_id = generation.task_id
         session.save(update_fields=["generation_task_id", "updated_at"])
+        attempt = SignalReportCanvasGeneration.objects.create(
+            team_id=team_id,
+            report=report,
+            status=SignalReportCanvasGeneration.Status.GENERATING,
+            trigger=f"report_{report.status}",
+            prompt_version=REPORT_CANVAS_PROMPT_VERSION,
+            input_fingerprint=fingerprint,
+            generation_task_id=generation.task_id,
+            generation_run_id=generation.latest_run.id,
+            started_at=timezone.now(),
+        )
 
     return ReportCanvasGeneration(
         canvas_id=session.canvas_id,
         discussion_task_id=session.discussion_task_id,
         generation_task_id=generation.task_id,
         generation_run_id=generation.latest_run.id,
+        generation_id=attempt.id,
         fingerprint=fingerprint,
     )
 
@@ -335,6 +384,21 @@ def finalize_report_canvas_generation(
             return None
 
     succeeded = canvas_state.status == "ready"
+    source = None
+    source_failure = False
+    if succeeded and canvas_state.source_version_id is not None:
+        try:
+            source = canvas_api.canvas_generation_source(
+                team_id=team_id,
+                canvas_id=generation.canvas_id,
+                source_version_id=canvas_state.source_version_id,
+            )
+        except canvas_api.CanvasGenerationSourceUnavailable:
+            succeeded = False
+            source_failure = True
+    elif succeeded:
+        succeeded = False
+        source_failure = True
     session = SignalReportCanvas.objects.for_team(team_id).get(report_id=report_id)
     session.generation_status = (
         SignalReportCanvas.GenerationStatus.READY if succeeded else SignalReportCanvas.GenerationStatus.FAILED
@@ -342,13 +406,54 @@ def finalize_report_canvas_generation(
     session.failure_reason = (
         ""
         if succeeded
-        else canvas_state.failure_reason or "The canvas agent finished without producing a canvas version."
+        else (
+            "The generated canvas source could not be read."
+            if source_failure
+            else canvas_state.failure_reason or "The canvas agent finished without producing a canvas version."
+        )
     )
     if succeeded:
         session.generated_fingerprint = generation.fingerprint
     session.save(update_fields=["generation_status", "failure_reason", "generated_fingerprint", "updated_at"])
-    if succeeded and notify_reviewers:
-        report = SignalReport.objects.get(id=report_id, team_id=team_id)
+    report = SignalReport.objects.select_related("team__organization").get(id=report_id, team_id=team_id)
+    publishing_enabled = report_canvas_publishing_enabled(report.team)
+    if generation.generation_id is not None:
+        attempt = SignalReportCanvasGeneration.objects.for_team(team_id).filter(id=generation.generation_id).first()
+    else:
+        attempt = None
+    if attempt is not None:
+        completed_at = timezone.now()
+        attempt.status = (
+            SignalReportCanvasGeneration.Status.READY if succeeded else SignalReportCanvasGeneration.Status.FAILED
+        )
+        attempt.validation_status = (
+            SignalReportCanvasGeneration.ValidationStatus.VALID
+            if succeeded
+            else SignalReportCanvasGeneration.ValidationStatus.INVALID
+        )
+        attempt.failure_reason = session.failure_reason
+        attempt.completed_at = completed_at
+        if attempt.started_at is not None:
+            attempt.duration_ms = max(0, int((completed_at - attempt.started_at).total_seconds() * 1_000))
+        run = tasks_facade.get_latest_run_by_task([generation.generation_task_id]).get(
+            str(generation.generation_task_id)
+        )
+        if run is not None:
+            attempt.model_metadata = {
+                key: run.state[key]
+                for key in ("model", "provider", "reasoning_effort", "runtime_adapter")
+                if key in run.state
+            }
+            attempt.error_category = str(run.state.get("error_category") or "")
+        if source_failure:
+            attempt.error_category = "output_unavailable"
+        if succeeded and source is not None:
+            attempt.output_source = json.dumps(source.project, sort_keys=True, ensure_ascii=False)
+            attempt.output_storage_key = source.storage_key
+            if publishing_enabled:
+                attempt.canvas_id = generation.canvas_id
+        attempt.save()
+    if succeeded and publishing_enabled and notify_reviewers:
         tasks_facade.record_task_activity_for_users(
             team_id=team_id,
             task_id=session.discussion_task_id,
@@ -369,3 +474,23 @@ def fail_report_canvas_generation(*, team_id: int, report_id: str, generation_ta
         failure_reason="Canvas generation timed out.",
         updated_at=timezone.now(),
     )
+    now = timezone.now()
+    attempt = (
+        SignalReportCanvasGeneration.objects.for_team(team_id)
+        .filter(
+            report_id=report_id,
+            generation_task_id=generation_task_id,
+            status=SignalReportCanvasGeneration.Status.GENERATING,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if attempt is not None:
+        attempt.status = SignalReportCanvasGeneration.Status.FAILED
+        attempt.validation_status = SignalReportCanvasGeneration.ValidationStatus.INVALID
+        attempt.error_category = "timeout"
+        attempt.failure_reason = "Canvas generation timed out."
+        attempt.completed_at = now
+        if attempt.started_at is not None:
+            attempt.duration_ms = max(0, int((now - attempt.started_at).total_seconds() * 1_000))
+        attempt.save()

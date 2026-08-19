@@ -1,10 +1,14 @@
+import gzip
+import json
 from typing import Literal
 from uuid import UUID
 
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
+from posthog.storage import object_storage
 
+from products.canvas.backend.build_service import read_source_project
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 
 
@@ -12,6 +16,18 @@ from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVers
 class CanvasGenerationState:
     status: Literal["waiting_for_source", "building", "ready", "failed"]
     failure_reason: str = ""
+    source_version_id: UUID | None = None
+
+
+@frozen
+class CanvasGenerationSource:
+    project: dict[str, object]
+    storage_key: str
+    source_hash: str
+
+
+class CanvasGenerationSourceUnavailable(Exception):
+    pass
 
 
 def create_report_canvas(*, team_id: int, channel_id: str | UUID, name: str, discussion_task_id: str | UUID) -> UUID:
@@ -55,7 +71,7 @@ def canvas_generation_result(*, team_id: int, canvas_id: str | UUID, task_id: st
     if build is None or build.status in CanvasBuild.ACTIVE_STATUSES:
         return CanvasGenerationState(status="building")
     if build.status == CanvasBuild.STATUS_READY:
-        return CanvasGenerationState(status="ready")
+        return CanvasGenerationState(status="ready", source_version_id=source_version.id)
 
     messages = [
         str(diagnostic.get("message"))
@@ -64,3 +80,27 @@ def canvas_generation_result(*, team_id: int, canvas_id: str | UUID, task_id: st
     ]
     reason = messages[0] if messages else "The canvas build failed."
     return CanvasGenerationState(status="failed", failure_reason=reason)
+
+
+def canvas_generation_source(
+    *, team_id: int, canvas_id: str | UUID, source_version_id: str | UUID
+) -> CanvasGenerationSource:
+    try:
+        version = CanvasSourceVersion.objects.for_team(team_id).get(
+            id=source_version_id,
+            canvas_id=canvas_id,
+        )
+        return CanvasGenerationSource(
+            project=read_source_project(version),
+            storage_key=version.source_object_key,
+            source_hash=version.source_hash,
+        )
+    except (
+        CanvasSourceVersion.DoesNotExist,
+        object_storage.ObjectStorageError,
+        gzip.BadGzipFile,
+        EOFError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ) as error:
+        raise CanvasGenerationSourceUnavailable from error
