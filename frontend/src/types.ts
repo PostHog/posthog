@@ -7219,7 +7219,7 @@ export type OnboardingProduct = {
     capabilities?: string[]
     /** Title + problem pairs shown in the post-onboarding modal. Falls back to capabilities if absent. */
     valueProps?: { title: string; problem: string }[]
-    /** Hedgehog illustration for the post-onboarding modal. Falls back to SupermanHog if absent. */
+    /** Hedgehog illustration for the post-onboarding modal. Falls back to HedgehogSuperhero if absent. */
     hedgehog?: React.ComponentType<{ className?: string }>
 }
 

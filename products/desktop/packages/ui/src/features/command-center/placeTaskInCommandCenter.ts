@@ -55,16 +55,33 @@ export function placeTasksInCommandCenter(
   };
 }
 
+/**
+ * The live set widened to cover a task just written into a tile. A `null` set
+ * already holds every filled tile, so the assigned task is safe there; a known
+ * set can lag behind a task created elsewhere, and without the id the batch
+ * would tile over the very cell it was just placed in.
+ */
+function withAssignedTask(
+  liveTaskIds: ReadonlySet<string> | null,
+  taskId: string,
+): ReadonlySet<string> | null {
+  return liveTaskIds == null ? null : new Set([...liveTaskIds, taskId]);
+}
+
 export function placeTasksInCommandCenterCell(
   taskIds: string[],
   cellIndex: number,
+  liveTaskIds: ReadonlySet<string> | null,
 ): void {
   const [firstTaskId, ...remainingTaskIds] = taskIds;
   if (!firstTaskId) return;
 
   useCommandCenterStore.getState().assignTask(cellIndex, firstTaskId);
   if (remainingTaskIds.length > 0) {
-    placeTasksInCommandCenter(remainingTaskIds, null);
+    placeTasksInCommandCenter(
+      remainingTaskIds,
+      withAssignedTask(liveTaskIds, firstTaskId),
+    );
   }
 }
 
@@ -72,6 +89,7 @@ export function expandTasksInCommandCenterInto(
   direction: ExpandDirection,
   slot: number,
   taskIds: string[],
+  liveTaskIds: ReadonlySet<string> | null,
 ): void {
   const [firstTaskId, ...remainingTaskIds] = taskIds;
   if (!firstTaskId) return;
@@ -85,6 +103,9 @@ export function expandTasksInCommandCenterInto(
     .getState()
     .assignTask(getExpansionCellIndex(expanded, direction, slot), firstTaskId);
   if (remainingTaskIds.length > 0) {
-    placeTasksInCommandCenter(remainingTaskIds, null);
+    placeTasksInCommandCenter(
+      remainingTaskIds,
+      withAssignedTask(liveTaskIds, firstTaskId),
+    );
   }
 }
