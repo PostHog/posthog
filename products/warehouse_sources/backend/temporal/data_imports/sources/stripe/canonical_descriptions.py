@@ -129,7 +129,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             name="Customer's full name or business name.",
             currency="Three-letter ISO code for the currency the customer can be charged in for recurring billing.",
             description="Arbitrary free-form description attached to the customer.",
-            balance="Current balance, if any, stored on the customer (negative = credit toward future invoices).",
+            balance=_money(
+                "Current balance, if any, stored on the customer (negative = credit toward future invoices)."
+            ),
             delinquent="Whether the latest charge for the customer's subscription has failed.",
             phone="Customer's phone number.",
             default_source="ID of the default payment source for the customer.",
@@ -713,7 +715,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "subscription_data": "Configuration used when the link creates a subscription.",
             "inactive_message": "Message shown to customers when the link is no longer active.",
             "restrictions": "Settings that restrict how the payment link can be used.",
-            "application_fee_amount": "Application fee requested on the payment and transferred to the platform account.",
+            "application_fee_amount": _money(
+                "Application fee requested on the payment and transferred to the platform account."
+            ),
         },
     },
     TRANSFER_RESOURCE_NAME: {
