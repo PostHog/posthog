@@ -166,7 +166,7 @@ Don't unpack them back into positional locals (`a, b = result.a, result.b`), whi
 Name dataclasses after the domain concept (`ClickHouseCredentials`, `BillingPeriod`), never `*Info`/`*Data`/`*Tuple`; use a `*Result` suffix only when the function's outcome genuinely is the concept.
 Mark secret fields with `field(repr=False)` so they stay out of logs and tracebacks.
 
-Enforcement: a new bare `@dataclass` without an explicit `frozen=` choice fails the ratchet in `posthog/test/test_dataclass_defaults.py` (existing uses are grandfathered in its baseline) and is flagged inline by the `prefer-frozen-dataclasses` semgrep rule.
+Enforcement: a new bare `@dataclass` without an explicit `frozen=` choice fails the ratchet in `posthog/test/repo_invariants/test_dataclass_defaults.py` (existing uses are grandfathered in its baseline) and is flagged inline by the `prefer-frozen-dataclasses` semgrep rule.
 
 ### Querying ClickHouse
 
