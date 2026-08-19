@@ -67,6 +67,9 @@ describe('dataNodeLogic - count query errors', () => {
         expect(posthog.captureException).toHaveBeenCalledWith(
             expect.any(ApiError),
             expect.objectContaining({
+                // The fingerprint is what splits these off the shared-stack bucket; the plain
+                // properties alone do not change grouping.
+                $exception_fingerprint: 'load total count in dataNodeLogic (kind=HogQLQuery, status=400)',
                 action: 'load total count in dataNodeLogic',
                 query_kind: NodeKind.HogQLQuery,
                 response_status: 400,

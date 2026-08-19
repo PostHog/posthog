@@ -588,9 +588,6 @@ export interface dataNodeLogicActions {
     setQueryLogQueryId: (queryId: string) => {
         queryId: string
     }
-    setTotalCountLoadFailed: (failed: boolean) => {
-        failed: boolean
-    }
     setResponse: (
         response: Exclude<AnyResponseType, undefined>
     ) =>
@@ -687,6 +684,9 @@ export interface dataNodeLogicActions {
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
             | TraceSpansTreeQueryResponse
+    }
+    setTotalCountLoadFailed: (failed: boolean) => {
+        failed: boolean
     }
     startAutoLoad: () => {
         value: true
@@ -870,10 +870,11 @@ export type dataNodeLogicType = MakeLogicType<
     dataNodeLogicMeta
 >
 
-// Report a failed count query. `query_kind` and `response_status` ride along as event properties so
-// a specific failure is filterable within error tracking. They do not change how it groups: every
-// `ApiError` shares one stack, so grouping ignores the message and these captures land in the same
-// issue regardless (see api-error.ts). Plain server 5xx responses are already reported by the
+// Report a failed count query so it groups by cause. Every `ApiError` shares one stack (they are all
+// built in `lib/api-error`), so the automatic fingerprint drops every count failure into one issue,
+// keyed on the generic "A server error occurred." message. A client `$exception_fingerprint` splits
+// them by loader, query kind, and status instead; `query_kind` and `response_status` stay on the
+// event as filter context inside each issue. Plain server 5xx responses are already reported by the
 // server, so re-capturing them here only adds a context-free duplicate.
 function captureCountError(error: unknown, action: string, query: DataNode | null): void {
     const status = error instanceof ApiError ? error.status : undefined
@@ -881,6 +882,7 @@ function captureCountError(error: unknown, action: string, query: DataNode | nul
         return
     }
     posthog.captureException(error, {
+        $exception_fingerprint: `${action} (kind=${query?.kind ?? 'unknown'}, status=${status ?? 'none'})`,
         action,
         query_kind: query?.kind,
         response_status: status,
