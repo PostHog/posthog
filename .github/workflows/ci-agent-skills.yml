@@ -108,9 +108,8 @@ jobs:
                           echo "::notice::merge-base not found (branch too stale?), so the schema cache is skipped"
                           exit 0
                       fi
-                      # The migrate step replays the routed labels from the checked-out copy, so
-                      # a PR that edits any of them matches no master dump, the merge-base one
-                      # included: drop both keys and let migrations run from scratch.
+                      # Routing decides which app labels reach the dump, so an edited routing
+                      # config matches no master dump: drop both keys and migrate from scratch.
                       DB_ROUTING_BASE=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                       DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                       if [ "$DB_ROUTING_BASE" != "$DB_ROUTING_HEAD" ]; then
@@ -121,6 +120,13 @@ jobs:
                       fi
                       echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                       REF="$MERGE_BASE"
+                  fi
+                  # Last-resort restore prefix: matches the newest saved dump when the exact
+                  # keys miss. Gated on checkout age because a re-run of an old commit could
+                  # restore a dump newer than its code, which forward-only migrate cannot repair.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
                   # Must match ci-backend.yml's save-side computation byte for byte or the key never hits.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
@@ -203,18 +209,17 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  # Prefer the shared content key; fall back to the exact merge-base SHA
+                  # key, then to the newest dump of any migration set.
                   key: ${{ steps.schema-key.outputs.migrations_key || steps.schema-key.outputs.key }}
                   restore-keys: |
                       ${{ steps.schema-key.outputs.key }}
+                      ${{ steps.schema-key.outputs.prefix_key }}
 
             - name: Prime posthog from cached schema
-              # The dump is from master's posthog db. db:restore-schema-fresh DROPs and
-              # CREATEs the target, restores the schema, and runs ensure_migration_defaults
-              # to seed RunPython data a schema-only dump lacks. The migrate step below
-              # still layers anything newer on top. Treat restore problems as misses:
-              # the helper leaves a fresh empty db on failure, so the migrate step below
-              # runs the full history.
+              # db:restore-schema-fresh restores the dump and seeds the RunPython data a
+              # schema-only dump lacks; the migrate step below layers anything newer on
+              # top. On failure it leaves a fresh empty db, so migrate runs the full history.
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -382,6 +387,13 @@ jobs:
                       MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
+                  # Last-resort restore prefix: matches the newest saved dump when the exact
+                  # key misses. Gated on checkout age because a re-run of an old commit could
+                  # restore a dump newer than its code, which forward-only migrate cannot repair.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Log in to Docker Hub
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
@@ -445,14 +457,13 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.schema-key.outputs.migrations_key }}
+                  restore-keys: |
+                      ${{ steps.schema-key.outputs.prefix_key }}
 
             - name: Prime posthog from cached schema
-              # The dump is from master's posthog db. db:restore-schema-fresh DROPs and
-              # CREATEs the target, restores the schema, and runs ensure_migration_defaults
-              # to seed RunPython data a schema-only dump lacks. The migrate step below
-              # still layers anything newer on top. Treat restore problems as misses:
-              # the helper leaves a fresh empty db on failure, so the migrate step below
-              # runs the full history.
+              # db:restore-schema-fresh restores the dump and seeds the RunPython data a
+              # schema-only dump lacks; the migrate step below layers anything newer on
+              # top. On failure it leaves a fresh empty db, so migrate runs the full history.
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
