@@ -41,6 +41,22 @@ ENV COREPACK_ENABLE_NETWORK=0
 #
 # ---------------------------------------------------------
 #
+# Just the `products/*` workspace manifests, with the sources left behind. pnpm resolves those
+# workspaces from their package.json alone, so putting the whole tree in front of the install makes
+# any product source edit reinstall every dependency. Most master commits touch that tree and
+# almost none touch a manifest, so the install layer is the one that has to see only manifests.
+# This stage re-runs on every product change; only its output feeds the cache key downstream.
+FROM node-base AS product-manifests
+RUN --mount=type=bind,source=products,target=/src \
+    mkdir -p /manifests && cd /src && \
+    find . -mindepth 2 -maxdepth 2 -name package.json -print0 \
+    | tar --null --files-from=- -cf - \
+    | tar -xf - -C /manifests
+
+
+#
+# ---------------------------------------------------------
+#
 FROM node-base AS frontend-build
 
 COPY turbo.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
@@ -54,11 +70,13 @@ COPY common/replay-shared/ common/replay-shared/
 COPY common/tailwind/ common/tailwind/
 COPY packages/quill/ packages/quill/
 COPY packages/llm-normalizer/ packages/llm-normalizer/
-COPY products/ products/
-COPY docs/onboarding/ docs/onboarding/
+COPY --from=product-manifests /manifests/ products/
+COPY docs/onboarding/package.json docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
+COPY products/ products/
+COPY docs/onboarding/ docs/onboarding/
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
 
