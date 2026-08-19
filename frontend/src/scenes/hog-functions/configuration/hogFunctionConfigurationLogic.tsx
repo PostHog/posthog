@@ -161,9 +161,11 @@ export function sanitizeInputs(
         let value = input?.value
 
         if (secret) {
-            // The value was not retyped, so keep the stored secret. Send no value - a placeholder
-            // here can be encrypted as the new secret if the backend does not strip it.
+            // The value was not retyped, so keep the stored secret. Leave value undefined - it is
+            // dropped from the JSON payload, and a placeholder here can be encrypted as the new
+            // secret if the backend does not strip it.
             sanitizedInputs[inputSchema.key] = {
+                value: undefined,
                 secret: true,
             }
             return

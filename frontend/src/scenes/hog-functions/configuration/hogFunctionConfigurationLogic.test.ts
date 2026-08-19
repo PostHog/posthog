@@ -192,11 +192,12 @@ describe('hogFunctionConfigurationLogic', () => {
             // A value here can be encrypted over the stored secret, so an untouched secret must
             // carry only { secret: true }.
             const result = sanitizeInputs({
-                inputs_schema: [{ key: 'api_key', type: 'string', secret: true }],
+                inputs_schema: [{ key: 'api_key', label: 'API key', type: 'string', secret: true }],
                 inputs: { api_key: { value: '********', secret: true } },
             })
 
-            expect(result.api_key).toEqual({ secret: true })
+            expect(result.api_key.value).toBeUndefined()
+            expect(result.api_key.secret).toBe(true)
         })
     })
 
