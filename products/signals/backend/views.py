@@ -68,6 +68,7 @@ from posthog.user_permissions import UserPermissions
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
+    SIGNALS_PRODUCT,
     ArtefactContentValidationError,
     Dismissal,
     SuggestedReviewers,
@@ -3387,6 +3388,18 @@ class SignalReportArtefactViewSet(
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             content = {**content, "task_id": str(task_id)}
+            if content.get("product") == SIGNALS_PRODUCT:
+                # `signals` is the built-in pipeline's own namespace, and it is what the
+                # per-report task cap counts. A client that could assert it would be able to fill
+                # another report's discussion allowance with associations to arbitrary tasks of
+                # its own, permanently — the log is append-only. Server-side writers reach
+                # `append_task_run_artefact` in-process and never come through here; custom agents
+                # carry their own identifier pair. Mirrors the tasks write serializer, which
+                # rejects the pipeline's reserved relationship labels for the same reason.
+                return Response(
+                    {"error": f"content.product '{SIGNALS_PRODUCT}' is reserved for server-created runs."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             content.setdefault("product", "tasks")
             content.setdefault("type", "agent_run")
             existing = (
