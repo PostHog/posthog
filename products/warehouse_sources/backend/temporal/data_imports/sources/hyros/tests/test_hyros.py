@@ -133,6 +133,17 @@ class TestHyrosSourcePagination:
         assert auth.location == "header"
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_does_not_follow_redirects(self, MockSession) -> None:
+        # A redirect off the validated Hyros host would carry the API-Key header with it;
+        # the client must refuse to follow it (credential-leak guard).
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "1"}])])
+
+        _rows(_source("Stages", _FakeResumeManager()))
+
+        assert session.send.call_args.kwargs["allow_redirects"] is False
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_saves_resume_state_only_while_pages_remain(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(

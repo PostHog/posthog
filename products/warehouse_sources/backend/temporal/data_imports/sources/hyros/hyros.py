@@ -76,6 +76,9 @@ def _client_config(api_key: str) -> ClientConfig:
     return {
         "base_url": BASE_URL,
         "auth": {"type": "api_key", "api_key": api_key, "name": "API-Key", "location": "header"},
+        # A validated host could 3xx to an attacker-controlled host without stripping the
+        # API-Key header; refuse to follow redirects (SSRF/credential-leak guard).
+        "allow_redirects": False,
         # Every list endpoint shares the same `{result, nextPageId, request_id}` envelope.
         "paginator": JSONResponseCursorPaginator(cursor_path="nextPageId", cursor_param="pageId"),
     }
