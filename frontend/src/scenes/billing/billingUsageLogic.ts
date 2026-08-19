@@ -2,6 +2,7 @@ import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
 
@@ -651,6 +652,18 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             await breakpoint(200)
             actions.reportBillingUsageInteraction(buildTrackingProperties('breakdown_toggled', values))
             actions.loadBillingUsage()
+        },
+    })),
+    subscriptions(({ actions, values }) => ({
+        canViewUsageAndSpend: (canViewUsageAndSpend: boolean, previousCanViewUsageAndSpend: boolean | undefined) => {
+            if (canViewUsageAndSpend && previousCanViewUsageAndSpend === false && !values.isHobby) {
+                actions.loadBillingUsage()
+            }
+        },
+        isHobby: (isHobby: boolean, previousIsHobby: boolean | undefined) => {
+            if (!isHobby && previousIsHobby === true && values.canViewUsageAndSpend) {
+                actions.loadBillingUsage()
+            }
         },
     })),
     afterMount(({ actions }: billingUsageLogicType) => {

@@ -23,7 +23,12 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import get_authenticator_scopes, posthog_feature_flag_enabled
+from posthog.permissions import (
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    posthog_feature_flag_enabled,
+)
+from posthog.rbac.user_access_control import UserAccessControl, visible_teams_for_user
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
@@ -74,10 +79,13 @@ def _member_billing_usage_spend_read_access_enabled(user: User, organization: Or
         return False
 
     try:
-        return posthog_feature_flag_enabled(
-            MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
-            str(user.distinct_id),
-            organization_id=organization.id,
+        return (
+            posthog_feature_flag_enabled(
+                MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
+                str(user.distinct_id),
+                organization_id=organization.id,
+            )
+            is True
         )
     except Exception as e:
         capture_exception(e, {"organization_id": organization.id, "flag": MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG})
@@ -223,7 +231,9 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "JSON-encoded array of numeric team/project IDs to filter on, "
-            "for example [1,2]. Omit for all teams in the organization."
+            "for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read "
+            "all organization projects; member read-only callers are limited to visible projects and any project "
+            "scope on their token."
         ),
     )
     breakdowns = serializers.CharField(
@@ -335,29 +345,6 @@ class BillingPeriodResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="End of the organization's current billing period, or null when billing has not synced a period.",
     )
-
-
-def _member_accessible_team_ids(user: User, organization: Organization) -> list[int]:
-    """
-    Ids of this org's teams the user can access, mirroring
-    OrganizationSerializer._fetch_visible_teams. Scoped to the queried org explicitly:
-    User.teams gates private-project filtering on the features of the user's *first*
-    org, which for multi-org users can differ from the org being billed.
-    """
-    access_control = UserAccessControl(user=user, organization_id=str(organization.id))
-    visible_teams = access_control.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
-    visible_team_ids = UserPermissions(user=user).team_ids_visible_for_user
-    return list(visible_teams.filter(id__in=visible_team_ids).values_list("id", flat=True))
-
-
-def _parse_team_ids(raw_team_ids: str) -> list[int]:
-    try:
-        parsed = json.loads(raw_team_ids)
-        if not isinstance(parsed, list):
-            raise ValueError("team_ids must be a JSON array")
-        return [int(team_id) for team_id in parsed]
-    except (ValueError, TypeError):
-        raise ValidationError({"team_ids": "team_ids must be a JSON array of team IDs."})
 
 
 @extend_schema(tags=["billing"])
@@ -901,11 +888,15 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _scoped_team_ids_for_usage_spend_request(
         self, request: Request, organization: Organization, params_to_pass: dict[str, Any]
-    ) -> Optional[list[int]]:
+    ) -> Optional[Sequence[int]]:
         if not isinstance(request.user, User) or user_has_billing_access(request.user, organization):
             return None
 
         accessible_team_ids = self._team_ids_visible_to_user_in_org(request.user, organization)
+        token_scoped_team_ids = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if token_scoped_team_ids is not None:
+            accessible_team_ids = sorted(set(accessible_team_ids).intersection(token_scoped_team_ids))
+
         if not accessible_team_ids:
             raise PermissionDenied(HasBillingUsageSpendReadAccess.message)
 
@@ -919,15 +910,18 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return scoped_team_ids
 
-    def _team_ids_visible_to_user_in_org(self, user: User, organization: Organization) -> list[int]:
-        visible_team_ids = UserPermissions(user).team_ids_visible_for_user
+    def _team_ids_visible_to_user_in_org(self, user: User, organization: Organization) -> Sequence[int]:
         return list(
-            Team.objects.filter(organization=organization, id__in=visible_team_ids)
+            visible_teams_for_user(
+                organization,
+                UserAccessControl(user=user, organization_id=str(organization.id)),
+                UserPermissions(user=user),
+            )
             .order_by("id")
             .values_list("id", flat=True)
         )
 
-    def _parse_team_ids(self, team_ids: Optional[str]) -> list[int]:
+    def _parse_team_ids(self, team_ids: Optional[str]) -> Sequence[int]:
         if not team_ids:
             return []
 
