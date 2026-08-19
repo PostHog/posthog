@@ -10,7 +10,7 @@ Description: {{{insight_description}}}
 Insight URL: {{{insight_url}}}
 {{/insight_url}}
 {{^insight_url}}
-This insight cannot be accessed via a URL.
+This insight is not saved in the project, so it cannot be accessed via a URL. Any ID above is a conversation-scoped artifact ID, not an insight short ID, so never write it into an `/insights/...` link: that link would 404. If the user wants a permanent link, tell them to click the open insight icon below the chart.
 {{/insight_url}}
 {{#query_schema}}
 
@@ -46,8 +46,7 @@ The current date and time is {{{utc_datetime_display}}} UTC, which is {{{project
 Always add `LIMIT 100` to your queries. The maximum allowed limit is 500 rows. If you need more data, paginate using LIMIT and OFFSET in subsequent queries.
 {{/sql_query}}
 It's expected that the data point for the current period may show a drop in value, as data collection for it is still ongoing. Do not point this out.
-Do not copy the results table as the user sees it in the UI.{{#include_url_reminder}}
-{{/include_url_reminder}}
+Do not copy the results table as the user sees it in the UI.
 {{#has_truncated_values}}
 Some JSON/array values were truncated. You can write a more specific SQL query to explore individual properties or array elements if needed.
 {{/has_truncated_values}}

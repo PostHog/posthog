@@ -301,4 +301,6 @@ class TestInsightContext(BaseTest):
 
         result = await context.execute_and_format()
 
-        self.assertIn("This insight cannot be accessed via a URL.", result)
+        self.assertIn("cannot be accessed via a URL", result)
+        # Without this the model composes `/insights/<artifact id>`, which 404s
+        self.assertIn("`/insights/...` link", result)

@@ -95,6 +95,8 @@ TASK_ARTIFACTS_PROMPT = """
 The following artifacts have been generated:
 
 {{{artifacts_list}}}
+
+Artifact IDs are scoped to this conversation and are not insight short IDs. Never write one into an `/insights/...` link: the insight was never saved to the project, so that link would 404.
 """
 
 
@@ -186,7 +188,7 @@ class TaskTool(MaxTool):
                 viz_content = unwrap_visualization_artifact_content(message)
                 if viz_content:
                     artifacts_list_prompt.append(
-                        f"- Insight ID: {message.artifact_id}\nName: {viz_content.name}\nDescription: {viz_content.description}\nQuery: {viz_content.query}"
+                        f"- Artifact ID: {message.artifact_id}\nName: {viz_content.name}\nDescription: {viz_content.description}\nQuery: {viz_content.query}"
                     )
                     continue
                 notebook_content = unwrap_notebook_artifact_content(message)

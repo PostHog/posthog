@@ -112,7 +112,6 @@ class InsightContext:
             insight_description=self.description,
             query_schema=query_schema,
             results=results,
-            include_url_reminder=self.insight_id is None,
             insight_url=self.insight_url,
         )
 
@@ -126,7 +125,6 @@ class InsightContext:
             insight_id=self.insight_id,
             insight_description=self.description,
             query_schema=query_schema,
-            include_url_reminder=self.insight_id is None,
             insight_url=self.insight_url,
         )
 
