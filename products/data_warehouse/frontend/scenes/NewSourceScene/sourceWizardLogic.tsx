@@ -1512,6 +1512,7 @@ export interface sourceWizardLogicActions {
             | 'Productboard'
             | 'Productiv'
             | 'Productive'
+            | 'Profound'
             | 'PromptingCompany'
             | 'PromptWatch'
             | 'ProofpointTap'

@@ -29,6 +29,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -2857,6 +2858,7 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
 
 
 _QUOTA = "products.signals.backend.scout_harness.views.is_team_signals_quota_limited"
+_DAILY_GATE = "products.signals.backend.scout_harness.views.daily_report_limit_gate"
 _START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
 _CONNECT = "products.signals.backend.scout_harness.views.sync_connect"
 _WITHHELD = "products.signals.backend.scout_harness.views.withheld_skills_for_team"
@@ -2897,6 +2899,18 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
     def test_run_over_quota_returns_429_without_dispatching(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with patch(_QUOTA, return_value=True), patch(_START) as start:
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        start.assert_not_called()
+
+    def test_run_over_daily_report_limit_returns_429_without_dispatching(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with (
+            patch(_QUOTA, return_value=False),
+            patch(_DAILY_GATE, return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2)),
+            patch(_START) as start,
+        ):
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS

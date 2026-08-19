@@ -2808,6 +2808,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean
     orderBy?: string[]
     limit?: integer
     offset?: integer
@@ -2819,6 +2821,7 @@ export enum AccountsTableAccountField {
     CreatedAt = 'created_at',
     UpdatedAt = 'updated_at',
     ChurnedAt = 'churned_at',
+    IgnoredAt = 'ignored_at',
     StripeCustomerId = 'stripe_customer_id',
     HubspotDealId = 'hubspot_deal_id',
     BillingId = 'billing_id',
@@ -3042,6 +3045,8 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     kind: NodeKind.AccountsTableQuery
     /** Include churned accounts. Churned accounts are hidden by default. */
     includeChurned?: boolean
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean
     /** Columns to load for each account. Account identity fields are always returned. */
     columns: AccountsTableColumn[]
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
@@ -9016,6 +9021,7 @@ export const externalDataSources = [
     'SamCart',
     'IronSourceAds',
     'MicrosoftExcel',
+    'Profound',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
