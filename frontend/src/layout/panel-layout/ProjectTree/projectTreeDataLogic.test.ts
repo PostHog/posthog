@@ -3,8 +3,11 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { UserProductListReason } from '~/queries/schema/schema-general'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { recentItemsModel } from '~/models/recentItemsModel'
+import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { DashboardBasicType } from '~/types'
 
 import { customProductsLogic } from './customProductsLogic'
 import { MovedItem, projectTreeDataLogic } from './projectTreeDataLogic'
@@ -188,5 +191,62 @@ describe('projectTreeDataLogic', () => {
         expect(() =>
             logic.actions.deleteSavedItem({ id: 'fs-x', type: 'dashboard', path: 'Marketing/Q1/X', ref: '9' } as any)
         ).not.toThrow()
+    })
+
+    it('broadcasts each cascaded deletion so dependent caches can drop their entries', async () => {
+        jest.spyOn(lemonToast, 'success').mockReturnValue('' as any)
+        jest.spyOn(api.fileSystem, 'delete').mockResolvedValue({
+            deleted: [
+                { type: 'dashboard', ref: '9', path: 'Marketing/Pinned', can_undo: true },
+                { type: 'insight', ref: 'abc', path: 'Marketing/Chart', can_undo: true },
+            ],
+        } as any)
+
+        await expectLogic(logic, () => {
+            logic.actions.queueAction(
+                {
+                    type: 'delete',
+                    item: { id: 'fs-folder', type: 'folder', path: 'Marketing' } as any,
+                    path: 'Marketing',
+                },
+                'test'
+            )
+        })
+            .toDispatchActions([
+                ({ type, payload }) =>
+                    type === logic.actionTypes.deleteTypeAndRef && payload.type === 'dashboard' && payload.ref === '9',
+                ({ type, payload }) =>
+                    type === logic.actionTypes.deleteTypeAndRef && payload.type === 'insight' && payload.ref === 'abc',
+            ])
+            .toFinishAllListeners()
+    })
+
+    it('drops a deleted item from the recents cache', async () => {
+        const recents = recentItemsModel()
+        recents.mount()
+        recents.actions.loadRecentsSuccess([
+            { id: 'fs-1', type: 'dashboard', ref: '9', path: 'Pinned', href: '/dashboard/9' } as FileSystemEntry,
+        ])
+
+        logic.actions.deleteTypeAndRef('dashboard', '9')
+
+        expect(recents.values.recents).toEqual([])
+    })
+
+    it('drops a deleted dashboard from the pinned list so the sidebar stops linking to it', async () => {
+        jest.spyOn(api, 'get').mockResolvedValue({ count: 0, results: [], next: null })
+        const model = dashboardsModel()
+        model.mount()
+        model.actions.loadDashboardsSuccess({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [{ id: 9, name: 'Pinned', pinned: true } as DashboardBasicType],
+        })
+        expect(model.values.pinnedDashboards).toEqual([expect.objectContaining({ id: 9 })])
+
+        logic.actions.deleteTypeAndRef('dashboard', '9')
+
+        expect(model.values.pinnedDashboards).toEqual([])
     })
 })

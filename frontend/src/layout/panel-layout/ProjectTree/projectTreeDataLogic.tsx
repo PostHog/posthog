@@ -45,7 +45,9 @@ import {
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
 import { FEATURE_FLAGS } from '~/lib/constants'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { recentItemsModel } from '~/models/recentItemsModel'
 import type { ProductTreePath } from '~/products'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
@@ -866,6 +868,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             actions.removeQueuedAction(action)
                             actions.deleteSavedItem(action.item)
                             const deletionSummary = deletionResult?.deleted ?? []
+                            // Broadcast every cascaded deletion so caches keyed by type and ref
+                            // (recents, pinned dashboards) drop the stale entry instead of serving
+                            // a dead link until the next reload.
+                            for (const entry of deletionSummary) {
+                                if (entry.ref) {
+                                    actions.deleteTypeAndRef(entry.type, entry.ref)
+                                }
+                            }
                             const countsByType = new Map<string, number>()
                             for (const entry of deletionSummary) {
                                 countsByType.set(entry.type, (countsByType.get(entry.type) ?? 0) + 1)
@@ -1753,6 +1763,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 actions.addLoadedUsers(items.users)
             }
             actions.addLoadedResults(items as any as SearchResults)
+        },
+        deleteTypeAndRef: ({ type, ref }) => {
+            // The tree is the single source for "this object is gone". Propagate to the caches that
+            // render live links to it so they drop the entry instead of pointing at a page that 404s.
+            recentItemsModel.findMounted()?.actions.itemDeleted(type, ref)
+            if (type === 'dashboard') {
+                dashboardsModel.findMounted()?.actions.delayedDeleteDashboard(Number(ref))
+            }
         },
         deleteItem: async ({ item, projectTreeLogicKey }) => {
             if (isGroupViewShortcut(item) && values.featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {

@@ -114,6 +114,56 @@ describe('recentItemsModel', () => {
         expect(logic.values.sceneLogViewsHasLoaded).toBe(false)
     })
 
+    it('drops a deleted item so it stops rendering as a live link', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        jest.spyOn(api.fileSystem, 'list').mockResolvedValue({
+            count: 1,
+            results: [recentItem],
+            users: [],
+        })
+        jest.spyOn(api.fileSystemLogView, 'list').mockResolvedValue([
+            { ref: 'DataManagementScene', type: 'scene', viewed_at: '2026-04-22T00:00:00Z' },
+        ])
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentsSuccess', 'loadSceneLogViewsSuccess'])
+            .toMatchValues({
+                recents: [recentItem],
+                sceneLogViewsByRef: { DataManagementScene: '2026-04-22T00:00:00Z' },
+            })
+
+        logic.actions.itemDeleted('dashboard', '1')
+        logic.actions.itemDeleted('scene', 'DataManagementScene')
+
+        expect(logic.values.recents).toEqual([])
+        expect(logic.values.sceneLogViewsByRef).toEqual({})
+    })
+
+    it('leaves items of a different type or ref untouched when one is deleted', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        jest.spyOn(api.fileSystem, 'list').mockResolvedValue({
+            count: 1,
+            results: [recentItem],
+            users: [],
+        })
+        jest.spyOn(api.fileSystemLogView, 'list').mockResolvedValue([])
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentsSuccess'])
+            .toMatchValues({ recents: [recentItem] })
+
+        // Same ref, different type: the dashboard must stay.
+        logic.actions.itemDeleted('insight', '1')
+
+        expect(logic.values.recents).toEqual([recentItem])
+    })
+
     it('degrades to empty fallbacks when the loaders hit a fetch failure', async () => {
         jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
         jest.spyOn(api.fileSystem, 'list').mockRejectedValue(new TypeError('Failed to fetch'))

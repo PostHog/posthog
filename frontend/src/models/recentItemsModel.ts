@@ -69,6 +69,13 @@ export interface recentItemsModelActions {
         sceneLogViewsByRef: Record<string, string>
         payload?: any
     }
+    itemDeleted: (
+        type: string,
+        ref: string
+    ) => {
+        ref: string
+        type: string
+    }
     recordView: (
         type: string,
         ref: string
@@ -89,6 +96,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
 
     actions({
         recordView: (type: string, ref: string) => ({ type, ref }),
+        itemDeleted: (type: string, ref: string) => ({ type, ref }),
     }),
 
     loaders({
@@ -178,6 +186,9 @@ export const recentItemsModel = kea<recentItemsModelType>([
                     const item = { ...state[idx], last_viewed_at: new Date().toISOString() }
                     return [item, ...state.slice(0, idx), ...state.slice(idx + 1)]
                 },
+                // Drop a deleted item so the menu, the nav Recents tab, and the search page stop
+                // rendering it as a live link to a page that now 404s.
+                itemDeleted: (state, { type, ref }) => state.filter((e) => e.type !== type || e.ref !== ref),
             },
         ],
         sceneLogViewsByRef: [
@@ -189,6 +200,13 @@ export const recentItemsModel = kea<recentItemsModelType>([
                         return state
                     }
                     return { ...state, [ref]: new Date().toISOString() }
+                },
+                itemDeleted: (state, { type, ref }) => {
+                    if (type !== 'scene') {
+                        return state
+                    }
+                    const { [ref]: _discard, ...rest } = state
+                    return rest
                 },
             },
         ],
