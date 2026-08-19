@@ -243,7 +243,9 @@ class TestCheckRunner(BaseTest):
 
         assert outcome.status == expected_status
         check.refresh_from_db()
-        assert (check.last_succeeded_at > earlier) is advances
+        last_succeeded_at = check.last_succeeded_at
+        assert last_succeeded_at is not None
+        assert (last_succeeded_at > earlier) is advances
 
     def test_a_run_snapshots_the_definition_it_executed(self) -> None:
         # History has to keep reading as what actually ran, even after the definition is edited.
