@@ -6,7 +6,7 @@
 use std::io::prelude::*;
 
 use bytes::Bytes;
-use common_compression::has_gzip_magic_header;
+use common_compression::{decompress_lz64_capped, has_gzip_magic_header, CompressionError};
 use flate2::read::GzDecoder;
 use metrics;
 use tracing::{debug, info, instrument, warn, Span};
@@ -14,9 +14,7 @@ use tracing::{debug, info, instrument, warn, Span};
 use crate::{
     api::CaptureError,
     prometheus::report_dropped_events,
-    utils::{
-        decode_base64, decompress_lz64, is_likely_base64, Base64Option, MAX_PAYLOAD_SNIPPET_SIZE,
-    },
+    utils::{decode_base64, is_likely_base64, Base64Option, MAX_PAYLOAD_SNIPPET_SIZE},
     v0_request::path_is_legacy_endpoint,
 };
 
@@ -25,9 +23,11 @@ use super::types::Compression;
 // Metrics constants
 const METRIC_PAYLOAD_SIZE_EXCEEDED: &str = "capture_payload_size_exceeded";
 const METRIC_GZIP_DECOMPRESSION_RATIO: &str = "capture_gzip_decompression_ratio";
+const METRIC_LZ64_DECOMPRESSION_RATIO: &str = "capture_lz64_decompression_ratio";
 
-/// Decompression ratios above this threshold are flagged as potential GZIP bombs.
+/// Decompression ratios above this threshold are flagged as potential bombs.
 const GZIP_BOMB_RATIO_THRESHOLD: f64 = 20.0;
+const LZ64_BOMB_RATIO_THRESHOLD: f64 = 20.0;
 
 /// Decompress GZIP data with chunked reads and bomb detection.
 /// Returns raw bytes -- callers decide whether to convert to String.
@@ -85,6 +85,77 @@ pub fn decompress_gzip_to_bytes(compressed: &[u8], limit: usize) -> Result<Vec<u
     Ok(buf)
 }
 
+/// Decompress LZ64 (lz-string) data with an output cap and bomb detection.
+/// The payload arrives as the base64 text lz-string emits.
+pub fn decompress_lz64_to_string(payload: &[u8], limit: usize) -> Result<String, CaptureError> {
+    let b64_payload = std::str::from_utf8(payload).unwrap_or("INVALID_UTF8");
+
+    // The cap counts UTF-16 code units against a byte limit deliberately: UTF-8
+    // is never shorter than the UTF-16 it encodes, so nothing that would have
+    // fit under `limit` bytes gets rejected here.
+    let decomp_utf16 = match decompress_lz64_capped(b64_payload, limit) {
+        Ok(units) => units,
+        Err(CompressionError::Lz64OutputTooLarge { units, .. }) => {
+            metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "lz64").increment(1);
+            metrics::histogram!("capture_full_payload_size", "oversize" => "true")
+                .record(units as f64);
+            report_dropped_events("event_too_big", 1);
+
+            return Err(CaptureError::EventTooBig(format!(
+                "Decompressed LZ64 payload would exceed {limit} bytes"
+            )));
+        }
+        Err(_) => {
+            let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
+            let payload_snippet = String::from_utf8(payload[..max_chars].to_vec())
+                .unwrap_or(String::from("INVALID_UTF8"));
+            debug!(
+                payload_snippet = payload_snippet,
+                "decompress_lz64: failed decompress to UTF16"
+            );
+            return Err(CaptureError::RequestDecodingError(String::from(
+                "decompress_lz64: failed decompress to UTF16",
+            )));
+        }
+    };
+
+    // the decompressed data is UTF16 so we need to convert it to UTF8 to
+    // obtain the JSON event batch payload we've come to know and love
+    let decompressed = match String::from_utf16(&decomp_utf16) {
+        Ok(result) => result,
+        Err(_) => {
+            return Err(CaptureError::RequestDecodingError(String::from(
+                "decompress_lz64: failed UTF16 to UTF8 conversion",
+            )));
+        }
+    };
+
+    // UTF-8 can be longer than the capped UTF-16, so the byte limit is its own check
+    if decompressed.len() > limit {
+        metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "lz64").increment(1);
+        report_dropped_events("event_too_big", 1);
+        return Err(CaptureError::EventTooBig(String::from(
+            "lz64 request payload size limit exceeded",
+        )));
+    }
+
+    if !payload.is_empty() {
+        let ratio = decompressed.len() as f64 / payload.len() as f64;
+        metrics::histogram!(METRIC_LZ64_DECOMPRESSION_RATIO).record(ratio);
+
+        if ratio > LZ64_BOMB_RATIO_THRESHOLD {
+            warn!(
+                compressed_size = payload.len(),
+                decompressed_size = decompressed.len(),
+                ratio = ratio,
+                "High LZ64 compression ratio detected - potential LZ64 bomb"
+            );
+        }
+    }
+
+    Ok(decompressed)
+}
+
 /// Decompresses and decodes a payload based on compression hint and content detection.
 /// This is shared logic used by both analytics and recording event processing.
 ///
@@ -133,7 +204,7 @@ pub fn decompress_payload(
             payload_len = bytes.len(),
             "decompress_payload: matched LZ64 compression"
         );
-        decompress_lz64(&bytes, limit)?
+        decompress_lz64_to_string(&bytes, limit)?
     } else {
         debug!(
             path = path,
@@ -272,5 +343,41 @@ mod tests {
         let garbage = b"not gzip data at all";
         let result = decompress_gzip_to_bytes(garbage, 4096);
         assert!(matches!(result, Err(CaptureError::RequestDecodingError(_))));
+    }
+
+    #[test]
+    fn test_decompress_payload_lz64_valid() {
+        let original = r#"[{"event":"$pageview","properties":{"token":"abc"}}]"#;
+        let compressed = lz_str::compress_to_base64(original);
+
+        let result = decompress_payload(
+            Bytes::from(compressed),
+            Compression::LZString,
+            4096,
+            "/i/v0/e",
+        )
+        .unwrap();
+
+        assert_eq!(result, original);
+    }
+
+    #[test]
+    fn test_decompress_payload_lz64_rejects_oversized_output() {
+        // 1 MB of one repeated character, which lz-string packs into ~2KB
+        let compressed = lz_str::compress_to_base64(&"A".repeat(1024 * 1024));
+        assert!(compressed.len() < 16 * 1024);
+
+        let result = decompress_payload(
+            Bytes::from(compressed),
+            Compression::LZString,
+            1024,
+            "/i/v0/e",
+        );
+
+        assert!(
+            matches!(result, Err(CaptureError::EventTooBig(_))),
+            "expected EventTooBig, got {:?}",
+            result
+        );
     }
 }

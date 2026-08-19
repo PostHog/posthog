@@ -10,7 +10,6 @@ use uuid::Uuid;
 use crate::{
     api::CaptureError,
     payload::{Compression, EventFormData, EventQuery},
-    prometheus::report_dropped_events,
     token::validate_token,
 };
 
@@ -171,46 +170,6 @@ pub fn decode_form(payload: &[u8]) -> Result<EventFormData, CaptureError> {
             )))
         }
     }
-}
-
-pub fn decompress_lz64(payload: &[u8], limit: usize) -> Result<String, CaptureError> {
-    // with lz64 the payload is a Base64 string that must be decoded prior to decompression
-    let b64_payload = std::str::from_utf8(payload).unwrap_or("INVALID_UTF8");
-    let decomp_utf16 = match lz_str::decompress_from_base64(b64_payload) {
-        Some(v) => v,
-        None => {
-            let max_chars: usize = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
-            let payload_snippet = String::from_utf8(payload[..max_chars].to_vec())
-                .unwrap_or(String::from("INVALID_UTF8"));
-            debug!(
-                payload_snippet = payload_snippet,
-                "decompress_lz64: failed decompress to UTF16"
-            );
-            return Err(CaptureError::RequestDecodingError(String::from(
-                "decompress_lz64: failed decompress to UTF16",
-            )));
-        }
-    };
-
-    // the decompressed data is UTF16 so we need to convert it to UTF8 to
-    // obtain the JSON event batch payload we've come to know and love
-    let decompressed = match String::from_utf16(&decomp_utf16) {
-        Ok(result) => result,
-        Err(_) => {
-            return Err(CaptureError::RequestDecodingError(String::from(
-                "decompress_lz64: failed UTF16 to UTF8 conversion",
-            )));
-        }
-    };
-
-    if decompressed.len() > limit {
-        report_dropped_events("event_too_big", 1);
-        return Err(CaptureError::EventTooBig(String::from(
-            "lz64 request payload size limit exceeded",
-        )));
-    }
-
-    Ok(decompressed)
 }
 
 pub fn extract_and_verify_token(
