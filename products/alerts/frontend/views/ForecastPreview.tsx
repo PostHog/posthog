@@ -252,7 +252,7 @@ export function ForecastPreview({
                 ) : deviation == null ? (
                     <span>
                         {forecastConfig?.condition === ForecastConditionType.TARGET_BY_DATE
-                            ? 'Set a target and a date to see whether this metric reaches it'
+                            ? 'Set a target and a date to see whether this metric is on track'
                             : 'Not enough history yet. Pick a longer date range on the insight.'}
                     </span>
                 ) : (

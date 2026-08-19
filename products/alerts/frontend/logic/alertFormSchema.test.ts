@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import {
     AlertCalculationInterval,
     AlertConditionType,
@@ -164,5 +166,54 @@ describe('alertFormSchema', () => {
                 threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} } },
             })
         ).toBe(expected)
+    })
+})
+
+describe('a target alert whose date has passed', () => {
+    // The server re-checks the target date whenever a request carries a forecast config at all, so
+    // the editor has to block on exactly the same trigger. Keying the editor on the date alone let
+    // an edit to the target send a stale past date and take a 400 with no field marked.
+    const savedForecastConfig = {
+        type: 'ForecastConfig' as const,
+        engine: ForecastEngineType.PROPHET,
+        condition: ForecastConditionType.TARGET_BY_DATE,
+        target: 100,
+        target_direction: ForecastTargetDirection.AT_LEAST,
+        target_date: '2020-01-01',
+    }
+    const finishedAlert: AlertFormType = { ...baseAlert, forecast_config: savedForecastConfig }
+
+    it('saves when nothing about the forecast changed, so it can still be renamed or turned off', () => {
+        expect(getAlertFormValidationErrors({ ...finishedAlert, name: 'Renamed' }, { savedForecastConfig })).toEqual({})
+    })
+
+    it.each([
+        ['the target', { target: 250 }],
+        ['the direction', { target_direction: ForecastTargetDirection.AT_MOST }],
+        ['the sensitivity', { interval_width: 0.8 }],
+    ] as const)('blocks when %s changed, because the server will re-check the date', (_n, patch) => {
+        const errors = getAlertFormValidationErrors(
+            { ...finishedAlert, forecast_config: { ...savedForecastConfig, ...patch } },
+            { savedForecastConfig }
+        )
+        expect(errors.forecast_config).toBe('The target date must be in the future.')
+    })
+})
+
+describe('a target alert with no target', () => {
+    it('blocks the save and names the field, rather than failing at the server', () => {
+        const errors = getAlertFormValidationErrors({
+            ...baseAlert,
+            forecast_config: {
+                type: 'ForecastConfig',
+                engine: ForecastEngineType.PROPHET,
+                condition: ForecastConditionType.TARGET_BY_DATE,
+                target_direction: ForecastTargetDirection.AT_MOST,
+                // Within range, because picking the condition seeds a valid date: the realistic
+                // first state is a good date and no target yet.
+                target_date: dayjs().add(30, 'day').format('YYYY-MM-DD'),
+            },
+        })
+        expect(errors.forecast_config).toBe('Enter a target value')
     })
 })

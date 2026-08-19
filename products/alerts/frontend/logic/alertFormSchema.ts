@@ -2,17 +2,17 @@ import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { z } from 'zod'
 
 import { dayjs } from 'lib/dayjs'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { AlertConditionType, ForecastConditionType } from '~/queries/schema/schema-general'
 import type { IntervalType } from '~/types'
 
 import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
-import { forecastTargetDateError } from './forecastReach'
+import { forecastTargetDateError, forecastTargetValueError } from './forecastReach'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
 export const THRESHOLD_BOUNDS_FORM_ERROR = 'Enter at least one threshold (less than or more than)'
-export const TARGET_REQUIRED_FORM_ERROR = 'Enter the number this metric should reach'
 
 const NAME_REQUIRED_MESSAGE = 'You need to give your alert a name'
 
@@ -99,12 +99,9 @@ const alertFormSchema = z
         // message as a toast with no field marked, after a round trip.
         const forecast = (alert as AlertFormType).forecast_config
         if (forecast?.condition === ForecastConditionType.TARGET_BY_DATE) {
-            if (!isFiniteThresholdBound(forecast.target)) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    path: ['forecast_config'],
-                    message: TARGET_REQUIRED_FORM_ERROR,
-                })
+            const targetError = forecastTargetValueError(forecast.target)
+            if (targetError) {
+                ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['forecast_config'], message: targetError })
             }
         }
 
@@ -124,7 +121,10 @@ const alertFormSchema = z
  *  one that was legitimate when it was saved must keep saving, or a target alert whose date has
  *  arrived can no longer be renamed or turned off. The server draws the same line. */
 export interface AlertValidationContext {
-    savedTargetDate?: string
+    /** The forecast config already stored on the alert, when there is one. The server re-checks the
+     *  target date whenever a request carries a forecast config at all, so the editor has to use the
+     *  same trigger, or editing just the target sends an old date the server then rejects. */
+    savedForecastConfig?: AlertFormType['forecast_config']
     insightInterval?: IntervalType | null
 }
 
@@ -135,10 +135,11 @@ export function getAlertFormValidationErrors(
     const errors: Record<string, ValidationErrorType> = {}
 
     const forecast = alert.forecast_config
+    const forecastConfigWillBeSent = !objectsEqual(forecast ?? null, context.savedForecastConfig ?? null)
     if (
         forecast?.condition === ForecastConditionType.TARGET_BY_DATE &&
         forecast.target_date &&
-        forecast.target_date !== context.savedTargetDate
+        forecastConfigWillBeSent
     ) {
         const dateError = forecastTargetDateError(forecast.target_date, dayjs(), context.insightInterval)
         if (dateError) {

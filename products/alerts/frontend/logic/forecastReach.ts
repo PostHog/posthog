@@ -42,6 +42,13 @@ export function clampHorizon<T extends { horizon?: number | null }>(
     return clamped === config.horizon ? config : { ...config, horizon: clamped }
 }
 
+/** Why a target value is unusable, or null when it is fine. Shared so the field that blocks the
+ *  save is the field that gets marked. Direction-neutral: an at_most target is a ceiling to stay
+ *  under, not a number to reach. */
+export function forecastTargetValueError(target: number | null | undefined): string | null {
+    return target != null && Number.isFinite(target) ? null : 'Enter a target value'
+}
+
 /** Mirrors _INTERVAL_DAYS in products/alerts/backend/forecasting/engine.py, which is the source of
  *  truth. Not derived from INSIGHT_INTERVAL_DURATION_MINUTES: that puts a month at 30 days and the
  *  backend at 30.4, which moves the anchor below by a day and lets the editor accept a monthly

@@ -16,6 +16,7 @@ import { IntervalType } from '~/types'
 import {
     clampHorizon,
     forecastTargetDateError,
+    forecastTargetValueError,
     maxHorizonForInterval,
 } from 'products/alerts/frontend/logic/forecastReach'
 
@@ -104,6 +105,9 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
     // The backend caps reach as a duration, so this ceiling moves with the insight's interval.
     const maxHorizon = maxHorizonForInterval(insightInterval)
     const targetDateError = forecastTargetDateError(config.target_date, dayjs(), insightInterval)
+    // The save blocks on this, so the field it names has to show it.
+    const targetValueError =
+        config.condition === ForecastConditionType.TARGET_BY_DATE ? forecastTargetValueError(config.target) : null
     // A predicted breach has a threshold to cross, not a target to miss.
     const missesOrCrosses = config.condition === ForecastConditionType.FUTURE_BREACH ? 'crosses it' : 'misses'
     return (
@@ -149,6 +153,7 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
                         className="w-24"
                         data-attr="alertForm-forecast-target"
                         aria-label="Target value"
+                        status={targetValueError ? 'danger' : undefined}
                         value={config.target ?? undefined}
                         onChange={(target) => onChange({ ...config, target: target ?? undefined })}
                     />
@@ -159,9 +164,9 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
                         value={config.target_date ? dayjs(config.target_date) : null}
                         onChange={(d) => onChange({ ...config, target_date: d ? d.format('YYYY-MM-DD') : undefined })}
                     />
-                    {targetDateError ? (
+                    {targetValueError || targetDateError ? (
                         <div className="w-full text-danger text-xs" data-attr="alertForm-forecast-target-date-error">
-                            {targetDateError}
+                            {targetValueError ?? targetDateError}
                         </div>
                     ) : null}
                 </div>
@@ -192,7 +197,7 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
             {config.condition === ForecastConditionType.BAND_DEVIATION ? (
                 <div className="flex items-center gap-2">
                     <span className="text-secondary whitespace-nowrap">Expected range</span>
-                    <SettingHelp text="How far from normal counts as unusual. Narrower catches smaller dips and fires more often." />
+                    <SettingHelp text="How far from normal counts as unusual. Narrower catches smaller deviations and fires more often." />
                     <LemonSegmentedButton
                         size="small"
                         value={config.interval_width ?? DEFAULT_INTERVAL_WIDTH}
@@ -216,7 +221,7 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
             ) : (
                 /* The band width does not decide when these two fire; which line they read does. */
                 <div className="flex items-center gap-2">
-                    <span className="text-secondary whitespace-nowrap">Alert once</span>
+                    <span className="text-secondary whitespace-nowrap">Alert when</span>
                     <SettingHelp text="How certain to be before alerting. The best case waits until the outcome can no longer be avoided, so it fires less often." />
                     <LemonSegmentedButton
                         size="small"

@@ -326,6 +326,10 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
 
     const thresholdValidationError =
         typeof alertFormValidationErrors.threshold === 'string' ? alertFormValidationErrors.threshold : undefined
+    const forecastValidationError =
+        typeof alertFormValidationErrors.forecast_config === 'string'
+            ? alertFormValidationErrors.forecast_config
+            : undefined
 
     const definitionNode = (
         <AlertDefinitionSection
@@ -468,6 +472,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                                 advancedNode,
                                 summary,
                                 thresholdValidationError,
+                                forecastValidationError,
                                 scheduleRestrictionFormError,
                                 alertFormHasErrors,
                                 alertName: alertForm.name,

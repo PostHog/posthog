@@ -3,7 +3,7 @@ import { dayjs } from 'lib/dayjs'
 import { ForecastConditionType, ForecastEngineType, ForecastTargetDirection } from '~/queries/schema/schema-general'
 
 import { forecastTargetDateError } from '../logic/forecastReach'
-import { withConditionDefaults } from './ForecastSelector'
+import { getDefaultForecastConfig, withConditionDefaults } from './ForecastSelector'
 
 describe('withConditionDefaults', () => {
     const base = {
@@ -35,5 +35,16 @@ describe('withConditionDefaults', () => {
         const next = withConditionDefaults(base, ForecastConditionType.TARGET_BY_DATE)
         expect(next.target_direction).toBe(ForecastTargetDirection.AT_LEAST)
         expect(forecastTargetDateError(next.target_date, dayjs())).toBeNull()
+    })
+})
+
+describe('getDefaultForecastConfig', () => {
+    // The seed is a second write path alongside load. Seeding 7 on a monthly insight, where the cap
+    // is 6, sent a horizon the user never typed and the save rejected.
+    it.each([
+        ['clamps the seeded horizon to a monthly cap', 'month', 6],
+        ['leaves the seeded horizon alone where it fits', 'day', 7],
+    ] as const)('%s', (_n, interval, expected) => {
+        expect(getDefaultForecastConfig(interval).horizon).toBe(expected)
     })
 })

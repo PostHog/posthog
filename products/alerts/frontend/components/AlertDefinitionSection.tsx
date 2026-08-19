@@ -203,7 +203,7 @@ export function AlertDefinitionSection({
                                 )
                                 onSetAlertFormValue(
                                     'forecast_config',
-                                    value === 'forecast' ? getDefaultForecastConfig() : null
+                                    value === 'forecast' ? getDefaultForecastConfig(insightInterval) : null
                                 )
                                 // The previous mode's simulation no longer describes the config.
                                 onClearSimulation()

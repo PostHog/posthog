@@ -242,7 +242,7 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
 /** kea-forms addresses a nested field as an array path, so the first element is the top-level key. */
 function invalidatesForecastSimulation(name: FieldName): boolean {
     const field = Array.isArray(name) ? name[0] : name
-    return field === 'forecast_config' || field === 'threshold'
+    return field === 'forecast_config' || field === 'threshold' || field === 'config'
 }
 
 function alertToFormType(
@@ -540,7 +540,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 // shows a forecast and a threshold that were never evaluated together.
                 setAlertFormValue: (state, { name }) => (invalidatesForecastSimulation(name) ? null : state),
                 setAlertFormValues: (state, { values: changed }) =>
-                    'forecast_config' in changed || 'threshold' in changed ? null : state,
+                    'forecast_config' in changed || 'threshold' in changed || 'config' in changed ? null : state,
             },
         ],
         alertFormSubmitAttempted: [
@@ -643,7 +643,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                   })(),
             errors: (alert: AlertFormType) =>
                 getAlertFormValidationErrors(alert, {
-                    savedTargetDate: props.alert?.forecast_config?.target_date,
+                    savedForecastConfig: props.alert?.forecast_config,
                     insightInterval: props.insightInterval,
                 }),
             submit: async (alert) => {
