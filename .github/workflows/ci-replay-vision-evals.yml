@@ -1,29 +1,18 @@
 # Golden-dataset eval for Replay Vision scanner prompts (products/replay_vision/evals).
 #
-# Advisory only, never a required check: Gemini scores are a directional signal, not a merge gate,
-# and the collect/eval steps run with continue-on-error so infra failures (LLM 5xx, warehouse lag,
-# empty dataset) surface in the step summary rather than as a red X.
-# The dataset (real dogfood session recordings) is collected fresh on the ephemeral runner each run,
-# which re-verifies AI data-processing consent; it is never cached, uploaded as an artifact, or
-# otherwise persisted. Only aggregate scores reach the public job log and step summary.
-# The job executes the PR's own code with secrets, so it only runs once a maintainer applies the
-# replay-vision-evals-ready label, or on manual dispatch. The label approves the labeled revision
-# only: pushes never trigger this workflow, so re-running on a new revision takes removing and
-# re-applying the label.
-# If any required secret is missing the job skips green with a warning, so forks and
-# not-yet-configured environments are unaffected.
+# Manual dispatch only, deliberately. The suite re-runs production scans over real dogfood session
+# recordings, so a run spends secrets and LLM calls, and the number it returns moves on its own:
+# Gemini is nondeterministic and the dataset is re-sampled per run. That makes the score a
+# directional signal rather than a merge gate, which is not worth attaching to every push.
+#
+# The dataset is collected fresh on the ephemeral runner each run, which re-verifies AI
+# data-processing consent; it is never cached, uploaded as an artifact, or otherwise persisted.
+# Only aggregate scores reach the public job log and step summary.
+# If any required secret is missing the job skips green with a warning, so a fork or a
+# not-yet-configured environment is unaffected.
 name: Replay Vision Evals
 
 on:
-    pull_request:
-        # No synchronize: the label must approve each revision, not the PR, or a labeled PR's later
-        # pushes would run their own code with secrets unreviewed. An unlabeled run skips, but
-        # dispatching it cancels any in-flight run via the concurrency group.
-        types: [labeled, unlabeled]
-        paths:
-            - '.github/workflows/ci-replay-vision-evals.yml'
-            - 'products/replay_vision/backend/temporal/scanners/prompts/**'
-            - 'products/replay_vision/evals/**'
     workflow_dispatch:
         inputs:
             per_type:
@@ -34,10 +23,6 @@ on:
                 description: 'Trials per case, for variance on Gemini nondeterminism'
                 default: '1'
                 type: string
-
-concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
     contents: read
@@ -50,13 +35,6 @@ jobs:
         name: Golden-dataset scanner eval
         timeout-minutes: 60
         runs-on: ubuntu-latest
-        # The PR's own collector/harness code runs with secrets, so a PR revision is only trusted
-        # once a maintainer has looked at it and applied the label; manual dispatch is maintainer-initiated.
-        if: |
-            github.repository == 'PostHog/posthog' &&
-            (github.event_name == 'workflow_dispatch' ||
-             (github.event.pull_request.head.repo.fork == false &&
-              contains(github.event.pull_request.labels.*.name, 'replay-vision-evals-ready')))
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -142,30 +120,20 @@ jobs:
               run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Collect golden dataset
-              id: collect
               if: steps.gate.outputs.enabled == 'true'
-              # Advisory: collection failures (warehouse lag, empty dataset, expired assets) must
-              # not paint a red X; the eval step is skipped and the summary explains.
-              continue-on-error: true
               shell: bash
               env:
                   POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
+                  # Django refuses to boot with the checked-in SECRET_KEY unless DEBUG is set.
                   DEBUG: '1'
                   # Through env, not inline ${{ }}, so a dispatch input can never inject into the shell.
-                  PER_TYPE: ${{ inputs.per_type || '3' }}
+                  PER_TYPE: ${{ inputs.per_type }}
               run: |
-                  # An unrebased branch can check out a collect.py that predates --max-observations;
-                  # only pass the flag when the script advertises it.
-                  max_obs_args=()
-                  if python -m products.replay_vision.evals.collect --help 2>/dev/null | grep -q -- '--max-observations'; then
-                      max_obs_args=(--max-observations 50)
-                  fi
                   # To the runner-local file only, never the public job log: the collector emits
                   # session and observation ids for missing-event and failed cases.
                   python -m products.replay_vision.evals.collect \
                       --project-id 2 \
                       --per-type "$PER_TYPE" \
-                      "${max_obs_args[@]}" \
                       --output "$DATASET_DIR" > /tmp/collect-output.log 2>&1 || {
                       status=$?
                       echo "collect exited with status $status; collector output stays off the public log"
@@ -180,10 +148,7 @@ jobs:
                   EOF
 
             - name: Run scanner quality suite
-              if: steps.gate.outputs.enabled == 'true' && steps.collect.outcome == 'success'
-              # Advisory: eval failures (LLM 5xx, harness crash) must not paint a red X; the
-              # verdict lives in the step summary.
-              continue-on-error: true
+              if: steps.gate.outputs.enabled == 'true'
               shell: bash
               env:
                   REPLAY_VISION_EVAL_DATASET: ${{ env.DATASET_DIR }}
@@ -193,7 +158,7 @@ jobs:
                   LLM_GATEWAY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
                   # The summary_alignment judge (autoevals) calls its model with the OpenAI client.
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-                  TRIALS: ${{ inputs.trials || '1' }}
+                  TRIALS: ${{ inputs.trials }}
               run: |
                   # To the runner-local file only, never the public job log: the eval calls run_scan
                   # directly, without the activity-level exception sanitizer, so a provider error can

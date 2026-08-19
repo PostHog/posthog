@@ -32,7 +32,7 @@ def main() -> None:
         "--max-observations",
         type=int,
         default=200,
-        help="Newest observations to consider per scanner; lower paginates much faster (CI uses 50).",
+        help="Newest observations to consider per scanner; lower paginates much faster.",
     )
     args = parser.parse_args()
 
