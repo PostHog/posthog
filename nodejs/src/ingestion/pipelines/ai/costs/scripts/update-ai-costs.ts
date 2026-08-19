@@ -3,21 +3,7 @@ import bigDecimal from 'js-big-decimal'
 import path from 'path'
 
 import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
-
-interface ModelCost {
-    prompt_token: number
-    completion_token: number
-    cache_read_token?: number
-    cache_write_token?: number
-    request?: number
-    web_search?: number
-    image?: number
-    image_output?: number
-    audio?: number
-    audio_output?: number
-    input_audio_cache?: number
-    internal_reasoning?: number
-}
+import type { ModelCost } from '~/ingestion/pipelines/ai/costs/providers/types'
 
 interface ModelRow {
     model: string
@@ -57,11 +43,16 @@ const parsePricingNumber = (value: unknown): number | undefined => {
     }
 }
 
-/** OpenRouter charges these at the same price on a promotional route as on its
- * undiscounted sibling, so there is no rate to divide out. */
+/** Carried at the served price: the live feed corroborates this for `web_search`,
+ * where promotional routes serve the same fee as their undiscounted siblings. It
+ * corroborates neither `request` (no model in the feed carries a non-zero fee)
+ * nor a markup route (a negative rate has no sibling); both stay flat by policy. */
 export const FLAT_FEE_FIELDS: ReadonlySet<keyof ModelCost> = new Set(['request', 'web_search'])
 
-/** A field added here and not to `FLAT_FEE_FIELDS` is de-discounted by default. */
+/** A field added here and not to `FLAT_FEE_FIELDS` is de-discounted by default.
+ * `cache_write_1h_token` has no pair on purpose: OpenRouter serves no 1h write
+ * rate. Book-priced events fall back to 2x `prompt_token` (input-costs.ts); only
+ * the custom-pricing path reads it from event properties. */
 export const OPTIONAL_PRICING_FIELDS: ReadonlyArray<[keyof ModelCost, string]> = [
     ['cache_read_token', 'input_cache_read'],
     ['cache_write_token', 'input_cache_write'],
@@ -202,12 +193,7 @@ export const sanitizeReportCell = (value: string): string =>
 
 /** Renders promotions as line items in the generated PR. `uncheckedModels` is
  * reported too, so a bare "no discounts" cannot read as a verified negative. */
-export const renderDiscountReport = (
-    entries: DiscountReportEntry[],
-    uncheckedModels = 0,
-    /** Injectable so a test can prove the sentence is derived, not retyped. */
-    flatFeeFields: ReadonlySet<keyof ModelCost> = FLAT_FEE_FIELDS
-): string => {
+export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedModels = 0): string => {
     const unchecked =
         uncheckedModels > 0
             ? `\n${uncheckedModels} model(s) could not be checked (endpoint pricing unavailable); their prices may still carry a promotion.\n`
@@ -223,7 +209,7 @@ export const renderDiscountReport = (
     const checkable = verdicts.filter((v) => v.some((c) => c !== 'not-checkable')).length
     const endpointCount = rows.reduce((total, row) => total + row.endpoints.length, 0)
 
-    const flatFeeList = [...flatFeeFields]
+    const flatFeeList = [...FLAT_FEE_FIELDS]
         .sort()
         .map((field) => `\`${field}\``)
         .join(', ')
@@ -234,8 +220,9 @@ export const renderDiscountReport = (
         `OpenRouter is running a promotion on **${endpointCount} endpoint(s)** across **${rows.length} model(s)**.`,
         'Per-provider keys below are stored at list rate, with the promotion divided back',
         'out, so a provider key keeps meaning what that provider charges a direct caller.',
-        `Per-call fees (${flatFeeList}) carry across untouched: OpenRouter charges the`,
-        'same for them on a promotional route as on its undiscounted sibling.',
+        `Per-call fees (${flatFeeList}) carry across untouched: promotional routes in`,
+        'the feed serve `web_search` at the same fee as their undiscounted siblings,',
+        'and every other per-call fee follows the same policy.',
         'The `default` key is left as OpenRouter serves it.',
         '',
         `Independently confirmed against an undiscounted sibling route: ${confirmed}/${checkable} checkable model(s).`,

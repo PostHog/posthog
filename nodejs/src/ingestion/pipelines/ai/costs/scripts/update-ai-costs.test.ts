@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import type { ModelCost } from '~/ingestion/pipelines/ai/costs/providers/types'
 
 import {
     type BuiltModelRow,
@@ -198,12 +199,10 @@ describe('buildModelCost() discount handling', () => {
         })
     })
 
-    it('leaves a flat fee alone whatever the rate', () => {
-        for (const discount of [-0.25, 0, 0.1, 0.41, 0.5, 0.9]) {
-            expect(
-                buildModelCost({ prompt: '0.000001', completion: '0.000006', web_search: '0.01', discount })
-            ).toEqual(expect.objectContaining({ web_search: 0.01 }))
-        }
+    it.each([-0.25, 0, 0.1, 0.41, 0.5, 0.9])('leaves a flat fee alone at a rate of %d', (discount) => {
+        expect(buildModelCost({ prompt: '0.000001', completion: '0.000006', web_search: '0.01', discount })).toEqual(
+            expect.objectContaining({ web_search: 0.01 })
+        )
     })
 
     it('does not adjust prices when the rate is out of range', () => {
@@ -248,7 +247,10 @@ describe('FLAT_FEE_FIELDS is bound to the field list it filters', () => {
         ])
     })
 
-    const policy: Record<string, 'flat' | 'de-discounted'> = {
+    // Partial, so the absent-policy guard below is type-honest. A stray key
+    // outside `keyof ModelCost` fails to compile; one inside it but outside the
+    // loop fails the keys-equality test.
+    const policy: Partial<Record<keyof ModelCost, 'flat' | 'de-discounted'>> = {
         cache_read_token: 'de-discounted',
         cache_write_token: 'de-discounted',
         request: 'flat',
@@ -495,19 +497,14 @@ describe('renderDiscountReport()', () => {
     it('says that per-call fees are not de-discounted', () => {
         const report = renderDiscountReport([entry()])
         expect(report).toContain(
-            'Per-call fees (`request`, `web_search`) carry across untouched: OpenRouter charges the\n' +
-                'same for them on a promotional route as on its undiscounted sibling.'
+            'Per-call fees (`request`, `web_search`) carry across untouched: promotional routes in\n' +
+                'the feed serve `web_search` at the same fee as their undiscounted siblings,\n' +
+                'and every other per-call fee follows the same policy.'
         )
     })
 
-    it('builds the flat-fee list from the set it is given, sorted', () => {
-        // A set the real one lacks, in an order sorting must change: retyping the
-        // sentence or dropping the sort both fail here.
-        const report = renderDiscountReport([entry()], 0, new Set(['web_search', 'image']))
-        expect(report).toContain('Per-call fees (`image`, `web_search`) carry across untouched')
-    })
-
-    it('names the real flat fees when no set is given', () => {
+    it('derives the flat-fee list from FLAT_FEE_FIELDS', () => {
+        // The literal pin above catches a retyped sentence; this binds it to the set.
         expect(renderDiscountReport([entry()])).toContain(
             `Per-call fees (${[...FLAT_FEE_FIELDS]
                 .sort()
@@ -989,8 +986,6 @@ describe('writeOutputs()', () => {
 
         const [, body] = writes.find(([f]) => f === summaryPath)!
         expect(body).toContain('openai/gpt-5.6-luna')
-        // Pins that the real run does not override the injectable set.
-        expect(body).toContain('Per-call fees (`request`, `web_search`)')
         expect(body).not.toContain('No discounted endpoints found')
     })
 
