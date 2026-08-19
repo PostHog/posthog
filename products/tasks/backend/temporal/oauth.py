@@ -76,7 +76,7 @@ def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
     return "array"
 
 
-def _is_interactive_signals_task(task: Task) -> bool:
+def is_interactive_signals_task(task: Task) -> bool:
     """Whether this run exists because a person pressed something, not because we scheduled it."""
     return task.origin_product in INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS and not task.internal
 
@@ -124,7 +124,7 @@ def create_oauth_access_token(
         # task needs a member-capable token, or every member-proxy call it was
         # just granted would 403.
         token_options["include_mcp_builtin_agent_scope"] = True
-    if _is_interactive_signals_task(task):
+    if is_interactive_signals_task(task):
         token_options["include_interactive_run_scope"] = True
     return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
 
