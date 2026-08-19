@@ -28,11 +28,14 @@ from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
+    DATA_DELETION_REQUEST_EXECUTED,
+    DATA_DELETION_REQUEST_FAILED,
     DataDeletionRequest,
     ExecutionMode,
     RequestStatus,
     RequestType,
     auto_approve_pending_requests,
+    capture_data_deletion_request_event,
     compile_hogql_predicate,
     event_match_sql_fragment,
     event_removal_where,
@@ -1357,6 +1360,14 @@ def delete_person_profiles_op(
 # ---------------------------------------------------------------------------
 
 
+def _capture_lifecycle_event(request_id: str, event: str) -> None:
+    """Load the request and emit a lifecycle event. Call sites gate this on a real status
+    transition so a Dagster re-run of an already-finalized request doesn't double-count."""
+    request = DataDeletionRequest.objects.filter(pk=request_id).first()
+    if request is not None:
+        capture_data_deletion_request_event(request, event)
+
+
 @dagster.op(tags=OWNER_TAG)
 def finalize_deletion_request(
     context: dagster.OpExecutionContext,
@@ -1376,12 +1387,15 @@ def finalize_deletion_request(
     # Accept FAILED in addition to IN_PROGRESS: when an op fails the failure hook flips the request
     # to FAILED, so re-running the job from the failed op in Dagster (where load_* is reused and not
     # re-executed) leaves it FAILED. Allowing FAILED here lets that re-run finalize the request.
-    DataDeletionRequest.objects.filter(
+    updated = DataDeletionRequest.objects.filter(
         pk=deletion_request.request_id,
         status__in=[RequestStatus.IN_PROGRESS, RequestStatus.FAILED],
     ).update(status=next_status, updated_at=timezone.now())
 
     context.log.info(f"Deletion request {deletion_request.request_id} marked as {next_status.value}.")
+
+    if updated:
+        _capture_lifecycle_event(deletion_request.request_id, DATA_DELETION_REQUEST_EXECUTED)
 
 
 @dagster.op(tags=OWNER_TAG)
@@ -1394,12 +1408,15 @@ def finalize_person_removal(
 
     # Accept FAILED too so a Dagster re-run after a mid-job failure (where the failure hook already
     # flipped the request to FAILED) can still finalize it. See finalize_deletion_request.
-    DataDeletionRequest.objects.filter(
+    updated = DataDeletionRequest.objects.filter(
         pk=person_removal.request_id,
         status__in=[RequestStatus.IN_PROGRESS, RequestStatus.FAILED],
     ).update(status=RequestStatus.COMPLETED, updated_at=timezone.now())
 
     context.log.info(f"Person removal request {person_removal.request_id} marked as completed.")
+
+    if updated:
+        _capture_lifecycle_event(person_removal.request_id, DATA_DELETION_REQUEST_EXECUTED)
 
 
 @dagster.failure_hook()
@@ -1425,12 +1442,15 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
     if not request_id:
         return
 
-    DataDeletionRequest.objects.filter(
+    updated = DataDeletionRequest.objects.filter(
         pk=request_id,
         status=RequestStatus.IN_PROGRESS,
     ).update(status=RequestStatus.FAILED, updated_at=timezone.now())
 
     context.log.error(f"Deletion request {request_id} marked as failed.")
+
+    if updated:
+        _capture_lifecycle_event(request_id, DATA_DELETION_REQUEST_FAILED)
 
 
 # ---------------------------------------------------------------------------

@@ -9,15 +9,20 @@ from django.urls import path, reverse
 from django.utils import timezone
 from django.utils.html import format_html
 
+from posthog.event_usage import report_user_action
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     AUTO_APPROVE_MAX_EVENTS,
+    DATA_DELETION_REQUEST_APPROVED,
+    DATA_DELETION_REQUEST_CREATED,
+    DATA_DELETION_REQUEST_SUBMITTED,
     DataDeletionRequest,
     ExecutionMode,
     RequestStatus,
     RequestType,
     build_deletion_count_query,
     count_remaining_for_request,
+    data_deletion_request_analytics_properties,
     fetch_deletion_stats,
     invalidate_compiled_predicate_cache,
     refresh_deletion_stats,
@@ -346,7 +351,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             criteria = {field: getattr(original, field) for field in CRITERIA_FIELDS}
             # Shallow-copy mutable list fields so the duplicate never aliases the original's lists.
             criteria = {k: list(v) if isinstance(v, list) else v for k, v in criteria.items()}
-            DataDeletionRequest.objects.create(
+            new_request = DataDeletionRequest.objects.create(
                 **criteria,
                 team_id=original.team_id,
                 requires_approval=original.requires_approval,
@@ -355,6 +360,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 created_by=request.user,
                 created_by_staff=request.user.is_staff,
             )
+            self._capture(request, new_request, DATA_DELETION_REQUEST_CREATED)
             created += 1
         messages.success(request, f"Duplicated {created} request(s) as new draft(s).")
 
@@ -384,6 +390,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             '<pre style="white-space: pre-wrap; background: #f5f5f5; padding: 8px;">{}</pre>',
             rendered,
         )
+
+    def _capture(self, request: HttpRequest, obj: DataDeletionRequest, event: str) -> None:
+        """Capture a lifecycle event for an admin transition, attributed to the acting staff user."""
+        report_user_action(request.user, event, properties=data_deletion_request_analytics_properties(obj))
 
     def _is_locked(self, obj: DataDeletionRequest | None) -> bool:
         """Approved and later requests are locked — only draft/pending are editable."""
@@ -448,6 +458,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             obj.person_drop_recordings = None
             messages.info(request, "Person targets cleared — only person_removal requests use them.")
         super().save_model(request, obj, form, change)
+        if not change:
+            self._capture(request, obj, DATA_DELETION_REQUEST_CREATED)
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
@@ -627,6 +639,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
         obj.refresh_from_db()
         self.log_change(request, obj, "Submitted: status changed from draft to pending.")
+        self._capture(request, obj, DATA_DELETION_REQUEST_SUBMITTED)
         if requires_approval:
             messages.success(request, "Request submitted and is now pending ClickHouse Team approval.")
         else:
@@ -756,6 +769,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
 
             obj.refresh_from_db()
             self.log_change(request, obj, f"Approved deletion request (execution_mode={execution_mode}).")
+            self._capture(request, obj, DATA_DELETION_REQUEST_APPROVED)
             messages.success(request, f"Deletion request approved ({obj.get_execution_mode_display()}).")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 

@@ -40,6 +40,8 @@ from posthog.dags.data_deletion_requests import (
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.data_deletion_request import (
+    DATA_DELETION_REQUEST_APPROVED,
+    DATA_DELETION_REQUEST_EXECUTED,
     DataDeletionRequest,
     ExecutionMode,
     RequestStatus,
@@ -267,6 +269,38 @@ def test_finalize_deletion_request_transitions_status(execution_mode, start_stat
 
     request.refresh_from_db()
     assert request.status == expected_status
+
+
+@pytest.mark.django_db
+def test_finalize_deletion_request_captures_executed_only_on_transition():
+    # The executed event feeds the volume/latency metrics, and finalize accepts a re-run of an
+    # already-finalized request. Without the transition guard a Dagster re-run would double-count.
+    start_time = datetime.now() - timedelta(days=7)
+    end_time = datetime.now()
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.IN_PROGRESS,
+        execution_mode=ExecutionMode.IMMEDIATE,
+    )
+    deletion_ctx = DeletionRequestContext(
+        request_id=str(request.pk),
+        team_id=TEAM_ID,
+        start_time=start_time,
+        end_time=end_time,
+        events=["$pageview"],
+        execution_mode=ExecutionMode.IMMEDIATE.value,
+    )
+
+    with patch("posthog.dags.data_deletion_requests.capture_data_deletion_request_event") as capture:
+        finalize_deletion_request(build_op_context(), deletion_ctx)
+        finalize_deletion_request(build_op_context(), deletion_ctx)
+
+    capture.assert_called_once()
+    assert capture.call_args.args[1] == DATA_DELETION_REQUEST_EXECUTED
 
 
 @pytest.mark.django_db
@@ -654,8 +688,13 @@ def test_auto_approve_job_approves_small_pending_event_removal(cluster: Clickhou
     cluster.any_host(partial(_insert_events, events)).result()
     request = _pending_event_removal()
 
-    result = auto_approve_deletion_requests_job.execute_in_process()
+    with patch("posthog.models.data_deletion_request.capture_data_deletion_request_event") as capture:
+        result = auto_approve_deletion_requests_job.execute_in_process()
     assert result.success
+
+    # Auto-approvals must be instrumented too — they never pass through the admin approve view.
+    capture.assert_called_once()
+    assert capture.call_args.args[1] == DATA_DELETION_REQUEST_APPROVED
 
     request.refresh_from_db()
     assert request.status == RequestStatus.APPROVED
