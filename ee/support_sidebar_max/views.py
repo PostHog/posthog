@@ -7,7 +7,7 @@ import logging
 import builtins
 from collections.abc import MutableMapping
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.conf import settings
 
@@ -21,6 +21,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.models import User
 
 from ee.support_sidebar_max.prompt import get_system_prompt
 
@@ -92,8 +94,9 @@ class MaxChatViewSet(viewsets.ViewSet):
                 posthog_client=posthoganalytics.default_client,
                 timeout=self.ANTHROPIC_TIMEOUT_SECONDS,
             )
-            distinct_id = request.user.distinct_id
-            team_id = request.user.current_team_id
+            user = cast(User, request.user)
+            distinct_id = user.distinct_id or str(user.id)
+            team_id = user.current_team_id
 
             data = request.data
             if not data or "message" not in data:
@@ -270,7 +273,7 @@ class MaxChatViewSet(viewsets.ViewSet):
                 messages = [messages[0], messages[-1]]  # Keep first and last messages
 
             # Use with_raw_response to get access to headers
-            raw_response = client.messages.with_raw_response.create(
+            raw_response = client.messages.with_raw_response.create(  # type: ignore[call-overload]
                 model="claude-3-5-sonnet-20241022",
                 max_tokens=1024,
                 tools=tools,

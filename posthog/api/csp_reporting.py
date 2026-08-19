@@ -1,3 +1,5 @@
+from typing import cast
+
 import posthoganalytics
 from posthoganalytics.ai.openai import OpenAI
 from rest_framework import request, response, viewsets
@@ -7,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from posthog.api.csp import CSP_REPORT_TYPES_MAPPING_TABLE
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import User
 
 prompt = r"""
 You are a security consultant that explains CSP violation reports.
@@ -49,13 +52,14 @@ class CSPReportingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not properties:
             return response.Response({"error": "properties is required"}, status=400)
 
-        llm_response = OpenAI(posthog_client=posthoganalytics.default_client).chat.completions.create(
+        user = cast(User, request.user)
+        llm_response = OpenAI(posthog_client=posthoganalytics.default_client).chat.completions.create(  # type: ignore[call-overload]
             model="gpt-4.1-2025-04-14",
             temperature=0.1,  # Using 0.1 to reduce hallucinations, but >0 to allow for some creativity
             messages=[{"role": "system", "content": prompt}, {"role": "user", "content": properties}],
             user="ph/csp/explain",
             posthog_privacy_mode=True,
-            posthog_distinct_id=request.user.distinct_id,
+            posthog_distinct_id=user.distinct_id or str(user.id),
             posthog_properties={
                 "ai_product": "csp_reporting",
                 "ai_feature": "explain-violation",

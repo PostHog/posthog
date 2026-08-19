@@ -55,7 +55,7 @@ class StreamChunk:
         return f"data: {json.dumps({'type': self.type, **self.data})}\n\n"
 
 
-@dataclass
+@dataclass(frozen=False)
 class AnalyticsContext:
     """Context for PostHog analytics tracking"""
 
