@@ -322,6 +322,14 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     return undefined
 }
 
+// Supabase tables carry arbitrary user columns, so the "any timestamp/date" and id-column
+// fallbacks above can land on a value that never changes on update (a date of birth, a
+// config integer). Such a cursor syncs each row once and then silently stops seeing
+// updates, so only trust update-tracking columns and otherwise default to full refresh.
+export const resolveUpdateTrackedIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined =>
+    fields.find((field) => /^(updated|modified|last_modified)/i.test(field.label) && isTimestampType(field)) ??
+    fields.find((field) => /^created/i.test(field.label) && isTimestampType(field))
+
 function syncExpandedSchemaGroupKeys(
     actions: sourceWizardLogicType['actions'],
     values: sourceWizardLogicType['values']
@@ -3508,7 +3516,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'webhook'
                         } else if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
-                            const resolvedField = resolveIncrementalField(schema.incremental_fields)
+                            const resolvedField =
+                                values.selectedConnector.name === 'Supabase'
+                                    ? resolveUpdateTrackedIncrementalField(schema.incremental_fields)
+                                    : resolveIncrementalField(schema.incremental_fields)
                             schema.sync_type = method
                             if (resolvedField) {
                                 schema.incremental_field = resolvedField.field

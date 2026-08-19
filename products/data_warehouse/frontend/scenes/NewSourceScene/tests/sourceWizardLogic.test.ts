@@ -4,7 +4,7 @@ import api from 'lib/api'
 
 import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import type { ExternalDataSourceSyncSchema } from '~/types'
+import type { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
 import {
     buildKeaFormDefaultFromSourceDetails,
@@ -1187,6 +1187,106 @@ describe('sourceWizardLogic', () => {
                 expect(createWebhook).toHaveBeenCalledTimes(2)
                 expect(createWebhook).toHaveBeenLastCalledWith('source-1')
                 expect(onComplete).toHaveBeenCalled()
+            } finally {
+                unmount()
+            }
+        })
+    })
+
+    // Supabase tables carry arbitrary user columns, so the wizard only trusts update-tracking
+    // columns as default cursors; anything else falls back to full refresh instead of a cursor
+    // that never advances (see resolveUpdateTrackedIncrementalField).
+    describe('Supabase incremental defaults', () => {
+        const supabaseSource = { name: 'Supabase', iconPath: '', caption: null, fields: [] } as SourceConfig
+        const postgresSource = { name: 'Postgres', iconPath: '', caption: null, fields: [] } as SourceConfig
+
+        const apiSchema = (
+            table: string,
+            overrides: Partial<ExternalDataSourceSyncSchema> = {}
+        ): ExternalDataSourceSyncSchema =>
+            ({
+                table,
+                label: null,
+                rows: null,
+                should_sync: false,
+                sync_time_of_day: null,
+                incremental_field: null,
+                incremental_field_type: null,
+                sync_type: null,
+                incremental_fields: [],
+                incremental_available: true,
+                append_available: true,
+                supports_webhooks: false,
+                description: null,
+                should_sync_default: true,
+                primary_key_columns: null,
+                available_columns: [],
+                detected_primary_keys: null,
+                permission_error: null,
+                cdc_available: false,
+                ...overrides,
+            }) as ExternalDataSourceSyncSchema
+
+        const dateOfBirthFields: IncrementalField[] = [
+            { field: 'date_of_birth', field_type: 'date', label: 'date_of_birth', type: 'date' },
+        ]
+
+        const mountAndLoadSchemas = async (
+            source: SourceConfig
+        ): Promise<{ logic: ReturnType<typeof sourceWizardLogic>; unmount: () => void }> => {
+            const logic = sourceWizardLogic({ availableSources: { [source.name]: source } })
+            const unmount = logic.mount()
+            logic.actions.selectConnector(source)
+            await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+            return { logic, unmount }
+        }
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('defaults Supabase tables without an update-tracking column to full refresh', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('public.users', {
+                    incremental_fields: [
+                        { field: 'priority', field_type: 'integer', label: 'priority', type: 'integer' },
+                        ...dateOfBirthFields,
+                    ],
+                    incremental_field: 'priority',
+                }),
+                apiSchema('public.tasks', {
+                    incremental_fields: [
+                        { field: 'updated_at', field_type: 'timestamp', label: 'updated_at', type: 'timestamp' },
+                    ],
+                    incremental_field: 'updated_at',
+                }),
+            ] as ExternalDataSourceSyncSchema[])
+
+            const { logic, unmount } = await mountAndLoadSchemas(supabaseSource)
+
+            try {
+                const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['public.users'].sync_type).toBe('full_refresh')
+                expect(byTable['public.tasks'].sync_type).toBe('incremental')
+                expect(byTable['public.tasks'].incremental_field).toBe('updated_at')
+            } finally {
+                unmount()
+            }
+        })
+
+        it('keeps the any-timestamp fallback for other database sources', async () => {
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                apiSchema('public.users', {
+                    incremental_fields: dateOfBirthFields,
+                    incremental_field: 'date_of_birth',
+                }),
+            ] as ExternalDataSourceSyncSchema[])
+
+            const { logic, unmount } = await mountAndLoadSchemas(postgresSource)
+
+            try {
+                expect(logic.values.databaseSchema[0].sync_type).toBe('incremental')
+                expect(logic.values.databaseSchema[0].incremental_field).toBe('date_of_birth')
             } finally {
                 unmount()
             }
