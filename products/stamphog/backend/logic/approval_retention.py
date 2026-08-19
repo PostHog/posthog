@@ -1,38 +1,25 @@
 """Decide whether a push leaves a standing stamphog approval in place.
 
 GitHub never auto-dismisses an approval, so the review workflow retracts stamphog's before every
-re-review. That is correct for a push that changes code, and wrong for the push that dominates a
-long-lived PR: a merge of the base branch, which leaves the PR's own diff alone. It drops the PR out
-of merge readiness and spends a full sandboxed LLM review to re-derive the verdict it already had.
+re-review. That is right for a push that changes code, and wrong for the one that dominates a
+long-lived PR: a merge of the base branch, which leaves the PR's own diff alone and still costs the
+PR its merge readiness plus a full sandboxed review to re-derive the verdict it had.
 
-Retention answers exactly one question: is what stamphog approved byte-identical to what is there
-now? It compares the PR's own unified diff at the approved head against the same at the current
-head, so it never has to judge whether a given file matters. A merge of the base branch that touches
-none of the PR's files produces the identical diff and retains; a merge that has to resolve a
-conflict inside one of them changes it and re-reviews.
+So retention answers one question, and never judges whether a given file matters: is the PR's own
+diff byte-identical to the one that was approved?
 
-Comparing the diff text rather than a per-file blob sha is deliberate. The text carries everything
-git records about a change, file modes and renames included, so flipping the executable bit on a
-file the PR already edits moves it. A blob sha covers contents only, and nothing in GitHub's file
-payload carries the mode.
+Three properties of that comparison are load-bearing, each earned from a review finding:
 
-The one thing the text does not carry is binary content, which git renders as "Binary files ...
-differ" over an abbreviated blob id. Two different binaries whose ids share that short prefix would
-read as identical, so a diff mentioning one is refused rather than compared.
+- Both sides come from `compare_diff` on two commit shas. `get_pr_files` answers for whichever head
+  is live when the request runs, which a contributor can move under it.
+- It compares diff text, not per-file blob shas. The text carries file modes and renames; a blob sha
+  covers contents only, and GitHub's file payload has no mode at all.
+- Anything it cannot actually see is refused rather than compared. See the guards in
+  `approved_diff_unchanged`.
 
-Both sides come from `compare_diff`, which takes two commit shas. That is load-bearing too:
-`get_pr_files` answers for whichever head is live when the request runs, so a contributor could push
-the approved content, let the comparison run, and push the unreviewed head back. Reading two
-immutable commits leaves no such window.
-
-There is deliberately no "this file is harmless" rule. Successive review passes found that every
-candidate for one was wrong in this repository: lockfiles select the dependency code that gets
-installed, tests run in CI with CI's credentials, a file under a generated/ directory can be
-hand-edited and still compiles into a service, docs/onboarding is aliased into the production
-frontend, MDX compiles to JavaScript, snapshot files are JavaScript modules the test runner
-executes, and even plain Markdown ships, because services/mcp imports .md templates and product
-tools.yaml files compile .md prompts into shipped tool definitions. Retention has no human in the
-loop, so it makes no judgment calls at all.
+Resist adding a "this file is harmless" allowlist back. One existed and every entry in it turned out
+to be executable somewhere in this repository, down to plain Markdown, which ships through
+`services/mcp` templates and product `tools.yaml` prompts.
 """
 
 from __future__ import annotations

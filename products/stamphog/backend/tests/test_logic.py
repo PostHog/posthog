@@ -2,7 +2,7 @@ import json
 from collections.abc import Callable
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -14,7 +14,12 @@ from products.stamphog.backend.logic.approval_retention import approved_diff_unc
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
-from products.stamphog.backend.logic.github_client import StamphogGitHubClient, StamphogGitHubError, _build_app_jwt
+from products.stamphog.backend.logic.github_client import (
+    MAX_COMPARE_DIFF_BYTES,
+    StamphogGitHubClient,
+    StamphogGitHubError,
+    _build_app_jwt,
+)
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
 from products.stamphog.backend.models import StamphogRepoConfig
@@ -527,6 +532,29 @@ index aaa..bbb 100644
 """
 
 _DIFF_MODE_FLIPPED = _DIFF.replace("index aaa..bbb 100644", "old mode 100644\nnew mode 100755\nindex aaa..bbb 100755")
+
+
+class CompareDiffSizeTests(SimpleTestCase):
+    @staticmethod
+    def _streamed(body: bytes) -> MagicMock:
+        response = MagicMock(status_code=200)
+        response.iter_content.return_value = iter([body[i : i + 1024] for i in range(0, len(body), 1024)])
+        return response
+
+    def test_diff_under_the_ceiling_is_returned(self) -> None:
+        response = self._streamed(b"diff --git a/x b/x\n")
+
+        with patch.object(StamphogGitHubClient, "_request", return_value=response):
+            assert StamphogGitHubClient("42").compare_diff("o/r", "base", "head") == "diff --git a/x b/x\n"
+
+    def test_oversized_diff_raises_instead_of_buffering(self) -> None:
+        # GitHub answers 200 for a diff of any size, and a range spanning thousands of files really
+        # does return hundreds of megabytes. Reading that into a worker is the cost this refuses.
+        response = self._streamed(b"x" * (MAX_COMPARE_DIFF_BYTES + 4096))
+
+        with patch.object(StamphogGitHubClient, "_request", return_value=response):
+            with pytest.raises(StamphogGitHubError):
+                StamphogGitHubClient("42").compare_diff("o/r", "base", "head")
 
 
 class ApprovalRetentionTests(SimpleTestCase):
