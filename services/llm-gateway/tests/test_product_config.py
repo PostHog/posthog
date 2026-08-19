@@ -714,8 +714,6 @@ class TestModelAccessFlag:
     def test_every_gated_model_has_its_own_flag(self):
         flags = list(MODEL_ACCESS_FLAGS.values())
         assert len(flags) == len(set(flags))
-        # an entitlement flag must not double as a backend routing flag, or flipping a
-        # routing flag would widen model access as a side effect
         assert not set(flags) & {GLM_BASETEN_FLAG, GLM_MODAL_FLAG}
 
     @pytest.mark.parametrize("model", [None, "", "gpt-5.2", "claude-opus-5", "@cf/zai-org/glm-5.2"])
