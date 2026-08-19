@@ -1,4 +1,8 @@
 import { GithubRefChip } from "@posthog/ui/features/editor/components/GithubRefChip";
+import {
+  PrRefChip,
+  type PrRefDetails,
+} from "@posthog/ui/features/editor/components/PrRefChip";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta = {
@@ -23,69 +27,73 @@ export const WithoutLiveDetails: Story = {
   ),
 };
 
+const LIFECYCLE_CASES: { number: number; details: PrRefDetails }[] = [
+  {
+    number: 101,
+    details: {
+      state: "open",
+      merged: false,
+      draft: false,
+      title: "Add account settings",
+      author: "octocat",
+      isLoading: false,
+      ciStatus: "success",
+      isCiLoading: false,
+    },
+  },
+  {
+    number: 102,
+    details: {
+      state: "open",
+      merged: false,
+      draft: true,
+      title: "Improve search filters",
+      author: "hubot",
+      isLoading: false,
+      ciStatus: "pending",
+      isCiLoading: false,
+    },
+  },
+  {
+    number: 103,
+    details: {
+      state: "closed",
+      merged: false,
+      draft: false,
+      title: "Update billing copy",
+      author: "monalisa",
+      isLoading: false,
+      ciStatus: "failure",
+      isCiLoading: false,
+    },
+  },
+  {
+    number: 104,
+    details: {
+      state: "closed",
+      merged: true,
+      draft: false,
+      title: "Fix the sign-up redirect",
+      author: "octocat",
+      isLoading: false,
+      ciStatus: "success",
+      isCiLoading: false,
+    },
+  },
+];
+
 export const LifecycleStates: Story = {
   render: () => (
     <div className="flex flex-wrap items-center gap-3 text-[13px]">
-      <GithubRefChip
-        href="https://github.com/example-org/example-repo/pull/101"
-        kind="pr"
-        prDetails={{
-          state: "open",
-          merged: false,
-          draft: false,
-          title: "Add account settings",
-          author: "octocat",
-          ciStatus: "success",
-          isLoading: false,
-        }}
-      >
-        example-org/example-repo#101
-      </GithubRefChip>
-      <GithubRefChip
-        href="https://github.com/example-org/example-repo/pull/102"
-        kind="pr"
-        prDetails={{
-          state: "open",
-          merged: false,
-          draft: true,
-          title: "Improve search filters",
-          author: "hubot",
-          ciStatus: "pending",
-          isLoading: false,
-        }}
-      >
-        example-org/example-repo#102
-      </GithubRefChip>
-      <GithubRefChip
-        href="https://github.com/example-org/example-repo/pull/103"
-        kind="pr"
-        prDetails={{
-          state: "closed",
-          merged: false,
-          draft: false,
-          title: "Update billing copy",
-          author: "monalisa",
-          ciStatus: "failure",
-          isLoading: false,
-        }}
-      >
-        example-org/example-repo#103
-      </GithubRefChip>
-      <GithubRefChip
-        href="https://github.com/example-org/example-repo/pull/104"
-        kind="pr"
-        prDetails={{
-          state: "closed",
-          merged: true,
-          draft: false,
-          title: "Fix the sign-up redirect",
-          author: "octocat",
-          ciStatus: "success",
-          isLoading: false,
-        }}
-      >
-        example-org/example-repo#104
-      </GithubRefChip>
+      {LIFECYCLE_CASES.map(({ number, details }) => (
+        <PrRefChip
+          key={number}
+          href={`https://github.com/example-org/example-repo/pull/${number}`}
+          details={details}
+        >
+          {`example-org/example-repo#${number}`}
+        </PrRefChip>
+      ))}
     </div>
   ),
 };
@@ -93,21 +101,21 @@ export const LifecycleStates: Story = {
 export const LoadingDetails: Story = {
   render: () => (
     <div className="text-[13px]">
-      <GithubRefChip
+      <PrRefChip
         href="https://github.com/example-org/example-repo/pull/105"
-        kind="pr"
-        prDetails={{
+        details={{
           state: null,
           merged: false,
           draft: false,
           title: null,
           author: null,
-          ciStatus: "loading",
           isLoading: true,
+          ciStatus: null,
+          isCiLoading: true,
         }}
       >
         example-org/example-repo#105
-      </GithubRefChip>
+      </PrRefChip>
     </div>
   ),
 };

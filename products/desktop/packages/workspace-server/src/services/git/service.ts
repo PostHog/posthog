@@ -91,7 +91,11 @@ import type {
   SyncOutput,
   UpdatePrByUrlOutput,
 } from "./schemas";
-import { getPrInfoByUrlOutput, prConversationCommentSchema } from "./schemas";
+import {
+  getPrDetailsByUrlOutput,
+  getPrInfoByUrlOutput,
+  prConversationCommentSchema,
+} from "./schemas";
 
 const FETCH_THROTTLE_MS = 30_000;
 /** Max PRs per GraphQL request – stays well under GitHub's complexity ceiling. */
@@ -1039,16 +1043,9 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
         return null;
       }
 
-      const data = JSON.parse(result.stdout) as {
-        state: string;
-        merged: boolean;
-        draft: boolean;
-        headRefName: string | null;
-        title: string | null;
-        author: string | null;
-      };
-
-      return data;
+      // The jq expression above and this schema describe one shape, so parse
+      // rather than cast: a GitHub field that moves fails here, not downstream.
+      return getPrDetailsByUrlOutput.parse(JSON.parse(result.stdout));
     } catch {
       return null;
     }
