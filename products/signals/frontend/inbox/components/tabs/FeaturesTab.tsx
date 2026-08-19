@@ -6,11 +6,33 @@ import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@p
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import type { InboxFeatureDiscoveryRunApi } from '../../../generated/api.schemas'
 import { featureCreateLogic } from '../../logics/featureCreateLogic'
 import { featureDiscoveryLogic } from '../../logics/featureDiscoveryLogic'
 import { featureListLogic } from '../../logics/featureListLogic'
 import { FeatureDiscoveryModal } from './FeatureDiscoveryModal'
 import { NewFeatureModal } from './NewFeatureModal'
+
+export function FeatureDiscoveryBanner({ run }: { run: InboxFeatureDiscoveryRunApi }): JSX.Element {
+    return (
+        <LemonBanner type="info">
+            Discovering features in <strong>{run.repository}</strong>
+            {run.focus ? ` with the focus “${run.focus}”` : ''}. The reports will appear in Staged features when the
+            agent finishes.
+            {run.task_id && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    to={urls.taskDetail(run.task_id)}
+                    data-attr="feature-discovery-view-task-logs"
+                    className="ml-2"
+                >
+                    View task logs
+                </LemonButton>
+            )}
+        </LemonBanner>
+    )
+}
 
 export function FeaturesTab(): JSX.Element {
     const { features, featuresLoading } = useValues(featureListLogic)
@@ -71,11 +93,7 @@ export function FeaturesTab(): JSX.Element {
             <div className="flex items-center justify-end">{actionButtons}</div>
 
             {activeDiscoveryRuns.map((run) => (
-                <LemonBanner key={run.id} type="info">
-                    Discovering features in <strong>{run.repository}</strong>
-                    {run.focus ? ` with the focus “${run.focus}”` : ''}. The reports will appear in Staged features when
-                    the agent finishes.
-                </LemonBanner>
+                <FeatureDiscoveryBanner key={run.id} run={run} />
             ))}
             {latestFailedRun && activeDiscoveryRuns.length === 0 && (
                 <LemonBanner type="error">
