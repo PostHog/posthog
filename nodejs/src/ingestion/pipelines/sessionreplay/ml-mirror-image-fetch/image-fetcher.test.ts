@@ -51,6 +51,22 @@ describe('HttpImageFetcher', () => {
         fetchStreamedMock.mockReset()
     })
 
+    it('identifies every request as PostHogImageFetcherBot', async () => {
+        fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png'))
+
+        await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
+
+        expect(fetchStreamedMock).toHaveBeenCalledWith(
+            'https://cdn.example.com/a.png',
+            expect.objectContaining({
+                headers: expect.objectContaining({
+                    'user-agent':
+                        'PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)',
+                }),
+            })
+        )
+    })
+
     it('returns the bytes of an image whose payload matches its declared type', async () => {
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png; charset=binary'))
 
