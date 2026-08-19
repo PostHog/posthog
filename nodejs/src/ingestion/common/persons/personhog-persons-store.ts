@@ -288,8 +288,6 @@ export class PersonhogPersonsStore implements PersonsStore {
     private entries: Map<string, OpsLaneEntry> = new Map()
     /** Person keys each open batch references, for the release refcount. */
     private batchEntryKeys: Map<number, Set<string>> = new Map()
-    /** How many open batches reference a person key. */
-    private entryRefCount: Map<string, number> = new Map()
     /**
      * The shared memo: resolutions, projections, read grades, and their
      * per-batch liveness. The predicate hands it the one lane fact it
@@ -1445,7 +1443,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // protect its unwritten ops; now it can go. Identity-guarded: a
         // stale finalizer (an old write settling after the entry was retired
         // and recreated) must not retire the new entry's unwritten ops.
-        if ((this.entryRefCount.get(personKey) ?? 0) === 0 && this.entries.get(personKey) === entry) {
+        if (!this.entryHeldByAnyBatch(personKey) && this.entries.get(personKey) === entry) {
             this.retireEntry(personKey)
         }
     }
@@ -1645,7 +1643,7 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     /**
      * Reinstates a merged person's projection on top of the merge's own
-     * result. the memo's record deliberately refuses to overwrite a projection
+     * result. The memo's record deliberately refuses to overwrite a projection
      * that has ops folded behind it, because an ordinary re-fetch answers
      * committed state that predates them; a merge survivor is the one
      * answer that is not stale, so it is installed here and the lane's
@@ -2056,12 +2054,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         const keys = this.batchEntryKeys.get(batchId)
         this.batchEntryKeys.delete(batchId)
         for (const personKey of keys ?? []) {
-            const refs = (this.entryRefCount.get(personKey) ?? 1) - 1
-            if (refs > 0) {
-                this.entryRefCount.set(personKey, refs)
+            if (this.entryHeldByAnyBatch(personKey)) {
                 continue
             }
-            this.entryRefCount.delete(personKey)
             const entry = this.entries.get(personKey)
             if (entry && entry.segments.length > 0) {
                 // Evicting now would discard the ops. The entry stays until
@@ -2090,11 +2085,22 @@ export class PersonhogPersonsStore implements PersonsStore {
             keys = new Set()
             this.batchEntryKeys.set(batchId, keys)
         }
-        if (keys.has(personKey)) {
-            return
-        }
         keys.add(personKey)
-        this.entryRefCount.set(personKey, (this.entryRefCount.get(personKey) ?? 0) + 1)
+    }
+
+    /**
+     * Whether any open batch still names this person's entry. A scan over
+     * the open batches' key sets rather than a maintained counter: `has` is
+     * constant time and batches number in the handful, while a counter that
+     * can drift out of step with the sets is a whole bug class for nothing.
+     */
+    private entryHeldByAnyBatch(personKey: string): boolean {
+        for (const keys of this.batchEntryKeys.values()) {
+            if (keys.has(personKey)) {
+                return true
+            }
+        }
+        return false
     }
 
     shutdown(): Promise<void> {
