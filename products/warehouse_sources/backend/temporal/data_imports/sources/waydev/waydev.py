@@ -1,5 +1,6 @@
-import dataclasses
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -24,7 +25,7 @@ BASE_URL = "https://api.waydev.co/v2"
 INCIDENTS_PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@frozen
 class WaydevResumeConfig:
     next_page: int
 
