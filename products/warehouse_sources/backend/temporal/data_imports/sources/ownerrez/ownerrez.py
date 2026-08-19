@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.s
 )
 
 BASE_URL = "https://api.ownerrez.com"
+OWNERREZ_API_HOST = "api.ownerrez.com"
 # Required per the vendor's auth guide: "Use a user-agent header to identify yourself on all calls."
 USER_AGENT = "PostHog Data Warehouse (+https://posthog.com)"
 
@@ -93,6 +94,11 @@ def ownerrez_source(
             # The response's `next_page_url` is a self-contained cursor link; follow it verbatim
             # per the vendor's pagination guide rather than incrementing offset/limit by hand.
             "paginator": JSONResponsePaginator(next_url_path="next_page_url"),
+            # Pagination follows a URL supplied by the response body, and every request is
+            # Basic-authenticated; pin follow-up requests to the API host and refuse redirects so a
+            # tampered or spoofed next-page link can't exfiltrate the credentials to another origin.
+            "allowed_hosts": [OWNERREZ_API_HOST],
+            "allow_redirects": False,
         },
         "resource_defaults": {
             "write_disposition": {
