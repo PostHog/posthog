@@ -93,13 +93,16 @@ The overall topology (Temporal producer activity, two tables, a fleet of consume
 
 ## Metrics and health signals
 
-The consumer engine emits the `warehouse_pg_consumer_*` family (`metrics.py`): `batches_processed_total`, `batch_processing_duration_seconds`, `batch_retry_total`, `runs_failed_total`, `poll_duration_seconds`, `poll_batches_fetched`, `poll_failures_total`, `active_groups`, `recovery_sweeps_total`, `runs_reconciled_total`, `runs_terminalized_stale_total`.
-Other sinks get the same set under their own `{prefix}_pg_consumer_*` names via `make_consumer_metrics`, so dashboards and KEDA queries never conflate two consumers' series.
+The consumer engine emits nine `warehouse_pg_consumer_*` metrics (`metrics.py`): `batches_processed_total`, `batch_processing_duration_seconds`, `batch_retry_total`, `runs_failed_total`, `poll_duration_seconds`, `poll_batches_fetched`, `poll_failures_total`, `active_groups`, `recovery_sweeps_total`.
+Other sinks get that nine-metric engine set under their own `{prefix}_pg_consumer_*` names via `make_consumer_metrics`, so dashboards and KEDA queries never conflate two consumers' series.
+Two further counters exist only under the `warehouse_pg_consumer_*` prefix, incremented by the Delta consumer's reconcile sweep (`consumer.py`) rather than by the shared engine: `runs_reconciled_total` and `runs_terminalized_stale_total`.
 
 The headline health signal is `warehouse_pg_queue_oldest_unclaimed_batch_seconds`: the age of the oldest batch no consumer has picked up yet.
 It is the loader's data-freshness signal and rises whenever loading stalls, regardless of cause, so its alert fires even when every other signal looks green.
-Every pod reports the same queue-wide value on the reconcile cadence; aggregate with `max()`.
-`poll_failures_total` is the alertable poll-health counter: failed polls never reach the duration histograms, so a fleet whose polls all fail looks better on those than a merely slow one.
+Its depth companion `warehouse_pg_queue_claimable_batches` says how much work sits behind that head; a stall and a burst look identical on age alone.
+Every pod reports the same queue-wide values on the reconcile cadence; aggregate both gauges with `max()`.
+Failed polls record their elapsed time in `poll_duration_seconds`, so degraded polls stay visible in the latency percentiles; `poll_failures_total` carries the reason label and is the alertable poll-health counter.
+The maintenance queries (sweeps, reconcile passes, probes) report through `warehouse_pg_queue_query_duration_seconds` (labeled per query, observed on failure and timeout too) and `warehouse_pg_queue_query_failures_total`; the August 2026 stall came from a query with no latency signal at all.
 
 For ad-hoc inspection (state summaries, active runs, leases, force-release), use the `manage_warehouse_queue` management command.
 
