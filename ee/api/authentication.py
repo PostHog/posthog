@@ -301,15 +301,21 @@ class MultitenantSAMLAuth(SAMLAuth):
         Overridden to find attributes across multiple possible names.
         """
         attributes = response["attributes"]
-        email = self._get_attr(
-            attributes,
-            [
-                "email",
-                "EMAIL",
-                "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
-                OID_MAIL,
-            ],
-        )
+        try:
+            email = self._get_attr(
+                attributes,
+                [
+                    "email",
+                    "EMAIL",
+                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+                    OID_MAIL,
+                ],
+            )
+        except AuthMissingParameter:
+            # The IdP sent no email attribute. Raise AuthFailed with a code the login page can
+            # explain, instead of the internal "Missing needed parameter email" string.
+            saml_logger.warning("saml_missing_email_attribute")
+            raise AuthFailed(self, "sso_missing_email")
 
         self._validate_email_domain(response, email)
 

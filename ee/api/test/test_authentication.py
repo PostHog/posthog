@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.core import mail
-from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
 from django.test import override_settings
 from django.utils import timezone
@@ -999,7 +998,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @freeze_time("2021-08-25T23:53:51.000Z")
-    def test_cannot_create_account_without_first_name_in_payload(self):
+    def test_missing_name_attribute_redirects_to_login_instead_of_500(self):
+        # An IdP that sends no name attribute must not take down SSO login with a 500. The pipeline
+        # raises AuthFailed, so the middleware sends the invitee to the login page with a message.
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
@@ -1015,23 +1016,31 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         user_count = User.objects.count()
 
-        with self.assertRaises(ValidationError) as e:
-            response = self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(self.organization_domain.id),
-                },
-                format="multipart",
-                follow=True,
-            )
-
-        self.assertEqual(
-            str(e.exception),
-            "{'name': ['This field is required and was not provided by the IdP.']}",
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            format="multipart",
+            follow=False,
         )
 
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        parsed = urlparse(response["Location"])
+        self.assertEqual(parsed.path, "/login")
+        self.assertEqual(parse_qs(parsed.query).get("error_code"), ["sso_missing_name"])
         self.assertEqual(User.objects.count(), user_count)
+
+    def test_missing_email_attribute_raises_friendly_error(self):
+        # A missing email must surface the sso_missing_email code the login page can explain, not the
+        # raw "Missing needed parameter email" that AuthMissingParameter carries.
+        auth = object.__new__(MultitenantSAMLAuth)
+
+        with self.assertRaises(AuthFailed) as e:
+            auth.get_user_details({"attributes": {"first_name": ["Ada"]}})
+
+        self.assertEqual(e.exception.args[0], "sso_missing_email")
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_login_with_saml_on_unverified_domain(self):

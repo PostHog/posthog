@@ -1255,6 +1255,8 @@ class SocialAuthExceptionMiddleware:
                 "gitlab_sso_enforced",
                 "sso_enforced",
                 "reauth_user_mismatch",
+                "sso_missing_email",
+                "sso_missing_name",
             ):
                 return redirect(sso_failure_redirect_url(request, error))
 
