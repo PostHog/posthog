@@ -787,7 +787,12 @@ def revoke_oauth_token_family(refresh_token: OAuthRefreshToken) -> None:
 
     Use this when refresh-token reuse protection fires and the whole family is suspect:
     DOT's per-row `RefreshToken.revoke()` loop costs a `SELECT ... FOR UPDATE` per family
-    member, even already-revoked ones."""
+    member, even already-revoked ones.
+
+    This reproduces the effects of upstream's `AbstractRefreshToken.revoke` (stamp
+    `revoked`, delete the linked access token) in bulk, so any new effect upstream adds to
+    `revoke()` must be mirrored here. `posthog/api/oauth/test_oauth_validator_fork.py`
+    pins that upstream source and fails when it changes."""
     # Rows without a family (pre-rotation-refresh tokens, non-rotating clients) are their
     # own lineage: sweeping them by token_family=None would revoke unrelated tokens.
     if refresh_token.token_family is None:
