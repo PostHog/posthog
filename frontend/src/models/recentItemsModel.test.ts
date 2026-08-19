@@ -158,7 +158,6 @@ describe('recentItemsModel', () => {
             .toDispatchActions(['loadRecentsSuccess'])
             .toMatchValues({ recents: [recentItem] })
 
-        // Same ref, different type: the dashboard must stay.
         logic.actions.itemDeleted('insight', '1')
 
         expect(logic.values.recents).toEqual([recentItem])
@@ -187,9 +186,6 @@ describe('recentItemsModel', () => {
             .toDispatchActions(['loadRecentsSuccess'])
             .toMatchValues({ recents: [hogFunction, recentItem] })
 
-        // Delete callers pass the `hog_function/` prefix, but the stored recent is the concrete
-        // `hog_function/destination`. The prefix must match the subtype so the dead link is dropped,
-        // while an unrelated type stays.
         logic.actions.itemDeleted('hog_function/', 'abc')
 
         expect(logic.values.recents).toEqual([recentItem])

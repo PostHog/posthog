@@ -289,7 +289,6 @@ describe('projectTreeDataLogic', () => {
             )
         }).toFinishAllListeners()
 
-        // The delete emptied both caches; the undo must repopulate them from the backend.
         expect(recents.values.recents).toEqual([])
         expect(model.values.pinnedDashboards).toEqual([])
 

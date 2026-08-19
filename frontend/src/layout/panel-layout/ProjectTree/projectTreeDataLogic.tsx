@@ -868,9 +868,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             actions.removeQueuedAction(action)
                             actions.deleteSavedItem(action.item)
                             const deletionSummary = deletionResult?.deleted ?? []
-                            // Broadcast every cascaded deletion so caches keyed by type and ref
-                            // (recents, pinned dashboards) drop the stale entry instead of serving
-                            // a dead link until the next reload.
                             for (const entry of deletionSummary) {
                                 if (entry.ref) {
                                     actions.deleteTypeAndRef(entry.type, entry.ref)
@@ -917,10 +914,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                   }
                                                   // Signal non-sidebar consumers (the dashboards tree) to refetch.
                                                   actions.restoredItems()
-                                                  // The delete pushed these items out of the recents and pinned
-                                                  // dashboards caches, so the undo has to push them back by
-                                                  // refetching. Otherwise a restored dashboard or recent stays
-                                                  // missing from the sidebar until the next full reload.
                                                   recentItemsModel.findMounted()?.actions.loadRecents()
                                                   if (undoableEntries.some((entry) => entry.type === 'dashboard')) {
                                                       dashboardsModel.findMounted()?.actions.loadDashboards()
@@ -1773,8 +1766,6 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             actions.addLoadedResults(items as any as SearchResults)
         },
         deleteTypeAndRef: ({ type, ref }) => {
-            // The tree is the single source for "this object is gone". Propagate to the caches that
-            // render live links to it so they drop the entry instead of pointing at a page that 404s.
             recentItemsModel.findMounted()?.actions.itemDeleted(type, ref)
             if (type === 'dashboard') {
                 dashboardsModel.findMounted()?.actions.delayedDeleteDashboard(Number(ref))

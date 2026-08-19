@@ -186,12 +186,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
                     const item = { ...state[idx], last_viewed_at: new Date().toISOString() }
                     return [item, ...state.slice(0, idx), ...state.slice(idx + 1)]
                 },
-                // Drop a deleted item so the menu, the nav Recents tab, and the search page stop
-                // rendering it as a live link to a page that now 404s. A trailing slash makes `type`
-                // a prefix over concrete subtypes, so a `hog_function/` delete drops a stored
-                // `hog_function/destination` recent. This matches matchesRefType (ProjectTree/utils),
-                // inlined because importing it would make this cache depend on the project tree logic
-                // and form a build cycle.
+                // Keep this inline to avoid a build cycle through ProjectTree/utils.
                 itemDeleted: (state, { type, ref }) =>
                     state.filter((e) => {
                         const sameType = type.endsWith('/') ? !!e.type?.startsWith(type) : e.type === type
