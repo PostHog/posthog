@@ -1,3 +1,4 @@
+import { IconBolt } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { Survey, SurveyAppearance } from '~/types'
@@ -32,6 +33,12 @@ export function FeaturedTemplateCard({
             <div className="flex flex-col items-end">
                 <h3 className="text-sm font-semibold text-default line-clamp-2 flex-1 mb-0">{template.templateType}</h3>
                 <p className="text-sm text-secondary leading-relaxed line-clamp-3">{template.description}</p>
+                {template.quickSurvey && (
+                    <span className="flex items-center gap-1 text-xs text-secondary mt-1">
+                        <IconBolt />
+                        Quick setup
+                    </span>
+                )}
             </div>
             <div>
                 <div className="transform scale-75 pointer-events-none">

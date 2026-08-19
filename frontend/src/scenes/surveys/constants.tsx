@@ -523,7 +523,22 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             url: '',
             seenSurveyWaitPeriodInDays: 14,
             actions: null,
-            events: { repeatedActivation: true, values: [{ name: '$exception' }] },
+            // Trigger only on real failures. Exclude benign browser warnings such as the
+            // "ResizeObserver loop" notice, and show once per user rather than on every exception.
+            events: {
+                repeatedActivation: false,
+                values: [
+                    {
+                        name: '$exception',
+                        propertyFilters: {
+                            $exception_values: {
+                                values: ['ResizeObserver loop'],
+                                operator: 'not_icontains',
+                            },
+                        },
+                    },
+                ],
+            },
         },
         description: 'Get user context when errors occur to debug faster.',
         tagType: 'default',
