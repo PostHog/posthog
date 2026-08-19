@@ -39,6 +39,21 @@ function accountSnapshotName(value: unknown): string {
         : 'No account'
 }
 
+function evidenceAccountName(value: unknown): string | null {
+    if (
+        typeof value === 'object' &&
+        value !== null &&
+        'account' in value &&
+        typeof value.account === 'object' &&
+        value.account !== null &&
+        'name' in value.account &&
+        typeof value.account.name === 'string'
+    ) {
+        return value.account.name
+    }
+    return null
+}
+
 function relationSnapshots(value: unknown): RelationSnapshot[] {
     return Array.isArray(value)
         ? value.map(relationSnapshot).filter((snapshot): snapshot is RelationSnapshot => snapshot !== null)
@@ -89,6 +104,7 @@ function historyMarker(entry: FeatureRequestHistoryApi): ComponentType<{ classNa
         case 'priority':
             return IconFlag
         case 'account':
+        case 'accounts':
             return IconBuilding
         case 'product_areas':
             return IconFolder
@@ -106,6 +122,46 @@ function describeChange(change: FeatureRequestHistoryChangeApi, isInitial: boole
     }
     if (change.field === 'account') {
         return scalarChange('Account', accountSnapshotName(change.before), accountSnapshotName(change.after), isInitial)
+    }
+    if (change.field === 'accounts') {
+        const before = relationSnapshots(change.before)
+        const after = relationSnapshots(change.after)
+        if (isInitial) {
+            return (
+                <div>
+                    <span className="font-medium">Accounts:</span> {after.map((account) => account.name).join(', ')}
+                </div>
+            )
+        }
+        const beforeIds = new Set(before.map((account) => account.id))
+        const afterIds = new Set(after.map((account) => account.id))
+        const added = after.filter((account) => !beforeIds.has(account.id)).map((account) => account.name)
+        const removed = before.filter((account) => !afterIds.has(account.id)).map((account) => account.name)
+        return (
+            <div>
+                <span className="font-medium">Accounts:</span>{' '}
+                {[
+                    added.length ? `added ${added.join(', ')}` : null,
+                    removed.length ? `removed ${removed.join(', ')}` : null,
+                ]
+                    .filter(Boolean)
+                    .join('; ')}
+            </div>
+        )
+    }
+    if (change.field === 'evidence') {
+        const beforeAccount = evidenceAccountName(change.before)
+        const afterAccount = evidenceAccountName(change.after)
+        return (
+            <div>
+                <span className="font-medium">Evidence:</span>{' '}
+                {beforeAccount && afterAccount
+                    ? `updated for ${afterAccount}`
+                    : afterAccount
+                      ? `added for ${afterAccount}`
+                      : `removed for ${beforeAccount ?? 'an account'}`}
+            </div>
+        )
     }
     if (change.field === 'product_areas') {
         const before = relationSnapshots(change.before)

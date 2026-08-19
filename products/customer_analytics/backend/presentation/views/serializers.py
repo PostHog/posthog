@@ -57,7 +57,9 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomPropertySourceView,
     CustomPropertySyncRunView,
     EventStreamView,
+    FeatureRequestAccountLinkView,
     FeatureRequestAccountView,
+    FeatureRequestEvidenceView,
     FeatureRequestHistoryView,
     FeatureRequestProductAreaView,
     FeatureRequestStatusHistoryView,
@@ -117,6 +119,15 @@ _FEATURE_REQUEST_STATUS_CHOICES = [
     ("duplicate", "Duplicate"),
 ]
 _FEATURE_REQUEST_PRIORITY_CHOICES = [("high", "High"), ("medium", "Medium"), ("low", "Low")]
+_FEATURE_REQUEST_EVIDENCE_SOURCE_CHOICES = [
+    ("conversation", "Customer conversation"),
+    ("slack", "Slack"),
+    ("zendesk", "Zendesk"),
+    ("email", "Email"),
+    ("meeting", "Meeting"),
+    ("buildbetter", "BuildBetter"),
+    ("other", "Other"),
+]
 _FEATURE_REQUEST_PRIORITY_FILTER_CHOICES = [*_FEATURE_REQUEST_PRIORITY_CHOICES, ("none", "No priority")]
 _FEATURE_REQUEST_ARCHIVE_CHOICES = [("active", "Active"), ("archived", "Archived"), ("all", "All")]
 _FEATURE_REQUEST_ORDERING_CHOICES = [
@@ -172,6 +183,68 @@ class FeatureRequestAccountSerializer(DataclassSerializer):
         fields = ["id", "name"]
 
 
+class FeatureRequestEvidenceSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable evidence ID.")
+    summary = serializers.CharField(read_only=True, help_text="Internal summary of this account's request evidence.")
+    customer_quote = serializers.CharField(read_only=True, help_text="Customer quote kept with this evidence item.")
+    evidence_source = serializers.ChoiceField(
+        read_only=True,
+        choices=_FEATURE_REQUEST_EVIDENCE_SOURCE_CHOICES,
+        help_text="Channel where this evidence was recorded.",
+    )
+    source_url = serializers.URLField(read_only=True, help_text="HTTP or HTTPS link to the source, or an empty string.")
+    requested_on = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text="Date the account made the request, or null when unknown.",
+    )
+    created_by = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="ID of the user who added the evidence."
+    )
+    updated_by = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="ID of the last user to update the evidence."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the evidence was added.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the evidence was last updated.")
+
+    class Meta:
+        dataclass = FeatureRequestEvidenceView
+        ref_name = "FeatureRequestEvidence"
+        fields = [
+            "id",
+            "summary",
+            "customer_quote",
+            "evidence_source",
+            "source_url",
+            "requested_on",
+            "created_by",
+            "updated_by",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class FeatureRequestAccountLinkSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable link ID between the request and account.")
+    account = FeatureRequestAccountSerializer(read_only=True, help_text="Affected Customer Analytics account.")
+    evidence = FeatureRequestEvidenceSerializer(
+        many=True,
+        read_only=True,
+        help_text="Evidence recorded for this account and request.",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the account was first linked.")
+    updated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the account link was last changed.",
+    )
+
+    class Meta:
+        dataclass = FeatureRequestAccountLinkView
+        ref_name = "FeatureRequestAccountLink"
+        fields = ["id", "account", "evidence", "created_at", "updated_at"]
+
+
 class FeatureRequestSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Stable feature request ID.")
     title = serializers.CharField(read_only=True, help_text="Customer-facing request title.")
@@ -203,7 +276,15 @@ class FeatureRequestSerializer(DataclassSerializer):
         min_value=1,
         help_text="Version required for optimistic concurrency on mutations.",
     )
-    account = FeatureRequestAccountSerializer(read_only=True, help_text="Affected account in the first release.")
+    account = FeatureRequestAccountSerializer(
+        read_only=True,
+        help_text="First visible account retained for client compatibility. Use account_links for the complete list.",
+    )
+    account_links = FeatureRequestAccountLinkSerializer(
+        many=True,
+        read_only=True,
+        help_text="Active account links visible to the caller, with account-specific evidence.",
+    )
     product_areas = FeatureRequestProductAreaSerializer(
         many=True,
         read_only=True,
@@ -232,6 +313,7 @@ class FeatureRequestSerializer(DataclassSerializer):
             "archived_by",
             "version",
             "account",
+            "account_links",
             "product_areas",
             "created_by",
             "updated_by",
@@ -263,6 +345,34 @@ _FEATURE_REQUEST_HISTORY_VALUE_SCHEMA = {
                 },
             },
         },
+        {
+            "type": "object",
+            "required": [
+                "id",
+                "account",
+                "summary",
+                "customer_quote",
+                "source",
+                "source_url",
+                "requested_on",
+            ],
+            "properties": {
+                "id": {"type": "string", "format": "uuid"},
+                "account": {
+                    "type": "object",
+                    "required": ["id", "name"],
+                    "properties": {
+                        "id": {"type": "string", "format": "uuid"},
+                        "name": {"type": "string"},
+                    },
+                },
+                "summary": {"type": "string"},
+                "customer_quote": {"type": "string"},
+                "source": {"type": "string"},
+                "source_url": {"type": "string"},
+                "requested_on": {"type": "string", "format": "date", "nullable": True},
+            },
+        },
     ],
 }
 
@@ -279,6 +389,8 @@ class FeatureRequestHistoryChangeSerializer(serializers.Serializer):
             ("status", "Status"),
             ("priority", "Priority"),
             ("account", "Account"),
+            ("accounts", "Accounts"),
+            ("evidence", "Evidence"),
             ("product_areas", "Product areas"),
         ],
         help_text="Request field represented by this change.",
@@ -469,7 +581,16 @@ class FeatureRequestUpdateSerializer(serializers.Serializer):
         trim_whitespace=True,
         help_text="Updated optional customer-facing request description in Markdown.",
     )
-    account_id = serializers.UUIDField(required=False, help_text="Updated affected Customer Analytics account ID.")
+    account_id = serializers.UUIDField(
+        required=False,
+        help_text="Deprecated single affected account ID. Use account_ids.",
+    )
+    account_ids = serializers.ListField(
+        required=False,
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="One or more affected account IDs. Removed accounts are unlinked without deleting their evidence.",
+    )
     product_area_ids = serializers.ListField(
         required=False,
         child=serializers.UUIDField(),
@@ -487,6 +608,60 @@ class FeatureRequestUpdateSerializer(serializers.Serializer):
         choices=_FEATURE_REQUEST_PRIORITY_CHOICES,
         help_text="Updated manual priority. Pass null to remove the priority.",
     )
+
+
+class FeatureRequestEvidenceWriteSerializer(serializers.Serializer):
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Request version loaded by the editor. Stale versions return 409 Conflict.",
+    )
+    summary = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+        help_text="Internal summary of this account's request evidence.",
+    )
+    customer_quote = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+        help_text="Customer quote kept with this evidence item.",
+    )
+    evidence_source = serializers.ChoiceField(
+        choices=_FEATURE_REQUEST_EVIDENCE_SOURCE_CHOICES,
+        help_text="Channel where this evidence was recorded.",
+    )
+    source_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=2000,
+        help_text="Optional HTTP or HTTPS link to the source.",
+    )
+    requested_on = serializers.DateField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Date the account made the request, or null when unknown.",
+    )
+
+
+class FeatureRequestEvidenceCreateSerializer(FeatureRequestEvidenceWriteSerializer):
+    account_link_id = serializers.UUIDField(help_text="Active account link that owns this evidence.")
+
+
+class FeatureRequestEvidenceUpdateSerializer(FeatureRequestEvidenceWriteSerializer):
+    evidence_id = serializers.UUIDField(help_text="Evidence item to replace.")
+
+
+class FeatureRequestEvidenceDeleteSerializer(serializers.Serializer):
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Request version loaded by the editor. Stale versions return 409 Conflict.",
+    )
+    evidence_id = serializers.UUIDField(help_text="Evidence item to delete.")
 
 
 class FeatureRequestVersionSerializer(serializers.Serializer):

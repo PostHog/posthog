@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconArchive, IconArrowLeft, IconBuilding, IconDocument, IconFolder, IconPencil } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -12,8 +12,10 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { FeatureRequestApi } from '../../generated/api.schemas'
+import { FeatureRequestAccountEvidence } from './FeatureRequestAccountEvidence'
 import { FeatureRequestDetailSection } from './FeatureRequestDetailSection'
 import { FeatureRequestEditModal } from './FeatureRequestEditModal'
+import { FeatureRequestEvidenceModal } from './FeatureRequestEvidenceModal'
 import { FeatureRequestHistorySection } from './FeatureRequestHistorySection'
 import { FeatureRequestPriorityBadge } from './FeatureRequestPriorityBadge'
 import { featureRequestsLogic } from './featureRequestsLogic'
@@ -108,16 +110,16 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                 </div>
 
                 <aside className="flex flex-col min-w-0 gap-5">
-                    <FeatureRequestDetailSection icon={<IconBuilding />} title="Account">
-                        <Link
-                            to={urls.customerAnalyticsAccount(request.account.id)}
-                            className="flex items-center gap-3 rounded border border-primary bg-surface-primary px-3 py-2.5 text-default hover:text-primary"
-                        >
-                            <span className="flex size-8 shrink-0 items-center justify-center rounded bg-fill-highlight-50 text-secondary">
-                                <IconBuilding className="size-4" />
-                            </span>
-                            <span className="truncate font-medium">{request.account.name}</span>
-                        </Link>
+                    <FeatureRequestDetailSection icon={<IconBuilding />} title="Accounts and evidence">
+                        <div className="flex flex-col gap-3">
+                            {request.account_links.map((accountLink) => (
+                                <FeatureRequestAccountEvidence
+                                    key={accountLink.id}
+                                    accountLink={accountLink}
+                                    canEdit={!request.is_archived && !editorDisabledReason}
+                                />
+                            ))}
+                        </div>
                     </FeatureRequestDetailSection>
 
                     <FeatureRequestDetailSection icon={<IconFolder />} title="Product areas">
@@ -132,6 +134,7 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                 </aside>
             </div>
             <FeatureRequestEditModal />
+            <FeatureRequestEvidenceModal />
         </div>
     )
 }

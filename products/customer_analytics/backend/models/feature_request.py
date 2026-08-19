@@ -23,6 +23,16 @@ class FeatureRequestHistorySource(models.TextChoices):
     MANUAL = "manual", "Manual"
 
 
+class FeatureRequestEvidenceSource(models.TextChoices):
+    CONVERSATION = "conversation", "Customer conversation"
+    SLACK = "slack", "Slack"
+    ZENDESK = "zendesk", "Zendesk"
+    EMAIL = "email", "Email"
+    MEETING = "meeting", "Meeting"
+    BUILDBETTER = "buildbetter", "BuildBetter"
+    OTHER = "other", "Other"
+
+
 class FeatureRequestProductArea(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     name = models.CharField(max_length=200)
@@ -119,7 +129,10 @@ class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
         on_delete=models.CASCADE,
         related_name="feature_request_links",
     )
+    unlinked_at = models.DateTimeField(null=True, blank=True)
+    unlinked_by_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -127,6 +140,34 @@ class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
                 fields=["team", "feature_request", "account"],
                 name="unique_feature_request_account_link",
             ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "feature_request", "unlinked_at"], name="fr_link_request_active_idx"),
+            models.Index(fields=["team", "account", "unlinked_at"], name="fr_link_account_active_idx"),
+        ]
+
+
+class FeatureRequestEvidence(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    account_link = models.ForeignKey(
+        FeatureRequestAccountLink,
+        on_delete=models.CASCADE,
+        related_name="evidence",
+    )
+    summary = models.TextField(blank=True, default="")
+    customer_quote = models.TextField(blank=True, default="")
+    source = models.CharField(max_length=32, choices=FeatureRequestEvidenceSource.choices)
+    source_url = models.URLField(max_length=2000, blank=True, default="")
+    requested_on = models.DateField(null=True, blank=True)
+    created_by_id = models.BigIntegerField(null=True, blank=True)
+    updated_by_id = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-requested_on", "-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["team", "account_link"], name="fr_evidence_link_idx"),
         ]
 
 

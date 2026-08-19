@@ -14,7 +14,7 @@ from dataclasses import (
     dataclass as stdlib_dataclass,
     field,
 )
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import Any, TypedDict
 from uuid import UUID
@@ -572,6 +572,29 @@ class FeatureRequestAccountView:
 
 
 @stdlib_dataclass(frozen=True)
+class FeatureRequestEvidenceView:
+    id: UUID | None = None
+    summary: str = ""
+    customer_quote: str = ""
+    evidence_source: str = "conversation"
+    source_url: str = ""
+    requested_on: date | None = None
+    created_by: int | None = None
+    updated_by: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestAccountLinkView:
+    id: UUID | None = None
+    account: FeatureRequestAccountView | None = None
+    evidence: list[FeatureRequestEvidenceView] = field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class FeatureRequestView:
     id: UUID | None = None
     title: str = ""
@@ -583,6 +606,7 @@ class FeatureRequestView:
     archived_by: int | None = None
     version: int = 1
     account: FeatureRequestAccountView | None = None
+    account_links: list[FeatureRequestAccountLinkView] = field(default_factory=list)
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
     created_by: int | None = None
     updated_by: int | None = None
@@ -649,11 +673,39 @@ class UpdateFeatureRequestInput:
     expected_version: int
     title: str | None = None
     description: str | None = None
-    account_id: UUID | None = None
+    account_ids: tuple[UUID, ...] | None = None
     product_area_ids: tuple[UUID, ...] | None = None
     request_status: str | None = None
     request_priority: str | None = None
     request_priority_is_set: bool = False
+
+
+@dataclass(frozen=True)
+class CreateFeatureRequestEvidenceInput:
+    expected_version: int
+    account_link_id: UUID
+    summary: str
+    customer_quote: str
+    evidence_source: str
+    source_url: str
+    requested_on: date | None
+
+
+@dataclass(frozen=True)
+class UpdateFeatureRequestEvidenceInput:
+    expected_version: int
+    evidence_id: UUID
+    summary: str
+    customer_quote: str
+    evidence_source: str
+    source_url: str
+    requested_on: date | None
+
+
+@dataclass(frozen=True)
+class DeleteFeatureRequestEvidenceInput:
+    expected_version: int
+    evidence_id: UUID
 
 
 @stdlib_dataclass(frozen=True)

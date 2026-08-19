@@ -20,6 +20,8 @@ from .event_stream import EventStream, EventStreamMember
 from .feature_request import (
     FeatureRequest,
     FeatureRequestAccountLink,
+    FeatureRequestEvidence,
+    FeatureRequestEvidenceSource,
     FeatureRequestHistory,
     FeatureRequestHistorySource,
     FeatureRequestPriority,
@@ -53,6 +55,8 @@ __all__ = [
     "EventStreamMember",
     "FeatureRequest",
     "FeatureRequestAccountLink",
+    "FeatureRequestEvidence",
+    "FeatureRequestEvidenceSource",
     "FeatureRequestHistory",
     "FeatureRequestHistorySource",
     "FeatureRequestPriority",

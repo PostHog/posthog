@@ -31787,6 +31787,28 @@ export namespace Schemas {
       NeedsAttention: 'needs_attention',
     } as const;
 
+    /**
+     * * `conversation` - Customer conversation
+     * * `slack` - Slack
+     * * `zendesk` - Zendesk
+     * * `email` - Email
+     * * `meeting` - Meeting
+     * * `buildbetter` - BuildBetter
+     * * `other` - Other
+     */
+    export type EvidenceSourceEnum = typeof EvidenceSourceEnum[keyof typeof EvidenceSourceEnum];
+
+
+    export const EvidenceSourceEnum = {
+      Conversation: 'conversation',
+      Slack: 'slack',
+      Zendesk: 'zendesk',
+      Email: 'email',
+      Meeting: 'meeting',
+      Buildbetter: 'buildbetter',
+      Other: 'other',
+    } as const;
+
     export interface ExecuteTestClusterRequest {
       /**
          * ClickHouse SQL to run against the test cluster.
@@ -37432,6 +37454,62 @@ export namespace Schemas {
       readonly name: string;
     }
 
+    export interface FeatureRequestEvidence {
+      /** Stable evidence ID. */
+      readonly id: string;
+      /** Internal summary of this account's request evidence. */
+      readonly summary: string;
+      /** Customer quote kept with this evidence item. */
+      readonly customer_quote: string;
+      /** Channel where this evidence was recorded.
+       *
+       * * `conversation` - Customer conversation
+       * * `slack` - Slack
+       * * `zendesk` - Zendesk
+       * * `email` - Email
+       * * `meeting` - Meeting
+       * * `buildbetter` - BuildBetter
+       * * `other` - Other */
+      readonly evidence_source: EvidenceSourceEnum;
+      /** HTTP or HTTPS link to the source, or an empty string. */
+      readonly source_url: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      readonly requested_on: string | null;
+      /**
+         * ID of the user who added the evidence.
+         * @nullable
+         */
+      readonly created_by: number | null;
+      /**
+         * ID of the last user to update the evidence.
+         * @nullable
+         */
+      readonly updated_by: number | null;
+      /** When the evidence was added. */
+      readonly created_at: string;
+      /** When the evidence was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface FeatureRequestAccountLink {
+      /** Stable link ID between the request and account. */
+      readonly id: string;
+      /** Affected Customer Analytics account. */
+      readonly account: FeatureRequestAccount;
+      /** Evidence recorded for this account and request. */
+      readonly evidence: readonly FeatureRequestEvidence[];
+      /** When the account was first linked. */
+      readonly created_at: string;
+      /**
+         * When the account link was last changed.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
     export interface FeatureRequestProductArea {
       /** Stable product area ID. */
       readonly id: string;
@@ -37491,8 +37569,10 @@ export namespace Schemas {
          * @minimum 1
          */
       readonly version: number;
-      /** Affected account in the first release. */
+      /** First visible account retained for client compatibility. Use account_links for the complete list. */
       readonly account: FeatureRequestAccount;
+      /** Active account links visible to the caller, with account-specific evidence. */
+      readonly account_links: readonly FeatureRequestAccountLink[];
       /** Product areas affected by this request. */
       readonly product_areas: readonly FeatureRequestProductArea[];
       /**
@@ -37527,10 +37607,90 @@ export namespace Schemas {
       idempotency_key: string;
     }
 
+    export interface FeatureRequestEvidenceCreate {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Internal summary of this account's request evidence. */
+      summary?: string;
+      /** Customer quote kept with this evidence item. */
+      customer_quote?: string;
+      /** Channel where this evidence was recorded.
+       *
+       * * `conversation` - Customer conversation
+       * * `slack` - Slack
+       * * `zendesk` - Zendesk
+       * * `email` - Email
+       * * `meeting` - Meeting
+       * * `buildbetter` - BuildBetter
+       * * `other` - Other */
+      evidence_source: EvidenceSourceEnum;
+      /**
+         * Optional HTTP or HTTPS link to the source.
+         * @maxLength 2000
+         */
+      source_url?: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      requested_on?: string | null;
+      /** Active account link that owns this evidence. */
+      account_link_id: string;
+    }
+
+    export interface FeatureRequestEvidenceDelete {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Evidence item to delete. */
+      evidence_id: string;
+    }
+
+    export interface FeatureRequestEvidenceUpdate {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /** Internal summary of this account's request evidence. */
+      summary?: string;
+      /** Customer quote kept with this evidence item. */
+      customer_quote?: string;
+      /** Channel where this evidence was recorded.
+       *
+       * * `conversation` - Customer conversation
+       * * `slack` - Slack
+       * * `zendesk` - Zendesk
+       * * `email` - Email
+       * * `meeting` - Meeting
+       * * `buildbetter` - BuildBetter
+       * * `other` - Other */
+      evidence_source: EvidenceSourceEnum;
+      /**
+         * Optional HTTP or HTTPS link to the source.
+         * @maxLength 2000
+         */
+      source_url?: string;
+      /**
+         * Date the account made the request, or null when unknown.
+         * @nullable
+         */
+      requested_on?: string | null;
+      /** Evidence item to replace. */
+      evidence_id: string;
+    }
+
     /**
      * * `status` - Status
      * * `priority` - Priority
      * * `account` - Account
+     * * `accounts` - Accounts
+     * * `evidence` - Evidence
      * * `product_areas` - Product areas
      */
     export type FieldEnum = typeof FieldEnum[keyof typeof FieldEnum];
@@ -37540,6 +37700,8 @@ export namespace Schemas {
       Status: 'status',
       Priority: 'priority',
       Account: 'account',
+      Accounts: 'accounts',
+      Evidence: 'evidence',
       ProductAreas: 'product_areas',
     } as const;
 
@@ -37553,7 +37715,19 @@ export namespace Schemas {
     } | {
       id: string;
       name: string;
-    }[] | null;
+    }[] | {
+      id: string;
+      account: {
+      id: string;
+      name: string;
+    };
+      summary: string;
+      customer_quote: string;
+      source: string;
+      source_url: string;
+      /** @nullable */
+      requested_on: string | null;
+    } | null;
 
     /**
      * Value after the update, including relation snapshots.
@@ -37565,7 +37739,19 @@ export namespace Schemas {
     } | {
       id: string;
       name: string;
-    }[] | null;
+    }[] | {
+      id: string;
+      account: {
+      id: string;
+      name: string;
+    };
+      summary: string;
+      customer_quote: string;
+      source: string;
+      source_url: string;
+      /** @nullable */
+      requested_on: string | null;
+    } | null;
 
     export interface FeatureRequestHistoryChange {
       /** Request field represented by this change.
@@ -37573,6 +37759,8 @@ export namespace Schemas {
        * * `status` - Status
        * * `priority` - Priority
        * * `account` - Account
+       * * `accounts` - Accounts
+       * * `evidence` - Evidence
        * * `product_areas` - Product areas */
       readonly field: FieldEnum;
       /** Value before the update, including relation snapshots. */
@@ -37656,8 +37844,10 @@ export namespace Schemas {
       title?: string;
       /** Updated optional customer-facing request description in Markdown. */
       description?: string;
-      /** Updated affected Customer Analytics account ID. */
+      /** Deprecated single affected account ID. Use account_ids. */
       account_id?: string;
+      /** One or more affected account IDs. Removed accounts are unlinked without deleting their evidence. */
+      account_ids?: string[];
       /** One or more product area IDs. Existing inactive areas can remain linked. */
       product_area_ids?: string[];
       /** Updated customer-facing lifecycle status.
@@ -58717,8 +58907,10 @@ export namespace Schemas {
       title?: string;
       /** Updated optional customer-facing request description in Markdown. */
       description?: string;
-      /** Updated affected Customer Analytics account ID. */
+      /** Deprecated single affected account ID. Use account_ids. */
       account_id?: string;
+      /** One or more affected account IDs. Removed accounts are unlinked without deleting their evidence. */
+      account_ids?: string[];
       /** One or more product area IDs. Existing inactive areas can remain linked. */
       product_area_ids?: string[];
       /** Updated customer-facing lifecycle status.

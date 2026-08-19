@@ -1,3 +1,5 @@
+from datetime import date
+from typing import TypedDict, cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -9,10 +11,32 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.organization import AvailableFeature
 from posthog.models.scoping import team_scope
 
-from products.customer_analytics.backend.models import FeatureRequest, FeatureRequestHistory, FeatureRequestProductArea
+from products.customer_analytics.backend.models import (
+    FeatureRequest,
+    FeatureRequestAccountLink,
+    FeatureRequestEvidence,
+    FeatureRequestHistory,
+    FeatureRequestProductArea,
+)
 from products.customer_analytics.backend.test.factories import create_account
 
 from ee.models.rbac.access_control import AccessControl
+
+
+class _EvidenceResponse(TypedDict):
+    id: str
+    summary: str
+
+
+class _AccountLinkResponse(TypedDict):
+    id: str
+    evidence: list[_EvidenceResponse]
+
+
+class _FeatureRequestResponse(TypedDict):
+    id: str
+    version: int
+    account_links: list[_AccountLinkResponse]
 
 
 class TestFeatureRequestsAPI(APIBaseTest):
@@ -63,6 +87,31 @@ class TestFeatureRequestsAPI(APIBaseTest):
             organization_member=membership,
         )
 
+    def _add_evidence(
+        self,
+        *,
+        request_id: str,
+        version: int,
+        account_link_id: str,
+        summary: str,
+        customer_quote: str = "",
+    ) -> _FeatureRequestResponse:
+        response = self.client.post(
+            f"{self.requests_url}{request_id}/add_evidence/",
+            {
+                "expected_version": version,
+                "account_link_id": account_link_id,
+                "summary": summary,
+                "customer_quote": customer_quote,
+                "evidence_source": "conversation",
+                "source_url": "",
+                "requested_on": date.today().isoformat(),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return cast(_FeatureRequestResponse, response.json())
+
     def test_editor_can_create_and_view_a_request_with_multiple_product_areas_idempotently(self) -> None:
         payload = self._payload()
 
@@ -77,7 +126,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(listed.status_code, status.HTTP_200_OK)
         self.assertEqual(listed.json()["count"], 1)
         self.assertEqual(retrieved.status_code, status.HTTP_200_OK)
-        self.assertEqual(retrieved.json()["account"]["name"], "Acme")
+        self.assertEqual(retrieved.json()["account_links"][0]["account"]["name"], "Acme")
         self.assertEqual(
             {area["name"] for area in retrieved.json()["product_areas"]},
             {"Product analytics", "Session replay"},
@@ -172,12 +221,23 @@ class TestFeatureRequestsAPI(APIBaseTest):
             {"expected_version": created["version"]},
             format="json",
         )
+        evidence_attempt = self.client.post(
+            f"{self.requests_url}{created['id']}/add_evidence/",
+            {
+                "expected_version": created["version"],
+                "account_link_id": created["account_links"][0]["id"],
+                "summary": "Viewer must not add this.",
+                "evidence_source": "conversation",
+            },
+            format="json",
+        )
 
         self.assertEqual(listed.status_code, status.HTTP_200_OK)
         self.assertEqual(retrieved.status_code, status.HTTP_200_OK)
         self.assertEqual(create_attempt.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(update_attempt.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(archive_attempt.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(evidence_attempt.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_editor_groups_tracked_changes_once_and_stale_writes_fail(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json").json()
@@ -196,7 +256,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
                 "title": "Export account retention data",
                 "request_status": "planned",
                 "request_priority": "high",
-                "account_id": str(other_account.id),
+                "account_ids": [str(other_account.id)],
                 "product_area_ids": [str(self.area_two.id), str(area_three.id)],
             },
             format="json",
@@ -234,7 +294,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
             [
                 "status",
                 "priority",
-                "account",
+                "accounts",
                 "product_areas",
             ],
         )
@@ -244,9 +304,9 @@ class TestFeatureRequestsAPI(APIBaseTest):
                 {"field": "status", "before": "requested", "after": "planned"},
                 {"field": "priority", "before": None, "after": "high"},
                 {
-                    "field": "account",
-                    "before": {"id": str(self.account.id), "name": "Acme"},
-                    "after": {"id": str(other_account.id), "name": "Globex"},
+                    "field": "accounts",
+                    "before": [{"id": str(self.account.id), "name": "Acme"}],
+                    "after": [{"id": str(other_account.id), "name": "Globex"}],
                 },
                 {
                     "field": "product_areas",
@@ -264,7 +324,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertTrue(history.json()[1]["is_initial"])
         self.assertEqual(
             [change["field"] for change in history.json()[1]["changes"]],
-            ["status", "priority", "account", "product_areas"],
+            ["status", "priority", "accounts", "product_areas"],
         )
         self.assertEqual(
             [(entry["previous_status"], entry["request_status"]) for entry in status_history.json()],
@@ -294,11 +354,11 @@ class TestFeatureRequestsAPI(APIBaseTest):
         history = self.client.get(f"{self.requests_url}{created['id']}/history/").json()
 
         changes = {change["field"]: change for change in history[0]["changes"]}
-        self.assertEqual(changes["account"]["before"]["name"], "Acme")
-        self.assertEqual(changes["account"]["after"]["name"], "Globex")
+        self.assertEqual(changes["accounts"]["before"][0]["name"], "Acme")
+        self.assertEqual(changes["accounts"]["after"][0]["name"], "Globex")
         self.assertEqual(changes["product_areas"]["before"][0]["name"], "Product analytics")
         initial_changes = {change["field"]: change for change in history[1]["changes"]}
-        self.assertEqual(initial_changes["account"]["after"]["name"], "Acme")
+        self.assertEqual(initial_changes["accounts"]["after"][0]["name"], "Acme")
         self.assertEqual(initial_changes["product_areas"]["after"][0]["name"], "Product analytics")
 
     def test_history_redacts_snapshots_for_accounts_the_viewer_cannot_access(self) -> None:
@@ -308,7 +368,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
             f"{self.requests_url}{created['id']}/",
             {
                 "expected_version": created["version"],
-                "account_id": str(other_account.id),
+                "account_ids": [str(other_account.id)],
             },
             format="json",
         )
@@ -332,15 +392,176 @@ class TestFeatureRequestsAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         updated_changes = {change["field"]: change for change in response.json()[0]["changes"]}
-        self.assertEqual(updated_changes["account"]["before"], {"id": None, "name": "Restricted account"})
+        self.assertEqual(updated_changes["accounts"]["before"], [])
         self.assertEqual(
-            updated_changes["account"]["after"],
-            {"id": str(other_account.id), "name": "Globex"},
+            updated_changes["accounts"]["after"],
+            [{"id": str(other_account.id), "name": "Globex"}],
         )
         initial_changes = {change["field"]: change for change in response.json()[1]["changes"]}
-        self.assertEqual(initial_changes["account"]["after"], {"id": None, "name": "Restricted account"})
+        self.assertNotIn("accounts", initial_changes)
         self.assertNotIn(str(self.account.id), str(response.json()))
         self.assertNotIn("Acme", str(response.json()))
+
+    def test_multiple_accounts_keep_separate_evidence_across_unlink_and_relink(self) -> None:
+        created = self.client.post(self.requests_url, self._payload(), format="json").json()
+        other_account = create_account(team_id=self.team.id, name="Globex")
+        request_url = f"{self.requests_url}{created['id']}/"
+        linked = self.client.patch(
+            request_url,
+            {
+                "expected_version": created["version"],
+                "account_ids": [str(self.account.id), str(other_account.id)],
+            },
+            format="json",
+        ).json()
+        links_by_account_id = {link["account"]["id"]: link for link in linked["account_links"]}
+
+        with_acme_evidence = self._add_evidence(
+            request_id=created["id"],
+            version=linked["version"],
+            account_link_id=links_by_account_id[str(self.account.id)]["id"],
+            summary="Acme needs monthly exports.",
+        )
+        with_second_acme_evidence = self._add_evidence(
+            request_id=created["id"],
+            version=with_acme_evidence["version"],
+            account_link_id=links_by_account_id[str(self.account.id)]["id"],
+            summary="Acme repeated the request during renewal.",
+        )
+        with_globex_evidence = self._add_evidence(
+            request_id=created["id"],
+            version=with_second_acme_evidence["version"],
+            account_link_id=links_by_account_id[str(other_account.id)]["id"],
+            summary="Globex needs a weekly export.",
+        )
+
+        unlinked = self.client.patch(
+            request_url,
+            {
+                "expected_version": with_globex_evidence["version"],
+                "account_ids": [str(self.account.id)],
+            },
+            format="json",
+        ).json()
+        restored = self.client.patch(
+            request_url,
+            {
+                "expected_version": unlinked["version"],
+                "account_ids": [str(self.account.id), str(other_account.id)],
+            },
+            format="json",
+        ).json()
+
+        self.assertEqual(len(unlinked["account_links"]), 1)
+        self.assertEqual(len(unlinked["account_links"][0]["evidence"]), 2)
+        restored_links = {link["account"]["id"]: link for link in restored["account_links"]}
+        self.assertEqual(len(restored_links[str(self.account.id)]["evidence"]), 2)
+        self.assertEqual(
+            restored_links[str(other_account.id)]["evidence"][0]["summary"], "Globex needs a weekly export."
+        )
+        other_link = FeatureRequestAccountLink.objects.for_team(self.team.id).get(account=other_account)
+        self.assertIsNone(other_link.unlinked_at)
+        self.assertEqual(
+            FeatureRequestEvidence.objects.for_team(self.team.id).filter(account_link=other_link).count(), 1
+        )
+
+    def test_evidence_updates_and_deletes_with_request_version_checks(self) -> None:
+        created = self.client.post(self.requests_url, self._payload(), format="json").json()
+        account_link_id = created["account_links"][0]["id"]
+        with_evidence = self._add_evidence(
+            request_id=created["id"],
+            version=created["version"],
+            account_link_id=account_link_id,
+            summary="Initial summary",
+        )
+        evidence_id = with_evidence["account_links"][0]["evidence"][0]["id"]
+        update_url = f"{self.requests_url}{created['id']}/update_evidence/"
+
+        stale = self.client.post(
+            update_url,
+            {
+                "expected_version": created["version"],
+                "evidence_id": evidence_id,
+                "summary": "Stale summary",
+                "evidence_source": "slack",
+            },
+            format="json",
+        )
+        updated = self.client.post(
+            update_url,
+            {
+                "expected_version": with_evidence["version"],
+                "evidence_id": evidence_id,
+                "summary": "Updated summary",
+                "customer_quote": "Please add this.",
+                "evidence_source": "slack",
+                "source_url": "https://example.com/thread/1",
+            },
+            format="json",
+        ).json()
+        deleted = self.client.post(
+            f"{self.requests_url}{created['id']}/remove_evidence/",
+            {
+                "expected_version": updated["version"],
+                "evidence_id": evidence_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(stale.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(updated["account_links"][0]["evidence"][0]["summary"], "Updated summary")
+        self.assertEqual(deleted.status_code, status.HTTP_200_OK)
+        self.assertEqual(deleted.json()["account_links"][0]["evidence"], [])
+        self.assertFalse(FeatureRequestEvidence.objects.for_team(self.team.id).filter(id=evidence_id).exists())
+
+    def test_viewer_only_receives_evidence_for_accessible_accounts(self) -> None:
+        created = self.client.post(self.requests_url, self._payload(), format="json").json()
+        other_account = create_account(team_id=self.team.id, name="Globex")
+        linked = self.client.patch(
+            f"{self.requests_url}{created['id']}/",
+            {
+                "expected_version": created["version"],
+                "account_ids": [str(self.account.id), str(other_account.id)],
+            },
+            format="json",
+        ).json()
+        links = {link["account"]["id"]: link for link in linked["account_links"]}
+        with_restricted_evidence = self._add_evidence(
+            request_id=created["id"],
+            version=linked["version"],
+            account_link_id=links[str(self.account.id)]["id"],
+            summary="Restricted account evidence",
+        )
+        self._add_evidence(
+            request_id=created["id"],
+            version=with_restricted_evidence["version"],
+            account_link_id=links[str(other_account.id)]["id"],
+            summary="Visible account evidence",
+        )
+        viewer = User.objects.create_and_join(
+            self.organization,
+            "restricted-feature-request-evidence-viewer@example.com",
+            "testtest",
+        )
+        self._set_access_level(viewer, "viewer")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(viewer)
+
+        response = self.client.get(f"{self.requests_url}{created['id']}/")
+        history = self.client.get(f"{self.requests_url}{created['id']}/history/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([link["account"]["name"] for link in response.json()["account_links"]], ["Globex"])
+        self.assertEqual(response.json()["account_links"][0]["evidence"][0]["summary"], "Visible account evidence")
+        self.assertNotIn("Restricted account evidence", str(response.json()))
+        self.assertNotIn("Restricted account evidence", str(history.json()))
 
     def test_list_combines_filters_orders_priorities_and_hides_archived_requests(self) -> None:
         first = self.client.post(self.requests_url, self._payload(), format="json").json()
@@ -424,7 +645,7 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertTrue(archived.json()["is_archived"])
         self.assertEqual(archived_update.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(restored.json()["is_archived"])
-        self.assertEqual(restored.json()["account"], created["account"])
+        self.assertEqual(restored.json()["account_links"], created["account_links"])
         self.assertEqual(restored.json()["product_areas"], created["product_areas"])
         self.assertEqual(len(history.json()), 2)
 

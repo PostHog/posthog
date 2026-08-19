@@ -1,8 +1,10 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -37,6 +39,15 @@ const createdRequest: FeatureRequestApi = {
     archived_by: null,
     version: 1,
     account: { id: 'account-1', name: 'Acme' },
+    account_links: [
+        {
+            id: 'account-link-1',
+            account: { id: 'account-1', name: 'Acme' },
+            evidence: [],
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-01-01T00:00:00Z',
+        },
+    ],
     product_areas: [
         {
             id: 'area-1',
@@ -81,14 +92,14 @@ describe('featureRequestsLogic', () => {
         logic.actions.openCreateRequest()
         logic.actions.setTitle(createdRequest.title)
         logic.actions.setDescription(createdRequest.description)
-        logic.actions.setAccountId(createdRequest.account.id)
+        logic.actions.setAccountId(createdRequest.account_links[0].account.id)
         logic.actions.setProductAreaIds(['area-1'])
 
         await expectLogic(logic, () => logic.actions.submitRequest()).toFinishAllListeners()
 
         expect(logic.values.title).toBe(createdRequest.title)
         expect(logic.values.description).toBe(createdRequest.description)
-        expect(logic.values.accountId).toBe(createdRequest.account.id)
+        expect(logic.values.accountId).toBe(createdRequest.account_links[0].account.id)
         expect(logic.values.productAreaIds).toEqual(['area-1'])
         expect(logic.values.createRequestOpen).toBe(true)
         expect(logic.values.submittingRequest).toBe(false)
@@ -277,6 +288,66 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.editIsStale).toBe(false)
     })
 
+    it('adds evidence to the selected account link and refreshes request state', async () => {
+        const evidenceRequest: FeatureRequestApi = {
+            ...createdRequest,
+            version: 2,
+            account_links: [
+                {
+                    ...createdRequest.account_links[0],
+                    evidence: [
+                        {
+                            id: 'evidence-1',
+                            summary: 'Acme needs weekly exports.',
+                            customer_quote: '',
+                            evidence_source: 'conversation',
+                            source_url: '',
+                            requested_on: null,
+                            created_by: 1,
+                            updated_by: 1,
+                            created_at: '2026-01-02T00:00:00Z',
+                            updated_at: '2026-01-02T00:00:00Z',
+                        },
+                    ],
+                },
+            ],
+        }
+        const addSpy = jest.spyOn(generatedApi, 'featureRequestsAddEvidenceCreate').mockResolvedValue(evidenceRequest)
+        await expectLogic(logic, () => logic.actions.setActiveRequestId(createdRequest.id)).toFinishAllListeners()
+        logic.actions.loadActiveRequestSuccess(createdRequest)
+        logic.actions.openNewEvidence(createdRequest.account_links[0])
+        logic.actions.setEvidenceSummary('Acme needs weekly exports.')
+
+        await expectLogic(logic, () => logic.actions.saveEvidence()).toFinishAllListeners()
+
+        expect(addSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), createdRequest.id, {
+            expected_version: 1,
+            account_link_id: 'account-link-1',
+            summary: 'Acme needs weekly exports.',
+            customer_quote: '',
+            evidence_source: 'conversation',
+            source_url: '',
+            requested_on: null,
+        })
+        expect(logic.values.activeRequest).toEqual(evidenceRequest)
+        expect(logic.values.evidenceModalOpen).toBe(false)
+        expect(logic.values.savingEvidence).toBe(false)
+    })
+
+    it('opens the account evidence form from an account page link', () => {
+        router.actions.push(urls.customerAnalyticsFeatureRequests(createdRequest.id), {
+            evidence_account: createdRequest.account.id,
+        })
+
+        logic.actions.loadActiveRequestSuccess(createdRequest)
+
+        expect(logic.values.evidenceModalOpen).toBe(true)
+        expect(logic.values.evidenceAccountLinkId).toBe(createdRequest.account_links[0].id)
+
+        logic.actions.closeEvidence()
+        expect(router.values.searchParams.evidence_account).toBeUndefined()
+    })
+
     it('ignores a second submit while the first request is in flight', async () => {
         let resolveCreate: (request: FeatureRequestApi) => void = () => undefined
         const createPromise = new Promise<FeatureRequestApi>((resolve) => {
@@ -286,7 +357,7 @@ describe('featureRequestsLogic', () => {
         logic.actions.openCreateRequest()
         logic.actions.setTitle(createdRequest.title)
         logic.actions.setDescription(createdRequest.description)
-        logic.actions.setAccountId(createdRequest.account.id)
+        logic.actions.setAccountId(createdRequest.account_links[0].account.id)
         logic.actions.setProductAreaIds(['area-1'])
 
         logic.actions.submitRequest()

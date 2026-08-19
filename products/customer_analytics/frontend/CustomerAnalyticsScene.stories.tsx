@@ -109,6 +109,35 @@ const featureRequestStoryItem = {
     archived_by: null,
     version: 1,
     account: { id: '018f47de-7e12-7000-8000-000000000002', name: 'Acme' },
+    account_links: [
+        {
+            id: '018f47de-7e12-7000-8000-000000000007',
+            account: { id: '018f47de-7e12-7000-8000-000000000002', name: 'Acme' },
+            evidence: [
+                {
+                    id: '018f47de-7e12-7000-8000-000000000008',
+                    summary: 'Acme needs a monthly export for its reporting workflow.',
+                    customer_quote: 'We need to share account retention with our leadership team.',
+                    evidence_source: 'conversation',
+                    source_url: '',
+                    requested_on: '2024-01-08',
+                    created_by: 1,
+                    updated_by: 1,
+                    created_at: '2024-01-12T10:00:00Z',
+                    updated_at: '2024-01-12T10:00:00Z',
+                },
+            ],
+            created_at: '2024-01-12T10:00:00Z',
+            updated_at: '2024-01-12T10:00:00Z',
+        },
+        {
+            id: '018f47de-7e12-7000-8000-000000000009',
+            account: { id: '018f47de-7e12-7000-8000-000000000010', name: 'Globex' },
+            evidence: [],
+            created_at: '2024-01-13T10:00:00Z',
+            updated_at: '2024-01-13T10:00:00Z',
+        },
+    ],
     product_areas: [
         {
             id: '018f47de-7e12-7000-8000-000000000003',
@@ -171,9 +200,9 @@ export const FeatureRequests: Story = {
                             { field: 'status', before: null, after: 'requested' },
                             { field: 'priority', before: null, after: null },
                             {
-                                field: 'account',
-                                before: null,
-                                after: { id: '018f47de-7e12-7000-8000-000000000002', name: 'Acme' },
+                                field: 'accounts',
+                                before: [],
+                                after: [{ id: '018f47de-7e12-7000-8000-000000000002', name: 'Acme' }],
                             },
                             {
                                 field: 'product_areas',
@@ -193,7 +222,7 @@ export const FeatureRequests: Story = {
                     count: 1,
                     next: null,
                     previous: null,
-                    results: [featureRequestStoryItem.account],
+                    results: featureRequestStoryItem.account_links.map((link) => link.account),
                 },
             },
         })

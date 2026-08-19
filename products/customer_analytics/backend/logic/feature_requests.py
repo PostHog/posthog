@@ -1,8 +1,9 @@
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, IntegerField, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Lower
 from django.utils import timezone
 
@@ -13,6 +14,8 @@ from products.customer_analytics.backend.models import (
     Account,
     FeatureRequest,
     FeatureRequestAccountLink,
+    FeatureRequestEvidence,
+    FeatureRequestEvidenceSource,
     FeatureRequestHistory,
     FeatureRequestHistorySource,
     FeatureRequestPriority,
@@ -50,8 +53,33 @@ def _to_product_area_view(product_area: FeatureRequestProductArea) -> contracts.
     )
 
 
+def _to_evidence_view(evidence: FeatureRequestEvidence) -> contracts.FeatureRequestEvidenceView:
+    return contracts.FeatureRequestEvidenceView(
+        id=evidence.id,
+        summary=evidence.summary,
+        customer_quote=evidence.customer_quote,
+        evidence_source=evidence.source,
+        source_url=evidence.source_url,
+        requested_on=evidence.requested_on,
+        created_by=evidence.created_by_id,
+        updated_by=evidence.updated_by_id,
+        created_at=evidence.created_at,
+        updated_at=evidence.updated_at,
+    )
+
+
+def _to_account_link_view(account_link: FeatureRequestAccountLink) -> contracts.FeatureRequestAccountLinkView:
+    return contracts.FeatureRequestAccountLinkView(
+        id=account_link.id,
+        account=contracts.FeatureRequestAccountView(id=account_link.account.id, name=account_link.account.name),
+        evidence=[_to_evidence_view(item) for item in account_link.evidence.all()],
+        created_at=account_link.created_at,
+        updated_at=account_link.updated_at,
+    )
+
+
 def _to_feature_request_view(feature_request: FeatureRequest) -> contracts.FeatureRequestView:
-    account_link = next(iter(feature_request.account_links.all()))
+    account_links = [_to_account_link_view(link) for link in feature_request.account_links.all()]
     return contracts.FeatureRequestView(
         id=feature_request.id,
         title=feature_request.title,
@@ -62,7 +90,8 @@ def _to_feature_request_view(feature_request: FeatureRequest) -> contracts.Featu
         archived_at=feature_request.archived_at,
         archived_by=feature_request.archived_by_id,
         version=feature_request.version,
-        account=contracts.FeatureRequestAccountView(id=account_link.account.id, name=account_link.account.name),
+        account=account_links[0].account if account_links else None,
+        account_links=account_links,
         product_areas=[_to_product_area_view(area) for area in feature_request.product_areas.all()],
         created_by=feature_request.created_by_id,
         updated_by=feature_request.updated_by_id,
@@ -75,10 +104,17 @@ def _feature_request_queryset(team_id: int, user_access_control: "UserAccessCont
     accessible_account_ids = user_access_control.filter_queryset_by_access_level(
         Account.objects.for_team(team_id)
     ).values("id")
+    visible_links = (
+        FeatureRequestAccountLink.objects.for_team(team_id)
+        .filter(account_id__in=accessible_account_ids, unlinked_at__isnull=True)
+        .select_related("account")
+        .prefetch_related("evidence")
+        .order_by("account__name", "id")
+    )
     return (
         FeatureRequest.objects.for_team(team_id)
-        .filter(account_links__account_id__in=accessible_account_ids)
-        .prefetch_related("product_areas", "account_links__account")
+        .filter(account_links__account_id__in=accessible_account_ids, account_links__unlinked_at__isnull=True)
+        .prefetch_related("product_areas", Prefetch("account_links", queryset=visible_links))
         .distinct()
     )
 
@@ -135,7 +171,10 @@ def _apply_filters(
     if filters.product_area_ids:
         queryset = queryset.filter(product_area_links__product_area_id__in=filters.product_area_ids)
     if filters.account_ids:
-        queryset = queryset.filter(account_links__account_id__in=filters.account_ids)
+        queryset = queryset.filter(
+            account_links__account_id__in=filters.account_ids,
+            account_links__unlinked_at__isnull=True,
+        )
     if filters.archive_state == "active":
         queryset = queryset.filter(archived_at__isnull=True)
     elif filters.archive_state == "archived":
@@ -151,7 +190,7 @@ def _get_accessible_feature_request_for_update(
         return None
     linked_account_ids = set(
         FeatureRequestAccountLink.objects.for_team(team_id)
-        .filter(feature_request=feature_request)
+        .filter(feature_request=feature_request, unlinked_at__isnull=True)
         .values_list("account_id", flat=True)
     )
     accessible_account_ids = set(
@@ -171,6 +210,20 @@ def _get_accessible_account(*, team_id: int, account_id: UUID, user_access_contr
     if account is None:
         raise FeatureRequestValidationError("account_id", "Select an account you can access.")
     return account
+
+
+def _get_accessible_accounts(
+    *, team_id: int, account_ids: tuple[UUID, ...], user_access_control: "UserAccessControl"
+) -> list[Account]:
+    unique_ids = tuple(dict.fromkeys(account_ids))
+    if not unique_ids:
+        raise FeatureRequestValidationError("account_ids", "Select at least one account.")
+    accounts = list(
+        user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id)).filter(id__in=unique_ids)
+    )
+    if len(accounts) != len(unique_ids):
+        raise FeatureRequestValidationError("account_ids", "Select accounts you can access.")
+    return accounts
 
 
 def _get_valid_product_areas(
@@ -196,6 +249,26 @@ def _account_snapshot(account: Account) -> dict[str, str]:
     return {"id": str(account.id), "name": account.name}
 
 
+def _account_snapshots(accounts: list[Account]) -> list[dict[str, str]]:
+    return [
+        _account_snapshot(account)
+        for account in sorted(accounts, key=lambda account: (account.name.lower(), str(account.id)))
+    ]
+
+
+def _evidence_snapshot(evidence: FeatureRequestEvidence, *, account: Account | None = None) -> dict[str, object]:
+    evidence_account = account or evidence.account_link.account
+    return {
+        "id": str(evidence.id),
+        "account": _account_snapshot(evidence_account),
+        "summary": evidence.summary,
+        "customer_quote": evidence.customer_quote,
+        "source": evidence.source,
+        "source_url": evidence.source_url,
+        "requested_on": evidence.requested_on.isoformat() if evidence.requested_on else None,
+    }
+
+
 def _history_account_id(value: object) -> UUID | None:
     if not isinstance(value, dict) or not isinstance(value.get("id"), str):
         return None
@@ -214,22 +287,49 @@ def _redact_history_account(value: object, accessible_account_ids: set[UUID]) ->
     return {"id": None, "name": "Restricted account"}
 
 
+def _filter_history_accounts(value: object, accessible_account_ids: set[UUID]) -> object:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if _history_account_id(item) in accessible_account_ids]
+
+
+def _evidence_history_account_id(value: object) -> UUID | None:
+    if not isinstance(value, dict):
+        return None
+    return _history_account_id(value.get("account"))
+
+
 def _redact_inaccessible_history_accounts(
     changes: list[contracts.FeatureRequestHistoryChange], accessible_account_ids: set[UUID]
 ) -> list[contracts.FeatureRequestHistoryChange]:
-    redacted_changes: list[contracts.FeatureRequestHistoryChange] = []
+    visible_changes: list[contracts.FeatureRequestHistoryChange] = []
     for change in changes:
         if change["field"] == "account":
-            redacted_changes.append(
+            visible_changes.append(
                 contracts.FeatureRequestHistoryChange(
                     field=change["field"],
                     before=_redact_history_account(change["before"], accessible_account_ids),
                     after=_redact_history_account(change["after"], accessible_account_ids),
                 )
             )
+        elif change["field"] == "accounts":
+            before = _filter_history_accounts(change["before"], accessible_account_ids)
+            after = _filter_history_accounts(change["after"], accessible_account_ids)
+            if before != after:
+                visible_changes.append(
+                    contracts.FeatureRequestHistoryChange(
+                        field=change["field"],
+                        before=before,
+                        after=after,
+                    )
+                )
+        elif change["field"] == "evidence":
+            account_id = _evidence_history_account_id(change["after"]) or _evidence_history_account_id(change["before"])
+            if account_id in accessible_account_ids:
+                visible_changes.append(change)
         else:
-            redacted_changes.append(change)
-    return redacted_changes
+            visible_changes.append(change)
+    return visible_changes
 
 
 def _product_area_snapshots(product_areas: list[FeatureRequestProductArea]) -> list[dict[str, str]]:
@@ -242,15 +342,15 @@ def _product_area_snapshots(product_areas: list[FeatureRequestProductArea]) -> l
 def _ensure_initial_history(
     feature_request: FeatureRequest,
     *,
-    account: Account | None = None,
+    accounts: list[Account] | None = None,
     product_areas: list[FeatureRequestProductArea] | None = None,
 ) -> None:
-    if account is None:
-        account = (
-            FeatureRequestAccountLink.objects.for_team(feature_request.team_id)
-            .select_related("account")
-            .get(feature_request=feature_request)
-            .account
+    if accounts is None:
+        accounts = list(
+            Account.objects.for_team(feature_request.team_id).filter(
+                feature_request_links__feature_request=feature_request,
+                feature_request_links__unlinked_at__isnull=True,
+            )
         )
     if product_areas is None:
         product_areas = list(
@@ -266,7 +366,7 @@ def _ensure_initial_history(
             "changes": [
                 {"field": "status", "before": None, "after": feature_request.status},
                 {"field": "priority", "before": None, "after": feature_request.priority},
-                {"field": "account", "before": None, "after": _account_snapshot(account)},
+                {"field": "accounts", "before": [], "after": _account_snapshots(accounts)},
                 {
                     "field": "product_areas",
                     "before": [],
@@ -435,7 +535,7 @@ def create_feature_request(
             )
             _ensure_initial_history(
                 feature_request,
-                account=accessible_account,
+                accounts=[accessible_account],
                 product_areas=product_areas,
             )
 
@@ -497,27 +597,43 @@ def update_feature_request(
             update_fields.add("priority")
 
         relations_changed = False
-        if input.account_id is not None:
-            account = _get_accessible_account(
+        if input.account_ids is not None:
+            accounts = _get_accessible_accounts(
                 team_id=team_id,
-                account_id=input.account_id,
+                account_ids=input.account_ids,
                 user_access_control=user_access_control,
             )
-            account_link = (
+            requested_ids = {account.id for account in accounts}
+            active_links = list(
                 FeatureRequestAccountLink.objects.for_team(team_id)
+                .filter(feature_request=feature_request, unlinked_at__isnull=True)
                 .select_related("account")
-                .get(feature_request=feature_request)
             )
-            if account_link.account_id != account.id:
+            active_ids = {link.account_id for link in active_links}
+            if requested_ids != active_ids:
+                changed_at = timezone.now()
                 history_changes.append(
                     {
-                        "field": "account",
-                        "before": _account_snapshot(account_link.account),
-                        "after": _account_snapshot(account),
+                        "field": "accounts",
+                        "before": _account_snapshots([link.account for link in active_links]),
+                        "after": _account_snapshots(accounts),
                     }
                 )
-                account_link.account = account
-                account_link.save(update_fields=["account"])
+                FeatureRequestAccountLink.objects.for_team(team_id).filter(
+                    feature_request=feature_request,
+                    account_id__in=active_ids - requested_ids,
+                ).update(unlinked_at=changed_at, unlinked_by_id=actor_id, updated_at=changed_at)
+                for account in accounts:
+                    link, created = FeatureRequestAccountLink.objects.for_team(team_id).get_or_create(
+                        team_id=team_id,
+                        feature_request=feature_request,
+                        account=account,
+                    )
+                    if not created and link.unlinked_at is not None:
+                        link.unlinked_at = None
+                        link.unlinked_by_id = None
+                        link.updated_at = changed_at
+                        link.save(update_fields=["unlinked_at", "unlinked_by_id", "updated_at"])
                 relations_changed = True
 
         if input.product_area_ids is not None:
@@ -582,6 +698,229 @@ def update_feature_request(
     )
 
 
+def _validate_evidence(
+    input: contracts.CreateFeatureRequestEvidenceInput | contracts.UpdateFeatureRequestEvidenceInput,
+) -> tuple[str, str, str, str]:
+    summary = input.summary.strip()
+    customer_quote = input.customer_quote.strip()
+    source_url = input.source_url.strip()
+    if input.evidence_source not in FeatureRequestEvidenceSource.values:
+        raise FeatureRequestValidationError("evidence_source", "Select a valid evidence source.")
+    if not summary and not customer_quote and not source_url:
+        raise FeatureRequestValidationError("evidence", "Enter a summary, customer quote, or source URL.")
+    if source_url:
+        parsed_url = urlparse(source_url)
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+            raise FeatureRequestValidationError("source_url", "Enter a valid HTTP or HTTPS URL.")
+    if input.requested_on is not None and input.requested_on > timezone.localdate():
+        raise FeatureRequestValidationError("requested_on", "The request date cannot be in the future.")
+    return summary, customer_quote, input.evidence_source, source_url
+
+
+def _get_evidence_account_link(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    account_link_id: UUID,
+    expected_version: int,
+    user_access_control: "UserAccessControl",
+) -> tuple[FeatureRequest, FeatureRequestAccountLink] | None:
+    feature_request = FeatureRequest.objects.for_team(team_id).select_for_update().filter(id=feature_request_id).first()
+    if feature_request is None:
+        return None
+    account_link = (
+        FeatureRequestAccountLink.objects.for_team(team_id)
+        .select_related("account")
+        .filter(
+            id=account_link_id,
+            feature_request=feature_request,
+            unlinked_at__isnull=True,
+        )
+        .first()
+    )
+    if account_link is None:
+        return None
+    _get_accessible_account(
+        team_id=team_id,
+        account_id=account_link.account_id,
+        user_access_control=user_access_control,
+    )
+    if feature_request.archived_at is not None:
+        raise FeatureRequestValidationError("feature_request", "Restore this request before editing evidence.")
+    if feature_request.version != expected_version:
+        raise FeatureRequestConflictError("This request changed since you opened it. Reload it and try again.")
+    return feature_request, account_link
+
+
+def _record_evidence_change(
+    *,
+    feature_request: FeatureRequest,
+    before: dict[str, object] | None,
+    after: dict[str, object] | None,
+    actor_id: int,
+) -> None:
+    changed_at = timezone.now()
+    feature_request.version += 1
+    feature_request.updated_by_id = actor_id
+    feature_request.updated_at = changed_at
+    feature_request.save(update_fields=["version", "updated_by_id", "updated_at"])
+    FeatureRequestHistory.objects.for_team(feature_request.team_id).create(
+        team_id=feature_request.team_id,
+        feature_request=feature_request,
+        changes=[{"field": "evidence", "before": before, "after": after}],
+        source=FeatureRequestHistorySource.MANUAL,
+        actor_id=actor_id,
+        changed_at=changed_at,
+    )
+
+
+def create_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.CreateFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    summary, customer_quote, evidence_source, source_url = _validate_evidence(input)
+    with transaction.atomic():
+        result = _get_evidence_account_link(
+            team_id=team_id,
+            feature_request_id=feature_request_id,
+            account_link_id=input.account_link_id,
+            expected_version=input.expected_version,
+            user_access_control=user_access_control,
+        )
+        if result is None:
+            return None
+        feature_request, account_link = result
+        evidence = FeatureRequestEvidence.objects.for_team(team_id).create(
+            team_id=team_id,
+            account_link=account_link,
+            summary=summary,
+            customer_quote=customer_quote,
+            source=evidence_source,
+            source_url=source_url,
+            requested_on=input.requested_on,
+            created_by_id=actor_id,
+            updated_by_id=actor_id,
+        )
+        _record_evidence_change(
+            feature_request=feature_request,
+            before=None,
+            after=_evidence_snapshot(evidence, account=account_link.account),
+            actor_id=actor_id,
+        )
+    return _refresh_feature_request(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        user_access_control=user_access_control,
+    )
+
+
+def update_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.UpdateFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    summary, customer_quote, evidence_source, source_url = _validate_evidence(input)
+    with transaction.atomic():
+        evidence = (
+            FeatureRequestEvidence.objects.for_team(team_id)
+            .select_related("account_link__account")
+            .filter(id=input.evidence_id, account_link__feature_request_id=feature_request_id)
+            .first()
+        )
+        if evidence is None:
+            return None
+        result = _get_evidence_account_link(
+            team_id=team_id,
+            feature_request_id=feature_request_id,
+            account_link_id=evidence.account_link_id,
+            expected_version=input.expected_version,
+            user_access_control=user_access_control,
+        )
+        if result is None:
+            return None
+        feature_request, account_link = result
+        before = _evidence_snapshot(evidence, account=account_link.account)
+        evidence.summary = summary
+        evidence.customer_quote = customer_quote
+        evidence.source = evidence_source
+        evidence.source_url = source_url
+        evidence.requested_on = input.requested_on
+        after = _evidence_snapshot(evidence, account=account_link.account)
+        if before != after:
+            evidence.updated_by_id = actor_id
+            evidence.save(
+                update_fields=[
+                    "summary",
+                    "customer_quote",
+                    "source",
+                    "source_url",
+                    "requested_on",
+                    "updated_by_id",
+                    "updated_at",
+                ]
+            )
+            _record_evidence_change(
+                feature_request=feature_request,
+                before=before,
+                after=after,
+                actor_id=actor_id,
+            )
+    return _refresh_feature_request(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        user_access_control=user_access_control,
+    )
+
+
+def delete_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.DeleteFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    with transaction.atomic():
+        evidence = (
+            FeatureRequestEvidence.objects.for_team(team_id)
+            .select_related("account_link__account")
+            .filter(id=input.evidence_id, account_link__feature_request_id=feature_request_id)
+            .first()
+        )
+        if evidence is None:
+            return None
+        result = _get_evidence_account_link(
+            team_id=team_id,
+            feature_request_id=feature_request_id,
+            account_link_id=evidence.account_link_id,
+            expected_version=input.expected_version,
+            user_access_control=user_access_control,
+        )
+        if result is None:
+            return None
+        feature_request, account_link = result
+        before = _evidence_snapshot(evidence, account=account_link.account)
+        evidence.delete()
+        _record_evidence_change(
+            feature_request=feature_request,
+            before=before,
+            after=None,
+            actor_id=actor_id,
+        )
+    return _refresh_feature_request(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        user_access_control=user_access_control,
+    )
+
+
 def set_feature_request_archived(
     *,
     team_id: int,
@@ -633,12 +972,17 @@ def list_feature_request_history(
     history_account_ids: set[UUID] = set()
     for entry in history:
         for change in entry.changes:
-            if change.get("field") != "account":
-                continue
+            field = change.get("field")
             for value in (change.get("before"), change.get("after")):
-                account_id = _history_account_id(value)
-                if account_id is not None:
-                    history_account_ids.add(account_id)
+                if field == "account":
+                    account_ids = [_history_account_id(value)]
+                elif field == "accounts" and isinstance(value, list):
+                    account_ids = [_history_account_id(item) for item in value]
+                elif field == "evidence":
+                    account_ids = [_evidence_history_account_id(value)]
+                else:
+                    account_ids = []
+                history_account_ids.update(account_id for account_id in account_ids if account_id is not None)
     accessible_account_ids = set(
         user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id))
         .filter(id__in=history_account_ids)
