@@ -387,13 +387,28 @@ impl IntoResponse for FlagError {
             },
             FlagError::InternalError { code, cause } => {
                 tracing::error!(error_code = code, "Internal server error: {cause:?}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "An internal server error occurred. Please try again later or contact support if the problem persists.".to_string(),
-                )
+                // Corrupt flag data will fail every retry, so this one names the
+                // thing the customer can actually fix.
+                let detail = if code == "flag_data_parsing_error" {
+                    "Failed to parse flag configuration data. This may indicate a misconfigured feature flag. Please check your flag definitions or contact support."
+                } else {
+                    "An internal server error occurred. Please try again later or contact support if the problem persists."
+                };
+                (StatusCode::INTERNAL_SERVER_ERROR, detail.to_string())
             }
             FlagError::Unavailable { code, cause } => {
-                tracing::warn!(error_code = code, "Service dependency unavailable: {cause:?}");
+                match code {
+                    // A person row that has not landed yet is expected under
+                    // replication lag, so it does not deserve an error line.
+                    "person_not_found" => tracing::warn!(
+                        error_code = code,
+                        "Service dependency unavailable: {cause:?}"
+                    ),
+                    _ => tracing::error!(
+                        error_code = code,
+                        "Service dependency unavailable: {cause:?}"
+                    ),
+                }
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "A service dependency is temporarily unavailable. This is likely a temporary issue. Please try again later.".to_string(),
@@ -772,6 +787,24 @@ mod tests {
         assert!(
             body.contains("Invalid sent_at"),
             "body should describe the bad sent_at, got: {body}"
+        );
+    }
+
+    /// A corrupt flag definition fails every retry, so the generic "try again later"
+    /// body would send the customer in a loop instead of at the broken flag.
+    #[test]
+    fn test_flag_data_parsing_body_keeps_its_own_guidance() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let response = FlagError::flag_data_parsing("bad json").into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+        let body_bytes = rt
+            .block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
+            .unwrap();
+        let body = String::from_utf8(body_bytes.to_vec()).unwrap();
+        assert!(
+            body.contains("check your flag definitions"),
+            "body should point at the flag definitions, got: {body}"
         );
     }
 
