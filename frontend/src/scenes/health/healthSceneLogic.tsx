@@ -41,13 +41,6 @@ export interface healthSceneLogicActions {
     clearRefreshInFlight: () => {
         value: true
     }
-    snoozeIssue: (
-        id: string,
-        duration: string
-    ) => {
-        id: string
-        duration: string
-    }
     dismissIssue: (id: string) => {
         id: string
     }
@@ -77,6 +70,13 @@ export interface healthSceneLogicActions {
     }
     setShowDismissed: (show: boolean) => {
         show: boolean
+    }
+    snoozeIssue: (
+        id: string,
+        duration: string
+    ) => {
+        duration: string
+        id: string
     }
     undismissIssue: (id: string) => {
         id: string
