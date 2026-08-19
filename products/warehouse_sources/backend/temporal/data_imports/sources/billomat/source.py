@@ -11,6 +11,8 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.billomat.billomat import (
     BillomatResumeConfig,
     billomat_source,
@@ -42,11 +44,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 _BILLOMAT_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 
 
-def _registered_app_credentials(config: BillomatSourceConfig) -> tuple[Optional[str], Optional[str]]:
+@frozen
+class _RegisteredAppCredentials:
+    app_id: Optional[str]
+    app_secret: Optional[str]
+
+
+def _registered_app_credentials(config: BillomatSourceConfig) -> _RegisteredAppCredentials:
     registered_app = config.registered_app
     if registered_app is None or not registered_app.enabled:
-        return None, None
-    return registered_app.app_id, registered_app.app_secret
+        return _RegisteredAppCredentials(app_id=None, app_secret=None)
+    return _RegisteredAppCredentials(app_id=registered_app.app_id, app_secret=registered_app.app_secret)
 
 
 @SourceRegistry.register
@@ -102,8 +110,10 @@ class BillomatSource(ResumableSource[BillomatSourceConfig, BillomatResumeConfig]
                 "'acme.billomat.net'), not the full URL.",
             )
 
-        app_id, app_secret = _registered_app_credentials(config)
-        if validate_billomat_credentials(config.api_key, config.billomat_id, app_id, app_secret):
+        registered_app_credentials = _registered_app_credentials(config)
+        if validate_billomat_credentials(
+            config.api_key, config.billomat_id, registered_app_credentials.app_id, registered_app_credentials.app_secret
+        ):
             return True, None
 
         return False, "Invalid credentials"
@@ -117,12 +127,12 @@ class BillomatSource(ResumableSource[BillomatSourceConfig, BillomatResumeConfig]
         resumable_source_manager: ResumableSourceManager[BillomatResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        app_id, app_secret = _registered_app_credentials(config)
+        registered_app_credentials = _registered_app_credentials(config)
         resource = billomat_source(
             api_key=config.api_key,
             billomat_id=config.billomat_id,
-            app_id=app_id,
-            app_secret=app_secret,
+            app_id=registered_app_credentials.app_id,
+            app_secret=registered_app_credentials.app_secret,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,

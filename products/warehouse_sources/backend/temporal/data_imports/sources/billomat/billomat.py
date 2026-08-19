@@ -211,7 +211,10 @@ def billomat_source(
     headers = _billomat_headers(api_key, app_id, app_secret)
     # `X-AppSecret` isn't carried by any framework auth object (there is none here — the API
     # key rides as a plain header), so it needs its own redact entry alongside the API key.
-    session = make_tracked_session(headers=headers, redact_values=tuple(v for v in (api_key, app_secret) if v))
+    # allow_redirects=False: a redirect would forward the API key/app secret headers off the validated host.
+    session = make_tracked_session(
+        headers=headers, redact_values=tuple(v for v in (api_key, app_secret) if v), allow_redirects=False
+    )
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
@@ -243,9 +246,11 @@ def billomat_source(
 
 
 def validate_credentials(api_key: str, billomat_id: str, app_id: Optional[str], app_secret: Optional[str]) -> bool:
+    # allow_redirects=False: a redirect would forward the API key/app secret headers off the validated host.
     session = make_tracked_session(
         headers=_billomat_headers(api_key, app_id, app_secret),
         redact_values=tuple(v for v in (api_key, app_secret) if v),
+        allow_redirects=False,
     )
     res = session.get(f"https://{billomat_id}.billomat.net/api/clients?per_page=1")
     return res.status_code == 200
