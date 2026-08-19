@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconRocket, IconX } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import {
     Button,
     ButtonGroup,
@@ -21,6 +21,7 @@ import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
+import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
 
@@ -221,6 +222,78 @@ function BaseBranchOverrides(): JSX.Element {
 }
 
 /**
+ * A self-imposed cap on reports per day, deliberately housed with the autonomy throttles rather
+ * than the billing usage card: it is "how much should the agents do", not "what does the plan
+ * allow", and placing it next to plan usage read as if the two limits were one system. Renders
+ * regardless of the auto-start toggle, since the cap pauses report generation, not just PRs.
+ * While the billing quota has the pipeline paused, the live count is withheld so remaining daily
+ * headroom is not advertised on a day when nothing will arrive. Same collapsed-by-default shape
+ * as Base branch overrides: the trigger's count keeps the state readable without opening.
+ */
+function DailyReportLimit(): JSX.Element {
+    const {
+        maxReportsPerDay,
+        reportsGeneratedToday,
+        dailyReportLimitReached,
+        draftMaxReportsPerDay,
+        saveMaxReportsPerDayDisabledReason,
+        teamConfigUpdating,
+    } = useValues(signalTeamConfigLogic)
+    const { setDraftMaxReportsPerDay, saveDraftMaxReportsPerDay } = useActions(signalTeamConfigLogic)
+    const { quotaLimited } = useValues(inboxUsageLogic)
+
+    const summary = quotaLimited
+        ? 'Paused by plan limit'
+        : maxReportsPerDay != null
+          ? `${Math.min(reportsGeneratedToday, maxReportsPerDay)} / ${maxReportsPerDay} today`
+          : null
+
+    return (
+        <>
+            <Collapsible className="bg-transparent hover:bg-transparent">
+                <CollapsibleTrigger className="w-full h-auto px-2.5 py-1.5 text-xs text-secondary font-normal bg-transparent hover:bg-[var(--fill-hover)]">
+                    <span className="flex-1 text-left">Daily report limit</span>
+                    {summary && <span className="text-tertiary tabular-nums">{summary}</span>}
+                </CollapsibleTrigger>
+                <CollapsibleContent className="flex flex-col gap-1.5 px-2.5 pb-1.5">
+                    <p className="text-[11px] text-tertiary leading-snug mb-0">
+                        Pause new report generation after this many reports in a day. Leave empty for no limit.
+                    </p>
+                    <div className="flex items-center gap-1">
+                        <LemonInput
+                            type="number"
+                            min={1}
+                            step={1}
+                            size="small"
+                            placeholder="No limit"
+                            value={draftMaxReportsPerDay ?? undefined}
+                            onChange={(value) => setDraftMaxReportsPerDay(value ?? null)}
+                            onPressEnter={saveDraftMaxReportsPerDay}
+                            fullWidth
+                        />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={saveDraftMaxReportsPerDay}
+                            loading={teamConfigUpdating}
+                            disabledReason={saveMaxReportsPerDayDisabledReason ?? undefined}
+                            data-attr="signals-daily-report-limit-save"
+                        >
+                            Save
+                        </LemonButton>
+                    </div>
+                </CollapsibleContent>
+            </Collapsible>
+            {dailyReportLimitReached && !quotaLimited && (
+                <p className="text-xs font-medium text-danger mb-0 px-2.5 pb-1.5">
+                    Daily report limit reached. New reports resume at midnight in your project's timezone.
+                </p>
+            )}
+        </>
+    )
+}
+
+/**
  * Team-wide PR-generation control, backed by `autostart_enabled` and `default_autostart_priority`
  * on `signalTeamConfigLogic`. The inline switch is the master opt-out for autonomous inbox PRs;
  * reports keep generating and notifying either way. The threshold is the team default; a teammate's
@@ -280,6 +353,9 @@ export function SelfDrivingSection(): JSX.Element {
                         Reports still arrive and notify your team.
                     </p>
                 )}
+                <div className="border-t border-primary">
+                    <DailyReportLimit />
+                </div>
             </div>
         </div>
     )
