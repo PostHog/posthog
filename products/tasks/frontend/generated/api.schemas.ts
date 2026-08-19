@@ -1260,6 +1260,18 @@ export interface ChannelStarWriteApi {
 }
 
 /**
+ * Response for explicit default-channel provisioning.
+ */
+export interface ProvisionedChannelsApi {
+    /** The full channel list after provisioning, same shape as the list endpoint. */
+    channels: ChannelDTOApi[]
+    /** Whether this call created the requester's personal #me channel. */
+    personal_created: boolean
+    /** Whether this call created the team's shared #general channel. True only for the first user to provision it, so clients can branch first-user setup on it. */
+    general_created: boolean
+}
+
+/**
  * Response shape for one @-mention of the requester in a task's thread.
  */
 export interface TaskMentionDTOApi {

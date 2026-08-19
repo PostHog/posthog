@@ -68,6 +68,7 @@ import type {
   NoteArtefact,
   OrganizationMemberBasic,
   PriorityJudgmentArtefact,
+  ProvisionedTaskChannels,
   RepoSelectionArtefact,
   SafetyJudgmentArtefact,
   SandboxCustomImage,
@@ -2660,6 +2661,22 @@ export class PostHogAPIClient {
       throw new Error(`Failed to rename task channel: ${response.statusText}`);
     }
     return (await response.json()) as TaskChannel;
+  }
+
+  async provisionDefaultTaskChannels(): Promise<ProvisionedTaskChannels> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/provision_defaults/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to provision default spaces: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ProvisionedTaskChannels;
   }
 
   async updateTaskChannelRepositories(

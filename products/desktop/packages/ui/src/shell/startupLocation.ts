@@ -5,7 +5,10 @@ import {
 } from "@posthog/core/canvas/channelName";
 import { stateStorage } from "@posthog/ui/shell/rendererStorage";
 
-type StartupLocationClient = Pick<PostHogAPIClient, "getTaskChannels">;
+type StartupLocationClient = Pick<
+  PostHogAPIClient,
+  "getTaskChannels" | "provisionDefaultTaskChannels"
+>;
 
 const storageKey = (identity: string): string => `startup-location:${identity}`;
 
@@ -21,7 +24,15 @@ export async function resolveStartupLocation(
 ): Promise<StartupLocation> {
   const saved = await stateStorage.getItem(storageKey(identity));
   if (saved) return { href: saved, firstRun: null };
-  const channels = await client.getTaskChannels();
+  // Listing is a pure read; a first run (or a pre-#general team) provisions
+  // the default spaces explicitly and lands on the fresh list.
+  let channels = await client.getTaskChannels();
+  if (
+    !channels.some((channel) => isPersonalChannel(channel)) ||
+    !channels.some((channel) => isGeneralChannel(channel))
+  ) {
+    channels = (await client.provisionDefaultTaskChannels()).channels;
+  }
   const general = channels.find((channel) => isGeneralChannel(channel));
   if (general) {
     return {
