@@ -45,6 +45,7 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         config = IdentityProviderConfig.objects.get(id=response.json()["id"])
         self.assertEqual(config.organization, self.organization)
         self.assertEqual(config.saml_entity_id, "entity")
+        self.assertEqual(response.json()["saml_relay_state"], str(config.saml_relay_state))
 
     def test_member_cannot_create_config(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

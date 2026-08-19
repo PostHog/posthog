@@ -4475,6 +4475,14 @@ class AutocompleteCompletionItem(BaseModel):
             " is inserted when selecting this completion."
         ),
     )
+    sortText: str | None = Field(
+        default=None,
+        description=(
+            "Overrides the editor's default ordering for this item. Set when the"
+            " backend can rank a suggestion, for example a function whose return type"
+            " fits the comparison being written."
+        ),
+    )
 
 
 class BoxPlotDatum(BaseModel):
@@ -26226,6 +26234,14 @@ class MaxRecordingUniversalFilters(BaseModel):
             " indicate descending order to avoid invalidating or migrating all existing"
             " filters we keep DESC as the default or allow specification of an explicit"
             " order direction here"
+        ),
+    )
+    session_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "Pin the result to specific recordings by their session id, e.g. the ones"
+            " just summarized. `$session_id` is not a session property, so it cannot be"
+            " filtered on in `filter_group`."
         ),
     )
 

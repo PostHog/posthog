@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import RecordingsQuery
 
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
@@ -17,9 +18,9 @@ from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     SWEEP_EVENTS_LOOKBACK,
-    BackfillCandidateQuery,
     CandidateSession,
     ScannerCandidateQuery,
+    WindowedCandidateQuery,
 )
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
@@ -111,7 +112,18 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # tick: seeding only once headroom frees up would leave the range in between with no deep pass.
         deep_swept_through = scanner.last_swept_at
     elif deep_limit > 0:
-        deep_candidates, deep_swept_through = _deep_sweep(scanner, query, deep_limit)
+        deep_candidates, deep_swept_through = _deep_sweep(scanner, query, candidate_query, deep_limit)
+
+    # Sessions that repeatedly exhausted the rasterizer's whole retry envelope (the Class B
+    # compositor wedge) get quarantined for the counter's TTL window; each dispatch would otherwise
+    # burn up to an hour of shared rasterizer capacity on a render that cannot finish. The watermark
+    # still advances past them, so they are skipped, not retried forever.
+    stuck = read_stuck_session_ids(inputs.team_id, [c.session_id for c in [*candidates, *deep_candidates]])
+    if stuck:
+        activity.logger.warning("replay_vision.stuck_sessions_skipped %d", len(stuck))
+        record_sweep_outcome("stuck_sessions_skipped")
+        candidates = [c for c in candidates if c.session_id not in stuck]
+        deep_candidates = [c for c in deep_candidates if c.session_id not in stuck]
 
     record_sweep_outcome(
         "candidates_found" if candidates or deep_candidates else "no_candidates",
@@ -152,7 +164,7 @@ def _throttled(scanner: ReplayScanner) -> bool:
 
 
 def _deep_sweep(
-    scanner: ReplayScanner, query: RecordingsQuery, limit: int
+    scanner: ReplayScanner, query: RecordingsQuery, fast_query: ScannerCandidateQuery, limit: int
 ) -> tuple[list[CandidateSession], dt.datetime | None]:
     """Catch-up pass behind the fast watermark with the full events lookback.
 
@@ -166,6 +178,17 @@ def _deep_sweep(
     if now - scanner.last_deep_swept_at < DEEP_SWEEP_INTERVAL or scanner.last_deep_swept_at >= scanner.last_swept_at:
         return [], None
 
+    # Only the fast pass's events window can cost it candidates, so with nothing matching on events
+    # this pass would re-find what the fast pass already dispatched. Advancing rather than parking the
+    # watermark keeps the window this pass would open bounded if the query later gains an event filter.
+    # The range behind the watermark has to have been swept under the current query though: an edit
+    # that drops the last event filter leaves stragglers back there that only this pass ever revisits.
+    # `updated_at` is safe to read as "query may have changed" because watermarks advance through
+    # queryset updates, which do not touch it.
+    settled_since_last_edit = scanner.updated_at <= scanner.last_deep_swept_at
+    if settled_since_last_edit and not fast_query.matches_on_events():
+        return [], scanner.last_swept_at
+
     # Exclude on observation rows rather than on the `$recording_observed` event. That event only
     # lands on the success path, so failed and ineligible sessions would keep matching and the walk
     # would never move past them. It is also an ingested event, so it is not ours to trust.
@@ -177,11 +200,12 @@ def _deep_sweep(
         ).values_list("session_id", flat=True)[:_DEEP_SWEEP_MAX_EXCLUSIONS]
     )
 
-    deep_query = BackfillCandidateQuery(
+    deep_query = WindowedCandidateQuery(
         team=scanner.team,
         query=query,
         window_start=scanner.last_deep_swept_at,
         window_end=scanner.last_swept_at,
+        query_type="ReplayVisionDeepSweepCandidateQuery",
         sampling_rate=scanner.sampling_rate,
         sampling_salt=str(scanner.id),
         sampling_mode=scanner.sampling_mode,

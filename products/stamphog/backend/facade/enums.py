@@ -33,6 +33,22 @@ TERMINAL_STATUSES = frozenset(
 )
 
 
+class ReviewTrigger(StrEnum):
+    """What caused a run to exist, derived from the run and its repo config.
+
+    Not stored: a run records `inbox_review` provenance on its output and inherits the repo's
+    review_mode, and this collapses the two into the one answer a reader wants — why did stamphog
+    look at this PR at all.
+    """
+
+    # Self-driving: stamphog reviewed a bot-authored PR off its own inbox provenance.
+    SELF_DRIVING = "self_driving"
+    # The repo is in LABEL mode, so the trigger label opted this PR in.
+    LABEL = "label"
+    # The repo reviews every relevant PR event.
+    ALL = "all"
+
+
 class ReviewVerdict(StrEnum):
     NONE = "none"
     APPROVED = "approved"
@@ -56,3 +72,12 @@ class ChannelResolutionSource(StrEnum):
     STAMPHOG_CONFIG = "stamphog_config"
     # Reserved for the future owners.yaml contact.slack step (PR #68872) — not implemented yet.
     OWNERS_CONTACT = "owners_contact"
+
+
+class AudienceReason(StrEnum):
+    # Why a merged PR landed in an audience's digest.
+    # The PR author's own team, or the channel the repo declared under digest:.
+    AUTHORED = "authored"
+    REPO_DECLARED = "repo_declared"
+    # A team that owns at least one changed file, from the review's ownership resolution.
+    OWNED = "owned"

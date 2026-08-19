@@ -21,6 +21,13 @@ export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
     triggers: 3,
     budget: 4,
 }
+export const STEP_LABELS: Record<ScannerEditorStep, string> = {
+    template: 'Template',
+    details: 'Details',
+    configure: 'Configure',
+    triggers: 'Recordings',
+    budget: 'Budget',
+}
 
 export interface ScannerFieldErrors {
     scanner_config?: unknown
@@ -99,7 +106,12 @@ export interface scannerEditorSceneLogicActions {
 export interface scannerEditorSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isNew: (scannerId: string) => boolean
-        breadcrumbs: (scannerId: string, isNew: boolean) => Breadcrumb[]
+        breadcrumbs: (
+            scannerId: string,
+            isNew: boolean,
+            step: ScannerEditorStep,
+            searchParams: Record<string, any>
+        ) => Breadcrumb[]
     }
 }
 
@@ -140,8 +152,13 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
     selectors({
         isNew: [(s) => [s.scannerId], (scannerId: string): boolean => scannerId === 'new'],
         breadcrumbs: [
-            (s) => [s.scannerId, s.isNew],
-            (scannerId: string, isNew: boolean): Breadcrumb[] => {
+            (s) => [s.scannerId, s.isNew, s.step, router.selectors.searchParams],
+            (
+                scannerId: string,
+                isNew: boolean,
+                step: ScannerEditorStep,
+                searchParams: Record<string, any>
+            ): Breadcrumb[] => {
                 const crumbs: Breadcrumb[] = [
                     {
                         key: 'replay-vision',
@@ -151,7 +168,16 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                     },
                 ]
                 if (isNew) {
-                    crumbs.push({ key: 'new-scanner', name: 'New scanner', path: urls.replayVision('new') })
+                    // The back arrow targets the second-to-last crumb, so past the template step the
+                    // 'New scanner' crumb points at the template picker and the current step trails it.
+                    crumbs.push({
+                        key: 'new-scanner',
+                        name: 'New scanner',
+                        path: scannerStepUrlWithParams('template', scannerId, searchParams),
+                    })
+                    if (step !== 'template') {
+                        crumbs.push({ key: 'new-scanner-step', name: STEP_LABELS[step] })
+                    }
                     return crumbs
                 }
                 // Editing an existing scanner: surface the detail page (on its Configuration tab, where the

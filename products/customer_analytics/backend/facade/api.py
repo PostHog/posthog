@@ -599,7 +599,7 @@ def _apply_external_tags(account: Account, tags: list[str], mode: str, workflow_
 
 
 def _apply_external_relationship_assignments(
-    account: Account, assignments: dict[str, int | None]
+    account: Account, assignments: dict[str, int | None], workflow_id: str | None = None
 ) -> contracts.ExternalAccountUpdateResult | None:
     """Apply provided relationship assignments, keyed by definition UUID (None ends the
     active assignment). Each non-None user id is resolved against an
@@ -649,10 +649,20 @@ def _apply_external_relationship_assignments(
 
     for definition, assignee in resolved:
         if assignee is None:
-            _relationships_logic.end_active(team_id=account.team_id, account=account, definition=definition)
+            _relationships_logic.end_active(
+                team_id=account.team_id,
+                account=account,
+                definition=definition,
+                workflow_id=workflow_id,
+            )
         else:
             _relationships_logic.assign(
-                team_id=account.team_id, account=account, definition=definition, user=assignee, created_by=None
+                team_id=account.team_id,
+                account=account,
+                definition=definition,
+                user=assignee,
+                created_by=None,
+                workflow_id=workflow_id,
             )
     return None
 
@@ -689,7 +699,9 @@ def update_external_account(
 
     try:
         with transaction.atomic():
-            error_result = _apply_external_relationship_assignments(account, relationship_assignments)
+            error_result = _apply_external_relationship_assignments(
+                account, relationship_assignments, workflow_id=workflow_id
+            )
             if error_result is not None:
                 return error_result
             if tags is not None:
@@ -4005,13 +4017,20 @@ def assign_account_relationship(
 
 
 def end_account_relationship(
-    *, team_id: int, account_id: str | UUID, relationship_id: str | UUID
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    relationship_id: str | UUID,
+    actor: "User | None" = None,
 ) -> contracts.AccountRelationship | None:
     """End an active assignment. Returns None when no active assignment matches this account
     (missing, another account's, or already ended) — mapped to 404."""
     try:
         relationship = _relationships_logic.end_relationship(
-            team_id=team_id, account_id=account_id, relationship_id=str(relationship_id)
+            team_id=team_id,
+            account_id=account_id,
+            relationship_id=str(relationship_id),
+            actor=actor,
         )
     except _relationships_logic.AccountRelationshipNotFound:
         return None

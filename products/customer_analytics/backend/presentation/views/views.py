@@ -1842,7 +1842,10 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         relationship = api.end_account_relationship(
-            team_id=self.team_id, account_id=account_id, relationship_id=self.kwargs["pk"]
+            team_id=self.team_id,
+            account_id=account_id,
+            relationship_id=self.kwargs["pk"],
+            actor=cast(User, request.user),
         )
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)

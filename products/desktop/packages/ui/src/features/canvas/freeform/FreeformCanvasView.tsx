@@ -18,6 +18,7 @@ import {
 } from "@posthog/core/canvas/canvasBuildSchemas";
 import type { CanvasDraft } from "@posthog/core/canvas/dashboardSchemas";
 import {
+  type CanvasAgentRequestResult,
   type CanvasAnalyticsConfig,
   type CanvasCommentHighlight,
   type CanvasTextSelection,
@@ -125,6 +126,19 @@ function canvasErrorType(message: string): string {
     message.match(/^([A-Z][A-Za-z0-9]*(?:Error|Exception))\b/)?.[1] ?? "unknown"
   );
 }
+
+// One toast per outcome: only new_run actually starts a run — signaled hands
+// the prompt to a run already in progress, and already_queued means an
+// identical request beat this one, so "Agent run started" would misreport both.
+const AGENT_REQUEST_OUTCOME_TOASTS: Record<
+  CanvasAgentRequestResult["requestOutcome"],
+  string
+> = {
+  new_run: "Agent run started",
+  signaled: "Request sent to the running agent",
+  already_queued: "An identical request is already in progress",
+  reported: "Request sent to the canvas creator",
+};
 
 // Badge tone for a draft's latest build status: ready is good, failed is bad,
 // in-flight is cautionary, and no build yet is neutral.
@@ -552,9 +566,13 @@ export function FreeformCanvasView({
   // The prompt is bound to the canvas that issued it: FreeformCanvasView is
   // reused across navigation, so a dialog approved after switching canvases
   // must not submit the old prompt against the newly selected canvas.
+  // `submitting` lives here rather than reading the mutation's isPending: the
+  // mutation is shared across requests, so a still-in-flight submission from a
+  // previous canvas would render a brand-new dialog pre-locked.
   const [agentRequest, setAgentRequest] = useState<{
     prompt: string;
     dashboardId: string;
+    submitting: boolean;
   } | null>(null);
   const agentRequestPromiseRef = useRef<{
     resolve: (value: unknown) => void;
@@ -585,6 +603,7 @@ export function FreeformCanvasView({
       setAgentRequest({
         prompt: input.prompt,
         dashboardId: dashboardIdRef.current,
+        submitting: false,
       });
       return new Promise<unknown>((resolve, reject) => {
         agentRequestPromiseRef.current = { resolve, reject };
@@ -608,7 +627,8 @@ export function FreeformCanvasView({
   );
   const confirmAgentRequest = useCallback(async () => {
     const pending = agentRequestPromiseRef.current;
-    if (!pending || agentRequest === null) return;
+    if (!pending || agentRequest === null || agentRequest.submitting) return;
+    setAgentRequest({ ...agentRequest, submitting: true });
     try {
       const result = await requestAgent.mutateAsync({
         id: agentRequest.dashboardId,
@@ -617,26 +637,24 @@ export function FreeformCanvasView({
       pending.resolve(result);
       // Navigation or unmount during the request may have rejected `pending`
       // and stored a newer request in the ref. Only clear the shared dialog
-      // state when it still belongs to this request, so a stale continuation
-      // can't close a newer canvas's dialog and orphan its pending promise.
+      // state and toast when it still belongs to this request, so a stale
+      // continuation can't close a newer canvas's dialog, orphan its pending
+      // promise, or report an outcome the viewer would read as the current
+      // canvas's.
       if (agentRequestPromiseRef.current === pending) {
         setAgentRequest(null);
         agentRequestPromiseRef.current = null;
+        toast.success(AGENT_REQUEST_OUTCOME_TOASTS[result.requestOutcome]);
       }
-      toast.success(
-        result.requestOutcome === "reported"
-          ? "Request sent to the canvas creator"
-          : "Agent run started",
-      );
     } catch (error) {
       pending.reject(error instanceof Error ? error : new Error(String(error)));
       if (agentRequestPromiseRef.current === pending) {
         setAgentRequest(null);
         agentRequestPromiseRef.current = null;
+        toast.error("Couldn't start the agent run", {
+          description: error instanceof Error ? error.message : String(error),
+        });
       }
-      toast.error("Couldn't start the agent run", {
-        description: error instanceof Error ? error.message : String(error),
-      });
     }
   }, [agentRequest, requestAgent]);
 
@@ -789,7 +807,7 @@ export function FreeformCanvasView({
     <Flex height="100%" overflow="hidden" position="relative">
       <CanvasAgentRequestDialog
         prompt={agentRequest?.prompt ?? null}
-        loading={requestAgent.isPending}
+        loading={agentRequest?.submitting ?? false}
         onCancel={cancelAgentRequest}
         onConfirm={() => void confirmAgentRequest()}
       />

@@ -6,7 +6,7 @@ from typing import Final
 
 from fastapi import HTTPException
 
-from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL
+from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL
 from llm_gateway.bedrock import BEDROCK_MODEL_IDS, get_bedrock_model_access_candidates, get_bedrock_region_name
 from llm_gateway.config import get_settings
 
@@ -88,6 +88,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5.2",
         "gpt-5-mini",
         "@cf/zai-org/glm-5.2",
+        "zai-org/glm-5.3",
         "moonshotai/kimi-k3",
     }
 )
@@ -99,6 +100,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
 RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
     # Evaluated by ReviewHog; exposed in PostHog Code behind the posthog-code-deepseek-model flag.
     BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
+    BASETEN_GLM53_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
 }
 
 PRODUCTS: Final[dict[str, ProductConfig]] = {
@@ -248,10 +250,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=None,
         # The models the review pipeline pins: sonnet-5 (perspectives + one-shots), opus-4-8
         # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra (Codex reviewers),
-        # GLM 5.2 and DeepSeek V4 Flash (evaluated as reviewers).
+        # GLM 5.2/5.3 and DeepSeek V4 Flash (evaluated as reviewers).
         allowed_models=frozenset(
             {
                 "@cf/zai-org/glm-5.2",
+                "zai-org/glm-5.3",
                 "deepseek-ai/deepseek-v4-flash-0731",
                 "claude-sonnet-5",
                 "claude-opus-4-8",
@@ -446,6 +449,7 @@ def check_free_tier_model_access(
 MODEL_ACCESS_FLAGS: Final[dict[str, str]] = {
     "moonshotai/kimi-k3": "tasks-kimi-k3",
     "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
+    "zai-org/glm-5.3": "tasks-glm-baseten-inference",
 }
 
 
@@ -469,7 +473,7 @@ def filter_to_free_tier_models(model_ids: list[str]) -> list[str]:
 
 def is_model_restricted_for_product(model: str, product: str) -> bool:
     """Whether `model` is reserved for other products — see RESTRICTED_MODEL_PRODUCTS."""
-    allowed_products = RESTRICTED_MODEL_PRODUCTS.get(model.lower())
+    allowed_products = RESTRICTED_MODEL_PRODUCTS.get(model.strip().lower())
     return allowed_products is not None and resolve_product_alias(product) not in allowed_products
 
 
