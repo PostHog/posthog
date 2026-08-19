@@ -37,6 +37,7 @@ import {
   taskDot,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
+import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import {
   type DragEvent,
@@ -272,7 +273,7 @@ export function ChannelItemRow({
     (event: DragEvent) => {
       if (item.kind !== "task") return;
 
-      event.dataTransfer.setData("text/x-task-id", item.id);
+      writeTaskDragData(event.dataTransfer, item.id);
       // Both, always. Command Center tiles ask for `copy` and the pinned run
       // asks for `move`; a source that permits only one resolves the other
       // pairing to no drop, and the tile silently stops accepting the row.
