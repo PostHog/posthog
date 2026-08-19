@@ -25,11 +25,13 @@ Each report owns one internal `SignalReportCanvas` link used by the generation a
 - one canvas, which remains stable across report updates;
 - the current internal generation task.
 
-The canvas also records `signal_report` provenance and the report id. Clients can identify and filter report-generated canvases without depending on the current generation task.
+The canvas also records `signal_report` provenance, the report id, and the current report summary as its description. Clients can identify, search, and preview report-generated canvases without querying Inbox.
 
 The canvas agent receives all PostHog read scopes and `canvas:write`. It cannot mutate other PostHog objects. Successful source is copied into the generation-attempt record for review.
 
-The report fingerprint includes its narrative, charts, research run, and implementation PR. A changed fingerprint starts another generation against the same canvas. PR webhooks trigger the same idempotent workflow, so a PR can enrich a canvas after its initial publication.
+The report fingerprint includes its narrative, charts, research run, implementation PR, and generation prompt version. A changed fingerprint starts another generation against the same canvas. PR webhooks trigger the same idempotent workflow, so a PR can enrich a canvas after its initial publication.
+
+Generated canvases stand alone rather than linking back to Inbox. The generation contract leads with the conclusion and impact, presents representative evidence, separates uncertainty, and ends with a concrete next step. Existing implementation work and PR state become prominent when present.
 
 Human participation changes ownership. A message in the discussion or a canvas version from another task marks the link collaborative. Later pipeline generations create drafts and do not replace the human-owned live version.
 

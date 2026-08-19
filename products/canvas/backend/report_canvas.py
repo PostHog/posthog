@@ -35,6 +35,7 @@ def create_report_canvas(
     team_id: int,
     channel_id: str | UUID,
     name: str,
+    description: str,
     discussion_task_id: str | UUID,
     source_product: str,
     source_resource_id: str | UUID,
@@ -43,6 +44,7 @@ def create_report_canvas(
         team_id=team_id,
         channel_id=channel_id,
         name=name,
+        description=description,
         discussion_task_id=discussion_task_id,
         source_product=source_product,
         source_resource_id=str(source_resource_id),
@@ -76,8 +78,12 @@ def get_canvas_channel_id(*, team_id: int, canvas_id: str | UUID) -> UUID:
     return Canvas.objects.for_team(team_id).values_list("channel_id", flat=True).get(id=canvas_id)
 
 
-def set_canvas_name(*, team_id: int, canvas_id: str | UUID, name: str) -> None:
-    updated = Canvas.objects.for_team(team_id).filter(id=canvas_id).update(name=name, updated_at=timezone.now())
+def set_canvas_metadata(*, team_id: int, canvas_id: str | UUID, name: str, description: str) -> None:
+    updated = (
+        Canvas.objects.for_team(team_id)
+        .filter(id=canvas_id)
+        .update(name=name, description=description, updated_at=timezone.now())
+    )
     if updated != 1:
         raise Canvas.DoesNotExist(canvas_id)
 

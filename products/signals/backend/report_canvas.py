@@ -35,7 +35,7 @@ from products.tasks.backend.facade import api as tasks_facade
 REPORT_CANVAS_FEATURE_FLAG = "signals-report-canvases"
 REPORT_CANVAS_PUBLISH_FEATURE_FLAG = "signals-report-canvases-publish"
 REPORT_CANVAS_CHANNEL_NAME = "general"
-REPORT_CANVAS_PROMPT_VERSION = "2026-08-17"
+REPORT_CANVAS_PROMPT_VERSION = "2026-08-19"
 _MAX_CONTEXT_ARTEFACTS = 16
 _MAX_CONTEXT_SIGNALS = 8
 _MAX_CONTEXT_STRING_LENGTH = 4_000
@@ -100,6 +100,7 @@ def _report_fingerprint(report: SignalReport) -> str:
     pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
     payload = json.dumps(
         {
+            "prompt_version": REPORT_CANVAS_PROMPT_VERSION,
             "title": report.title,
             "summary": report.summary,
             "error": report.error,
@@ -173,6 +174,8 @@ def _generation_prompt(
     context = {
         "report_id": str(report.id),
         "status": report.status,
+        "signal_count": report.signal_count,
+        "report_updated_at": report.updated_at,
         "title": report.title,
         "summary": report.summary,
         "pending_input_reason": report.error,
@@ -181,15 +184,20 @@ def _generation_prompt(
         "signals": _bounded_context_value(signals[:_MAX_CONTEXT_SIGNALS]),
         "artefacts": _report_artefact_context(report),
     }
-    return f"""Build a useful report canvas for Signal report {report.id}.
+    return f"""Build a useful standalone canvas for Signal report {report.id}.
 
 Use the building-canvases skill. Update the existing canvas with id {canvas_id}; never create another canvas.
-Make the canvas useful before anyone starts a conversation:
-- Put the conclusion and why it matters above the fold.
-- Lead with representative evidence. Link to the underlying PostHog or GitHub source when a real URL is available.
-- Prefer a relevant chart, replay, or source-specific visualization over prose when the supplied data supports it.
-- Show confidence, uncertainty, open questions, suggested reviewers, existing work, and PR state when present.
-- End with one clear recommended next step.
+The canvas replaces the report-reading experience for this surface. It must stand on its own: do not mention Inbox, add a back-reference to the report UI, or assume the reader has seen the source report.
+
+Use this content contract, adapting the visual layout to the evidence:
+- Above the fold, state the conclusion in one sentence and explain why it matters. Show report status, freshness, and priority when supplied.
+- Present the strongest representative evidence next. Prefer a relevant chart, replay, or source-specific visualization over prose when the supplied data supports it.
+- Label evidence with its source and time range. Link to the underlying PostHog or GitHub source when a real URL is available. Synthesize the supplied signals; do not dump raw signal records.
+- Separate confirmed findings from confidence, uncertainty, and open questions.
+- Make the recommended next step concrete. Include the suggested owner or reviewers and existing implementation work when present.
+- If a PR exists, make its current review state and outcome prominent.
+
+Treat the existing canvas as work to improve, not a blank document. Preserve useful context that does not conflict with the current report. A collaborative canvas must remain a draft for review, as instructed below.
 
 The canvas is presentation, not a trusted action surface. Do not render controls that merely look clickable. A button or link is allowed only when it navigates to a real supplied URL; otherwise present the next step as plain text. Desktop provides agent, PR, and lifecycle actions outside the canvas.
 
@@ -238,6 +246,7 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
                 team_id=team_id,
                 channel_id=channel.id,
                 name=report.title or "Report",
+                description=report.summary or "",
                 discussion_task_id=discussion_task_id,
                 source_product="signal_report",
                 source_resource_id=report.id,
@@ -267,7 +276,12 @@ def ensure_and_start_report_canvas_generation(*, team_id: int, report_id: str) -
             title=title,
             description=report.summary or "",
         )
-        canvas_api.set_canvas_name(team_id=team_id, canvas_id=session.canvas_id, name=title)
+        canvas_api.set_canvas_metadata(
+            team_id=team_id,
+            canvas_id=session.canvas_id,
+            name=title,
+            description=report.summary or "",
+        )
         if (
             session.generated_fingerprint == fingerprint
             and session.generation_status == SignalReportCanvas.GenerationStatus.READY
