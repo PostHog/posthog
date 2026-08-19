@@ -21,7 +21,10 @@ import { GroupWorktreesSection } from "@posthog/ui/features/sidebar/components/G
 import { SidebarSection } from "@posthog/ui/features/sidebar/components/SidebarSection";
 import { TaskRow } from "@posthog/ui/features/sidebar/components/TaskRow";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
-import { taskDragSiblings } from "@posthog/ui/features/sidebar/taskDrag";
+import {
+  dragSiblingCandidates,
+  taskDragSiblings,
+} from "@posthog/ui/features/sidebar/taskDrag";
 import {
   getPinnedInsertionIndex,
   type TaskTimestampKey,
@@ -111,8 +114,13 @@ export function TaskListView({
   // A drag that starts on a selected row carries the whole selection, so a pin
   // or an unpin applies to every row the user picked, not just the grabbed one.
   const allTasks = useMemo(
-    () => [...pinnedTasks, ...flatTasks],
-    [flatTasks, pinnedTasks],
+    () =>
+      dragSiblingCandidates(organizeMode, {
+        pinnedTasks,
+        flatTasks,
+        groupedTasks,
+      }),
+    [organizeMode, pinnedTasks, flatTasks, groupedTasks],
   );
   const dragSiblingsFor = useCallback(
     (task: TaskData) => taskDragSiblings(task.id, allTasks, (t) => t.id),

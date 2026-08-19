@@ -1,4 +1,8 @@
 import { dedupeTaskIds } from "@posthog/core/sidebar/selection";
+import type {
+  TaskData,
+  TaskGroup,
+} from "@posthog/core/sidebar/sidebarData.types";
 import { taskDragIdsSchema } from "@posthog/ui/features/sidebar/schemas";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 
@@ -42,6 +46,27 @@ export function taskDragSiblings<T>(
     const found = byId.get(id);
     return found ? [found] : [];
   });
+}
+
+/**
+ * The rows a batch drag resolves its siblings against: whichever list the active
+ * organize mode actually renders, plus the always-shown pinned run. by-project
+ * caps each group on its own, so a row visible there can sit past the flat
+ * window — resolving that batch against flatTasks would silently drop it.
+ */
+export function dragSiblingCandidates(
+  organizeMode: "by-project" | "chronological",
+  lists: {
+    pinnedTasks: TaskData[];
+    flatTasks: TaskData[];
+    groupedTasks: TaskGroup[];
+  },
+): TaskData[] {
+  const rendered =
+    organizeMode === "by-project"
+      ? lists.groupedTasks.flatMap((group) => group.tasks)
+      : lists.flatTasks;
+  return [...lists.pinnedTasks, ...rendered];
 }
 
 // Set by a target that takes a session drop for its own purpose, read once by
