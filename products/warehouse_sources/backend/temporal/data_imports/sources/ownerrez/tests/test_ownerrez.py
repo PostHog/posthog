@@ -140,7 +140,12 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
                 "headers": dict(request.headers or {}),
             }
         )
-        return mock.MagicMock()
+        # RESTClient checks the *prepared* request's URL against allowed_hosts before sending
+        # (rest_client._check_allowed_host), so the stand-in prepared request needs a real URL
+        # string here, not an auto-generated Mock attribute.
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
