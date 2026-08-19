@@ -41,7 +41,7 @@ export function TicketTags({
 
     return disabledReason ? (
         <Tooltip title={disabledReason}>
-            <span>{tagsDisplay}</span>
+            <span className="min-w-0">{tagsDisplay}</span>
         </Tooltip>
     ) : (
         tagsDisplay

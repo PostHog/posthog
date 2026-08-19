@@ -83,7 +83,7 @@ export function ObjectTags({
         <div
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
-            className={clsx(className, 'inline-flex flex-wrap gap-0.5 items-center')}
+            className={clsx(className, 'inline-flex flex-wrap gap-0.5 items-center min-w-0 max-w-full')}
             data-attr={dataAttr}
         >
             {editingTags ? (
@@ -115,6 +115,8 @@ export function ObjectTags({
                                           key={index}
                                           type={COLOR_OVERRIDES[tag] || colorForString(tag)}
                                           onClick={onTagClick ? () => onTagClick(tag) : undefined}
+                                          className="max-w-full"
+                                          wrap
                                       >
                                           {tag}
                                       </LemonTag>
