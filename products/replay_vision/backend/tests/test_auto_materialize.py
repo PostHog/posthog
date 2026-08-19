@@ -86,6 +86,20 @@ class TestAutoMaterializeScannerProperties:
         task.assert_not_called()
         assert result.candidates == 0
 
+    def test_a_pre_split_scanner_with_only_the_total_bucket_never_qualifies(self) -> None:
+        # A row the split meter has not written yet has both split buckets null; the total bucket
+        # folds in backfill reads, so it must not qualify on that alone.
+        hour = dt.datetime.now(dt.UTC).replace(minute=0, second=0, microsecond=0).isoformat()
+        _make_scanner(
+            query=_QUERY_WITH_EVENT_FILTERS,
+            sweep_read_bytes_by_hour={hour: AUTO_MATERIALIZE_MIN_DAILY_READ_BYTES * 5},
+        )
+
+        result, task = _run()
+
+        task.assert_not_called()
+        assert result.candidates == 0
+
     def test_flag_off_logs_candidates_but_creates_nothing(self) -> None:
         _spendy_scanner(AUTO_MATERIALIZE_MIN_DAILY_READ_BYTES * 2)
 

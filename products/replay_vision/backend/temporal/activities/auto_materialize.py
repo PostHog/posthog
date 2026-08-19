@@ -97,7 +97,7 @@ def auto_materialize_scanner_properties_activity() -> AutoMaterializeResult:
 def _candidate_properties(now: dt.datetime) -> list[_Candidate]:
     """Unmaterialized event properties filtered on by scanners over the spend threshold, costliest first."""
     scanners = ReplayScanner.objects.filter(enabled=True).only(
-        "id", "query", "sweep_read_bytes_by_hour", "fast_read_bytes_by_hour", "deep_read_bytes_by_hour"
+        "id", "query", "fast_read_bytes_by_hour", "deep_read_bytes_by_hour"
     )
     qualifying = [
         (scanner, spend)
@@ -118,10 +118,11 @@ def _candidate_properties(now: dt.datetime) -> list[_Candidate]:
 
 
 def _daily_read_bytes(scanner: ReplayScanner, now: dt.datetime) -> int:
-    """Trailing-24h reads from the scanner's own passes, so backfill spend cannot qualify it."""
-    if scanner.fast_read_bytes_by_hour is None and scanner.deep_read_bytes_by_hour is None:
-        # Pre-split rows: the total is the only measurement until the meter first splits it.
-        return sweep_spend_bytes_24h(scanner.sweep_read_bytes_by_hour, now)
+    """Trailing-24h reads from the scanner's own passes, so backfill spend cannot qualify it.
+
+    Only the split pass buckets count: the total bucket folds in backfill reads, so a scanner the
+    meter has not split yet reads zero here rather than qualifying on spend it may never repeat.
+    """
     return sweep_spend_bytes_24h(scanner.fast_read_bytes_by_hour, now) + sweep_spend_bytes_24h(
         scanner.deep_read_bytes_by_hour, now
     )
