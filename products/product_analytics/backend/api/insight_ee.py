@@ -1,3 +1,5 @@
+"""Insights viewset variant enforcing dashboard edit permissions, selected by routes.py on EE_AVAILABLE installs."""
+
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
