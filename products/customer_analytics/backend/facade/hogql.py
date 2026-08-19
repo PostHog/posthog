@@ -850,8 +850,11 @@ feature_request_history: PostgresTable = PostgresTable(
         "feature_request_id": UUIDDatabaseField(
             name="feature_request_id", description="Feature request that changed. Join to `system.feature_requests.id`."
         ),
-        "changes": StringJSONDatabaseField(
-            name="changes", description="JSON array of tracked field changes with before and after values."
+        "_changes": StringJSONDatabaseField(name="changes", hidden=True),
+        "changed_fields": ExpressionField(
+            name="changed_fields",
+            expr=parse_expr("arrayMap(change -> JSONExtractString(change, 'field'), JSONExtractArrayRaw(_changes))"),
+            description="Names of the fields changed in this save. Before and after values are not exposed.",
         ),
         "_is_initial": BooleanDatabaseField(name="is_initial", hidden=True),
         "is_initial": ExpressionField(

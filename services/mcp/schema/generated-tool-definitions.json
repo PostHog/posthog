@@ -4860,7 +4860,7 @@
         "feature_flag": "customer-analytics-feature-requests"
     },
     "feature-requests-history-list": {
-        "description": "List the complete change history for a Customer analytics feature request, newest first. Entries group the status, priority, account, evidence, and product area changes from one successful save. Account snapshots the caller cannot access are removed or redacted. The same data is queryable through `system.feature_request_history`.",
+        "description": "List the complete change history for a Customer analytics feature request, newest first. Entries group the status, priority, account, evidence, and product area changes from one successful save. Account snapshots the caller cannot access are removed or redacted. HogQL `system.feature_request_history` exposes entry metadata and changed field names, but not before and after values.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List feature request history",
@@ -4950,7 +4950,7 @@
         "feature_flag": "customer-analytics-feature-requests"
     },
     "feature-requests-status-history-list": {
-        "description": "List status changes for one Customer analytics feature request, newest first. Each entry includes the previous status, resulting status, actor, source, and change time. Query `system.feature_request_history` when status changes need to be combined with other request changes.",
+        "description": "List status changes for one Customer analytics feature request, newest first. Each entry includes the previous status, resulting status, actor, source, and change time. HogQL `system.feature_request_history` exposes when changes occurred and which fields changed, but not status values.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List feature request status history",

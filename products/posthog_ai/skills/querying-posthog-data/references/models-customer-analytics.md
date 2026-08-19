@@ -142,7 +142,7 @@ Column | Type | Nullable | Description
 `id` | uuid | NOT NULL | Primary key
 `team_id` | integer | NOT NULL | Team this history entry belongs to
 `feature_request_id` | uuid | NOT NULL | Join to `system.feature_requests.id`
-`changes` | json | NOT NULL | Changed fields with before and after values
+`changed_fields` | array(varchar) | NOT NULL | Names of the fields changed in this save. Before and after values are not exposed
 `is_initial` | integer | NOT NULL | `1` for the initial snapshot, `0` otherwise
 `source` | varchar(32) | NOT NULL | System that recorded the change
 `actor_id` | integer | NULL | User who changed the request

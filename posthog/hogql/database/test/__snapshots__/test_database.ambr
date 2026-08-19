@@ -7317,15 +7317,15 @@
                   "table": null,
                   "type": "string"
               },
-              "changes": {
+              "changed_fields": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "changes",
+                  "hogql_value": "changed_fields",
                   "id": null,
-                  "name": "changes",
+                  "name": "changed_fields",
                   "schema_valid": true,
                   "table": null,
-                  "type": "json"
+                  "type": "array"
               },
               "is_initial": {
                   "chain": null,
@@ -18130,15 +18130,15 @@
                   "table": null,
                   "type": "string"
               },
-              "changes": {
+              "changed_fields": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "changes",
+                  "hogql_value": "changed_fields",
                   "id": null,
-                  "name": "changes",
+                  "name": "changed_fields",
                   "schema_valid": true,
                   "table": null,
-                  "type": "json"
+                  "type": "array"
               },
               "is_initial": {
                   "chain": null,

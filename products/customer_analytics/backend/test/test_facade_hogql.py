@@ -7,10 +7,12 @@
 from posthog.test.base import NonAtomicBaseTest
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.hogql.database.models import ExpressionField, LazyJoin, Table
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import OrganizationMembership, TaggedItem, User
@@ -106,6 +108,21 @@ class TestFeatureRequestHogqlAccess(NonAtomicBaseTest):
         FeatureRequestEvidence.objects.unscoped().create(
             team=self.team, account_link=denied_link, source="conversation", summary="Denied evidence"
         )
+        FeatureRequestHistory.objects.unscoped().create(
+            team=self.team,
+            feature_request=visible_request,
+            changes=[
+                {
+                    "field": "evidence",
+                    "before": None,
+                    "after": {
+                        "account": {"id": str(denied_account.id), "name": denied_account.name},
+                        "summary": "Denied evidence",
+                    },
+                }
+            ],
+            changed_at=timezone.now(),
+        )
         denied_request = FeatureRequest.objects.unscoped().create(team=self.team, title="Denied request")
         FeatureRequestAccountLink.objects.unscoped().create(
             team=self.team, feature_request=denied_request, account=denied_account
@@ -125,7 +142,13 @@ class TestFeatureRequestHogqlAccess(NonAtomicBaseTest):
         evidence = execute_hogql_query(
             "SELECT summary FROM system.feature_request_evidence", team=self.team, user=viewer
         ).results
+        history = execute_hogql_query(
+            "SELECT changed_fields FROM system.feature_request_history", team=self.team, user=viewer
+        ).results
 
         assert {str(row[0]) for row in requests} == {str(visible_request.id)}
         assert {str(row[0]) for row in links} == {str(visible_link.id)}
         assert evidence == [("Visible evidence",)]
+        assert history == [(["evidence"],)]
+        with self.assertRaises(QueryError):
+            execute_hogql_query("SELECT changes FROM system.feature_request_history", team=self.team, user=viewer)
