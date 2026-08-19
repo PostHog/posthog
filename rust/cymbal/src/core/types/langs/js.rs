@@ -15,7 +15,7 @@ use crate::{
     },
 };
 
-use super::utils::{add_raw_to_junk, get_sourcelocation_context};
+use super::utils::{add_raw_to_junk, get_sourcelocation_context, is_kotlin_compose_source};
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
 // sourcemap for it and produce a "real" stack frame.
@@ -352,8 +352,7 @@ impl From<&RawJSFrame> for Frame {
 }
 
 fn is_dependency_source(source: &str) -> bool {
-    let normalized = source.replace('\\', "/");
-    normalized.contains("node_modules") || normalized.contains("/kotlin/androidx/compose/")
+    source.contains("node_modules") || is_kotlin_compose_source(source)
 }
 
 #[cfg(test)]
@@ -370,6 +369,10 @@ mod test {
             ),
             (
                 "webpack:///app/../dependencies/compose/ui/src/skikoMain/kotlin/androidx/compose/ui/RootNodeOwner.kt",
+                true,
+            ),
+            (
+                "webpack:///app/../dependencies/compose/resources/src/commonMain/kotlin/org/jetbrains/compose/resources/Resource.kt",
                 true,
             ),
             (
