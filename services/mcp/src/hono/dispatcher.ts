@@ -198,8 +198,20 @@ class McpDispatcher {
             }
         } else {
             const message = messages[0]! as { id?: number | string; method?: unknown; params?: unknown }
-            singleModern = isModernRequest(protocolHeaders, parseRequestProtocolMeta(message.params))
+            const protocolMeta = parseRequestProtocolMeta(message.params)
+            singleModern = isModernRequest(protocolHeaders, protocolMeta)
             if (singleModern) {
+                // Before header validation, so header-dropping bridges fall back to
+                // `initialize` instead of dying on HeaderMismatch.
+                if (message.method === Method.Discover && isLegacyDialectOnlyClient(protocolMeta.clientName)) {
+                    return jsonRpcErrorResponse(
+                        message.id ?? null,
+                        ErrorCode.MethodNotFound,
+                        'Method not found',
+                        undefined,
+                        404
+                    )
+                }
                 const validationError = validateModernRequest(protocolHeaders, message)
                 if (validationError) {
                     return jsonRpcErrorResponse(
@@ -270,10 +282,6 @@ class McpDispatcher {
         // `handleRequest` before dispatch; here `_meta` only picks the dialect.
         const protocolMeta = parseRequestProtocolMeta(params)
         const stateless = protocolMeta.protocolVersion === STATELESS_PROTOCOL_VERSION
-
-        if (stateless && method === Method.Discover && isLegacyDialectOnlyClient(protocolMeta.clientName)) {
-            return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
-        }
 
         try {
             const result = await this.dispatchMethod(method, params, props, state, stateless)

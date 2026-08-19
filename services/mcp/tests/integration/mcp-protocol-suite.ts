@@ -1990,19 +1990,28 @@ export function defineStatelessProtocolTests(
             expect(response.headers.get('mcp-session-id')).toBeNull()
         })
 
-        it('answers server/discover with method-not-found for a legacy-dialect-only client', async () => {
-            const harness = await getHarness()
-            const { response, json } = await postSingle(
-                harness,
-                'server/discover',
-                statelessParams({}, 'antigravity-client'),
-                'legacy-only'
-            )
+        // The headerless variant is how stdio bridges (mcp-remote) forward the
+        // probe; it must get the fallback 404, not a fatal HeaderMismatch 400.
+        it.each([
+            ['with SEP-2243 headers', {}],
+            ['without SEP-2243 headers', { [VERSION_HEADER]: null, [METHOD_HEADER]: null }],
+        ] as Array<[string, Record<string, string | null>]>)(
+            'answers server/discover with method-not-found for a legacy-dialect-only client %s',
+            async (_label, extraHeaders) => {
+                const harness = await getHarness()
+                const { response, json } = await postSingle(
+                    harness,
+                    'server/discover',
+                    statelessParams({}, 'antigravity-client'),
+                    'legacy-only',
+                    extraHeaders
+                )
 
-            expect(response.status).toBe(404)
-            expect(json.error?.code).toBe(-32601)
-            expect(response.headers.get('mcp-session-id')).toBeNull()
-        })
+                expect(response.status).toBe(404)
+                expect(json.error?.code).toBe(-32601)
+                expect(response.headers.get('mcp-session-id')).toBeNull()
+            }
+        )
 
         it('keeps legacy initialize working for a legacy-dialect-only client', async () => {
             const harness = await getHarness()
