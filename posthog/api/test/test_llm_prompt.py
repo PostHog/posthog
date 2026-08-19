@@ -1326,6 +1326,14 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         response = self.client.delete(self._label_url("my-prompt", "production"))
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_options_on_label_route_returns_allowed_methods(self):
+        # The label route is a list route that allows PUT, which used to make DRF's metadata
+        # generation call get_object() without a lookup kwarg and return a 500.
+        response = self.client.options(self._label_url("my-prompt", "production"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"]
+
     def test_resolve_returns_all_labels_including_versions_beyond_loaded_page(self):
         self.create_prompt_version(version=1, is_latest=False)
         self.create_prompt_version(version=2, is_latest=False)

@@ -3,11 +3,16 @@ from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
+from django.core.exceptions import PermissionDenied
 from django.db.models.query import QuerySet
+from django.http import Http404
 
 from opentelemetry import trace
+from rest_framework import exceptions
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
+from rest_framework.metadata import SimpleMetadata
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import clone_request
 from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter, NestedRegistryItem
 from rest_framework_extensions.settings import extensions_api_settings
@@ -124,10 +129,42 @@ class RouterRegistry:
         return self._root
 
 
+class ListSafeMetadata(SimpleMetadata):
+    """Metadata for OPTIONS requests that never calls ``get_object`` on a list route.
+
+    DRF's ``SimpleMetadata`` calls ``view.get_object()`` for any allowed PUT while it
+    builds the OPTIONS response. A list route (``detail=False``) has no lookup kwarg in
+    its URL, so ``get_object()`` trips a DRF assertion. ``determine_actions`` only
+    catches ``APIException``, so that ``AssertionError`` escapes as a 500. Only look up
+    the object on a detail route.
+    """
+
+    def determine_actions(self, request, view):
+        actions = {}
+        for method in {"PUT", "POST"} & set(view.allowed_methods):
+            view.request = clone_request(request, method)
+            try:
+                if hasattr(view, "check_permissions"):
+                    view.check_permissions(view.request)
+                if method == "PUT" and getattr(view, "detail", False) and hasattr(view, "get_object"):
+                    view.get_object()
+            except (exceptions.APIException, PermissionDenied, Http404):
+                pass
+            else:
+                serializer = view.get_serializer()
+                actions[method] = self.get_serializer_info(serializer)
+            finally:
+                view.request = request
+
+        return actions
+
+
 # NOTE: Previously known as the StructuredViewSetMixin
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
 class TeamAndOrgViewSetMixin(_GenericViewSet):
+    metadata_class = ListSafeMetadata
+
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
