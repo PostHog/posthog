@@ -63,6 +63,7 @@ the row lists both.
 | aircall                          | HTTP                        | requests                                                        | ✅                          |
 | airops                           | HTTP                        | requests                                                        | ✅                          |
 | airtable                         | HTTP                        | requests                                                        | ✅                          |
+| airwallex                        | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | aiven                            | HTTP                        | requests                                                        | ✅                          |
 | algolia                          | HTTP                        | requests                                                        | ✅                          |
 | alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |

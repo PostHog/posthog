@@ -1363,6 +1363,7 @@ class ExternalDataSourceType(models.TextChoices):
     IRONSOURCEADS = "IronSourceAds", "IronSourceAds"
     MICROSOFTEXCEL = "MicrosoftExcel", "MicrosoftExcel"
     PROFOUND = "Profound", "Profound"
+    AIRWALLEX = "Airwallex", "Airwallex"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
