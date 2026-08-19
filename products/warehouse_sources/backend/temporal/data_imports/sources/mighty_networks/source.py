@@ -44,6 +44,11 @@ _NETWORK_ID_RE = re.compile(r"^[0-9]+$")
 class MightyNetworksSource(ResumableSource[MightyNetworksSourceConfig, MightyNetworksResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # `network_id` is where the stored API key is sent; retargeting it must re-require the key.
+        return ["network_id"]
+
     # The API has no dedicated version token (path is a bare, never-changed /v1/); see
     # api_docs_url for where a future version would be announced.
     api_docs_url = "https://docs.mightynetworks.com/admin-api-changelog"

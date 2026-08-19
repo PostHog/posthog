@@ -25,6 +25,10 @@ class TestMightyNetworksSource:
     def test_source_type(self):
         assert self.source.source_type == ExternalDataSourceType.MIGHTYNETWORKS
 
+    def test_connection_host_fields_cover_network_id(self):
+        # network_id is where the stored api_key is sent; retargeting it must re-require the key.
+        assert self.source.connection_host_fields == ["network_id"]
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 
