@@ -5796,6 +5796,7 @@ dev = [
     { name = "pytest-mock" },
     { name = "pytest-rerunfailures" },
     { name = "pytest-split" },
+    { name = "pytest-testmon" },
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
     { name = "python-dateutil" },
@@ -6073,6 +6074,7 @@ dev = [
     { name = "pytest-mock", specifier = "~=3.15.1" },
     { name = "pytest-rerunfailures", specifier = "~=16.1" },
     { name = "pytest-split", git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.6" },
+    { name = "pytest-testmon", specifier = "~=2.2.0" },
     { name = "pytest-timeout", specifier = "~=2.4.0" },
     { name = "pytest-xdist", specifier = "~=3.8.0" },
     { name = "python-dateutil", specifier = "~=2.9.0" },
@@ -6901,6 +6903,19 @@ version = "0.11.0"
 source = { git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.6#8fc59b2e1ca13b9421f6e7828105d8635437c912" }
 dependencies = [
     { name = "pytest" },
+]
+
+[[package]]
+name = "pytest-testmon"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "coverage" },
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4d/1d/3e4230cc67cd6205bbe03c3527500c0ccaf7f0c78b436537eac71590ee4a/pytest_testmon-2.2.0.tar.gz", hash = "sha256:01f488e955ed0e0049777bee598bf1f647dd524e06f544c31a24e68f8d775a51", size = 23108, upload-time = "2025-12-01T07:30:24.76Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/55/ebb3c2f59fb089f08d00f764830d35780fc4e4c41dffcadafa3264682b65/pytest_testmon-2.2.0-py3-none-any.whl", hash = "sha256:2604ca44a54d61a2e830d9ce828b41a837075e4ebc1f81b148add8e90d34815b", size = 25199, upload-time = "2025-12-01T07:30:23.623Z" },
 ]
 
 [[package]]

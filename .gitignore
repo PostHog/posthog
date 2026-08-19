@@ -21,6 +21,7 @@ posthog/hogql/test/fixtures/real_queries/
 .postgres-backups/
 .python-version
 .temporal-worker-settings
+.testmondata*
 .turbo
 .venv
 .wokeignore

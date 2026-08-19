@@ -309,6 +309,7 @@ jobs:
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+            TESTMON_DATAFILE: .testmondata-dagster-${{ matrix.group }}
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -466,6 +467,29 @@ jobs:
                   restore-keys: |
                       posthog-test-durations-
 
+            - name: Set testmon cache date
+              id: testmon-cache-date
+              run: echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore Dagster testmon baseline
+              id: testmon-cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ env.TESTMON_DATAFILE }}
+                  key: dagster-testmon-v1-py3.13-shard-${{ matrix.group }}-${{ steps.testmon-cache-date.outputs.date }}
+                  restore-keys: |
+                      dagster-testmon-v1-py3.13-shard-${{ matrix.group }}-
+
+            - name: Measure affected Dagster tests
+              if: ${{ github.event_name == 'pull_request' && hashFiles('.github/scripts/dagster_testmon_shadow.py') != '' }}
+              continue-on-error: true
+              run: |
+                  python .github/scripts/dagster_testmon_shadow.py \
+                      --group ${{ matrix.group }} \
+                      --concurrency ${{ matrix.concurrency }} \
+                      --datafile "$TESTMON_DATAFILE" \
+                      --output dagster-testmon-selection-${{ matrix.group }}.json
+
             - name: Run Dagster tests
               run: |
                   # Pick the split algorithm and granularity at runtime: optimal_chunks +
@@ -479,15 +503,36 @@ jobs:
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
                   fi
+                  TESTMON_ARGS=()
+                  if [[ "${{ github.event_name }}" == "push" && "${{ steps.testmon-cache.outputs.cache-hit }}" != "true" ]] && python -c "import testmon" 2>/dev/null; then
+                      TESTMON_ARGS=(--testmon-noselect)
+                  fi
                   pytest posthog/dags products/**/dags \
                       --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm="$SPLITTING_ALGORITHM" \
                       "${SPLIT_GRANULARITY[@]}" \
+                      "${TESTMON_ARGS[@]}" \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
                       --junitxml=junit-dagster-${{ matrix.group }}.xml
+
+            - name: Save Dagster testmon baseline
+              if: ${{ github.event_name == 'push' && success() && steps.testmon-cache.outputs.cache-hit != 'true' && hashFiles(format('.testmondata-dagster-{0}', matrix.group)) != '' }}
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ env.TESTMON_DATAFILE }}
+                  key: dagster-testmon-v1-py3.13-shard-${{ matrix.group }}-${{ steps.testmon-cache-date.outputs.date }}
+
+            - name: Upload testmon shadow selection
+              if: ${{ github.event_name == 'pull_request' && !cancelled() }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: dagster-testmon-shadow-${{ matrix.group }}
+                  path: dagster-testmon-selection-${{ matrix.group }}.json
+                  if-no-files-found: ignore
+                  retention-days: 7
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
