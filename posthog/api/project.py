@@ -1421,9 +1421,7 @@ class ProjectViewSet(
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
                     # Evaluate the create-access check before the premium check so a member who lacks
                     # permission gets the permission message, not the plan-upgrade one.
-                    permissions.insert(
-                        permissions.index(PremiumMultiProjectPermission), UserCanCreateProjectPermission
-                    )
+                    permissions.insert(permissions.index(PremiumMultiProjectPermission), UserCanCreateProjectPermission)
                 else:
                     permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
