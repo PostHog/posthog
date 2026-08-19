@@ -442,7 +442,7 @@ class FakeSlackIntegration:
             FakeSlackIntegration.joined_channels,
         )
 
-    def list_channels(self, should_include_private_channels: bool = False, authed_user: str = "") -> list[dict]:
+    def list_channels(self, include_private: bool = True) -> list[dict]:
         return sorted(FakeSlackIntegration.workspace_channels, key=lambda c: c["name"])
 
     @classmethod

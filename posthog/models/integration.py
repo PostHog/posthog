@@ -451,9 +451,6 @@ def _is_safe_github_sha(sha: str) -> bool:
     return bool(_GITHUB_COMMIT_SHA_RE.fullmatch(sha))
 
 
-PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
-
-
 def dot_get(d: Any, path: str, default: Any = None) -> Any:
     if path in d and d[path] is not None:
         return d[path]
@@ -2201,74 +2198,49 @@ class SlackIntegration:
     def missing_scopes(self, required: Iterable[str]) -> frozenset[str]:
         return frozenset(required) - self.granted_scopes()
 
-    def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
-        # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
-        # We load public and private channels separately as when mixed, the Slack API pagination is buggy
-        public_channels = self._list_channels_by_type("public_channel")
-        private_channels = self._list_channels_by_type("private_channel", should_include_private_channels, authed_user)
-        channels = public_channels + private_channels
+    def list_channels(self, include_private: bool = True) -> list[dict]:
+        # Slack has no channel search, so load every channel the bot can see. Public and private
+        # channels load separately because the Slack API paginates a mixed list wrongly.
+        # conversations_list on the bot token returns a private channel only when the bot is a
+        # member, so the list follows bot membership, not whoever installed the app.
+        channels = self._list_channels_by_type("public_channel")
+        if include_private:
+            channels = channels + self._list_channels_by_type("private_channel")
 
         return sorted(channels, key=lambda x: x["name"])
 
-    def get_channel_by_id(
-        self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
-    ) -> dict | None:
+    def get_channel_by_id(self, channel_id: str) -> dict | None:
+        # conversations_info returns a private channel only when the bot is a member, so a
+        # resolved private channel is always a valid destination.
         try:
-            response = self.client.conversations_info(channel=channel_id, include_num_members=True)
+            response = self.client.conversations_info(channel=channel_id)
             channel = response["channel"]
-            members_response = self.client.conversations_members(channel=channel_id, limit=channel["num_members"] + 1)
-            isMember = authed_user in members_response["members"]
-
-            if not isMember:
-                return None
-
-            isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
 
             return {
                 "id": channel["id"],
-                "name": PRIVATE_CHANNEL_WITHOUT_ACCESS if isPrivateWithoutAccess else channel["name"],
+                "name": channel["name"],
                 "is_private": channel["is_private"],
                 "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
-                "is_private_without_access": isPrivateWithoutAccess,
+                "is_private_without_access": False,
             }
         except SlackApiError as e:
             if e.response["error"] == "channel_not_found":
                 return None
             raise
 
-    def _list_channels_by_type(
-        self,
-        type: Literal["public_channel", "private_channel"],
-        should_include_private_channels: bool = False,
-        authed_user: str | None = None,
-    ) -> list[dict]:
+    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"]) -> list[dict]:
         max_page = SLACK_CHANNELS_MAX_PAGES
         channels = []
         cursor = None
 
         while max_page > 0:
             max_page -= 1
-            if type == "public_channel":
-                res = self.client.conversations_list(
-                    exclude_archived=True, types=type, limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor
-                )
-            else:
-                res = self.client.users_conversations(
-                    exclude_archived=True,
-                    types=type,
-                    limit=SLACK_CHANNELS_PAGE_SIZE,
-                    cursor=cursor,
-                    user=authed_user,
-                )
-
-                for channel in res["channels"]:
-                    if channel["is_private"] and not should_include_private_channels:
-                        channel["name"] = PRIVATE_CHANNEL_WITHOUT_ACCESS
-                        channel["is_private_without_access"] = True
-
+            res = self.client.conversations_list(
+                exclude_archived=True, types=type, limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor
+            )
             channels.extend(res["channels"])
-            cursor = res["response_metadata"]["next_cursor"]
+            cursor = (res.get("response_metadata") or {}).get("next_cursor")
             if not cursor:
                 break
 

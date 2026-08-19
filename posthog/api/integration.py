@@ -1274,19 +1274,15 @@ class IntegrationViewSet(
         if instance.kind not in SLACK_INTEGRATION_KINDS:
             raise ValidationError("channels endpoint is only supported for Slack integrations")
         slack = SlackIntegration(instance)
-        should_include_private_channels: bool = instance.created_by_id == request.user.id
         # force_refresh is only honored for cookie-session callers — MCP / API-key / OAuth
         # callers always read through the 1h cache so an agent loop can't bypass it.
         is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
         force_refresh: bool = is_session_auth and request.query_params.get("force_refresh", "false").lower() == "true"
-        authed_user = cast(str | None, instance.config.get("authed_user", {}).get("id")) if instance.config else None
-        if not authed_user:
-            raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
 
         # Key on the Integration row PK (unique per PostHog team × Slack workspace), not
         # integration_id (the Slack workspace id, shared across teams). Two teams that
-        # install the same workspace must not share cached private-channel lists.
-        key = f"slack/{instance.id}/{should_include_private_channels}/channels"
+        # install the same workspace must not share cached channel lists.
+        key = f"slack/{instance.id}/channels"
 
         channel_id = request.query_params.get("channel_id")
         if channel_id:
@@ -1296,7 +1292,7 @@ class IntegrationViewSet(
                     if channel["id"] == channel_id:
                         return Response({"channels": [channel]})
             try:
-                channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
+                channel = slack.get_channel_by_id(channel_id)
             except SlackApiError as e:
                 _reraise_slack_api_error(e)
             if channel:
@@ -1313,7 +1309,7 @@ class IntegrationViewSet(
 
         if data is None or force_refresh:
             try:
-                channels = slack.list_channels(should_include_private_channels, authed_user)
+                channels = slack.list_channels()
             except SlackApiError as e:
                 _reraise_slack_api_error(e)
             data = {
