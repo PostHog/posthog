@@ -48,6 +48,10 @@ export function AdoptSkillModal(): JSX.Element {
         <LemonModal
             isOpen={adoptSkillKind !== null}
             onClose={closeAdoptSkillModal}
+            // Block close while the copy/activation requests are in flight: closing mid-flight lets
+            // the user reopen and adopt again, and the first request's tail then closes that modal
+            // and fires a success toast naming the wrong source.
+            closable={!adoptingSkill}
             title={`Use an existing skill as your ${kindLabel}`}
             description={
                 adoptSource
