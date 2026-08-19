@@ -2,10 +2,11 @@ import type {
   AnySignalReportArtefact,
   Signal,
   SignalReport,
+  Task,
 } from "@posthog/shared/types";
+import type { ReportTaskData } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn } from "storybook/test";
-import { ReportStoryCanvas } from "./ReportCanvas";
+import { ReportWorkspaceView } from "./ReportCanvas";
 
 const baseReport: SignalReport = {
   id: "report-checkout-errors",
@@ -63,24 +64,85 @@ const artefacts: AnySignalReportArtefact[] = [
   },
 ];
 
-const meta: Meta<typeof ReportStoryCanvas> = {
-  title: "Canvas/Report story canvas",
-  component: ReportStoryCanvas,
+function task(id: string, title: string, prUrl?: string): Task {
+  return {
+    id,
+    task_number: null,
+    slug: id,
+    title,
+    description: title,
+    created_at: "2026-08-10T10:00:00Z",
+    updated_at: "2026-08-10T11:00:00Z",
+    origin_product: "signal_report",
+    latest_run: {
+      id: `${id}-run`,
+      task: id,
+      team: 1,
+      branch: null,
+      status: "completed",
+      log_url: "",
+      error_message: null,
+      output: prUrl ? { pr_url: prUrl } : null,
+      state: {},
+      created_at: "2026-08-10T10:00:00Z",
+      updated_at: "2026-08-10T11:00:00Z",
+      completed_at: "2026-08-10T11:00:00Z",
+    },
+  };
+}
+
+const reportTasks: ReportTaskData[] = [
+  {
+    task: task("research", "Trace the saved-card checkout failure"),
+    purpose: "research",
+    purposeLabel: "Research",
+    startedAt: "2026-08-10T10:00:00Z",
+  },
+];
+
+function ConversationFixture() {
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex h-11 items-center gap-2 border-b px-4">
+        <span className="font-semibold">Conversation</span>
+      </div>
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
+        <div className="max-w-[75%] self-end rounded-lg bg-primary px-4 py-3 text-primary-foreground">
+          Why did this start after the release?
+        </div>
+        <div className="max-w-[80%] rounded-lg border bg-surface-secondary px-4 py-3">
+          The failures begin after the saved payment method is restored in
+          Safari. I found one recent change in that path and two replay sessions
+          with the same stalled confirmation step.
+        </div>
+      </div>
+      <div className="border-t p-3">
+        <div className="rounded-lg border bg-surface-primary px-4 py-3 text-muted-foreground">
+          Ask about this report...
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const meta: Meta<typeof ReportWorkspaceView> = {
+  title: "Canvas/Report workspace",
+  component: ReportWorkspaceView,
   args: {
     report: baseReport,
     signals,
     artefacts,
-    reportTasks: [],
-    onPrompt: fn(),
+    reportTasks,
+    conversation: <ConversationFixture />,
   },
   parameters: {
     layout: "fullscreen",
-    testOptions: { viewport: { width: 1000, height: 950 } },
+    testOptions: { viewport: { width: 1440, height: 900 } },
   },
 };
 
 export default meta;
-type Story = StoryObj<typeof ReportStoryCanvas>;
+type Story = StoryObj<typeof ReportWorkspaceView>;
 
 export const Actionable: Story = {};
 
@@ -93,6 +155,19 @@ export const ExistingPullRequest: Story = {
         "Repeated identify calls during startup add unnecessary network traffic. The self-driving pipeline prepared a deduplication change.",
       implementation_pr_url: "https://github.com/PostHog/posthog/pull/1",
     },
+    reportTasks: [
+      ...reportTasks,
+      {
+        task: task(
+          "implementation",
+          "Deduplicate identify during startup",
+          "https://github.com/PostHog/posthog/pull/1",
+        ),
+        purpose: "implementation",
+        purposeLabel: "Implementation",
+        startedAt: "2026-08-10T11:00:00Z",
+      },
+    ],
   },
 };
 

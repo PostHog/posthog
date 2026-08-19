@@ -6,7 +6,6 @@ import {
   CircleNotchIcon,
   FileTextIcon,
   GitPullRequestIcon,
-  LightbulbIcon,
   MagnifyingGlassIcon,
   QuestionIcon,
 } from "@phosphor-icons/react";
@@ -14,8 +13,6 @@ import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import {
   Badge,
   Button,
-  Card,
-  CardContent,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -29,6 +26,7 @@ import type {
   Signal,
   SignalReport,
   Task,
+  TaskRunStatus,
 } from "@posthog/shared/types";
 import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
@@ -39,6 +37,7 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import {
   findLatestDiscussionTask,
+  getTaskPrUrl,
   type ReportTaskData,
   useReportTasks,
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
@@ -46,6 +45,7 @@ import { PromptInput } from "@posthog/ui/features/message-editor/components/Prom
 import { EmbeddedSessionView } from "@posthog/ui/features/sessions/components/EmbeddedSessionView";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 function reportStatus(report: SignalReport): {
@@ -69,25 +69,6 @@ function reportStatus(report: SignalReport): {
   }
 }
 
-function suggestedPrompt(report: SignalReport): string {
-  if (report.implementation_pr_url) {
-    return "Review the existing PR and tell me what still needs attention.";
-  }
-  if (report.status === "pending_input") {
-    return "What input do you need from me to move this forward?";
-  }
-  if (
-    report.actionability === "immediately_actionable" &&
-    report.already_addressed !== true
-  ) {
-    return "Implement the recommended change and open a PR.";
-  }
-  if (report.actionability === "not_actionable") {
-    return "Explain why this is not actionable and what would change that assessment.";
-  }
-  return "Investigate this further and recommend the next step.";
-}
-
 function latestExplanation(
   artefacts: AnySignalReportArtefact[],
   type: "actionability_judgment" | "priority_judgment",
@@ -97,215 +78,254 @@ function latestExplanation(
   return match.content.explanation;
 }
 
-export function ReportStoryCanvas({
+function conversationPrompts(report: SignalReport): string[] {
+  if (report.implementation_pr_url) {
+    return [
+      "Review the PR and summarize any remaining risks.",
+      "Explain how the PR addresses this report.",
+    ];
+  }
+  if (report.status === "pending_input") {
+    return [
+      "What input do you need from me?",
+      "Continue investigating with the evidence you have.",
+    ];
+  }
+  if (
+    report.actionability === "immediately_actionable" &&
+    report.already_addressed !== true
+  ) {
+    return ["Explain the recommended change.", "Implement this and open a PR."];
+  }
+  return ["Explain what you found.", "Investigate the next step."];
+}
+
+function runStatus(status: TaskRunStatus | undefined): {
+  label: string;
+  variant: "default" | "info" | "warning" | "success";
+} {
+  switch (status) {
+    case "in_progress":
+    case "queued":
+      return { label: "Running", variant: "info" };
+    case "completed":
+      return { label: "Completed", variant: "success" };
+    case "failed":
+    case "cancelled":
+      return { label: "Stopped", variant: "warning" };
+    default:
+      return { label: "Not started", variant: "default" };
+  }
+}
+
+function ReportBrief({
   report,
   signals,
   artefacts,
   reportTasks,
-  onPrompt,
-  isStartingConversation = false,
 }: {
   report: SignalReport;
   signals: Signal[];
   artefacts: AnySignalReportArtefact[];
   reportTasks: ReportTaskData[];
-  onPrompt: (prompt: string) => void;
-  isStartingConversation?: boolean;
 }) {
-  const status = reportStatus(report);
   const actionabilityExplanation = latestExplanation(
     artefacts,
     "actionability_judgment",
   );
   const priorityExplanation = latestExplanation(artefacts, "priority_judgment");
-  const hasUncertainty =
-    report.status === "candidate" ||
-    report.status === "in_progress" ||
-    !report.actionability;
-  const prompt = suggestedPrompt(report);
-  const visibleSignals = signals.slice(0, 3);
-  const implementationPrUrl = report.implementation_pr_url;
+  const assessment = actionabilityExplanation ?? priorityExplanation;
+  const evidence = signals.slice(0, 2);
   const pipelineTasks = reportTasks.filter(
     (entry) => entry.purpose !== "discussion",
   );
+  const implementationPrUrl = report.implementation_pr_url;
 
   return (
-    <div className="h-full overflow-y-auto bg-surface-primary">
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-6 py-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={status.variant}>{status.label}</Badge>
-          {report.priority && <Badge>{report.priority}</Badge>}
-          {report.source_products?.map((product) => (
-            <Badge key={product}>{product.replaceAll("_", " ")}</Badge>
-          ))}
-        </div>
-
-        <header className="max-w-3xl">
-          <Text variant="muted" size="sm">
-            Report
-          </Text>
-          <h1 className="mt-1 text-balance font-semibold text-3xl leading-tight">
-            {report.title || "Untitled report"}
-          </h1>
-        </header>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="mb-3 flex items-center gap-2">
-              <LightbulbIcon size={18} />
-              <h2 className="font-semibold text-lg">What we found</h2>
+    <aside className="flex h-full min-h-0 flex-col border-l bg-surface-primary">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b px-4">
+        <FileTextIcon size={16} />
+        <h2 className="font-semibold">Report brief</h2>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {report.status === "pending_input" && (
+          <section className="border-warning/40 border-b bg-warning/5 p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <QuestionIcon size={16} />
+              <h3 className="font-semibold text-sm">Your input is needed</h3>
             </div>
-            <div className="max-w-3xl text-base leading-relaxed">
-              <SignalReportSummaryMarkdown
-                content={report.summary}
-                fallback="The agent is still investigating this report."
-                variant="detail"
-                pending={report.status === "in_progress"}
-              />
-            </div>
-          </CardContent>
-        </Card>
+            <Text size="sm">
+              {actionabilityExplanation ??
+                "Ask the agent what information it needs to continue."}
+            </Text>
+          </section>
+        )}
 
         {implementationPrUrl && (
-          <Card>
-            <CardContent className="flex flex-wrap items-center gap-4 p-5">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface-secondary">
-                <GitPullRequestIcon size={20} />
+          <section className="border-b p-4">
+            <div className="mb-3 flex items-start gap-3">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-surface-secondary">
+                <GitPullRequestIcon size={17} />
               </div>
               <div className="min-w-0 flex-1">
-                <h2 className="font-semibold">A fix is ready to review</h2>
-                <Text variant="muted" size="sm">
-                  The self-driving pipeline created a pull request for this
-                  report.
+                <h3 className="font-semibold text-sm">A fix is ready</h3>
+                <Text variant="muted" size="xs">
+                  Review the pull request or discuss it with the agent.
                 </Text>
               </div>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => openExternalUrl(implementationPrUrl)}
-              >
-                Review PR <ArrowSquareOutIcon size={14} />
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        <div className="grid gap-5 lg:grid-cols-2">
-          <Card>
-            <CardContent className="p-5">
-              <div className="mb-4 flex items-center gap-2">
-                <MagnifyingGlassIcon size={17} />
-                <h2 className="font-semibold">Evidence</h2>
-                <Text variant="muted" size="xs" className="ml-auto">
-                  {signals.length || report.signal_count}{" "}
-                  {(signals.length || report.signal_count) === 1
-                    ? "signal"
-                    : "signals"}
-                </Text>
-              </div>
-              {visibleSignals.length > 0 ? (
-                <div className="flex flex-col gap-3">
-                  {visibleSignals.map((signal) => (
-                    <div
-                      key={signal.signal_id}
-                      className="rounded-lg border bg-surface-secondary p-3"
-                    >
-                      <div className="mb-1 flex items-center gap-2">
-                        <Badge>
-                          {signal.source_product.replaceAll("_", " ")}
-                        </Badge>
-                        <Text variant="muted" size="xs">
-                          {signal.source_type.replaceAll("_", " ")}
-                        </Text>
-                      </div>
-                      <Text size="sm">{signal.content}</Text>
-                    </div>
-                  ))}
-                  {signals.length > visibleSignals.length && (
-                    <Text variant="muted" size="xs">
-                      {signals.length - visibleSignals.length} more signals
-                      support this report.
-                    </Text>
-                  )}
-                </div>
-              ) : (
-                <Text variant="muted" size="sm">
-                  Evidence will appear here as the investigation progresses.
-                </Text>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-5">
-              <div className="mb-4 flex items-center gap-2">
-                {hasUncertainty ? (
-                  <QuestionIcon size={17} />
-                ) : (
-                  <CheckCircleIcon size={17} />
-                )}
-                <h2 className="font-semibold">
-                  {hasUncertainty ? "What is still unclear" : "Assessment"}
-                </h2>
-              </div>
-              <div className="flex flex-col gap-3">
-                <Text size="sm">
-                  {actionabilityExplanation ??
-                    priorityExplanation ??
-                    (hasUncertainty
-                      ? "The report does not have enough evidence for a firm recommendation yet."
-                      : "The report has enough evidence to recommend a next step.")}
-                </Text>
-                {report.already_addressed === true && (
-                  <div className="flex items-center gap-2 rounded-lg border bg-surface-secondary p-3">
-                    <CheckCircleIcon size={16} />
-                    <Text size="sm">This may already be addressed.</Text>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {pipelineTasks.length > 0 && (
-          <Card>
-            <CardContent className="p-5">
-              <div className="mb-3 flex items-center gap-2">
-                <CircleNotchIcon size={17} />
-                <h2 className="font-semibold">Work so far</h2>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {pipelineTasks.map((entry) => (
-                  <Badge key={entry.task.id}>{entry.purposeLabel}</Badge>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        <Card className="border-primary/30 bg-primary/5">
-          <CardContent className="flex flex-wrap items-center gap-4 p-5">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <ChatCircleIcon size={20} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <Text variant="muted" size="xs">
-                Recommended next step
-              </Text>
-              <p className="font-medium">{prompt}</p>
             </div>
             <Button
               variant="primary"
               size="sm"
-              loading={isStartingConversation}
-              disabled={isStartingConversation}
-              onClick={() => onPrompt(prompt)}
+              className="w-full"
+              onClick={() => openExternalUrl(implementationPrUrl)}
             >
-              Ask the agent
+              Review PR <ArrowSquareOutIcon size={14} />
             </Button>
-          </CardContent>
-        </Card>
+          </section>
+        )}
+
+        <section className="border-b p-4">
+          <h3 className="mb-2 font-semibold text-sm">What happened</h3>
+          <SignalReportSummaryMarkdown
+            content={report.summary}
+            fallback="The agent is still investigating this report."
+            variant="detail"
+            pending={report.status === "in_progress"}
+          />
+        </section>
+
+        {assessment && report.status !== "pending_input" && (
+          <section className="border-b p-4">
+            <div className="mb-2 flex items-center gap-2">
+              {report.actionability ? (
+                <CheckCircleIcon size={15} />
+              ) : (
+                <QuestionIcon size={15} />
+              )}
+              <h3 className="font-semibold text-sm">Current assessment</h3>
+            </div>
+            <Text size="sm">{assessment}</Text>
+          </section>
+        )}
+
+        {!assessment &&
+          !report.actionability &&
+          report.status !== "pending_input" && (
+            <section className="border-b p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <QuestionIcon size={15} />
+                <h3 className="font-semibold text-sm">What is still unclear</h3>
+              </div>
+              <Text size="sm">
+                The agent is still gathering enough evidence to recommend a next
+                step.
+              </Text>
+            </section>
+          )}
+
+        <section className="border-b p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <MagnifyingGlassIcon size={15} />
+            <h3 className="font-semibold text-sm">Evidence</h3>
+            <Text variant="muted" size="xs" className="ml-auto">
+              {signals.length || report.signal_count}
+            </Text>
+          </div>
+          {evidence.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              {evidence.map((signal) => (
+                <div key={signal.signal_id} className="border-l-2 pl-3">
+                  <Text size="sm">{signal.content}</Text>
+                  <Text variant="muted" size="xs" className="mt-1">
+                    {signal.source_product.replaceAll("_", " ")}
+                  </Text>
+                </div>
+              ))}
+              {signals.length > evidence.length && (
+                <Text variant="muted" size="xs">
+                  {signals.length - evidence.length} more supporting signals
+                </Text>
+              )}
+            </div>
+          ) : (
+            <Text variant="muted" size="sm">
+              Evidence will appear as the investigation progresses.
+            </Text>
+          )}
+        </section>
+
+        {pipelineTasks.length > 0 && (
+          <section className="p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <CircleNotchIcon size={15} />
+              <h3 className="font-semibold text-sm">Activity</h3>
+            </div>
+            <div className="flex flex-col gap-4">
+              {pipelineTasks.map((entry) => {
+                const status = runStatus(entry.task.latest_run?.status);
+                const prUrl = getTaskPrUrl(entry.task);
+                return (
+                  <div key={entry.task.id} className="flex items-start gap-3">
+                    <div className="mt-1 size-2 shrink-0 rounded-full bg-current opacity-50" />
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
+                        <Text size="sm" className="font-medium">
+                          {entry.purposeLabel}
+                        </Text>
+                        <Badge variant={status.variant}>{status.label}</Badge>
+                      </div>
+                      <Text variant="muted" size="xs">
+                        {entry.task.title || "Untitled task"}
+                      </Text>
+                      {prUrl && (
+                        <Button
+                          variant="link-muted"
+                          size="sm"
+                          className="mt-1 h-auto p-0"
+                          onClick={() => openExternalUrl(prUrl)}
+                        >
+                          Open PR <ArrowSquareOutIcon size={12} />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+export function ReportWorkspaceView({
+  report,
+  signals,
+  artefacts,
+  reportTasks,
+  conversation,
+}: {
+  report: SignalReport;
+  signals: Signal[];
+  artefacts: AnySignalReportArtefact[];
+  reportTasks: ReportTaskData[];
+  conversation: ReactNode;
+}) {
+  return (
+    <div className="grid h-full min-h-0 grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+      <main className="min-h-0 min-w-0 bg-surface-secondary p-3">
+        <div className="h-full min-h-0 overflow-hidden rounded-lg border bg-surface-primary">
+          {conversation}
+        </div>
       </main>
+      <ReportBrief
+        report={report}
+        signals={signals}
+        artefacts={artefacts}
+        reportTasks={reportTasks}
+      />
     </div>
   );
 }
@@ -319,34 +339,51 @@ function NewReportConversation({
   isStarting: boolean;
   onPrompt: (prompt: string) => void;
 }) {
+  const prompts = conversationPrompts(report);
   return (
-    <div className="flex h-full min-h-0 flex-col bg-surface-primary">
-      <div className="border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <ChatCircleIcon size={17} />
-          <h2 className="font-semibold">Conversation</h2>
-        </div>
-        <Text variant="muted" size="xs">
-          The agent will receive this report and its evidence.
-        </Text>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b px-4">
+        <ChatCircleIcon size={16} />
+        <h2 className="font-semibold">Conversation</h2>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col justify-end gap-4 p-4">
-        <div className="rounded-lg border bg-surface-secondary p-4">
-          <Text size="sm">
-            Ask a question, investigate the finding, or tell the agent to act on
-            it.
-          </Text>
+      <div className="flex min-h-0 flex-1 flex-col justify-end">
+        <div className="flex flex-1 items-center justify-center p-6">
+          <div className="flex max-w-lg flex-col items-center text-center">
+            <div className="mb-4 flex size-10 items-center justify-center rounded-full border bg-surface-secondary">
+              <ChatCircleIcon size={20} />
+            </div>
+            <h3 className="font-semibold text-lg">Discuss this report</h3>
+            <Text variant="muted" size="sm" className="mt-1 max-w-md">
+              The agent has the report, its evidence, and any work already
+              completed.
+            </Text>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              {prompts.map((prompt) => (
+                <Button
+                  key={prompt}
+                  variant="outline"
+                  size="sm"
+                  disabled={isStarting}
+                  onClick={() => onPrompt(prompt)}
+                >
+                  {prompt}
+                </Button>
+              ))}
+            </div>
+          </div>
         </div>
-        <PromptInput
-          sessionId={`report:${report.id}`}
-          placeholder="Ask about this report..."
-          editorHeight="large"
-          hideDefaultToolbar
-          disabled={isStarting}
-          isLoading={isStarting}
-          clearOnSubmit
-          onSubmit={onPrompt}
-        />
+        <div className="border-t p-3">
+          <PromptInput
+            sessionId={`report:${report.id}`}
+            placeholder="Ask about this report..."
+            editorHeight="large"
+            hideDefaultToolbar
+            disabled={isStarting}
+            isLoading={isStarting}
+            clearOnSubmit
+            onSubmit={onPrompt}
+          />
+        </div>
       </div>
     </div>
   );
@@ -419,40 +456,50 @@ export function ReportCanvas({
     if (!prompt.trim() || isDiscussing) return;
     void discussReport(prompt);
   };
+  const status = reportStatus(report);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface-primary">
-      <div className="flex h-10 shrink-0 items-center border-b px-3">
+      <header className="flex min-h-14 shrink-0 items-center gap-3 border-b px-3 py-2">
         <Button
-          variant="link-muted"
-          size="sm"
+          variant="default"
+          size="icon"
+          aria-label="Back to space"
           render={<Link to="/website/$channelId" params={{ channelId }} />}
         >
-          <ArrowLeftIcon size={14} /> Back to space
+          <ArrowLeftIcon size={15} />
         </Button>
-      </div>
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(320px,400px)]">
-        <div className="min-h-0 min-w-0 border-r">
-          <ReportStoryCanvas
-            report={report}
-            signals={signalsQuery.data?.signals ?? []}
-            artefacts={artefactsQuery.data?.results ?? []}
-            reportTasks={reportTasks}
-            onPrompt={startConversation}
-            isStartingConversation={isDiscussing}
-          />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="truncate font-semibold">
+              {report.title || "Untitled report"}
+            </h1>
+            <Badge variant={status.variant}>{status.label}</Badge>
+            {report.priority && <Badge>{report.priority}</Badge>}
+          </div>
+          <Text variant="muted" size="xs">
+            Report session
+          </Text>
         </div>
-        <aside className="min-h-0 min-w-0">
-          {discussionTask ? (
-            <EmbeddedSessionView task={discussionTask} isActiveSession />
-          ) : (
-            <NewReportConversation
-              report={report}
-              isStarting={isDiscussing}
-              onPrompt={startConversation}
-            />
-          )}
-        </aside>
+      </header>
+      <div className="min-h-0 flex-1">
+        <ReportWorkspaceView
+          report={report}
+          signals={signalsQuery.data?.signals ?? []}
+          artefacts={artefactsQuery.data?.results ?? []}
+          reportTasks={reportTasks}
+          conversation={
+            discussionTask ? (
+              <EmbeddedSessionView task={discussionTask} isActiveSession />
+            ) : (
+              <NewReportConversation
+                report={report}
+                isStarting={isDiscussing}
+                onPrompt={startConversation}
+              />
+            )
+          }
+        />
       </div>
     </div>
   );
