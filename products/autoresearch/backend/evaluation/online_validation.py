@@ -100,23 +100,31 @@ def _fetch_matured_prediction_dates(team: Team, pipeline: AutoresearchPipeline) 
         " AND properties['$autoresearch_pipeline_id'] = {pipeline_id}"
         " AND addDays(toDate(properties['$autoresearch_prediction_date']), {horizon_days}) <= today()"
         " ORDER BY prediction_date ASC"
+        " LIMIT {limit}"
     )
     values: dict[str, Any] = {
         "event_name": PREDICTION_EVENT_NAME,
         "pipeline_id": str(pipeline.pk),
         "horizon_days": pipeline.horizon_days,
+        "limit": VALIDATION_QUERY_LIMIT,
     }
 
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
         runner = HogQLQueryRunner(query=HogQLQuery(query=sql, values=values), team=team)
         result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-        if not result.results:
-            return []
-        return [date.fromisoformat(str(row[0])) for row in result.results if row[0]]
     except Exception:
         logger.exception("autoresearch_matured_dates_query_failed", pipeline_id=str(pipeline.pk))
         return []
+    if not result.results:
+        return []
+    # Unbounded HogQL caps at 100 rows; with ASC ordering and client-side filtering of
+    # already-validated dates, a pipeline older than 100 days would never see a new date.
+    if len(result.results) >= VALIDATION_QUERY_LIMIT:
+        raise ValidationDataTruncatedError(
+            f"Matured prediction dates for pipeline {pipeline.pk} hit the {VALIDATION_QUERY_LIMIT} row limit"
+        )
+    return [date.fromisoformat(str(row[0])) for row in result.results if row[0]]
 
 
 def _validate_one_date(
