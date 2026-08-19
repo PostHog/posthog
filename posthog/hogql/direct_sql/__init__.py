@@ -1,4 +1,9 @@
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, DirectSQLAdapter
+from posthog.hogql.direct_sql.adapter import (
+    DirectQueryPrincipal,
+    DirectQueryRequest,
+    DirectQueryResult,
+    DirectSQLAdapter,
+)
 from posthog.hogql.direct_sql.capability import direct_capable_source_types, is_direct_capable
 from posthog.hogql.direct_sql.clickhouse_adapter import ClickHouseAdapter
 from posthog.hogql.direct_sql.duckgres_adapter import DuckgresRawAdapter
@@ -35,6 +40,7 @@ def get_raw_adapter_for_source(source: ExternalDataSource) -> DirectSQLAdapter |
 
 __all__ = [
     "DirectQueryRequest",
+    "DirectQueryPrincipal",
     "DirectQueryResult",
     "DirectSQLAdapter",
     "ClickHouseAdapter",
