@@ -6058,6 +6058,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ingestion-worker-proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.13.5",
+ "tonic 0.12.3",
+ "tonic-build 0.12.3",
+]
+
+[[package]]
 name = "inout"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
