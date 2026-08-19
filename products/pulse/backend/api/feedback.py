@@ -1,5 +1,5 @@
 import uuid
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery
@@ -67,11 +67,12 @@ def record_vote(
     The partial unique constraint on (voter, target) keeps one row per voter — a revote overwrites it,
     a concurrent double-vote can't duplicate it.
     """
-    lookup = {f"{target}_id": pk, "created_by_id": user_id}
+    lookup: dict[str, Any] = {f"{target}_id": pk, "created_by_id": user_id}
     if helpful is None:
         FeedbackVote.objects.for_team(team_id).filter(**lookup).delete()
     else:
-        defaults = {"helpful": helpful, "reason": reason, "team_id": team_id}
+        # Mixed value types; annotate to Django's own defaults signature rather than dict[str, object].
+        defaults: dict[str, Any] = {"helpful": helpful, "reason": reason, "team_id": team_id}
         try:
             # First-vote race: two concurrent inserts, one loses the unique constraint. The savepoint
             # lets that IntegrityError roll back cleanly; the loser then re-applies its vote as an
