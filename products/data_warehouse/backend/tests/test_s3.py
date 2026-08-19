@@ -37,6 +37,36 @@ class TestAgetS3Client(SimpleTestCase):
         fake_s3._s3creator.__aexit__.assert_awaited_once_with(None, None, None)
         fake_s3._s3.close.assert_not_awaited()
 
+    @override_settings(USE_LOCAL_SETUP=False)
+    def test_endpoint_rejected_by_botocore_raises_a_clear_error(self) -> None:
+        # botocore refuses to build a client for endpoints delta-rs accepts (e.g. a service host
+        # with an underscore); surface one actionable config error, not a raw "Invalid endpoint".
+        fake_s3 = MagicMock()
+        fake_s3.set_session = AsyncMock(side_effect=ValueError("Invalid endpoint: http://object_storage:19000"))
+
+        async def run() -> None:
+            with patch("products.data_warehouse.backend.s3.s3fs.S3FileSystem", return_value=fake_s3):
+                async with aget_s3_client() as _:
+                    pass
+
+        with self.assertRaises(ValueError) as ctx:
+            asyncio.run(run())
+
+        assert "OBJECT_STORAGE_ENDPOINT" in str(ctx.exception)
+
+    @override_settings(USE_LOCAL_SETUP=False)
+    def test_unrelated_value_error_from_set_session_is_reraised(self) -> None:
+        fake_s3 = MagicMock()
+        fake_s3.set_session = AsyncMock(side_effect=ValueError("something else went wrong"))
+
+        async def run() -> None:
+            with patch("products.data_warehouse.backend.s3.s3fs.S3FileSystem", return_value=fake_s3):
+                async with aget_s3_client() as _:
+                    pass
+
+        with self.assertRaisesRegex(ValueError, "something else went wrong"):
+            asyncio.run(run())
+
 
 class TestGetSizeOfFolder(SimpleTestCase):
     def _mock_s3(self) -> MagicMock:
