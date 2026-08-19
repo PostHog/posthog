@@ -671,12 +671,13 @@ export interface InboxViewedProperties {
   actionability_not_actionable_count: number;
   actionability_unknown_count: number;
   /**
-   * Tab badge counts shown in the v2 inbox header on load — the actual numbers
-   * the user sees (Pull requests / Reports / Runs). Optional: only the desktop
-   * v2 shell populates these; the mobile event omits them.
+   * Tab badge counts shown in the inbox header on load — the actual numbers
+   * the user sees (Pull requests / Reports), sent whatever tab is open. Distinct
+   * from `report_count`, which is only the loaded rows of the active tab.
+   * Optional: the mobile event omits them.
    */
-  pulls_count?: number;
-  reports_count?: number;
+  pulls_tab_count?: number;
+  reports_tab_count?: number;
 }
 
 export interface InboxReportOpenedProperties {

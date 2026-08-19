@@ -50,8 +50,8 @@ describe('inboxAnalytics', () => {
             tab: 'reports',
             reports: [],
             totalCount: 0,
-            pullsCount: 3,
-            reportsCount: 212,
+            pullsTabCount: 3,
+            reportsTabCount: 212,
             hasActiveFilters: false,
             sourceProductFilter: [],
             priorityFilter: [],
@@ -65,8 +65,8 @@ describe('inboxAnalytics', () => {
             tab: 'pulls',
             reports: [],
             totalCount: 0,
-            pullsCount: 0,
-            reportsCount: 212,
+            pullsTabCount: 0,
+            reportsTabCount: 212,
             hasActiveFilters: false,
             sourceProductFilter: [],
             priorityFilter: [],
@@ -75,8 +75,8 @@ describe('inboxAnalytics', () => {
         expect(lastCapture(INBOX_EVENTS.VIEWED)).toMatchObject({
             tab: 'pulls',
             total_count: 0,
-            pulls_count: 0,
-            reports_count: 212,
+            pulls_tab_count: 0,
+            reports_tab_count: 212,
         })
     })
 
@@ -89,8 +89,8 @@ describe('inboxAnalytics', () => {
                 makeReport({ id: 'c', priority: null, actionability: null }),
             ],
             totalCount: 3,
-            pullsCount: 1,
-            reportsCount: 3,
+            pullsTabCount: 1,
+            reportsTabCount: 3,
             hasActiveFilters: true,
             sourceProductFilter: ['error_tracking'],
             priorityFilter: ['P0'],

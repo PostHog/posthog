@@ -58,15 +58,15 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     // The Pull requests / Reports badge counts go on every `Inbox viewed`, whatever tab is open: the
     // active tab's `total_count` alone says nothing about a user who lands on Pull requests and has
     // 200 reports waiting. These share the tab bar's keyed instances, so no extra requests.
-    const { count: pullsCount, countLoading: pullsCountLoading } = useValues(
+    const { count: pullsTabCount, countLoading: pullsTabCountLoading } = useValues(
         reportListLogic({ tabKey: 'pulls', listParams: INBOX_FLAT_TAB_LIST_PARAMS.pulls })
     )
-    const { count: reportsCount, countLoading: reportsCountLoading } = useValues(
+    const { count: reportsTabCount, countLoading: reportsTabCountLoading } = useValues(
         reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports })
     )
     // A badge count is settled once loaded, or once its request failed (count stays null, not loading).
     const badgeCountsSettled =
-        (pullsCount !== null || !pullsCountLoading) && (reportsCount !== null || !reportsCountLoading)
+        (pullsTabCount !== null || !pullsTabCountLoading) && (reportsTabCount !== null || !reportsTabCountLoading)
 
     // Fire `Inbox viewed` once per tab mount, the first time its list and the badge counts settle
     // while visible.
@@ -78,8 +78,8 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                 tab: tabKey,
                 reports,
                 totalCount: count,
-                pullsCount,
-                reportsCount,
+                pullsTabCount,
+                reportsTabCount,
                 hasActiveFilters,
                 sourceProductFilter,
                 priorityFilter,
@@ -91,8 +91,8 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         isLoaded,
         count,
         badgeCountsSettled,
-        pullsCount,
-        reportsCount,
+        pullsTabCount,
+        reportsTabCount,
         reports,
         tabKey,
         hasActiveFilters,
