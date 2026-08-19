@@ -27,6 +27,10 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# Read-only stats interface to the jemalloc common-alloc installs as the global
+# allocator. Declared unconditionally, like common-alloc's own allocator dep;
+# the module reading it is cfg'd off where jemalloc isn't the allocator.
+tikv-jemalloc-ctl = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

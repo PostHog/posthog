@@ -1,3 +1,7 @@
+// jemalloc is only the global allocator off msvc — see
+// `common_alloc::DefaultAllocator`.
+#[cfg(not(target_env = "msvc"))]
+pub mod alloc_stats;
 pub mod aperture;
 pub mod config;
 pub mod consumer;
