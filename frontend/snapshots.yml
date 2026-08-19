@@ -1900,6 +1900,18 @@ snapshots:
         hash: v1.k794b7964.50a5102fcd24dd52bb07a41a78e6685486895d9ed86923b857de67a2bf0cfa25.yhotsOneF2mgB_iFToEVdcMfHQf58lr7yldfNN-ZYbU
     components-sharing--recording-sharing-licensed--light:
         hash: v1.k794b7964.887ed3d23b03515cab22e56f2258a1f1f7be9b7b69c1b5f3e17db17b6c05b4db.XWPlz4WofkRpUrTptzJ_y3K-quE1bDXIBkc2F5gq2wk
+    components-skillpicker--default--dark:
+        hash: v1.k794b7964.42e480d1854fa4e855c514aa6cb4e0adebde88d01cccd1b802b6a2acba0ccfd3.zWHBN45jGiaWgIUoC6ZoTFd9RLQ9LxAZ5x5szvvO2aE
+    components-skillpicker--default--light:
+        hash: v1.k794b7964.cbbe33adfd71b1c432b64dfd92a343c2d562c2e64910d07fff58ff5a4cd926e7.utWGHbQe8EqWV_0Kb54dtyiG1QM_W4-HgVcJ8m6Sys4
+    components-skillpicker--empty--dark:
+        hash: v1.k794b7964.4502f6dbefd7848a18c884a205d5da9ccd1cc1b5ee65717fbbbb8fb07a7202bf.-IXKQW55ul9arMOKU0fHgh1-ppUfSpvYTJLOKg5rwxM
+    components-skillpicker--empty--light:
+        hash: v1.k794b7964.834f1daaa1c90c821674ed0d47d6a8cfe3fe2d92b8c5ba68f2a600383ec439ab.QEFmzIl_TfqoJYnNbyst2sFrixFceJNgdiEDxg3o0v8
+    components-skillpicker--loading--dark:
+        hash: v1.k794b7964.a6c03e74d88d7915ee632eb41078032b6a0ed2b7d2076e3824843ee0504c5184.sPVYxnzC5p8USLUKFktTDgFn9IKoZAr3p8LQ9q2HT1Q
+    components-skillpicker--loading--light:
+        hash: v1.k794b7964.1f11b533447e94851d7036d383a6c200445f7da972d711558cc3f7dba15819ea.hwvMJBLynPWX3xaxY8wXIxncAKZm74pJ_0khYfYWbes
     components-slack-channel-picker--alphabetical--dark:
         hash: v1.k794b7964.c5f45d681dad559cdf8bed1c8e9d31c5dca4d0973e1fbf5d1515ab30c393b554.SYg7auYBsl2kTK9lzMylWzKKRJ9Bf3sT0lwtvlfXx24
     components-slack-channel-picker--alphabetical--light:
