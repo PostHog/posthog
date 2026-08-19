@@ -899,7 +899,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (isChunkLoadError(error)) {
                         // Already reloaded once for this failure? Show the network error instead
                         // of looping. Counts consecutive attempts, so a slow reload cycle still trips it.
-                        if (registerChunkReloadAttempt(new Date().valueOf()).shouldReload) {
+                        if (registerChunkReloadAttempt(new Date().valueOf(), 'scene').shouldReload) {
                             console.error('App assets regenerated. Reloading this page.')
                             actions.reloadBrowserDueToImportError()
                         } else {
@@ -912,8 +912,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 } finally {
                     window.clearTimeout(timeout)
                 }
-                // The chunk loaded, so a later transient failure is allowed one reload again.
-                resetChunkReloadGuard()
+                // The scene chunk loaded, so a later transient failure is allowed one reload again.
+                // Only the scene counter is cleared: a lazy descendant that keeps failing after this
+                // scene renders must still trip its own guard rather than loop forever.
+                resetChunkReloadGuard('scene')
                 if (values.sceneId !== sceneId) {
                     breakpoint()
                 }

@@ -5,7 +5,7 @@ import { Component, type ReactNode } from 'react'
 
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
-const RELOAD_GUARD_KEY = 'posthog-chunk-reload-guard'
+const RELOAD_GUARD_KEY = 'posthog-chunk-reload-guard-lazy'
 
 class TestErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
     override state: { error: Error | null } = { error: null }

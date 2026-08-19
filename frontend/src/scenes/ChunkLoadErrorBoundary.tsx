@@ -30,7 +30,7 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         if (!isChunkLoadError(error)) {
             return
         }
-        if (!registerChunkReloadAttempt(Date.now()).shouldReload) {
+        if (!registerChunkReloadAttempt(Date.now(), 'lazy').shouldReload) {
             console.error('[ChunkLoadErrorBoundary] Already reloaded; surfacing error instead of looping.')
             this.setState({ surface: true })
             return
