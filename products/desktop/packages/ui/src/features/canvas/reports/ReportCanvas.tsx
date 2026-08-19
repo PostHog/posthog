@@ -24,10 +24,13 @@ import {
 import type {
   AnySignalReportArtefact,
   Signal,
+  SignalFindingContent,
   SignalReport,
   Task,
   TaskRunStatus,
 } from "@posthog/shared/types";
+import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { SignalCard } from "@posthog/ui/features/inbox/components/detail/SignalCard";
 import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
 import {
@@ -37,7 +40,6 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import {
   findLatestDiscussionTask,
-  getTaskPrUrl,
   type ReportTaskData,
   useReportTasks,
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
@@ -47,6 +49,7 @@ import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { buildReportProgress } from "./reportProgress";
 
 function reportStatus(report: SignalReport): {
   label: string;
@@ -118,16 +121,85 @@ function runStatus(status: TaskRunStatus | undefined): {
   }
 }
 
+function CompactMarkdown({ content }: { content: string }) {
+  return (
+    <div className="text-sm [&_p:last-child]:mb-0">
+      <MarkdownRenderer content={content} />
+    </div>
+  );
+}
+
+function signalFindings(
+  artefacts: AnySignalReportArtefact[],
+): Map<string, SignalFindingContent> {
+  const findings = new Map<string, SignalFindingContent>();
+  for (const artefact of artefacts) {
+    if (artefact.type !== "signal_finding") continue;
+    const finding = artefact.content as SignalFindingContent;
+    findings.set(finding.signal_id, finding);
+  }
+  return findings;
+}
+
+function ReportEvidence({
+  signals,
+  artefacts,
+  onBack,
+}: {
+  signals: Signal[];
+  artefacts: AnySignalReportArtefact[];
+  onBack: () => void;
+}) {
+  const findings = signalFindings(artefacts);
+
+  return (
+    <aside className="flex h-full min-h-0 flex-col border-l bg-surface-primary">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
+        <Button
+          variant="default"
+          size="icon"
+          aria-label="Back to report brief"
+          onClick={onBack}
+        >
+          <ArrowLeftIcon size={15} />
+        </Button>
+        <MagnifyingGlassIcon size={16} />
+        <h2 className="font-semibold">Evidence</h2>
+        <Text variant="muted" size="xs" className="ml-auto">
+          {signals.length}
+        </Text>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+        {signals.length > 0 ? (
+          signals.map((signal) => (
+            <SignalCard
+              key={signal.signal_id}
+              signal={signal}
+              finding={findings.get(signal.signal_id)}
+            />
+          ))
+        ) : (
+          <Text variant="muted" size="sm">
+            Evidence will appear as the investigation progresses.
+          </Text>
+        )}
+      </div>
+    </aside>
+  );
+}
+
 function ReportBrief({
   report,
   signals,
   artefacts,
   reportTasks,
+  onOpenEvidence,
 }: {
   report: SignalReport;
   signals: Signal[];
   artefacts: AnySignalReportArtefact[];
   reportTasks: ReportTaskData[];
+  onOpenEvidence: () => void;
 }) {
   const actionabilityExplanation = latestExplanation(
     artefacts,
@@ -136,9 +208,7 @@ function ReportBrief({
   const priorityExplanation = latestExplanation(artefacts, "priority_judgment");
   const assessment = actionabilityExplanation ?? priorityExplanation;
   const evidence = signals.slice(0, 2);
-  const pipelineTasks = reportTasks.filter(
-    (entry) => entry.purpose !== "discussion",
-  );
+  const progress = buildReportProgress(reportTasks);
   const implementationPrUrl = report.implementation_pr_url;
 
   return (
@@ -154,10 +224,12 @@ function ReportBrief({
               <QuestionIcon size={16} />
               <h3 className="font-semibold text-sm">Your input is needed</h3>
             </div>
-            <Text size="sm">
-              {actionabilityExplanation ??
-                "Ask the agent what information it needs to continue."}
-            </Text>
+            <CompactMarkdown
+              content={
+                actionabilityExplanation ??
+                "Ask the agent what information it needs to continue."
+              }
+            />
           </section>
         )}
 
@@ -205,7 +277,7 @@ function ReportBrief({
               )}
               <h3 className="font-semibold text-sm">Current assessment</h3>
             </div>
-            <Text size="sm">{assessment}</Text>
+            <CompactMarkdown content={assessment} />
           </section>
         )}
 
@@ -235,17 +307,28 @@ function ReportBrief({
           {evidence.length > 0 ? (
             <div className="flex flex-col gap-3">
               {evidence.map((signal) => (
-                <div key={signal.signal_id} className="border-l-2 pl-3">
-                  <Text size="sm">{signal.content}</Text>
+                <button
+                  key={signal.signal_id}
+                  type="button"
+                  className="border-l-2 pl-3 text-left hover:border-primary"
+                  onClick={onOpenEvidence}
+                >
+                  <CompactMarkdown content={signal.content} />
                   <Text variant="muted" size="xs" className="mt-1">
                     {signal.source_product.replaceAll("_", " ")}
                   </Text>
-                </div>
+                </button>
               ))}
               {signals.length > evidence.length && (
-                <Text variant="muted" size="xs">
-                  {signals.length - evidence.length} more supporting signals
-                </Text>
+                <Button
+                  variant="link-muted"
+                  size="sm"
+                  className="h-auto justify-start p-0"
+                  onClick={onOpenEvidence}
+                >
+                  View {signals.length - evidence.length} more supporting
+                  signals
+                </Button>
               )}
             </div>
           ) : (
@@ -253,37 +336,48 @@ function ReportBrief({
               Evidence will appear as the investigation progresses.
             </Text>
           )}
+          {signals.length > 0 && signals.length <= evidence.length && (
+            <Button
+              variant="link-muted"
+              size="sm"
+              className="mt-3 h-auto p-0"
+              onClick={onOpenEvidence}
+            >
+              View all evidence
+            </Button>
+          )}
         </section>
 
-        {pipelineTasks.length > 0 && (
+        {progress.length > 0 && (
           <section className="p-4">
             <div className="mb-3 flex items-center gap-2">
               <CircleNotchIcon size={15} />
-              <h3 className="font-semibold text-sm">Activity</h3>
+              <h3 className="font-semibold text-sm">Progress</h3>
             </div>
             <div className="flex flex-col gap-4">
-              {pipelineTasks.map((entry) => {
-                const status = runStatus(entry.task.latest_run?.status);
-                const prUrl = getTaskPrUrl(entry.task);
+              {progress.map((item) => {
+                const status = runStatus(item.status);
                 return (
-                  <div key={entry.task.id} className="flex items-start gap-3">
+                  <div key={item.key} className="flex items-start gap-3">
                     <div className="mt-1 size-2 shrink-0 rounded-full bg-current opacity-50" />
                     <div className="min-w-0 flex-1">
                       <div className="mb-1 flex flex-wrap items-center gap-2">
                         <Text size="sm" className="font-medium">
-                          {entry.purposeLabel}
+                          {item.label}
                         </Text>
                         <Badge variant={status.variant}>{status.label}</Badge>
                       </div>
                       <Text variant="muted" size="xs">
-                        {entry.task.title || "Untitled task"}
+                        {item.description}
                       </Text>
-                      {prUrl && (
+                      {item.prUrl && (
                         <Button
                           variant="link-muted"
                           size="sm"
                           className="mt-1 h-auto p-0"
-                          onClick={() => openExternalUrl(prUrl)}
+                          onClick={() => {
+                            if (item.prUrl) openExternalUrl(item.prUrl);
+                          }}
                         >
                           Open PR <ArrowSquareOutIcon size={12} />
                         </Button>
@@ -306,13 +400,17 @@ export function ReportWorkspaceView({
   artefacts,
   reportTasks,
   conversation,
+  initialRail = "brief",
 }: {
   report: SignalReport;
   signals: Signal[];
   artefacts: AnySignalReportArtefact[];
   reportTasks: ReportTaskData[];
   conversation: ReactNode;
+  initialRail?: "brief" | "evidence";
 }) {
+  const [rail, setRail] = useState<"brief" | "evidence">(initialRail);
+
   return (
     <div className="grid h-full min-h-0 grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
       <main className="min-h-0 min-w-0 bg-surface-secondary p-3">
@@ -320,17 +418,26 @@ export function ReportWorkspaceView({
           {conversation}
         </div>
       </main>
-      <ReportBrief
-        report={report}
-        signals={signals}
-        artefacts={artefacts}
-        reportTasks={reportTasks}
-      />
+      {rail === "evidence" ? (
+        <ReportEvidence
+          signals={signals}
+          artefacts={artefacts}
+          onBack={() => setRail("brief")}
+        />
+      ) : (
+        <ReportBrief
+          report={report}
+          signals={signals}
+          artefacts={artefacts}
+          reportTasks={reportTasks}
+          onOpenEvidence={() => setRail("evidence")}
+        />
+      )}
     </div>
   );
 }
 
-function NewReportConversation({
+export function NewReportConversation({
   report,
   isStarting,
   onPrompt,
@@ -352,10 +459,11 @@ function NewReportConversation({
             <div className="mb-4 flex size-10 items-center justify-center rounded-full border bg-surface-secondary">
               <ChatCircleIcon size={20} />
             </div>
-            <h3 className="font-semibold text-lg">Discuss this report</h3>
+            <h3 className="font-semibold text-lg">
+              What would you like to do?
+            </h3>
             <Text variant="muted" size="sm" className="mt-1 max-w-md">
-              The agent has the report, its evidence, and any work already
-              completed.
+              Ask about the report, review the evidence, or continue the work.
             </Text>
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               {prompts.map((prompt) => (
