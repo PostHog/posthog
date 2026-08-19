@@ -37,6 +37,7 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
@@ -83,7 +84,12 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { validateMetricDescription, validateMetricName } from 'products/data_catalog/frontend/common'
+import {
+    METRIC_FIELD_COPY,
+    MetricFormPrefill,
+    validateMetricDescription,
+    validateMetricName,
+} from 'products/data_catalog/frontend/common'
 import {
     dataCatalogMetricsCreate,
     dataCatalogMetricsPartialUpdate,
@@ -271,6 +277,13 @@ export interface QueryTab {
 
 export type SqlEditorSource = 'insight' | 'endpoint' | 'view' | 'metric'
 
+export interface SaveAsMetricFields {
+    name: string
+    display_name: string
+    description: string
+    unit: string
+}
+
 export interface DataWarehouseAccessControlModalProps {
     resource:
         | AccessControlResourceType.WarehouseTable
@@ -431,6 +444,22 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     return hash
 }
 
+function parseMetricPrefill(value: unknown): MetricFormPrefill | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null
+    }
+
+    const source = value as Record<string, unknown>
+    const prefill: MetricFormPrefill = {}
+    for (const field of ['name', 'display_name', 'description', 'unit'] as const) {
+        if (typeof source[field] === 'string') {
+            prefill[field] = source[field] as string
+        }
+    }
+
+    return Object.keys(prefill).length ? prefill : null
+}
+
 function parseOutputTab(value: unknown): OutputTab | null {
     if (Object.values(OutputTab).includes(value as OutputTab)) {
         return value as OutputTab
@@ -556,6 +585,7 @@ export interface sqlEditorLogicValues {
     materializationModalView: DataWarehouseSavedQuery | null
     metadata: HogQLMetadataResponse | null
     metadataLoading: boolean
+    metricPrefill: MetricFormPrefill | null
     metricUpdating: boolean
     originalQueryInput: string | null | undefined
     queryInput: string | null
@@ -935,12 +965,10 @@ export interface sqlEditorLogicActions {
         value: true
     }
     saveAsMetricSubmit: (
-        name: string,
-        description: string,
+        fields: SaveAsMetricFields,
         queryOverride?: string
     ) => {
-        description: string
-        name: string
+        fields: SaveAsMetricFields
         queryOverride: string | undefined
     }
     saveAsView: (
@@ -1049,6 +1077,9 @@ export interface sqlEditorLogicActions {
     }
     setMetadataLoading: (loading: boolean) => {
         loading: boolean
+    }
+    setMetricPrefill: (metricPrefill: MetricFormPrefill | null) => {
+        metricPrefill: MetricFormPrefill | null
     }
     setMetricUpdating: (updating: boolean) => {
         updating: boolean
@@ -1322,11 +1353,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             dagId,
         }),
         saveAsMetric: true,
-        saveAsMetricSubmit: (name: string, description: string, queryOverride?: string) => ({
-            name,
-            description,
+        saveAsMetricSubmit: (fields: SaveAsMetricFields, queryOverride?: string) => ({
+            fields,
             queryOverride,
         }),
+        setMetricPrefill: (metricPrefill: MetricFormPrefill | null) => ({ metricPrefill }),
         setEditingMetricName: (metricName: string | null) => ({ metricName }),
         updateEditingMetric: true,
         setMetricUpdating: (updating: boolean) => ({ updating }),
@@ -1566,6 +1597,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             'insight' as SqlEditorSource,
             {
                 setEditorSource: (_, { source }) => source,
+            },
+        ],
+        metricPrefill: [
+            null as MetricFormPrefill | null,
+            {
+                setMetricPrefill: (_, { metricPrefill }) => metricPrefill,
             },
         ],
         dashboardId: [
@@ -2672,14 +2709,35 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const selectedRef = { current: candidates.queries[candidates.initialIndex] }
                 LemonDialog.openForm({
                     title: 'Save as metric',
-                    initialValues: { name: '', description: '' },
+                    initialValues: {
+                        name: '',
+                        display_name: '',
+                        description: '',
+                        unit: '',
+                        ...values.metricPrefill,
+                    },
                     content: (
                         <>
-                            <LemonField name="name" label="Name">
-                                <LemonInput placeholder="monthly_active_users" autoFocus />
+                            <LemonField name="name" label={METRIC_FIELD_COPY.name.label}>
+                                <LemonInput placeholder={METRIC_FIELD_COPY.name.placeholder} autoFocus />
                             </LemonField>
-                            <LemonField name="description" label="Description" className="mt-2">
-                                <LemonInput placeholder="What this metric measures and how to read it" />
+                            <LemonField
+                                name="display_name"
+                                label={METRIC_FIELD_COPY.displayName.label}
+                                className="mt-2"
+                            >
+                                <LemonInput placeholder={METRIC_FIELD_COPY.displayName.placeholder} />
+                            </LemonField>
+                            <LemonField name="description" label={METRIC_FIELD_COPY.description.label} className="mt-2">
+                                {/* stopPropagation keeps Enter from reaching the dialog form and submitting mid-sentence */}
+                                <LemonTextArea
+                                    placeholder={METRIC_FIELD_COPY.description.placeholder}
+                                    minRows={2}
+                                    stopPropagation
+                                />
+                            </LemonField>
+                            <LemonField name="unit" label={METRIC_FIELD_COPY.unit.label} className="mt-2">
+                                <LemonInput placeholder={METRIC_FIELD_COPY.unit.placeholder} />
                             </LemonField>
                             <SaveTargetCycler
                                 candidates={candidates}
@@ -2694,22 +2752,33 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         description: (description) =>
                             !description?.trim() ? 'Add a description' : validateMetricDescription(description.trim()),
                     },
-                    onSubmit: async ({ name, description }) =>
-                        actions.saveAsMetricSubmit(name.trim(), description.trim(), selectedRef.current),
+                    onSubmit: async ({ name, display_name, description, unit }) =>
+                        actions.saveAsMetricSubmit(
+                            {
+                                name: name.trim(),
+                                display_name: display_name.trim(),
+                                description: description.trim(),
+                                unit: unit.trim(),
+                            },
+                            selectedRef.current
+                        ),
                 })
             },
-            saveAsMetricSubmit: async ({ name, description, queryOverride }) => {
+            saveAsMetricSubmit: async ({ fields, queryOverride }) => {
                 const biEditorState = getActiveBIEditorState()
                 try {
                     const metric = await dataCatalogMetricsCreate(String(ApiConfig.getCurrentTeamId()), {
-                        name,
-                        description,
+                        name: fields.name,
+                        display_name: fields.display_name || undefined,
+                        description: fields.description,
+                        unit: fields.unit || undefined,
                         definition: normalizeRawQuerySource({
                             ...(values.sourceQuery.source as HogQLQuery),
                             query: queryOverride ?? values.queryInput ?? '',
                         }) as unknown as Record<string, unknown>,
                     })
                     captureBIEditorQuerySaved(biEditorState, 'metric', 'create')
+                    actions.setMetricPrefill(null)
                     lemonToast.success('Metric created')
                     router.actions.push(urls.dataCatalogMetric(metric.name))
                 } catch (error: any) {
@@ -3331,6 +3400,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 searchParams.source === 'metric'
             ) {
                 actions.setEditorSource(searchParams.source)
+            }
+            const metricPrefillFromUrl = parseMetricPrefill(searchParams.metric_prefill)
+            if (metricPrefillFromUrl) {
+                actions.setMetricPrefill(metricPrefillFromUrl)
             }
             if (searchParams.dashboard) {
                 const parsed = parseInt(searchParams.dashboard, 10)
