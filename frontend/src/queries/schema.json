@@ -25704,7 +25704,8 @@
                 "WisprFlow",
                 "SamCart",
                 "IronSourceAds",
-                "MicrosoftExcel"
+                "MicrosoftExcel",
+                "Profound"
             ],
             "type": "string"
         },
