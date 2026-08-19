@@ -8,6 +8,7 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
@@ -183,8 +184,9 @@ function PlayerWrapper({
         nextSessionRecording,
         pinnedFilters,
         sessionRecordingsResponseLoading,
+        sessionRecordingsAPIErrored,
     } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings } =
+    const { setFilters, resetFilters, setSelectedRecordingId, loadAllRecordings, loadSessionRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
 
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
@@ -261,6 +263,18 @@ function PlayerWrapper({
                             <span className="text-secondary">Loading recordings...</span>
                         </div>
                     </div>
+                </div>
+            ) : sessionRecordingsAPIErrored ? (
+                <div className="mt-20 flex flex-col items-center gap-3 px-4 text-center">
+                    <EmptyMessage
+                        title="Couldn't load recordings"
+                        description="Something went wrong loading recordings. Try again."
+                        buttonText="Learn more about recordings"
+                        buttonTo="https://posthog.com/docs/user-guides/recordings"
+                    />
+                    <LemonButton type="primary" onClick={() => loadSessionRecordings()}>
+                        Try again
+                    </LemonButton>
                 </div>
             ) : (
                 <div className="mt-20">

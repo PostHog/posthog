@@ -4509,8 +4509,8 @@ const api = {
     },
 
     recordings: {
-        async list(params: RecordingsQuery): Promise<RecordingsQueryResponse> {
-            return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
+        async list(params: RecordingsQuery, signal?: AbortSignal): Promise<RecordingsQueryResponse> {
+            return await new ApiRequest().recordings().withQueryString(toParams(params)).get({ signal })
         },
         async getMatchingEvents(params: string): Promise<MatchingEventsResponse> {
             return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()

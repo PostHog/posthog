@@ -27,6 +27,7 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import { isActionFilter, isEventFilter, isEventPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { withTimeout } from 'lib/utils/async'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isString } from 'lib/utils/guards'
 import { localStorageSlot } from 'lib/utils/localStorageSlot'
@@ -162,6 +163,10 @@ export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | Eve
 
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
+
+// A hung recordings request otherwise keeps the loading animation on screen forever. Bound the wait
+// so a stalled connection fails into the error state (with a retry) instead of spinning.
+const RECORDINGS_LIST_TIMEOUT_MS = 30_000
 
 export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     type: PropertyFilterType.Recording,
@@ -1006,7 +1011,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     await breakpoint(400) // Debounce for lots of quick filter changes
 
                     const startTime = performance.now()
-                    const response = await api.recordings.list(params)
+                    const response = await withTimeout(
+                        (signal) => api.recordings.list(params, signal),
+                        RECORDINGS_LIST_TIMEOUT_MS,
+                        'Loading recordings timed out'
+                    )
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListFetched(
@@ -1191,7 +1200,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             false,
             {
                 loadSessionRecordingsFailure: () => true,
-                loadSessionRecordingSuccess: () => false,
+                // Clear on retry start and on success — the retry button dispatches loadSessionRecordings,
+                // so without these the error pane stays up through a successful reload.
+                loadSessionRecordings: () => false,
+                loadSessionRecordingsSuccess: () => false,
                 setFilters: () => false,
                 setAdvancedFilters: () => false,
                 loadNext: () => false,

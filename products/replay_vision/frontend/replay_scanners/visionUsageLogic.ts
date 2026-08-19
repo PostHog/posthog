@@ -12,6 +12,7 @@ export type SpendChartInterval = Extract<IntervalType, 'day' | 'week' | 'month'>
 
 interface visionUsageLogicValues {
     usageScanners: ReplayScanner[]
+    usageScannersError: boolean
     usageScannersLoading: boolean
     spendChartInterval: SpendChartInterval
 }
@@ -38,6 +39,16 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
             'day' as SpendChartInterval,
             {
                 setSpendChartInterval: (_, { interval }) => interval,
+            },
+        ],
+        // A failed read, so the tab shows a retry instead of "No spend this period yet", which reads
+        // like the account is idle.
+        usageScannersError: [
+            false,
+            {
+                loadUsageScanners: () => false,
+                loadUsageScannersSuccess: () => false,
+                loadUsageScannersFailure: () => true,
             },
         ],
     }),

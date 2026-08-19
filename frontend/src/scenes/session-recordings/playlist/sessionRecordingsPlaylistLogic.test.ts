@@ -791,7 +791,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     expect.objectContaining({ session_ids: ['s1', 's2'] })
                 )
                 expect(listSpy).toHaveBeenLastCalledWith(
-                    expect.objectContaining({ session_ids: ['s1', 's2'], date_from: '-7d' })
+                    expect.objectContaining({ session_ids: ['s1', 's2'], date_from: '-7d' }),
+                    expect.any(AbortSignal)
                 )
             })
 
@@ -817,7 +818,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 }).toDispatchActions(['setFilters', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
 
                 expect(logic.values.filters.session_ids).toBeUndefined()
-                expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ session_ids: undefined }))
+                expect(listSpy).toHaveBeenLastCalledWith(
+                    expect.objectContaining({ session_ids: undefined }),
+                    expect.any(AbortSignal)
+                )
             })
 
             it('counts session_ids in totalFiltersCount so the badge and reset button reflect them', async () => {
@@ -933,7 +937,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 await expectLogic(logic).toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
 
                 expect(listSpy).toHaveBeenLastCalledWith(
-                    expect.objectContaining({ hide_viewed_recordings: 'current-user' })
+                    expect.objectContaining({ hide_viewed_recordings: 'current-user' }),
+                    expect.any(AbortSignal)
                 )
             })
 
@@ -944,7 +949,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 logic.actions.loadSessionRecordings()
                 await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
 
-                expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ hide_viewed_recordings: undefined }))
+                expect(listSpy).toHaveBeenLastCalledWith(
+                    expect.objectContaining({ hide_viewed_recordings: undefined }),
+                    expect.any(AbortSignal)
+                )
             })
 
             it('bulk delete only marks successfully deleted recordings', async () => {
@@ -1123,6 +1131,63 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             logic.actions.setSelectedRecordingId(aRecording.id)
             expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+        })
+    })
+
+    describe('hung recordings request', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+        })
+
+        it('times out into the error state instead of loading forever', async () => {
+            // A request that never settles used to keep the loading animation on screen indefinitely.
+            // The bounded wait must fail it into the error state so the pane can offer a retry.
+            jest.spyOn(api.recordings, 'list').mockReturnValue(
+                new Promise(() => {}) as ReturnType<typeof api.recordings.list>
+            )
+
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'hung-request' })
+            logic.mount()
+
+            // Clear the debounce breakpoint so the fetch starts, then let the timeout elapse.
+            await jest.advanceTimersByTimeAsync(400)
+            expect(logic.values.sessionRecordingsResponseLoading).toBe(true)
+
+            await jest.advanceTimersByTimeAsync(30_000)
+            await expectLogic(logic).toMatchValues({
+                sessionRecordingsAPIErrored: true,
+                sessionRecordingsResponseLoading: false,
+            })
+        })
+
+        it('clears the error when the retry succeeds', async () => {
+            // The retry button dispatches loadSessionRecordings; the flag must clear on it and on the
+            // eventual success, or the error pane stays up over a loaded list.
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockRejectedValueOnce(new Error('boom'))
+                .mockResolvedValue({ results: listOfSessionRecordings, has_next: false } as Awaited<
+                    ReturnType<typeof api.recordings.list>
+                >)
+
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'retry-clears-error' })
+            logic.mount()
+
+            await jest.advanceTimersByTimeAsync(400)
+            await expectLogic(logic).toMatchValues({ sessionRecordingsAPIErrored: true })
+
+            logic.actions.loadSessionRecordings()
+            await jest.advanceTimersByTimeAsync(400)
+            await expectLogic(logic).toMatchValues({
+                sessionRecordingsAPIErrored: false,
+                sessionRecordingsResponseLoading: false,
+            })
+            expect(listSpy).toHaveBeenCalledTimes(2)
         })
     })
 

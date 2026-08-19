@@ -112,4 +112,16 @@ describe('visionQuotaLogic', () => {
 
         expect(logic.values.quota?.projected_monthly_credits).toBe(500)
     })
+
+    it('flags a failed quota read while keeping the last snapshot for the guards', async () => {
+        // Nulling the snapshot would drop the exhausted-quota guards; the error flag lets the
+        // spend surfaces show a retry instead of reading as an idle account.
+        await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
+
+        useMocks({ get: { '/api/projects/:team/vision/quota/': () => [500, {}] } })
+        logic.actions.loadQuota()
+        await expectLogic(logic)
+            .toDispatchActions(['loadQuotaFailure'])
+            .toMatchValues({ quotaError: true, quota: expect.objectContaining({ credit_limit: 1000 }) })
+    })
 })

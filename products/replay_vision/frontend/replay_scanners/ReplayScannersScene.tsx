@@ -35,6 +35,7 @@ import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import { VisionLoadError } from '../components/VisionLoadError'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
@@ -78,8 +79,10 @@ export function ReplayScannersScene(): JSX.Element {
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
+        scannerStatsError,
+        scannersError,
     } = useValues(replayScannersLogic)
-    const { loadScanners, deleteScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
+    const { loadScanners, loadScannerStats, deleteScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
         useActions(replayScannersLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
@@ -299,6 +302,8 @@ export function ReplayScannersScene(): JSX.Element {
                         <div className="flex items-center justify-center h-72 bg-bg-light rounded">
                             <Spinner className="text-2xl" />
                         </div>
+                    ) : scannerStatsError ? (
+                        <VisionLoadError message="Couldn't load your scanner metrics." onRetry={loadScannerStats} />
                     ) : null}
 
                     <div className="flex flex-col gap-3">
@@ -373,7 +378,9 @@ export function ReplayScannersScene(): JSX.Element {
                             useURLForSorting={false}
                             nouns={['scanner', 'scanners']}
                             emptyState={
-                                scannersTotal === 0 && !hasActiveFilters ? (
+                                scannersError ? (
+                                    <VisionLoadError message="Couldn't load your scanners." onRetry={loadScanners} />
+                                ) : scannersTotal === 0 && !hasActiveFilters ? (
                                     <div className="flex flex-col items-center gap-3 p-8 text-center">
                                         <div className="text-muted">No scanners yet.</div>
                                         <CreateScannerButton
