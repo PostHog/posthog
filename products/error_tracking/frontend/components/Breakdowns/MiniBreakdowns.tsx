@@ -2,13 +2,14 @@ import { useValues } from 'kea'
 
 import { Separator, Text } from 'lib/ui/quill'
 
+import { BUILT_IN_ERROR_TRACKING_PROPERTIES } from '../builtInProperties'
 import { IssueFilterPreviewHeader } from '../IssueFilterPreview/IssueFilterPreviewHeader'
 import { BreakdownDetailsDialog } from './BreakdownDetailsDialog'
 import { BreakdownsTileButton } from './BreakdownsTileButton'
-import { BREAKDOWN_PRESETS, BreakdownPreset } from './consts'
+import { BreakdownPreset } from './consts'
 import { miniBreakdownsLogic } from './miniBreakdownsLogic'
 
-const BUILT_IN_PROPERTY_NAMES = new Set(BREAKDOWN_PRESETS.map(({ property }) => property))
+const BUILT_IN_PROPERTY_NAMES = new Set(BUILT_IN_ERROR_TRACKING_PROPERTIES.map(({ property }) => property))
 
 export function MiniBreakdowns(): JSX.Element {
     const { visibleBreakdownProperties } = useValues(miniBreakdownsLogic)

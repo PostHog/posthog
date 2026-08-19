@@ -56,6 +56,22 @@ describe('miniBreakdownsLogic', () => {
         expect(breakdowns.values.responseError).toBeNull()
     })
 
+    it('limits the default breakdown query to the configured presets', async () => {
+        await expectLogic(breakdowns).toFinishAllListeners()
+
+        const query = jest.mocked(api.query).mock.calls.at(-1)?.[0] as ErrorTrackingBreakdownsQuery
+        expect(query.breakdownProperties).toEqual([
+            '$browser',
+            '$device_type',
+            '$os',
+            '$pathname',
+            '$user_id',
+            '$ip',
+            '$geoip_country_name',
+            '$geoip_city_name',
+        ])
+    })
+
     it('adds primitive properties from the selected event without duplicating configured breakdowns', async () => {
         const properties = {
             $browser: 'Chrome',
