@@ -74,12 +74,13 @@ describe('loginLogic', () => {
             ['asdf', '/'],
             ['?next=javascript:something', '/'],
             ['javascript:something', '/'],
-            ['/bla', '/bla'],
-            [`${origin}/bla`, '/bla'],
-            [`http://some-other.origin/bla`, '/'],
+            // `/sql` resolves to a scene, so a same-origin path (with query and hash) survives intact.
+            ['/sql', '/sql'],
+            [`${origin}/sql`, '/sql'],
+            [`http://some-other.origin/sql`, '/'],
             ['//foo.bar', '/'],
-            ['/bla?haha', '/bla?haha'],
-            ['/bla?haha#hoho', '/bla?haha#hoho'],
+            ['/sql?haha', '/sql?haha'],
+            ['/sql?haha#hoho', '/sql?haha#hoho'],
             // Percent-encoded chars nested in next's own query params must survive the redirect
             // (e.g. docs "Run in PostHog" links carrying %0A newlines in open_query); the router
             // round-trip normalizes form-encoded "+" spaces to "%20", which decodes the same
@@ -106,6 +107,38 @@ describe('loginLogic', () => {
                 expect(removeProjectIdIfPresent(newPath)).toEqual(result)
             })
         }
+    })
+
+    describe('unrouted next falls back to the homepage', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        const origin = `http://localhost`
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        // login_required() bounces any unrouted request to /login?next=<path>, so a truncated
+        // address-bar entry comes back as a `next` that resolves to no scene.
+        const unrouted = ['/signin', '/project', '/sig', '/logi', '/hom']
+        for (const next of unrouted) {
+            it(`redirects "${next}" to the homepage`, () => {
+                router.actions.push(`${origin}/?next=${encodeURIComponent(next)}`)
+                handleLoginRedirect()
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual('/home')
+            })
+        }
+
+        it('keeps a next that resolves to a real scene', () => {
+            router.actions.push(`${origin}/?next=${encodeURIComponent('/sql')}`)
+            handleLoginRedirect()
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual('/sql')
+        })
     })
 
     describe('passkey auto-trigger after precheck', () => {

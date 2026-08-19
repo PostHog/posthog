@@ -1,7 +1,9 @@
 import { combineUrl } from 'kea-router'
+import UrlPattern from 'url-pattern'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { Params, Scene, SceneConfig, SceneExport } from 'scenes/sceneTypes'
@@ -929,4 +931,33 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.organizationPendingDeletion()]: [Scene.OrganizationPendingDeletion, 'organizationPendingDeletion'],
     [urls.projectPendingDeletion()]: [Scene.ProjectPendingDeletion, 'projectPendingDeletion'],
     ...productRoutes,
+}
+
+// Same segment charset sceneLogic routes with (see `urlPatternOptions` in initKea.ts), so matching
+// here agrees with how the app resolves a live URL.
+const ROUTE_URL_PATTERN_OPTIONS = { segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|:" }
+
+let compiledRedirectPatterns: UrlPattern[] | undefined
+let compiledRoutePatterns: UrlPattern[] | undefined
+
+/**
+ * Whether a window pathname resolves to a real scene, the way sceneLogic routes it. `false` means
+ * the router would fall through to `Scene.Error404`. Django's `login_required` decorator turns any
+ * unrouted path into a `?next=` value, so login checks this to avoid landing the user on a 404.
+ */
+export function pathResolvesToScene(pathname: string): boolean {
+    const pathInRoutes = stripTrailingSlash(removeProjectIdIfPresent(pathname.split(/[?#]/)[0]))
+    if (pathInRoutes === '/') {
+        return true
+    }
+    if (!compiledRedirectPatterns) {
+        compiledRedirectPatterns = Object.keys(redirects).map((path) => new UrlPattern(path, ROUTE_URL_PATTERN_OPTIONS))
+    }
+    if (!compiledRoutePatterns) {
+        compiledRoutePatterns = Object.keys(routes).map((path) => new UrlPattern(path, ROUTE_URL_PATTERN_OPTIONS))
+    }
+    return (
+        compiledRedirectPatterns.some((pattern) => pattern.match(pathInRoutes)) ||
+        compiledRoutePatterns.some((pattern) => pattern.match(pathInRoutes))
+    )
 }

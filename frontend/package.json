@@ -291,6 +291,7 @@
         "ts-pattern": "catalog:",
         "use-debounce": "catalog:",
         "use-resize-observer": "^8.0.0",
+        "url-pattern": "1.0.3",
         "zod": "^4.3.6",
         "zxcvbn": "^4.4.2"
     },

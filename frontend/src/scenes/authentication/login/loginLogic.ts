@@ -18,6 +18,7 @@ import { getRelativeNextPath } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { pathResolvesToScene } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { LoginMethod, SSOProvider } from '~/types'
@@ -120,6 +121,14 @@ export function handleLoginRedirect(): void {
     if (pointsToDifferentProject(nextURL)) {
         window.location.href = nextURL
         return
+    }
+
+    // `login_required()` sends any unrouted request to `/login?next=<that path>`, so a truncated
+    // address-bar entry (e.g. `/signin`, `/project`) comes back as a `next` that resolves to no
+    // scene. Following it would drop the user on a 404 right after logging in — send them to the
+    // project homepage instead.
+    if (!pathResolvesToScene(nextURL)) {
+        nextURL = urls.projectHomepage()
     }
 
     // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change
