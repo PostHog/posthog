@@ -23,10 +23,23 @@ import { useMemo } from "react";
 const MAX_FEED_QUERY_RESULTS = 8;
 const FEED_QUERY_DEBOUNCE_MS = 300;
 
+/** A filter-key chip for the strip under the palette input. */
+export interface FeedQueryKeyChip {
+  label: string;
+  hint?: string;
+  apply: () => void;
+}
+
 export interface FeedQueryPalette {
-  /** Filter-key/value completions for the caret's chunk, save-as-feed, and
-   * the query's matching tasks — the sections that lead the palette list. */
+  /** Value completions for the token under the caret, save-as-feed, and the
+   * query's matching tasks — the sections that lead the palette list. */
   sections: CommandSection[];
+  /**
+   * Filter keys the caret's bare word could start, for the one-line chip
+   * strip. Kept out of the list on purpose: twelve key rows buried the
+   * results (the thing being searched), where a chip strip costs one line.
+   */
+  keyChips: FeedQueryKeyChip[];
   /** What `type:` scopes the results to, or null for everything. */
   scope: TypeValue | null;
   /** The query carries a filter beyond `type:` — the palette is a feed query. */
@@ -85,14 +98,31 @@ export function useFeedQueryCommands({
 
   return useMemo(() => {
     if (!enabled) {
-      return { sections: [], scope: null, hasFilterTokens: false, searchText };
+      return {
+        sections: [],
+        keyChips: [],
+        scope: null,
+        hasFilterTokens: false,
+        searchText,
+      };
     }
     const sections: CommandSection[] = [];
 
-    // Completions lead the list. Suppressed while the chunk is plain free
-    // text matching no key, so searching stays quiet — and on a bare prefix
-    // they sit alongside the commands that match the same letters.
-    if (group.items.length > 0) {
+    // Key suggestions become chips; a key's values stay list rows — they are
+    // the thing being chosen mid-token, and there are only ever a few.
+    const keyMode = context.activeKey === null;
+    const keyChips: FeedQueryKeyChip[] = keyMode
+      ? group.items.map((suggestion) => ({
+          label: suggestion.label,
+          hint: suggestion.hint,
+          apply: () => {
+            const edit = applyFeedQuerySuggestion(query, context, suggestion);
+            onApply(edit.next, edit.caret);
+          },
+        }))
+      : [];
+
+    if (!keyMode && group.items.length > 0) {
       sections.push({
         label: group.heading,
         items: group.items.map(
@@ -163,7 +193,7 @@ export function useFeedQueryCommands({
       });
     }
 
-    return { sections, scope, hasFilterTokens, searchText };
+    return { sections, keyChips, scope, hasFilterTokens, searchText };
   }, [
     enabled,
     group,

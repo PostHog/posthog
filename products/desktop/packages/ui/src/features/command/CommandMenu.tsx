@@ -731,7 +731,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     onApply: onApplyFilter,
     onSaveAsFeed,
   });
-  const { scope, hasFilterTokens, searchText } = feedQuery;
+  const { scope, hasFilterTokens, searchText, keyChips } = feedQuery;
 
   // Saved feeds, listed under `type:feed`.
   const feeds = useTaskFeedsStore((s) => s.feeds);
@@ -821,10 +821,15 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     setQuery("");
   };
 
-  // Tab completes the highlighted filter suggestion (or the first one when
-  // the highlight sits on a result), mirroring the feed editor.
+  // Tab completes: the first key chip while typing a bare word, otherwise
+  // the highlighted (or first) value suggestion — mirroring the feed editor.
   const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Tab") return;
+    if (keyChips.length > 0) {
+      event.preventDefault();
+      keyChips[0].apply();
+      return;
+    }
     const highlighted = allCommands.find(
       (c) => c.id === highlightedId.current && c.keepOpen,
     );
@@ -897,6 +902,34 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                 onSelect={trackCaret}
               />
             </div>
+            {/* The filter catalog as a one-line chip strip, not list rows:
+                twelve rows of keys buried the results being searched. Typing
+                a bare word narrows the strip to matching keys (Tab or click
+                inserts); inside a token it yields to the value rows. */}
+            {keyChips.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto border-(--gray-a4) border-b px-3 py-1.5 [scrollbar-width:none]">
+                <span className="shrink-0 select-none text-(--gray-9) text-[10.5px] uppercase tracking-wider">
+                  Narrow
+                </span>
+                {keyChips.map((chip) => (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    title={chip.hint}
+                    className={cn(
+                      "h-[22px] shrink-0 rounded-full border border-(--gray-a6) bg-(--gray-a2) px-2",
+                      "font-mono text-(--blue-11) text-[11.5px] leading-none",
+                      "hover:border-(--gray-a8) hover:bg-(--gray-a4)",
+                    )}
+                    // Before blur, so the input keeps focus through the click.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={chip.apply}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <AutocompleteStatus
               emptyContent={
                 <span>
