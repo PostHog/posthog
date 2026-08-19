@@ -36,7 +36,9 @@ for (let key, value in inputs.userInfo) {
         userInfo[key] := value
     }
 }
-if (length(keys(userInfo)) >= 1) {
+// LinkedIn requires firstName and lastName within userInfo and rejects a partial object with a 422,
+// so send userInfo only when both are present and fall back to matching on userIds alone.
+if (not empty(userInfo['firstName']) and not empty(userInfo['lastName'])) {
     body.user['userInfo'] := userInfo
 }
 
@@ -51,7 +53,7 @@ let res := fetch('https://api.linkedin.com/rest/conversionEvents', {
     'headers': {
         'Authorization': f'Bearer {inputs.oauth.access_token}',
         'Content-Type': 'application/json',
-        'LinkedIn-Version': '202508'
+        'LinkedIn-Version': '202607'
     },
     'body': body
 })
