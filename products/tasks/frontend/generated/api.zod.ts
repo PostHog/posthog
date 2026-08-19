@@ -901,7 +901,7 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
     .describe('Request body for clearing the unread flag on specific tasks.')
 
 /**
- * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false.
+ * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false. The general name returns the team's general space; names that read as a private space ("me", "personal") are rejected.
  * @summary Resolve or create a public channel
  */
 export const taskChannelsCreateBodyNameMax = 128
