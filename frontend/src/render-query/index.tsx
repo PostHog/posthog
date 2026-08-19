@@ -3,6 +3,8 @@ import './RenderQuery.scss'
 
 import { createRoot } from 'react-dom/client'
 
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
+
 import { initKea } from '~/initKea'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { loadPostHogJS } from '~/loadPostHogJS'
@@ -25,7 +27,12 @@ function renderApp(): void {
 
     createRoot(root).render(
         <ErrorBoundary>
-            <RenderQueryApp />
+            {/* Standalone root with no outer ChunkLoadErrorBoundary: mount one here so a
+                stale-deploy chunk failure reloads once instead of blanking the page (the
+                shared ErrorBoundary rethrows chunk-load errors for an outer boundary to catch). */}
+            <ChunkLoadErrorBoundary>
+                <RenderQueryApp />
+            </ChunkLoadErrorBoundary>
         </ErrorBoundary>
     )
 }

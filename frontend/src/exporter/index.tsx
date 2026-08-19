@@ -5,6 +5,8 @@ import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
 import { BeforeSendFn, CapturedNetworkRequest } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
+
 import { Exporter } from '~/exporter/Exporter'
 import { ExportType, ExportedData } from '~/exporter/types'
 import { initKea } from '~/initKea'
@@ -81,7 +83,12 @@ function renderApp(): void {
     if (root) {
         createRoot(root).render(
             <ErrorBoundary>
-                <Exporter {...exportedData} />
+                {/* Standalone root with no outer ChunkLoadErrorBoundary: mount one here so a
+                    stale-deploy chunk failure reloads once instead of blanking the page (the
+                    shared ErrorBoundary rethrows chunk-load errors for an outer boundary to catch). */}
+                <ChunkLoadErrorBoundary>
+                    <Exporter {...exportedData} />
+                </ChunkLoadErrorBoundary>
             </ErrorBoundary>
         )
     } else {
