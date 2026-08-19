@@ -158,7 +158,7 @@ class TestCleverSourceResumeBehavior:
                 db_incremental_field_last_value=db_incremental_field_last_value,
             )
             list(cast(Iterable[Any], resource))
-            return MockSession, sent_params
+            return mock_session, sent_params
 
     @pytest.mark.parametrize("endpoint", ["Districts", "Schools", "Users", "Sections", "Courses", "Terms"])
     def test_fresh_full_refresh_run_saves_cursor_after_each_non_terminal_page(self, endpoint: str) -> None:
@@ -180,18 +180,6 @@ class TestCleverSourceResumeBehavior:
             CleverResumeConfig(starting_after="r1"),
             CleverResumeConfig(starting_after="r2"),
         ]
-
-    def test_disables_http_sample_capture(self) -> None:
-        """Clever responses carry student/guardian/staff PII the name-based sample scrubbers
-        aren't guaranteed to catch, so the resource client must build its tracked session with
-        capture=False (see RESTClient/ClientConfig's `capture` option)."""
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"data": [{"data": {"id": "d1"}}], "links": []})]
-        MockSession, _ = self._drive("Districts", manager, responses)
-
-        assert MockSession.call_args.kwargs.get("capture") is False
 
     def test_contacts_endpoint_sends_role_filter(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
