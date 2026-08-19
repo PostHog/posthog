@@ -10,8 +10,15 @@ import { urls } from 'scenes/urls'
 import { featureDiscoveryLogic } from '../../logics/featureDiscoveryLogic'
 
 export function FeatureDiscoveryModal(): JSX.Element {
-    const { discoveryModalOpen, repository, focus, githubIntegration, integrationsLoading, discoveryStartLoading } =
-        useValues(featureDiscoveryLogic)
+    const {
+        discoveryModalOpen,
+        repository,
+        repositoryForDiscovery,
+        focus,
+        githubIntegration,
+        integrationsLoading,
+        discoveryStartLoading,
+    } = useValues(featureDiscoveryLogic)
     const { closeDiscoveryModal, setRepository, setFocus, startDiscovery } = useActions(featureDiscoveryLogic)
 
     return (
@@ -33,7 +40,13 @@ export function FeatureDiscoveryModal(): JSX.Element {
                         type="primary"
                         onClick={startDiscovery}
                         loading={discoveryStartLoading}
-                        disabledReason={repository ? undefined : 'Select a repository first'}
+                        disabledReason={
+                            !repository
+                                ? 'Select a repository first'
+                                : !repositoryForDiscovery
+                                  ? 'Reconnect GitHub to identify the repository owner'
+                                  : undefined
+                        }
                     >
                         Discover features
                     </LemonButton>
