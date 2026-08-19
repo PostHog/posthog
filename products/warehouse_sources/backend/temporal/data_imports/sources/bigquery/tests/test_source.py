@@ -801,6 +801,24 @@ def test_bigquery_unrecognized_column_name_is_non_retryable(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # A single enabled column renamed/dropped from the source table (direct-read path).
+        "request failed: The following selected fields do not exist in the table schema: FOO",
+        # Multiple columns — the match must not rely on the specific field names or their count.
+        "request failed: The following selected fields do not exist in the table schema: FOO, BAR, BAZ",
+    ],
+)
+def test_bigquery_missing_selected_fields_is_non_retryable(observed_error):
+    """A column selected for syncing via the Storage Read API's direct-read path that was renamed
+    or dropped from the live table makes every retry fail identically."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Missing selected-fields error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
     "transient_error",
     [
         # A token refresh that failed for a transient reason must stay retryable.
@@ -1500,6 +1518,13 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
             "?maxResults=0&location=US&prettyPrint=false: The job encountered an error during execution. "
             "Retrying the job may solve the problem."
         ),
+        # A second wording for the same transient `jobInternalError` condition, with no
+        # retry-recommendation suffix (volatile project/job id redacted).
+        BadRequest(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
+            "?maxResults=0&location=US&prettyPrint=false: The job encountered an internal error during "
+            "execution and was unable to complete successfully."
+        ),
         # The library default's own retryable reasons must still be honoured.
         BadRequest("query failed", errors=[{"reason": "backendError", "message": "internal error"}]),
         BadRequest("query failed", errors=[{"reason": "rateLimitExceeded", "message": "slow down"}]),
@@ -1803,6 +1828,27 @@ def test_bigquery_unsupported_region_is_non_retryable(location):
     assert matching, "an unsupported-region 400 should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
     assert all(location not in key for key in matching), "match must not depend on the volatile location"
+
+
+def test_bigquery_dataset_not_found_during_sync_is_non_retryable():
+    """A dataset deleted/renamed after schema discovery surfaces from `get_table()` at sync time as a
+    google NotFound whose str() is "... Not found: Dataset <project>:<dataset>" — this REST GET path
+    carries no "was not found in location" suffix, unlike the query-job path covered by that pattern,
+    so it must be recognised as non-retryable via the "Not found: Dataset" pattern instead of retrying
+    a dataset that can't reappear within the run."""
+    error = NotFound(
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-proj/datasets/my_dataset/"
+        "tables/my_table?prettyPrint=false: Not found: Dataset my-proj:my_dataset"
+    )
+
+    # Mirror the substring match in `update_external_data_job_model`.
+    error_msg = str(error)
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "a dataset-not-found 404 during sync should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+    assert "was not found in location" not in error_msg
 
 
 def test_bigquery_table_not_found_during_sync_is_non_retryable():

@@ -5,6 +5,7 @@ import {
   Check,
 } from "@phosphor-icons/react";
 import { type LoopSchemas, LoopsApiError } from "@posthog/api-client/loops";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useBluebirdFlag } from "@posthog/ui/features/feature-flags/useBluebirdFlag";
@@ -980,7 +981,8 @@ function describeContext(target: LoopContextTargetDraft | null): string {
   if (target.outputs.post_to_feed) outputs.push("feed");
   if (target.outputs.update_context) outputs.push("context.md");
   if (target.outputs.canvas_id) outputs.push("canvas");
+  const targetLabel = channelDisplayLabel(target.name);
   return outputs.length > 0
-    ? `#${target.name} (${outputs.join(", ")})`
-    : `#${target.name}`;
+    ? `${targetLabel} (${outputs.join(", ")})`
+    : targetLabel;
 }

@@ -4,6 +4,13 @@ import { z } from 'zod'
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { normalizeParamAliases } from '../tools/cast-helpers'
 
+export const ChannelInstructionsBaseVersionSchema = z
+    .number()
+    .int()
+    .min(0)
+    .max(9007199254740991)
+    .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
+
 export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
     name: z
         .string()
@@ -40,7 +47,7 @@ export const ExternalDataJobsSchemasSchema = z
 export const ExternalDataSourcePayloadSchema = z
     .record(z.string(), z.unknown())
     .describe(
-        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type "Custom" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table \'schemas\' array (built from external-data-sources-db-schema) also goes in here, e.g. {"host": ..., "password": ..., "schemas": [{"name": "orders", "should_sync": true, "sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"}]}. Do not pass unresolved {"secretRef": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.'
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type "Custom" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table \'schemas\' array (built from external-data-sources-db-schema) also goes in here, e.g. {"host": ..., "password": ..., "schemas": [{"name": "orders", "should_sync": true, "sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"}]}. That array is optional: omit it and every discovered table syncs with default settings. Do not pass unresolved {"secretRef": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.'
     )
 
 export const ExternalDataSourceTypeSchema = z
@@ -473,7 +480,7 @@ export const PropertyDefinitionUpdateSchema = z.object({
 const PathCleaningAliasField = z
     .string()
     .describe(
-        'The human-readable replacement, e.g. "/users/<id>/profile". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a "?page=N" fragment). Not a regex template — backreferences are not supported.'
+        'The replacement for the matched path, e.g. "/users/<id>/profile". Default to angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid: it deletes the matched text (e.g. to strip a "?page=N" fragment). The alias can also reference a regex capture group with ClickHouse replaceRegexpAll syntax ("\\1" to "\\9" for a group, "\\0" for the whole match), but a rule with capture groups is roughly 3x more expensive per row, so only use one when it collapses several near-identical rules into one.'
     )
 const PathCleaningRegexField = z
     .string()

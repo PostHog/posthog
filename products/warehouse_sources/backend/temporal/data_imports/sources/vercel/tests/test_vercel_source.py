@@ -72,6 +72,7 @@ class TestVercelSource:
             "teams",
             "domains",
             "aliases",
+            "check_runs",
             "billing_charges",
         }
 
@@ -98,7 +99,9 @@ class TestVercelSource:
         assert billing.incremental_fields[0]["field_type"] == IncrementalFieldType.DateTime
         assert billing.default_incremental_lookback_seconds == 60 * 60 * 24 * 35
 
-        for full_refresh in ("projects", "teams", "domains", "aliases"):
+        # check_runs is a full-refresh fan-out over deployments: Vercel documents no server-side time
+        # filter on the check-runs endpoint, so it re-fans every sync with no incremental cursor.
+        for full_refresh in ("projects", "teams", "domains", "aliases", "check_runs"):
             assert schemas[full_refresh].supports_incremental is False
             assert schemas[full_refresh].supports_append is False
             assert schemas[full_refresh].incremental_fields == []
@@ -108,7 +111,16 @@ class TestVercelSource:
         assert [s.name for s in schemas] == ["deployments"]
 
     @parameterized.expand(
-        [("valid", (True, None)), ("invalid", (False, "Invalid or unauthorized Vercel access token"))]
+        [
+            ("valid", (True, None)),
+            (
+                "invalid",
+                (
+                    False,
+                    "Your Vercel access token is invalid or has been revoked. Create a new token in your Vercel account settings, then reconnect.",
+                ),
+            ),
+        ]
     )
     def test_validate_credentials_delegates(self, _name: str, result: tuple) -> None:
         with mock.patch.object(vercel_source_module, "validate_vercel_credentials", lambda token: result):

@@ -12,9 +12,12 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
+import {
+  buildPosthogProjectHeaderLines,
+  buildPosthogPropertyHeaderLines,
+} from "@posthog/shared/posthog-property-headers";
 import type { FileEnrichmentDeps } from "../../../enrichment/file-enricher";
 import { IS_ROOT } from "../../../utils/common";
-import { buildGatewayPropertyHeaders } from "../../../utils/gateway";
 import type { Logger } from "../../../utils/logger";
 import type { TaskState } from "../conversion/task-state";
 import {
@@ -99,6 +102,8 @@ export interface BuildOptionsParams {
   /** Called after createTaskHook mutates taskState so callers can emit a plan
    * sessionUpdate to the client. */
   onTaskStateChange?: () => Promise<void>;
+  /** Returns the canonical model selected for the live parent session. */
+  getCurrentModelId?: () => string | undefined;
   /** Explicit gateway config — prevents global process.env mutation. */
   gatewayEnv?: GatewayEnv;
 }
@@ -167,19 +172,15 @@ function buildEnvironment(
   if (existingCustomHeaders) {
     headerLines.push(existingCustomHeaders);
   }
-  // Attribute every captured $ai_generation event to the customer's team. The
-  // gateway authenticates with a shared key, so without this the spend lands on
-  // the key owner's team. The gateway lifts `x-posthog-property-*` headers onto
-  // the event; both entrypoints export POSTHOG_PROJECT_ID before this runs
-  // (workspace-server auth-adapter.ts, server/agent-server.ts). Mirrors django's
-  // get_llm_client(team_id=...).
+  // Scope OAuth requests to the selected project so the gateway can authorize
+  // and derive billing attribution from it.
   const projectId = gateway?.posthogProjectId ?? process.env.POSTHOG_PROJECT_ID;
   if (projectId) {
-    headerLines.push(buildGatewayPropertyHeaders({ team_id: projectId }));
+    headerLines.push(buildPosthogProjectHeaderLines(Number(projectId)));
   }
   if (sessionId) {
     headerLines.push(
-      buildGatewayPropertyHeaders({ $ai_session_id: sessionId }),
+      buildPosthogPropertyHeaderLines({ $ai_session_id: sessionId }),
     );
   }
   // Route to AWS Bedrock as a fallback when Anthropic returns 5xx
@@ -264,6 +265,7 @@ function buildHooks(
   enrichmentDeps: FileEnrichmentDeps | undefined,
   enrichedReadCache: EnrichedReadCache | undefined,
   registeredAgents: ReadonlySet<string>,
+  getCurrentModelId: (() => string | undefined) | undefined,
   cloudMode: boolean,
   onEnsureLocalToolsConnected: (() => Promise<boolean>) | undefined,
   taskState: TaskState,
@@ -285,7 +287,7 @@ function buildHooks(
 
   const preToolUseHooks = [
     createPreToolUseHook(settingsManager, logger, posthogExecPermissionRegex),
-    createSubagentRewriteHook(logger, registeredAgents),
+    createSubagentRewriteHook(logger, registeredAgents, getCurrentModelId),
   ];
   if (cloudMode) {
     preToolUseHooks.push(
@@ -522,6 +524,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.enrichmentDeps,
       params.enrichedReadCache,
       registeredAgentNames,
+      params.getCurrentModelId,
       params.cloudMode ?? false,
       params.onEnsureLocalToolsConnected,
       params.taskState,

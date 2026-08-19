@@ -983,6 +983,9 @@ database "posthog" {
     column "issue_status" {
       type = "String"
     }
+    column "issue_severity" {
+      type = "Nullable(String)"
+    }
     column "assigned_user_id" {
       type = "Nullable(Int64)"
     }
@@ -1686,100 +1689,87 @@ database "posthog" {
   }
 
   table "flag_evaluations" {
-    column "team_id" {
-      type = "Int64"
-    }
     column "uuid" {
       type = "UUID"
     }
+    column "event" {
+      type = "LowCardinality(String)"
+    }
+    column "properties" {
+      type = "String"
+    }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "String"
+    }
+    column "group0_properties" {
+      type = "String"
+    }
+    column "group1_properties" {
+      type = "String"
+    }
+    column "group2_properties" {
+      type = "String"
+    }
+    column "group3_properties" {
+      type = "String"
+    }
+    column "group4_properties" {
+      type = "String"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
     }
-    column "distinct_id" {
-      type = "String"
+    column "$group_0" {
+      type    = "String"
+      comment = "column_materializer::$group_0"
     }
-    column "session_id" {
-      type = "String"
+    column "$group_1" {
+      type    = "String"
+      comment = "column_materializer::$group_1"
     }
-    column "device_id" {
-      type = "String"
+    column "$group_2" {
+      type    = "String"
+      comment = "column_materializer::$group_2"
+    }
+    column "$group_3" {
+      type    = "String"
+      comment = "column_materializer::$group_3"
+    }
+    column "$group_4" {
+      type    = "String"
+      comment = "column_materializer::$group_4"
     }
     column "flag_key" {
-      type = "String"
+      type    = "String"
+      comment = "column_materializer::properties::$feature_flag"
     }
     column "response" {
-      type = "LowCardinality(String)"
+      type    = "LowCardinality(String)"
+      comment = "column_materializer::properties::$feature_flag_response"
     }
-    column "flag_id" {
-      type = "UInt64"
-    }
-    column "flag_version" {
-      type = "UInt32"
-    }
-    column "reason" {
-      type = "LowCardinality(String)"
+    column "session_id" {
+      type    = "String"
+      comment = "column_materializer::properties::$session_id"
     }
     column "request_id" {
-      type = "String"
-    }
-    column "evaluated_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "timestamp"
-    }
-    column "error" {
-      type = "String"
-    }
-    column "locally_evaluated" {
-      type = "Bool"
-    }
-    column "lib" {
-      type = "LowCardinality(String)"
-    }
-    column "lib_version" {
-      type = "LowCardinality(String)"
-    }
-    column "is_server" {
-      type = "Bool"
-    }
-    column "os" {
-      type = "LowCardinality(String)"
-    }
-    column "os_version" {
-      type = "LowCardinality(String)"
-    }
-    column "app_version" {
-      type = "LowCardinality(String)"
-    }
-    column "current_url" {
-      type = "String"
-    }
-    column "pathname" {
-      type = "String"
-    }
-    column "country_code" {
-      type = "LowCardinality(String)"
-    }
-    column "subdivision_1_code" {
-      type = "LowCardinality(String)"
-    }
-    column "group_0" {
-      type = "String"
-    }
-    column "group_1" {
-      type = "String"
-    }
-    column "group_2" {
-      type = "String"
-    }
-    column "group_3" {
-      type = "String"
-    }
-    column "group_4" {
-      type = "String"
+      type    = "String"
+      comment = "column_materializer::properties::$feature_flag_request_id"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -5281,6 +5271,11 @@ database "posthog" {
       type        = "minmax"
       granularity = 1
     }
+    index "bloom_filter_$session_id" {
+      expr        = "nullIf(nullIf(`$session_id`, ''), 'null')"
+      type        = "bloom_filter"
+      granularity = 1
+    }
     index "minmax_$group_0" {
       expr        = "`$group_0`"
       type        = "minmax"
@@ -6117,100 +6112,96 @@ database "posthog" {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
     }
-    column "team_id" {
-      type = "Int64"
-    }
     column "uuid" {
       type = "UUID"
     }
+    column "event" {
+      type = "LowCardinality(String)"
+    }
+    column "properties" {
+      type = "String"
+    }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "String"
+    }
+    column "group0_properties" {
+      type = "String"
+    }
+    column "group1_properties" {
+      type = "String"
+    }
+    column "group2_properties" {
+      type = "String"
+    }
+    column "group3_properties" {
+      type = "String"
+    }
+    column "group4_properties" {
+      type = "String"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
     }
-    column "distinct_id" {
-      type = "String"
+    column "$group_0" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_0"
     }
-    column "session_id" {
-      type = "String"
+    column "$group_1" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_1"
     }
-    column "device_id" {
-      type = "String"
+    column "$group_2" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_2"
+    }
+    column "$group_3" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_3"
+    }
+    column "$group_4" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_4"
     }
     column "flag_key" {
-      type = "String"
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^\"|\"$', '')"
+      comment      = "column_materializer::properties::$feature_flag"
     }
     column "response" {
-      type = "LowCardinality(String)"
+      type         = "LowCardinality(String)"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^\"|\"$', '')"
+      comment      = "column_materializer::properties::$feature_flag_response"
     }
-    column "flag_id" {
-      type = "UInt64"
-    }
-    column "flag_version" {
-      type = "UInt32"
-    }
-    column "reason" {
-      type = "LowCardinality(String)"
+    column "session_id" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
+      comment      = "column_materializer::properties::$session_id"
     }
     column "request_id" {
-      type = "String"
-    }
-    column "evaluated_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "timestamp"
-    }
-    column "error" {
-      type = "String"
-    }
-    column "locally_evaluated" {
-      type = "Bool"
-    }
-    column "lib" {
-      type = "LowCardinality(String)"
-    }
-    column "lib_version" {
-      type = "LowCardinality(String)"
-    }
-    column "is_server" {
-      type = "Bool"
-    }
-    column "os" {
-      type = "LowCardinality(String)"
-    }
-    column "os_version" {
-      type = "LowCardinality(String)"
-    }
-    column "app_version" {
-      type = "LowCardinality(String)"
-    }
-    column "current_url" {
-      type = "String"
-    }
-    column "pathname" {
-      type = "String"
-    }
-    column "country_code" {
-      type = "LowCardinality(String)"
-    }
-    column "subdivision_1_code" {
-      type = "LowCardinality(String)"
-    }
-    column "group_0" {
-      type = "String"
-    }
-    column "group_1" {
-      type = "String"
-    }
-    column "group_2" {
-      type = "String"
-    }
-    column "group_3" {
-      type = "String"
-    }
-    column "group_4" {
-      type = "String"
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
+      comment      = "column_materializer::properties::$feature_flag_request_id"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -6223,6 +6214,11 @@ database "posthog" {
     }
     index "distinct_id_idx" {
       expr        = "distinct_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "person_id_idx" {
+      expr        = "person_id"
       type        = "bloom_filter(0.01)"
       granularity = 1
     }
@@ -9800,6 +9796,9 @@ database "posthog" {
     column "_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime)"
     }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
+    }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
       default = "0"
@@ -9816,9 +9815,6 @@ database "posthog" {
     }
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     engine "distributed" {
       cluster_name    = "posthog"

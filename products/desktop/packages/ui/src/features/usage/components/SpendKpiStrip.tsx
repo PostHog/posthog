@@ -1,10 +1,12 @@
 import {
   formatUsd,
   formatWindow,
-  type SpendAnalysisFilledDay,
   windowDays,
 } from "@posthog/core/billing/spendAnalysisFormat";
-import type { SpendAnalysisResponse } from "@posthog/core/billing/spendAnalysisTypes";
+import type {
+  SpendAnalysisFilledDay,
+  SpendAnalysisResponse,
+} from "@posthog/core/billing/spendAnalysisTypes";
 import { MetricCard, useChartTheme } from "@posthog/quill-charts";
 import type { ReactNode } from "react";
 import { spendDayLabel } from "./spendDayLabel";

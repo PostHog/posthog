@@ -20,6 +20,8 @@ export const inboxReportKeys = {
     [...inboxReportKeys.all, reportId, "detail"] as const,
   artefacts: (reportId: string) =>
     [...inboxReportKeys.all, reportId, "artefacts"] as const,
+  chartData: (reportId: string, chartId: string) =>
+    [...inboxReportKeys.all, reportId, "chart-data", chartId] as const,
   signals: (reportId: string) =>
     [...inboxReportKeys.all, reportId, "signals"] as const,
   availableSuggestedReviewers: (authIdentity: string | null) =>

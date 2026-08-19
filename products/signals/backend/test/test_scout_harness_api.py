@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
@@ -538,6 +539,26 @@ class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
         assert [row["finding_id"] for row in response.json()] == ["older"]
 
 
+class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/recent-per-scout/"
+
+    def test_returns_each_scouts_newest_runs(self) -> None:
+        # Wiring guard: the action reaches `recent_runs_per_scout` and honours `per_scout_limit`.
+        # The probe rules themselves are covered against the helper in test_scout_harness_tools.
+        for skill_name in ("signals-scout-errors", "signals-scout-surveys"):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        busy = [_make_run(self.team, skill_name="signals-scout-errors") for _ in range(3)]
+        quiet = _make_run(self.team, skill_name="signals-scout-surveys")
+        response = self.client.get(self._url(), data={"per_scout_limit": 1})
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["run_id"] for row in response.json()} == {str(busy[-1].id), str(quiet.id)}
+
+    def test_rejects_a_per_scout_limit_over_the_cap(self) -> None:
+        response = self.client.get(self._url(), data={"per_scout_limit": 5000})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/findings/summary/"
@@ -556,6 +577,8 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         body = response.json()
         assert body["count"] == 3
         assert body["scout_count"] == 2
+        # The quiet run counts as a run; the other team's does not.
+        assert body["run_count"] == 3
         assert body["latest_at"] is not None
 
     def test_summary_counts_report_channel_activity(self) -> None:
@@ -603,6 +626,7 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         body = response.json()
         assert body["count"] == 1
         assert body["scout_count"] == 1
+        assert body["run_count"] == 1
 
 
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
@@ -1842,6 +1866,22 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.emit is True
         assert config.run_interval_minutes == 60
         assert config.enabled_by_id == self.user.id
+
+    def test_partial_update_stores_mcp_gateway_server_ids_as_strings(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        server_id = str(uuid4())
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"mcp_gateway_server_ids": [server_id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["mcp_gateway_server_ids"] == [server_id]
+        config.refresh_from_db()
+        # The JSON column must hold canonical strings, or the row save crashes on UUID instances.
+        assert config.mcp_gateway_server_ids == [server_id]
 
     def test_partial_update_disable_records_a_user_pause(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")

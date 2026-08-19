@@ -1,4 +1,4 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -30,7 +30,7 @@ function makeCtx(options: {
   apiKeyResult?: {
     ok: boolean;
     apiKey?: string;
-    headers?: Record<string, string>;
+    headers?: ProviderHeaders;
   };
 }): ExtensionContext {
   const apiKeyResult = options.apiKeyResult ?? { ok: true, apiKey: "test-key" };
@@ -97,6 +97,21 @@ describe("resolveModelAuth", () => {
     await expect(
       resolveModelAuth(ctx, { requestedBy: "worker" }),
     ).rejects.toThrow(SubagentAuthError);
+  });
+
+  it("rejects provider header deletion markers", async () => {
+    const ctx = makeCtx({
+      model: makeModel(),
+      apiKeyResult: {
+        ok: true,
+        apiKey: "test-key",
+        headers: { Authorization: null },
+      },
+    });
+
+    await expect(
+      resolveModelAuth(ctx, { requestedBy: "worker" }),
+    ).rejects.toThrow(/cannot be delegated safely/);
   });
 });
 

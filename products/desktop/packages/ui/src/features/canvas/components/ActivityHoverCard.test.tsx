@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
   isFetchingNextPage: false,
   items: [] as TaskActivityItem[],
   markRead: vi.fn(),
-  commentsEnabled: true,
 }));
 
 vi.mock("@posthog/quill", () => ({
@@ -23,10 +22,29 @@ vi.mock("@posthog/quill", () => ({
   EmptyHeader: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   EmptyMedia: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   EmptyTitle: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Label: ({ children, htmlFor }: { children: ReactNode; htmlFor?: string }) => (
+    <label htmlFor={htmlFor}>{children}</label>
+  ),
   PopoverContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
   Spinner: () => <div>Loading</div>,
+  Switch: ({
+    checked,
+    onCheckedChange,
+  }: {
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+  }) => (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onCheckedChange(!checked)}
+    >
+      Unreads
+    </button>
+  ),
 }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => ({}),
@@ -66,14 +84,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
     fetchNextPage: mocks.fetchNextPage,
   }),
 }));
-vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => mocks.commentsEnabled,
-}));
 vi.mock("@posthog/ui/primitives/hooks/useInView", () => ({
   useInView: () => [vi.fn(), true],
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
+import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { ActivityHoverCard } from "./ActivityHoverCard";
 
 describe("ActivityHoverCard", () => {
@@ -82,7 +98,7 @@ describe("ActivityHoverCard", () => {
     mocks.hasNextPage = true;
     mocks.isFetchingNextPage = false;
     mocks.items = [];
-    mocks.commentsEnabled = true;
+    useActivityFilterStore.setState({ unreadsOnly: false });
   });
 
   it("loads the next page when the bottom sentinel is visible", async () => {
@@ -122,19 +138,17 @@ describe("ActivityHoverCard", () => {
     ]);
   });
 
-  it("hides only comment-derived activity while comments are disabled", () => {
-    mocks.commentsEnabled = false;
+  it("drops read activity while the unreads filter is on", () => {
     mocks.items = [
       {
-        id: "comment-activity",
+        id: "read-activity",
         taskId: "task-1",
         activityAt: "2026-08-07T00:00:00Z",
         activityKind: "mention",
-        commentId: "comment-1",
-        isUnread: true,
+        isUnread: false,
       } as TaskActivityItem,
       {
-        id: "task-activity",
+        id: "unread-activity",
         taskId: "task-2",
         activityAt: "2026-08-07T00:01:00Z",
         activityKind: "mention",
@@ -143,6 +157,9 @@ describe("ActivityHoverCard", () => {
     ];
 
     render(<ActivityHoverCard onClose={vi.fn()} />);
+    expect(screen.getAllByText("Activity row")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("switch"));
 
     expect(screen.getAllByText("Activity row")).toHaveLength(1);
   });

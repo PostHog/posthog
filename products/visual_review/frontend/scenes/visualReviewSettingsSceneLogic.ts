@@ -82,6 +82,7 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -100,6 +101,7 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -134,6 +136,7 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -152,6 +155,7 @@ export interface visualReviewSettingsSceneLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     } // integrationsLogic

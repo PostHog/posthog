@@ -1,5 +1,6 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from rest_framework import status
@@ -71,6 +72,7 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "results": [],
         }
 
+    @freeze_time("2023-09-23 12:00:00")
     def test_returns_log_entries(self):
         """Test the simple case of fetching a log entry."""
         self.create_log_for_function(level="info", timestamp="2023-09-22 01:00:00")
@@ -86,6 +88,40 @@ class TestLogEntries(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "message": "Test log. Much info.",
             }
         ]
+
+    def test_default_lookback_excludes_old_entries(self):
+        """Without an explicit `after`, only entries within the default lookback window are returned."""
+        old_timestamp = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        self.create_log_for_function(level="info", message="recent log")
+        self.create_log_for_function(level="info", message="old log", timestamp=old_timestamp)
+
+        results = self.get_log_entries().json()["results"]
+
+        assert len(results) == 1
+        assert results[0]["message"] == "recent log"
+
+    def test_explicit_after_reads_past_default_lookback(self):
+        """Passing `after` explicitly overrides the default lookback window."""
+        old_timestamp = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        self.create_log_for_function(level="info", message="recent log")
+        self.create_log_for_function(level="info", message="old log", timestamp=old_timestamp)
+
+        after = (datetime.now(UTC) - timedelta(days=60)).isoformat()
+        results = self.get_log_entries({"after": after}).json()["results"]
+
+        assert len(results) == 2
+
+    def test_historical_before_anchors_default_lookback(self):
+        """A `before` older than the default lookback anchors the window instead of producing an impossible interval."""
+        old_timestamp = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        self.create_log_for_function(level="info", message="recent log")
+        self.create_log_for_function(level="info", message="old log", timestamp=old_timestamp)
+
+        before = (datetime.now(UTC) - timedelta(days=29)).isoformat()
+        results = self.get_log_entries({"before": before}).json()["results"]
+
+        assert len(results) == 1
+        assert results[0]["message"] == "old log"
 
     def test_filters_log_entries_by_level(self):
         """Test the simple case of fetching a log entry."""

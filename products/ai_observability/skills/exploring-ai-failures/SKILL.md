@@ -32,14 +32,13 @@ high volume, `exploring-llm-clusters`.
 
 ## Tools
 
-| Tool                                     | Purpose                                                                  |
-| ---------------------------------------- | ------------------------------------------------------------------------ |
-| `posthog:query-llm-traces-list`          | List candidate traces — filter by error, sort by a metric, scope by type |
-| `posthog:query-llm-trace`                | Read a trace in full to see what actually went wrong                     |
-| `posthog:execute-sql`                    | Find metric outliers, discover the trace taxonomy, count failure modes   |
-| `posthog:llma-evaluation-list`           | Find existing evals whose failures might reveal a new mode               |
-| `posthog:llma-evaluation-summary-create` | Summarize an existing eval's failures into patterns                      |
-| `posthog:generate-app-url`               | Build a region- and project-qualified deep link to a trace or list       |
+| Tool                            | Purpose                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| `posthog:query-llm-traces-list` | List candidate traces — filter by error, sort by a metric, scope by type |
+| `posthog:query-llm-trace`       | Read a trace in full to see what actually went wrong                     |
+| `posthog:execute-sql`           | Find metric outliers, discover the trace taxonomy, count failure modes   |
+| `posthog:llma-evaluation-list`  | Find existing evals whose failures might reveal a new mode               |
+| `posthog:generate-app-url`      | Build a region- and project-qualified deep link to a trace or list       |
 
 Detailed queries for each strategy below are in
 [references/finding-traces.md](references/finding-traces.md). The full `$ai_*` event schema (and the
@@ -79,7 +78,7 @@ signals you have, and combine them:
 - **Stratified sample** — when you have no specific signal (the common case), pull a mixed batch across
   slices and outcomes and read it. This is the default, not the fallback.
 - **Existing-eval spikes** — when evals already run, a jump in an eval's failures points you at traces to
-  read (`llma-evaluation-list` + `llma-evaluation-summary-create`).
+  read (`llma-evaluation-list` + `execute-sql` over the `$ai_evaluation` events).
 - **Clustering** — at high volume, let groupings emerge to pick representative traces to read; see
   `exploring-llm-clusters`.
 
@@ -162,3 +161,9 @@ target project still lands in the right place.
   makes the next step (fix, prioritize, or eval) obvious.
 - **Hand back linked examples, then let the user steer.** Don't stop at a categorical table. Give one or
   two resolvable trace links per mode unprompted, ask the user to eyeball a couple.
+
+## Related skills
+
+- **`creating-online-evaluations`** — turn a ranked failure mode into a continuously-running eval
+- **`exploring-llm-clusters`** — compare behavior across clusters instead of reading traces one by one
+- **`exploring-llm-traces`** — the trace-reading mechanics this skill leans on

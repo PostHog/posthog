@@ -39,6 +39,18 @@ describe("sanitizeArtifactBridgeMessage", () => {
     expect(sanitized).not.toHaveProperty("untrustedPayload");
   });
 
+  it("accepts bounded selection position updates", () => {
+    const rect = selectionMessage().rect;
+    const message = {
+      marker,
+      channel: "artifact-comments-1",
+      type: "selection-position",
+      rect,
+    };
+
+    expect(sanitizeArtifactBridgeMessage(message)).toEqual(message);
+  });
+
   it.each([
     ["an oversized quote", { anchor: { quote: "x".repeat(10_001) } }],
     [
@@ -50,6 +62,10 @@ describe("sanitizeArtifactBridgeMessage", () => {
           status: "exact",
         })),
       },
+    ],
+    [
+      "an invalid selection position",
+      { type: "selection-position", rect: { top: Number.POSITIVE_INFINITY } },
     ],
     ["an unsupported message", { type: "open-external" }],
   ])("rejects %s", (_name, override) => {

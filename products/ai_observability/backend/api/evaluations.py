@@ -107,7 +107,11 @@ logger = structlog.get_logger(__name__)
                     "source": {
                         "type": "string",
                         "enum": ["user_messages"],
-                        "description": "Classify sentiment from user messages in the generation input.",
+                        "description": (
+                            "Classify sentiment from user messages in the generation input. The classifier is "
+                            "trained on English, so labels are unreliable for other languages; use an 'llm_judge' "
+                            "evaluation for multilingual agents."
+                        ),
                         "default": "user_messages",
                     }
                 },
@@ -369,7 +373,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "evaluation_type": {
                 "help_text": (
                     "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; "
-                    "'sentiment' classifies user-message sentiment."
+                    "'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for "
+                    "multilingual agents)."
                 )
             },
             "output_type": {
@@ -870,6 +875,7 @@ def _test_hog_over_sessions(
             "condition_count": len(conditions),
         },
         team=team,
+        request=request,
     )
 
     if not results:
@@ -1308,9 +1314,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
             result = run_hog_eval(bytecode, event_data, allows_na=allows_na)
 
-            input_raw, output_raw = extract_event_io(event_type, properties)
-            input_preview = extract_text_from_messages(input_raw)[:200]
-            output_preview = extract_text_from_messages(output_raw)[:200]
+            io = extract_event_io(event_type, properties)
+            input_preview = extract_text_from_messages(io.input_raw)[:200]
+            output_preview = extract_text_from_messages(io.output_raw)[:200]
 
             results.append(
                 {

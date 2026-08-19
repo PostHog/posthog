@@ -31,10 +31,6 @@ Three sibling skills carry the mechanics — reach for them when a workflow belo
 | `exploring-scouts`  | Read-only observability: the fleet roster, run history, scratchpad memory, health assessment        |
 | `inbox-exploration` | The inbox itself: triaging, drilling into, acting on, and resolving / dismissing / snoozing reports |
 
-> **Before delegating: is this actually a scout job?**
-> If the user wants the key numbers from an **existing dashboard or insight** posted to a channel on a fixed schedule ("have a scout post the top-line from this dashboard in #launch once a day"), a **dashboard (or insight) subscription with the AI summary enabled** is usually the better fit — scouts are for open-ended watching that decides what's worth surfacing, not scheduled delivery of a fixed, user-specified metric set.
-> Respect a user who's certain they want a scout; when it's ambiguous, suggest the subscription and confirm first ("A dashboard subscription is a better fit for a recurring message — want me to set that up?"), and route to `managing-subscriptions`.
-
 ## First: is the fleet running?
 
 Don't delegate to a fleet that isn't there.
@@ -43,7 +39,7 @@ Check enrollment first, whatever the roster shows — config rows outlive enroll
 (Scout tools were recently renamed from `signals-scout-*` to `scout-*`; if a `scout-*` name comes back unknown, try the legacy `signals-scout-*` name.)
 One access rule covers everything here: scout rows live on the project's **canonical parent**, so every scout read and write — this roster read included, plus the notes and config steering below — returns 403 for a credential scoped only to a child environment; work from the parent project (or a credential that covers it).
 
-- **Not enrolled** — point the user at the Signals scout settings / [PostHog Desktop](https://posthog.com/code) onboarding rather than inventing activity.
+- **Not enrolled** — point the user at the Signals scout settings / [PostHog Desktop](https://posthog.com/desktop) onboarding rather than inventing activity.
 - **Enrolled, empty roster** — likely newly enrolled and awaiting the first coordinator tick (configs auto-register then); say so instead of re-sending the user through onboarding.
 - **Enrolled, rows exist** — note each scout's `enabled`, `emit` (`false` = dry-run: it runs but writes nothing), and `status` / `pause_reason`.
   A paused or dry-run scout explains most "scouts aren't doing anything" complaints before any deeper digging.
@@ -78,6 +74,7 @@ When you want something watched, pick the cheapest path that gets it watched —
 | The surface is covered but you want a temporary or specific focus       | Leave a **note** (optionally with `expires_at`) — "watch the EU signup funnel this week", "we shipped a new checkout Tuesday, shifts after that are expected".                                                                              |
 | A covered scout keeps missing (or over-reporting) something structural  | **Adapt** it — a disqualifier, threshold, or scope edit via `authoring-scouts`. Prefer a new differently-named scout for purely additive behavior, since editing a canonical scout's row marks it diverged and stops upstream improvements. |
 | No scout covers it (a custom event, a niche funnel, an external system) | **Author a custom scout** via `authoring-scouts` (`posthog:scout-create-prepare` → user confirms → `-execute`).                                                                                                                             |
+| You want a recurring **measurement**, not an alert                      | **Author a measuring scout** via `authoring-scouts` with a `structured_output_schema` — it records one judgment per entity as a chartable series instead of hunting anomalies, and a workflow can act on those records.                     |
 | You want an answer _now_, once                                          | Don't use a scout at all — just query the data directly. Scouts are for standing watches, not one-off questions.                                                                                                                            |
 
 [`references/delegation-recipes.md`](references/delegation-recipes.md) has worked recipes for the common asks — watching a freshly shipped event, a time-boxed funnel watch, a daily digest, an external status page, quieting a noisy fleet, and more.

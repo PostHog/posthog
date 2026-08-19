@@ -70,16 +70,18 @@ def _log_row(
     *,
     severity: str = "info",
     attributes: dict[str, str] | None = None,
+    body: str = "",
+    resource_attributes: dict[str, str] | None = None,
 ) -> dict:
     return {
         "uuid": uuid,
         "team_id": team_id,
         "timestamp": timestamp,
-        "body": "",
+        "body": body,
         "severity_text": severity,
         "severity_number": 9,
         "service_name": service,
-        "resource_attributes": {},
+        "resource_attributes": resource_attributes or {},
         "attributes_map_str": attributes or {},
     }
 
@@ -1359,7 +1361,6 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2025-12-16T11:00:00Z")
-    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
     def test_per_alert_results_match_single_query_across_random_inputs(self):
         # Generative property test: the batched query must produce the same
         # per-alert bucket counts as running each alert through `AlertCheckQuery`
@@ -1667,7 +1668,6 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([("bucketed",), ("periods",), ("rolling",)])
     @freeze_time("2025-12-16T10:33:00Z")
-    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
     def test_heterogeneous_cohort_matches_single_alert_results(self, path: str):
         # Cohort mixing a match-everything alert (its predicate is ~always true),
         # a service alert, an attribute alert, and a zero-match alert. Guards the
@@ -1697,7 +1697,6 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
             assert got == single, f"alert={alert.name} path={path}"
 
     @freeze_time("2025-12-16T13:30:00Z")
-    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
     def test_max_cohort_size_query_builds_and_matches(self):
         # A full-size cohort duplicates every predicate into the hoisted OR
         # chain on top of its countIf copy: guards the doubled predicate text
@@ -1727,11 +1726,10 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
 
 
 # Predicate hoisting: the batched query's outer WHERE carries the OR of
-# per-alert predicates (behind HOIST_BATCHED_ALERT_PREDICATES) so ClickHouse
-# can prune with the primary key and skip indexes. The redundant-looking OR
-# is the point: removing it reverts to scanning the whole time window, the
-# shape that made attribute-filter alerts exceed the 5 GiB read cap and
-# auto-disable in production.
+# per-alert predicates so ClickHouse can prune with the primary key and skip
+# indexes. The redundant-looking OR is the point: removing it reverts to
+# scanning the whole time window, the shape that made attribute-filter alerts
+# exceed the 5 GiB read cap and auto-disable in production.
 class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
     ATTR_KEY = "job_kind"
     ATTR_VALUE = "usage-rollup"
@@ -1740,15 +1738,6 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
     NCA = datetime(2026, 2, 3, 10, 5, 0, tzinfo=UTC)
 
     CLASS_DATA_LEVEL_SETUP = True
-
-    def setUp(self):
-        super().setUp()
-        # HOIST_BATCHED_ALERT_PREDICATES defaults off (staged rollout); these
-        # tests guard the hoisted behavior, so force it on. The kill-switch and
-        # planner tests re-patch it per assertion.
-        patcher = patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     @classmethod
     def setUpTestData(cls):
@@ -1789,6 +1778,38 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
             # Same service and severity but no attribute: must be excluded by
             # the attribute leg.
             _log_row(cls.team.id, "hoist-target-4", "2026-02-03 10:04:40", cls.TARGET_SERVICE, severity="error"),
+            # Rows with bodies for body-filter alerts, the only filter class
+            # whose predicate carries an indexHint(...). The resource attribute
+            # feeds the log_attributes materialized view so resource-attribute
+            # filters resolve to a `resource_fingerprint IN (subquery)` set.
+            _log_row(
+                cls.team.id,
+                "hoist-body-1",
+                "2026-02-03 10:01:15",
+                cls.TARGET_SERVICE,
+                severity="error",
+                body="task_crashed",
+                resource_attributes={"deployment.environment": "production"},
+            ),
+            _log_row(
+                cls.team.id,
+                "hoist-body-2",
+                "2026-02-03 10:02:25",
+                cls.TARGET_SERVICE,
+                severity="error",
+                body="nightly export failed: connection reset by peer",
+                resource_attributes={"deployment.environment": "production"},
+            ),
+            # Wrong severity: must be excluded by the severity leg.
+            _log_row(
+                cls.team.id,
+                "hoist-body-3",
+                "2026-02-03 10:03:35",
+                cls.TARGET_SERVICE,
+                severity="info",
+                body="nightly export failed: retrying",
+                resource_attributes={"deployment.environment": "production"},
+            ),
         ]
         sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
@@ -1900,27 +1921,12 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         assert "service_name" in where
         assert not re.search(r"(?<![a-zA-Z0-9_])or\(", where), where
 
-    def test_hoisting_disabled_by_kill_switch(self):
-        # The env kill switch must actually restore the old time-only WHERE;
-        # if it silently stops applying, prod has no rollback lever.
+    def _explain_index_usage(self) -> tuple[set[str], set[str]]:
         alert = self._make_alert(filters=self._incident_filters(self.ATTR_VALUE))
         date_from = self.NCA - dt.timedelta(minutes=15)
-        with patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", False):
-            query = BatchedAlertCheckQuery(
-                team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
-            )
-        sql, _ = self._print_query(query._build_count_per_range_query(_rolling_check_ranges(self.NCA, 5, 5, 3)))
-        where = self._outer_where_sql(sql)
-        assert "service_name" not in where
-        assert "attributes_map_str" not in where
-
-    def _explain_index_usage(self, *, hoist: bool) -> tuple[set[str], set[str]]:
-        alert = self._make_alert(filters=self._incident_filters(self.ATTR_VALUE))
-        date_from = self.NCA - dt.timedelta(minutes=15)
-        with patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", hoist):
-            query = BatchedAlertCheckQuery(
-                team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
-            )
+        query = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
+        )
         sql, values = self._print_query(query._build_count_per_range_query(_rolling_check_ranges(self.NCA, 5, 5, 3)))
         # Apply the runtime CH settings; index selection can diverge from real
         # queries without them (same recipe as posthog/hogql/test/test_property_skip_indexes.py).
@@ -1957,9 +1963,8 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
 
     def test_hoisted_predicates_visible_to_planner(self):
         # Plan-level check, because the SQL can contain the predicate in a form
-        # the planner cannot use: with hoisting on, the primary key prunes on
-        # service_name and the mapValues(attributes_map_str) bloom filter is
-        # consulted; with the kill switch off, neither engages.
+        # the planner cannot use: the primary key must prune on service_name
+        # and the mapValues(attributes_map_str) bloom filter must be consulted.
         # `logs` is a Distributed wrapper; the skip indexes live on whichever
         # MergeTree backs it, so look them up by expression instead of by name
         # or table (index names differ between logs schema generations).
@@ -1970,13 +1975,10 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         attr_indexes = {row[0] for row in attr_index_rows}
         assert attr_indexes, "expected the logs tables to define skip indexes over attributes_map_str"
 
-        hoisted_skips, hoisted_pk = self._explain_index_usage(hoist=True)
-        plain_skips, plain_pk = self._explain_index_usage(hoist=False)
+        hoisted_skips, hoisted_pk = self._explain_index_usage()
 
         assert "service_name" in hoisted_pk
         assert hoisted_skips & attr_indexes, f"skip indexes in plan: {hoisted_skips}"
-        assert "service_name" not in plain_pk
-        assert not (plain_skips & attr_indexes)
 
     @parameterized.expand(
         [
@@ -2036,6 +2038,148 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         non_zero = [b for b in batched.per_alert[str(alert.id)] if b.count > 0]
         assert non_zero == single
         assert sum(b.count for b in single) == expected_total
+
+    def _body_filters(self, operator: str, value: str) -> dict:
+        return {
+            "serviceNames": [self.TARGET_SERVICE],
+            "severityLevels": ["error", "fatal"],
+            "filterGroup": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "message", "value": value, "operator": operator, "type": "log"}],
+                    }
+                ],
+            },
+        }
+
+    @parameterized.expand(
+        [
+            ("exact", "exact", "task_crashed", 1),
+            ("icontains", "icontains", "export failed", 1),
+            ("regex", "regex", "connection reset|task_crashed", 2),
+        ]
+    )
+    @freeze_time("2026-02-03T10:05:00Z")
+    def test_body_filter_alert_matches_per_alert_path(self, _name: str, operator: str, value: str, expected: int):
+        # Body filters are the only predicates carrying an indexHint(...). With
+        # the hint hoisted into the outer WHERE alongside its countIf copy,
+        # ClickHouse dedupes the shared expression and rejects the query with
+        # ILLEGAL_COLUMN ("non constant in source stream but must be constant
+        # in result"), so every check for such an alert fails outright.
+        alert = self._make_alert(filters=self._body_filters(operator, value))
+        date_from = self.NCA - dt.timedelta(minutes=15)
+
+        batched_rolling = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
+        ).execute_rolling_checks(nca=self.NCA, window_minutes=5, cadence_minutes=5, period_count=3)
+        single_rolling = AlertCheckQuery(
+            team=self.team, alert=alert, date_from=date_from, date_to=self.NCA
+        ).execute_rolling_checks(nca=self.NCA, window_minutes=5, cadence_minutes=5, period_count=3)
+        assert batched_rolling.per_alert[str(alert.id)] == single_rolling
+        assert sum(b.count for b in single_rolling) == expected
+
+        batched_bucketed = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
+        ).execute_bucketed(interval_minutes=5)
+        single_bucketed = AlertCheckQuery(
+            team=self.team, alert=alert, date_from=date_from, date_to=self.NCA
+        ).execute_bucketed(interval_minutes=5)
+        non_zero = [b for b in batched_bucketed.per_alert[str(alert.id)] if b.count > 0]
+        assert non_zero == single_bucketed
+
+    @freeze_time("2026-02-03T10:05:00Z")
+    def test_body_and_resource_attribute_filter_matches_per_alert_path(self):
+        # The full failing shape: the body filter contributes the indexHint and
+        # the resource-attribute filter contributes a `resource_fingerprint IN
+        # (subquery)` prepared set. With both hoisted verbatim into the outer
+        # WHERE, ClickHouse plans the shared expression once, constant-folds
+        # its WHERE use but not its countIf use, and rejects the query with
+        # ILLEGAL_COLUMN. Body-only predicates survive on some ClickHouse
+        # versions; this combination does not.
+        filters = self._body_filters("icontains", "export failed")
+        filters["filterGroup"]["values"][0]["values"].append(
+            {
+                "key": "deployment.environment",
+                "value": "production",
+                "operator": "exact",
+                "type": "log_resource_attribute",
+            }
+        )
+        alert = self._make_alert(filters=filters)
+        date_from = self.NCA - dt.timedelta(minutes=15)
+
+        batched = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
+        ).execute_rolling_checks(nca=self.NCA, window_minutes=5, cadence_minutes=5, period_count=3)
+        single = AlertCheckQuery(
+            team=self.team, alert=alert, date_from=date_from, date_to=self.NCA
+        ).execute_rolling_checks(nca=self.NCA, window_minutes=5, cadence_minutes=5, period_count=3)
+
+        assert batched.per_alert[str(alert.id)] == single
+        assert sum(b.count for b in single) == 1
+
+    def test_hoisted_where_strips_index_hints(self):
+        # The countIf copy keeps its indexHint; only the hoisted WHERE copy
+        # drops it. If a refactor hoists the hint again, the equivalence tests
+        # above only catch it on ClickHouse versions where the plan dedup
+        # triggers, so pin the SQL shape too.
+        alert = self._make_alert(filters=self._body_filters("icontains", "export failed"))
+        date_from = self.NCA - dt.timedelta(minutes=15)
+        query = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
+        )
+        sql, _ = self._print_query(query._build_count_per_range_query(_rolling_check_ranges(self.NCA, 5, 5, 3)))
+        select_part, _, _ = sql.partition(" WHERE ")
+        assert "indexHint(" in select_part
+        assert "indexHint(" not in self._outer_where_sql(sql)
+
+
+# No fixture rows on purpose: the ILLEGAL_COLUMN plan failure needs the scan
+# to select zero parts, so the constant-folded filter column meets an empty
+# source stream. Seeded classes can never hit it; production hits it whenever
+# a shard has no matching parts for the check window.
+class TestBatchedQueryPredicateHoistingEmptyScan(ClickhouseTestMixin, APIBaseTest):
+    @freeze_time("2026-02-03T10:05:00Z")
+    def test_body_and_resource_filter_with_no_matching_logs(self):
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="empty scan",
+            threshold_count=0,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=3,
+            filters={
+                "serviceNames": ["quiet_service"],
+                "severityLevels": ["error", "fatal"],
+                "filterGroup": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "message", "value": "export failed", "operator": "icontains", "type": "log"},
+                                {
+                                    "key": "deployment.environment",
+                                    "value": "production",
+                                    "operator": "exact",
+                                    "type": "log_resource_attribute",
+                                },
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+        nca = datetime(2026, 2, 3, 10, 5, 0, tzinfo=UTC)
+        date_from = nca - dt.timedelta(minutes=15)
+
+        batched = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert], date_from=date_from, date_to=nca, projection_eligible=False
+        ).execute_rolling_checks(nca=nca, window_minutes=5, cadence_minutes=5, period_count=3)
+
+        assert [b.count for b in batched.per_alert[str(alert.id)]] == [0, 0, 0]
 
 
 class TestFetchLiveLogsCheckpoint(APIBaseTest):

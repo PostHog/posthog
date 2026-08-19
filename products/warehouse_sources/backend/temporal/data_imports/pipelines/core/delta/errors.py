@@ -11,6 +11,8 @@ from posthog.temporal.common.errors import NonReportableError
 #   (IMDS/STS blips, dispatch timeouts)
 # - "Please reduce your request rate" is S3's SlowDown throttling response, surfaced by s3fs/aiobotocore
 #   when a bulk operation (e.g. `_purge_s3_prefix`'s list-then-delete) outruns the bucket's request-rate limit
+# - "We encountered an internal error. Please try again." is S3's fixed message for its InternalError
+#   (500) response, surfaced by s3fs/aiobotocore as an OSError once its own request retries are exhausted
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -18,6 +20,7 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "the credential provider was not enabled",
     "Generic S3 error",
     "Please reduce your request rate",
+    "We encountered an internal error. Please try again.",
 )
 
 
@@ -88,14 +91,18 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
     if any(needle in text for needle in TRANSIENT_DELTA_MAINTENANCE_ERRORS):
         return True
 
-    # The same race can also take a transaction-log commit file, not just a data file: `reset_table`
-    # (full_refresh) purges the whole table prefix, `_delta_log` included, out from under a still-running
-    # maintenance pass that opened the table before the purge landed. Neither `vacuum()` nor
-    # `optimize.compact()` ever deletes a `_delta_log/*.json` commit file itself, so a missing one here
-    # means something else raced the read rather than the table being corrupt. Matched on the log
-    # directory specifically rather than on "File not found" alone, which a genuinely missing data file
-    # or a truly corrupt table can also raise, and those stay captured.
-    return "File not found" in text and "_delta_log/" in text
+    # The same race can also take a transaction-log commit file or checkpoint, not just a data file:
+    # `reset_table` (full_refresh) purges the whole table prefix, `_delta_log` included, out from under
+    # a still-running maintenance pass that opened the table before the purge landed — or out from under
+    # a concurrent `DeltaTableRef.get_delta_table()` open reading `_last_checkpoint` and then fetching the
+    # checkpoint file it points to. Neither `vacuum()` nor `optimize.compact()` ever deletes a
+    # `_delta_log/*.json` commit file or a `*.checkpoint.parquet` itself, so a missing one here means
+    # something else raced the read rather than the table being corrupt. Matched on the log directory
+    # specifically rather than on "not found" alone, which a genuinely missing data file or a truly
+    # corrupt table can also raise, and those stay captured. Covers both delta-rs's older
+    # `FileNotFoundError`-style message ("File not found: ...") and its Arrow/object_store kernel message
+    # for the same underlying condition ("Object at location ... not found: ... 404 Not Found").
+    return "_delta_log/" in text and "not found" in text
 
 
 # `optimize.compact` bins files to rewrite by their on-disk (compressed) size, targeting

@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class BingWebmasterToolsSourceConfig(config.Config):
-    pass
+    api_key: str
+    site_urls: str | None = None

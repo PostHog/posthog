@@ -100,6 +100,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_extended_query_time(self):
         self.assertEqual(HOGQL_INCREASED_MAX_EXECUTION_TIME, 600)
 
+    def test_simple_case_with_row_dependent_results(self):
+        response = execute_hogql_query(
+            """
+            SELECT
+                CASE value WHEN 1 THEN value * 10 WHEN 2 THEN value * 20 ELSE value END,
+                CASE value WHEN 1 THEN value * 10 END,
+                CASE WHEN value = 1 THEN value * 10 END
+            FROM (SELECT arrayJoin([1, 2, 3]) AS value)
+            ORDER BY value
+            """,
+            team=self.team,
+        )
+
+        self.assertEqual(response.results, [(10, 10, 10), (40, None, None), (3, None, None)])
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query(self):
         with freeze_time("2020-01-10"):

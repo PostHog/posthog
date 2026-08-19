@@ -794,6 +794,20 @@ class TestHasDuplicatePrimaryKeys:
             assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
         mock_capture.assert_called_once()
 
+    def test_operational_error_is_propagated(self, impl, cursor, logger):
+        # A connection-level failure (e.g. the SSL connection dropping mid-query) means the probe
+        # never ran — swallowing it as "no duplicate keys" would be a false negative, so it must
+        # propagate instead of being reported to error tracking and defaulted to False.
+        cursor.execute.side_effect = psycopg.OperationalError(
+            "consuming input failed: SSL connection has been closed unexpectedly"
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            with pytest.raises(psycopg.OperationalError):
+                impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger)
+        mock_capture.assert_not_called()
+
     def test_system_requested_abort_is_not_reported(self, impl, cursor, logger):
         # Redshift WLM/QMR aborts (code 1020, "system requested abort") surface as `InternalError_`
         # and are expected, non-actionable noise — skip gracefully without reporting to error tracking.
@@ -1102,6 +1116,17 @@ class TestRedshiftSourceNonRetryableErrors:
         # class name) would miss this, letting the activity burn its full retry budget on a
         # permission denial that can't resolve itself.
         error_msg = 'permission denied for materialized view base relation "Payment_Actions"'
+        non_retryable = RedshiftSource().get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable
+
+    def test_query_timeout_raw_message_is_non_retryable(self):
+        # Mirrors the `InsufficientPrivilege` case above: the activity-level check matches raw
+        # `str(exception)`, which for `QueryTimeoutException` is just the message with no class
+        # name — only the `QueryTimeoutException` key (workflow layer only) would miss this,
+        # letting the activity retry a query that times out identically every attempt because the
+        # table's incremental field isn't a SORTKEY.
+        error_msg = "10 min timeout statement reached. Please ensure your incremental field (updated_at) is set as a SORTKEY on the table"
         non_retryable = RedshiftSource().get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable

@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Literal
 
 import structlog
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 logger = structlog.get_logger(__name__)
 
@@ -22,12 +22,21 @@ StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "c
 _ALLOWED_MODES = {"background", "interactive"}
 _ALLOWED_RUN_SOURCES = {"manual", "signal_report"}
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
+_ALLOWED_TASK_RUNTIMES = {"acp", "pi"}
 
 
 TASK_RUN_CREATED_TOTAL = Counter(
     "posthog_tasks_task_run_created_total",
     "TaskRun rows created by the Tasks product",
-    labelnames=["origin_product", "run_environment", "mode", "run_source", "runtime_adapter", "prewarmed"],
+    labelnames=[
+        "origin_product",
+        "run_environment",
+        "mode",
+        "run_source",
+        "task_runtime",
+        "runtime_adapter",
+        "prewarmed",
+    ],
 )
 
 TASK_RUN_WORKFLOW_START_TOTAL = Counter(
@@ -38,6 +47,7 @@ TASK_RUN_WORKFLOW_START_TOTAL = Counter(
         "run_environment",
         "mode",
         "run_source",
+        "task_runtime",
         "runtime_adapter",
         "prewarmed",
         "outcome",
@@ -54,10 +64,37 @@ TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
         "run_environment",
         "mode",
         "run_source",
+        "task_runtime",
         "runtime_adapter",
         "prewarmed",
         "phase",
     ],
+)
+
+WORKFLOW_DISPATCH_CREATED_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_created_total", "Workflow dispatch rows created", labelnames=["kind"]
+)
+WORKFLOW_DISPATCH_ATTEMPT_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_attempt_total",
+    "Workflow dispatch attempt outcomes",
+    labelnames=["kind", "outcome"],
+)
+WORKFLOW_DISPATCH_START_DURATION_SECONDS = Histogram(
+    "posthog_tasks_workflow_dispatch_start_duration_seconds", "Temporal workflow start RPC duration"
+)
+WORKFLOW_DISPATCH_READY = Gauge("posthog_tasks_workflow_dispatch_ready", "Ready workflow dispatches")
+WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS = Gauge(
+    "posthog_tasks_workflow_dispatch_oldest_ready_age_seconds", "Age of the oldest ready workflow dispatch"
+)
+WORKFLOW_DISPATCH_CLAIMED = Gauge("posthog_tasks_workflow_dispatch_claimed", "Claimed workflow dispatches")
+WORKFLOW_DISPATCH_LEASE_EXPIRED_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_lease_expired_total", "Expired workflow dispatch leases reclaimed"
+)
+WORKFLOW_DISPATCH_DEAD_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_dead_total", "Dead workflow dispatches", labelnames=["kind", "reason"]
+)
+WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL = Counter(
+    "posthog_tasks_workflow_dispatch_missing_intent_total", "Queued cloud task runs without dispatch intent"
 )
 
 AGENT_OTEL_TELEMETRY_STAMPED_TOTAL = Counter(
@@ -77,6 +114,12 @@ RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL = Counter(
     "posthog_tasks_run_log_mirror_otlp_batches_total",
     "Direct-OTLP mirror batch deliveries by outcome (the local-dev leg; unset in cloud).",
     labelnames=["outcome"],
+)
+
+LOG_APPEND_UNSERIALIZED_TOTAL = Counter(
+    "posthog_tasks_log_append_unserialized_total",
+    "Task-run log appends that ran without the per-object lock (redis unavailable, or contention "
+    "past the blocking timeout), where a concurrent append can still drop entries.",
 )
 
 PREWARMED_ACTIVATED_TOTAL = Counter(
@@ -170,7 +213,7 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
 TASK_RUN_AGENT_FAILURE_TOTAL = Counter(
     "posthog_tasks_agent_turn_failed_total",
     "TaskRun transitions to FAILED via the API facade (agent-server turn failures)",
-    labelnames=["origin_product", "mode", "run_source", "runtime_adapter"],
+    labelnames=["origin_product", "mode", "run_source", "task_runtime", "runtime_adapter"],
 )
 
 TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL = Counter(
@@ -191,6 +234,12 @@ PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
     labelnames=["kind", "reason"],
 )
 
+PUSH_DISPATCHER_OUTCOMES_TOTAL = Counter(
+    "posthog_tasks_push_dispatcher_outcomes_total",
+    "Push-notification dispatcher decisions before the Celery delivery task",
+    labelnames=["kind", "outcome"],
+)
+
 # reason is one of: created, deduped, overlap_skipped, rate_capped, disabled, gate_blocked
 # (LoopFireResult.reason), a fixed, code-defined set, safe as a label.
 LOOP_FIRE_TOTAL = Counter(
@@ -204,16 +253,28 @@ LOOP_AUTO_PAUSED_TOTAL = Counter(
     "Loops auto-paused after exceeding the consecutive-failure threshold",
 )
 
-CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
+CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open", "org_deactivated"]
+ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
 
 # outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
 # fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
-# a degraded gateway must not silently remove the only cost backstop).
+# a degraded gateway must not silently remove the only cost backstop), org_deactivated when
+# the local deactivated-organization check blocked the run before any gateway call.
 CODE_USAGE_GATE_CHECK_TOTAL = Counter(
     "posthog_tasks_code_usage_gate_check_total",
     "Cloud usage-gate check outcomes for PostHog Code runs",
     labelnames=["outcome"],
 )
+
+COMPUTE_QUOTA_CHECK_TOTAL = Counter(
+    "posthog_tasks_compute_quota_check_total",
+    "Compute quota-check outcomes for billable PostHog Desktop runs",
+    labelnames=["outcome"],
+)
+
+
+def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
+    COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
 
 
 def _metric_label(value: object | None) -> str:
@@ -238,6 +299,27 @@ def _failure_metric_label(value: object | None) -> str:
     return label[:100]
 
 
+def _task_runtime_label(task_run: "TaskRun | None") -> str:
+    if task_run is None:
+        return "unknown"
+    return _bounded_metric_label(getattr(task_run.task, "runtime", None), _ALLOWED_TASK_RUNTIMES)
+
+
+def _effective_runtime_adapter_label(task_run: "TaskRun | None", state: dict) -> str:
+    task_runtime = _task_runtime_label(task_run)
+    if task_runtime == "pi":
+        return "pi"
+
+    configured_adapter = state.get("runtime_adapter")
+    if configured_adapter is not None:
+        return _bounded_metric_label(configured_adapter, _ALLOWED_RUNTIME_ADAPTERS)
+
+    # ACP's default harness is Claude. A model-only override deliberately leaves
+    # runtime_adapter unset, so treating that valid configuration as unknown hides
+    # the runtime that actually handled the run.
+    return "claude" if task_runtime == "acp" else "unknown"
+
+
 def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
     if task_run is None:
         return {
@@ -245,6 +327,7 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
             "run_environment": "unknown",
             "mode": "unknown",
             "run_source": "unknown",
+            "task_runtime": "unknown",
             "runtime_adapter": "unknown",
             "prewarmed": "unknown",
         }
@@ -255,7 +338,8 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
         "run_environment": _metric_label(task_run.environment),
         "mode": _bounded_metric_label(state.get("mode"), _ALLOWED_MODES),
         "run_source": _bounded_metric_label(state.get("run_source"), _ALLOWED_RUN_SOURCES),
-        "runtime_adapter": _bounded_metric_label(state.get("runtime_adapter"), _ALLOWED_RUNTIME_ADAPTERS),
+        "task_runtime": _task_runtime_label(task_run),
+        "runtime_adapter": _effective_runtime_adapter_label(task_run, state),
         "prewarmed": "true" if state.get("prewarmed") else "false",
     }
 
@@ -352,6 +436,7 @@ def observe_agent_turn_failed(task_run: "TaskRun") -> None:
         origin_product=labels["origin_product"],
         mode=labels["mode"],
         run_source=labels["run_source"],
+        task_runtime=labels["task_runtime"],
         runtime_adapter=labels["runtime_adapter"],
     ).inc()
 

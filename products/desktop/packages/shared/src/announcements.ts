@@ -136,11 +136,6 @@ export const announcementsEnvelopeSchema = z.object({
 export const announcementsPayloadSchema = z
   .object({
     announcements: z.array(announcementSchema),
-    /**
-     * An on-stage announcement cancels the auto-opened What's New changelog.
-     * Set false to defer it instead, showing both back to back.
-     */
-    suppressChangelog: z.boolean().default(true),
   })
   .superRefine((payload, ctx) => {
     // Dismissals persist per id, so a duplicate would let dismissing one
@@ -158,16 +153,6 @@ export const announcementsPayloadSchema = z
       seenAt.set(item.id, index);
     });
   });
-
-const changelogInterplaySchema = z.object({
-  suppressChangelog: z.boolean().default(true),
-});
-
-/** Tolerant read of the payload's changelog policy — garbage means default. */
-export function readSuppressChangelog(payload: unknown): boolean {
-  const result = changelogInterplaySchema.safeParse(payload);
-  return result.success ? result.data.suppressChangelog : true;
-}
 
 export type Announcement = z.infer<typeof announcementSchema>;
 export type AnnouncementHero = z.infer<typeof heroSchema>;

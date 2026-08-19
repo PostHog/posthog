@@ -101,7 +101,7 @@ export const refreshSessionParamsSchema = z.object({
 
 /**
  * Names of desktop-only local MCP servers designated for relaying into this
- * run (docs/cloud-mcp-relay.md). Names only — the sandbox never learns the
+ * run (docs/CLOUD-MCP-RELAY.md). Names only — the sandbox never learns the
  * server's configuration.
  */
 export const relayMcpServerNamesSchema = z

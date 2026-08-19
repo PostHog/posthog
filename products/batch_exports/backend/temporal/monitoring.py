@@ -374,7 +374,7 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
 
         # time interval to check is not the previous hour but the hour before that
         # (just to ensure all recent batch exports have run successfully)
-        now = dt.datetime.now(tz=dt.UTC)
+        now = workflow.now()
         interval_end = now.replace(minute=0, second=0, microsecond=0) - dt.timedelta(hours=1)
         interval_start = interval_end - dt.timedelta(hours=1)
         interval_end_str = datetime_to_str(interval_end)

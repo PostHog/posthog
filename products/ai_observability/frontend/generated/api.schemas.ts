@@ -96,6 +96,10 @@ export interface _DayBreakdownRowApi {
     event_count: number
     /** Total cost in USD on this day for the scoped product. */
     cost_usd: number
+    /** Sum of `$ai_input_tokens` on this day for the scoped product. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` on this day for the scoped product. */
+    output_tokens: number
 }
 
 export interface _DayBreakdownApi {
@@ -103,6 +107,24 @@ export interface _DayBreakdownApi {
     items: _DayBreakdownRowApi[]
     /** Effectively always false: `by_day` ignores `limit` because truncating a time series by cost would be meaningless, and the 90-day window cap already bounds the series length. */
     truncated: boolean
+}
+
+export interface _DayModelBreakdownRowApi {
+    /** UTC calendar day the events fall on (`toDate(timestamp)`). */
+    day: string
+    /**
+     * Model name for one of the highest-cost models in the selected window. Null is the aggregate of all remaining models, including events without a model.
+     * @nullable
+     */
+    model: string | null
+    /** Total cost in USD for this model on this day. */
+    cost_usd: number
+    /** Sum of `$ai_input_tokens` for this model on this day. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` for this model on this day. */
+    output_tokens: number
+    /** Number of $ai_generation + $ai_embedding events for this model on this day. */
+    generation_count: number
 }
 
 export interface _BucketBreakdownRowApi {
@@ -177,6 +199,8 @@ export interface PersonalSpendAnalysisResponseApi {
     by_model: _ModelBreakdownApi
     /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
     by_day: _DayBreakdownApi
+    /** Daily model spend for the scoped product, ordered by day and cost. Includes the six highest-cost models in the selected window plus a null-model row for the remaining models. */
+    by_day_model: _DayModelBreakdownRowApi[]
     /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
     by_bucket?: _BucketBreakdownApi
     /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
@@ -796,7 +820,7 @@ export type EvaluationApiEvaluationConfig =
           source: string
       }
     | {
-          /** Classify sentiment from user messages in the generation input. */
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
           source?: 'user_messages'
       }
 
@@ -862,7 +886,7 @@ export interface EvaluationApi {
      * @nullable
      */
     readonly status_reason_detail: string | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
      *
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
@@ -925,7 +949,7 @@ export type PatchedEvaluationApiEvaluationConfig =
           source: string
       }
     | {
-          /** Classify sentiment from user messages in the generation input. */
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
           source?: 'user_messages'
       }
 
@@ -991,7 +1015,7 @@ export interface PatchedEvaluationApi {
      * @nullable
      */
     readonly status_reason_detail?: string | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
      *
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
@@ -1418,6 +1442,13 @@ export interface EvaluationReportApi {
     readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1487,6 +1518,13 @@ export interface EvaluationReportUpdateApi {
     readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1547,6 +1585,13 @@ export interface PatchedEvaluationReportUpdateApi {
     readonly deleted?: boolean
     /** @nullable */
     readonly last_delivered_at?: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count?: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at?: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1595,9 +1640,10 @@ export interface EvaluationReportCitationApi {
  * * `completed` - completed
  * * `metrics_unavailable` - metrics_unavailable
  */
-export type GenerationStatusEnumApi = (typeof GenerationStatusEnumApi)[keyof typeof GenerationStatusEnumApi]
+export type EvaluationReportRunContentGenerationStatusEnumApi =
+    (typeof EvaluationReportRunContentGenerationStatusEnumApi)[keyof typeof EvaluationReportRunContentGenerationStatusEnumApi]
 
-export const GenerationStatusEnumApi = {
+export const EvaluationReportRunContentGenerationStatusEnumApi = {
     Completed: 'completed',
     MetricsUnavailable: 'metrics_unavailable',
 } as const
@@ -1681,7 +1727,7 @@ export interface EvaluationReportRunContentApi {
      *
      * * `completed` - completed
      * * `metrics_unavailable` - metrics_unavailable */
-    generation_status?: GenerationStatusEnumApi
+    generation_status?: EvaluationReportRunContentGenerationStatusEnumApi
     /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
     metrics?: EvaluationReportMetricsApi | null
 }
@@ -1737,80 +1783,6 @@ export interface PaginatedEvaluationReportRunListApi {
     /** @nullable */
     previous?: string | null
     results: EvaluationReportRunApi[]
-}
-
-/**
- * * `all` - all
- * * `pass` - pass
- * * `fail` - fail
- * * `na` - na
- */
-export type FilterEnumApi = (typeof FilterEnumApi)[keyof typeof FilterEnumApi]
-
-export const FilterEnumApi = {
-    All: 'all',
-    Pass: 'pass',
-    Fail: 'fail',
-    Na: 'na',
-} as const
-
-/**
- * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
- */
-export interface EvaluationSummaryRequestApi {
-    /** UUID of the evaluation config to summarize */
-    evaluation_id: string
-    /** Filter type to apply ('all', 'pass', 'fail', or 'na')
-     *
-     * * `all` - all
-     * * `pass` - pass
-     * * `fail` - fail
-     * * `na` - na */
-    filter?: FilterEnumApi
-    /**
-     * Optional: specific generation IDs to include in summary (max 250)
-     * @maxItems 250
-     */
-    generation_ids?: string[]
-    /** If true, bypass cache and generate a fresh summary */
-    force_refresh?: boolean
-}
-
-export interface EvaluationPatternApi {
-    title: string
-    description: string
-    frequency: string
-    example_generation_ids: string[]
-}
-
-export interface EvaluationSummaryStatisticsApi {
-    total_analyzed: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-}
-
-export interface EvaluationSummaryResponseApi {
-    overall_assessment: string
-    pass_patterns: EvaluationPatternApi[]
-    fail_patterns: EvaluationPatternApi[]
-    na_patterns: EvaluationPatternApi[]
-    recommendations: string[]
-    statistics: EvaluationSummaryStatisticsApi
-}
-
-export interface EvaluationSummaryThrottleResponseApi {
-    /** Error category */
-    type: string
-    /** Machine-readable error code */
-    code: string
-    /** Why the request was throttled */
-    detail: string
-    /**
-     * Related request field, when applicable
-     * @nullable
-     */
-    attr: string | null
 }
 
 export interface LLMModelInfoApi {
@@ -3265,14 +3237,6 @@ export type LlmAnalyticsEvaluationReportsRunsListParams = {
      */
     offset?: number
 }
-
-export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsModelsRetrieveParams = {
     /**

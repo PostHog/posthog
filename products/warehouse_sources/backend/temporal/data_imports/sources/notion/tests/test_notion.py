@@ -36,14 +36,23 @@ MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notio
 
 
 class FakeResponse:
-    def __init__(self, json_data: Any, status_code: int = 200, headers: Optional[dict[str, str]] = None) -> None:
+    def __init__(
+        self,
+        json_data: Any,
+        status_code: int = 200,
+        headers: Optional[dict[str, str]] = None,
+        json_exc: Optional[Exception] = None,
+    ) -> None:
         self._json = json_data
+        self._json_exc = json_exc
         self.status_code = status_code
         self.headers = headers or {}
         self.ok = 200 <= status_code < 400
         self.text = ""
 
     def json(self) -> Any:
+        if self._json_exc is not None:
+            raise self._json_exc
         return self._json
 
     def raise_for_status(self) -> None:
@@ -308,6 +317,49 @@ class TestNotion:
 
         with mock.patch(f"{MODULE}._wait_strategy", return_value=0):
             result = _request(cast(requests.Session, session), "GET", "/v1/comments", mock.MagicMock(), params={})
+
+        assert result == {"results": []}
+        assert attempts["count"] == 2
+
+    def test_request_non_json_2xx_raises_retryable(self) -> None:
+        # A 2xx whose body is empty or non-JSON makes response.json() raise JSONDecodeError. That is a
+        # truncated/garbled response, not real Notion output, so it must surface as the retryable type
+        # carrying the stable phrase get_retryable_errors matches — not crash the sync.
+        session = FakeSession(
+            [
+                FakeResponse(
+                    None,
+                    status_code=200,
+                    json_exc=requests.exceptions.JSONDecodeError("Expecting value: line 1 column 1 (char 0)", "", 0),
+                )
+            ]
+        )
+        with pytest.raises(NotionRetryableError) as exc_info:
+            cast(Any, _request).__wrapped__(
+                cast(requests.Session, session), "GET", "/v1/users", mock.MagicMock(), params={}
+            )
+        assert "Notion returned a non-JSON response" in str(exc_info.value)
+
+    def test_request_retries_non_json_response(self) -> None:
+        # An empty/non-JSON 2xx body is transient like a broken connection: the retry must recover
+        # rather than propagate JSONDecodeError as a fatal sync error.
+        attempts = {"count": 0}
+
+        def request(*_args: Any, **_kwargs: Any) -> FakeResponse:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                return FakeResponse(
+                    None,
+                    status_code=200,
+                    json_exc=requests.exceptions.JSONDecodeError("Expecting value: line 1 column 1 (char 0)", "", 0),
+                )
+            return FakeResponse({"results": []})
+
+        session = mock.MagicMock()
+        session.request.side_effect = request
+
+        with mock.patch(f"{MODULE}._wait_strategy", return_value=0):
+            result = _request(cast(requests.Session, session), "GET", "/v1/users", mock.MagicMock(), params={})
 
         assert result == {"results": []}
         assert attempts["count"] == 2

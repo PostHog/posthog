@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -127,15 +128,19 @@ class _PermanentUpstreamError(Exception):
     """Non-retryable failure: a 4xx response — bad token, missing team, scope mismatch."""
 
 
-def _redis_key(resource_key: str, team_id: int, auth_header: str) -> str:
+def _redis_key(resource_key: str, team_id: int, auth_header: str, generation: str = "0") -> str:
     credential_fingerprint = hashlib.sha256(auth_header.encode()).hexdigest()
-    return f"quota:{resource_key}:team:{team_id}:credential:{credential_fingerprint}"
+    return f"quota:{resource_key}:team:{team_id}:generation:{generation}:credential:{credential_fingerprint}"
 
 
 def _billing_key(team_id: int) -> str:
     # Per team, not per resource: the billing bit is org-level and identical in
     # every quota_limits response for the team.
     return f"quota:code_usage_billing:team:{team_id}"
+
+
+def _generation_key(team_id: int) -> str:
+    return f"quota:generation:team:{team_id}"
 
 
 async def resolve_quota_status(request: Request, team_id: int | None, resource_key: str) -> QuotaResourceStatus:
@@ -166,7 +171,8 @@ class QuotaResolver:
         self._cache_ttl = get_settings().quota_cache_ttl
 
     async def get_resource_status(self, resource_key: str, team_id: int, auth_header: str) -> QuotaResourceStatus:
-        cached = await self._get_cached(resource_key, team_id, auth_header)
+        generation = await self._get_generation(team_id)
+        cached = await self._get_cached(resource_key, team_id, auth_header, generation)
         if cached is not None:
             return cached
 
@@ -192,7 +198,7 @@ class QuotaResolver:
                 _FAIL_OPEN_CACHE_TTL_SECONDS,
             )
 
-        await self._set_cached(resource_key, team_id, auth_header, status, ttl)
+        await self._set_cached(resource_key, team_id, auth_header, generation, status, ttl)
         return status
 
     async def _fetch_with_retry(
@@ -247,11 +253,23 @@ class QuotaResolver:
             posthog_desktop_usage=_posthog_desktop_usage(data) if resource_key == "posthog_code_credits" else None,
         ), self._cache_ttl
 
-    async def _get_cached(self, resource_key: str, team_id: int, auth_header: str) -> QuotaResourceStatus | None:
+    async def _get_generation(self, team_id: int) -> str:
+        if not self._redis:
+            return "0"
+        try:
+            value = await self._redis.get(_generation_key(team_id))
+            return value.decode() if value is not None else "0"
+        except Exception:
+            logger.debug("quota_generation_read_failed", team_id=team_id)
+            return uuid.uuid4().hex
+
+    async def _get_cached(
+        self, resource_key: str, team_id: int, auth_header: str, generation: str
+    ) -> QuotaResourceStatus | None:
         if not self._redis:
             return None
         try:
-            val = await self._redis.get(_redis_key(resource_key, team_id, auth_header))
+            val = await self._redis.get(_redis_key(resource_key, team_id, auth_header, generation))
             if val is None:
                 return None
             payload = json.loads(val.decode())
@@ -271,7 +289,13 @@ class QuotaResolver:
             return None
 
     async def _set_cached(
-        self, resource_key: str, team_id: int, auth_header: str, status: QuotaResourceStatus, ttl: int
+        self,
+        resource_key: str,
+        team_id: int,
+        auth_header: str,
+        generation: str,
+        status: QuotaResourceStatus,
+        ttl: int,
     ) -> None:
         if not self._redis:
             return
@@ -289,7 +313,7 @@ class QuotaResolver:
                     ),
                 }
             )
-            await self._redis.set(_redis_key(resource_key, team_id, auth_header), payload, ex=ttl)
+            await self._redis.set(_redis_key(resource_key, team_id, auth_header, generation), payload, ex=ttl)
         except Exception:
             logger.debug("quota_cache_write_failed", resource=resource_key, team_id=team_id)
 

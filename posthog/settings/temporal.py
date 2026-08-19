@@ -91,6 +91,12 @@ TASKS_CONTINUE_AS_NEW_ENABLED: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
+TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
+    "TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED",
+    False,
+    type_cast=str_to_bool,
+)
+
 # Event-count threshold for the above; 0 relies on Temporal's is_continue_as_new_suggested().
 TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
     "TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD", 4000, type_cast=int
@@ -108,6 +114,15 @@ TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_S
 # site. Set low (e.g. 60) for local testing; 0 or negative disables the cap entirely,
 # matching TASKS_INACTIVITY_TIMEOUT_SECONDS above.
 TASKS_MAX_RUN_DURATION_SECONDS: int = get_from_env("TASKS_MAX_RUN_DURATION_SECONDS", 3 * 60 * 60, type_cast=int)
+
+# Wall-clock cap for *interactive* signals-origin runs (Inbox "Create PR" / "Discuss", scout
+# chat), which are exempt from TASKS_MAX_RUN_DURATION_SECONDS above. Their inference is unbilled,
+# so without this their only time bound is the heartbeat-reset inactivity timer. Defaults to the
+# sandbox TTL: it never ends a conversation the sandbox wouldn't have ended anyway, but it does
+# bound snapshot-resume chains and wedged-but-heartbeating agents. 0 or negative disables.
+TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS: int = get_from_env(
+    "TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS", 6 * 60 * 60, type_cast=int
+)
 
 # Override the delay before the first in-sandbox credential refresh (default 20
 # minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
@@ -179,6 +194,14 @@ EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-rec
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
+TASKS_DISPATCHER_BATCH_SIZE = get_from_env("TASKS_DISPATCHER_BATCH_SIZE", 50, type_cast=int)
+TASKS_DISPATCHER_CONCURRENCY = get_from_env("TASKS_DISPATCHER_CONCURRENCY", 20, type_cast=int)
+TASKS_DISPATCHER_LEASE_SECONDS = get_from_env("TASKS_DISPATCHER_LEASE_SECONDS", 60, type_cast=int)
+TASKS_DISPATCHER_POLL_INTERVAL_SECONDS = get_from_env("TASKS_DISPATCHER_POLL_INTERVAL_SECONDS", 1.0, type_cast=float)
+TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS = get_from_env("TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS", 10, type_cast=int)
+TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS = get_from_env(
+    "TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS", 6 * 60 * 60, type_cast=int
+)
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
@@ -203,6 +226,11 @@ ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue"
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
+# Dedicated queue: the tick becomes the scan-heavy rollup writer, and it must not
+# share pods with the latency-sensitive alerting workers.
+LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("LOGS_VOLUME_TICK_TASK_QUEUE", "logs-volume-tick-task-queue")
+)
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
 
 # Error tracking

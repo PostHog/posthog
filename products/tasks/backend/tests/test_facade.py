@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 
+from products.signals.backend.models import SignalTeamConfig
 from products.tasks.backend.facade import (
     api as facade,
     contracts,
@@ -242,7 +243,7 @@ class TestFacadeReadsAndMappers(TestCase):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         TaskRun.objects.create(task=task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
 
-        dtos = facade.get_conversation_task_dtos([task.id], self.team.id)
+        dtos = facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id)
 
         self.assertEqual(set(dtos.keys()), {task.id})
         dto = dtos[task.id]
@@ -252,14 +253,20 @@ class TestFacadeReadsAndMappers(TestCase):
         # The nested run payload stays excluded (no presigned log URLs); only the id is carried.
         self.assertIsNone(dto.latest_run)
         self.assertEqual(dto.latest_run_id, latest.id)
-        self.assertEqual(facade.get_conversation_task_dtos([task.id], other_team.id), {})
+        self.assertEqual(facade.get_conversation_task_dtos([task.id], other_team.id, self.user.id), {})
 
     def test_get_conversation_task_dtos_latest_run_id_none_without_runs(self):
         task = self._make_task(title="No runs")
 
-        dto = facade.get_conversation_task_dtos([task.id], self.team.id)[task.id]
+        dto = facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id)[task.id]
 
         self.assertIsNone(dto.latest_run_id)
+
+    def test_get_conversation_task_dtos_excludes_soft_deleted_task(self):
+        task = self._make_task(title="Deleted conversation task")
+        task.soft_delete()
+
+        self.assertEqual(facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id), {})
 
     def test_get_conversation_task_dtos_is_cheap_for_many_tasks(self):
         tasks = [self._make_task(title=f"task-{i}") for i in range(5)]
@@ -268,7 +275,7 @@ class TestFacadeReadsAndMappers(TestCase):
 
         # A single query with the latest-run-id subquery — no per-task run lookup, no N+1.
         with self.assertNumQueries(1):
-            dtos = facade.get_conversation_task_dtos([t.id for t in tasks], self.team.id)
+            dtos = facade.get_conversation_task_dtos([t.id for t in tasks], self.team.id, self.user.id)
             for task in tasks:
                 self.assertIsNotNone(dtos[task.id].latest_run_id)
 
@@ -400,6 +407,33 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
 
+    def test_run_task_resume_exposes_pending_prompt_to_agent(self):
+        task = self._make_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "resume_from_run_id": str(previous_run.id),
+                    "pending_user_message": "Continue with the refactor",
+                    "pending_user_artifact_ids": [],
+                },
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        detail = facade.get_task_run_detail(new_run.id, task.id, self.team.id)
+        assert detail is not None
+        self.assertEqual(detail.state["pending_user_message"], "Continue with the refactor")
+
     @parameterized.expand(
         [
             ("ready", SandboxCustomImage.Status.READY, "posthog-sandbox-custom-1-abc:latest", True),
@@ -466,6 +500,57 @@ class TestFacadeReadsAndMappers(TestCase):
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
+
+    @parameterized.expand(
+        [
+            # The inbox "Create PR" button sends no branch, so the team's configured base branch is
+            # the only thing that can keep the PR off the repo's GitHub default branch. Repo casing
+            # differs from the stored key because GitHub preserves it while the serializer lowercases.
+            ("configured_branch_applied", {"acme/web": "dev"}, {}, "dev"),
+            # A caller that picked a branch already decided; re-resolving would discard that choice.
+            ("explicit_branch_wins", {"acme/web": "dev"}, {"branch": "hotfix"}, "hotfix"),
+            # Another repo's entry must never be borrowed, because that lands the PR on a
+            # branch belonging to a different repository.
+            ("other_repo_not_borrowed", {"acme/api": "staging"}, {}, None),
+        ]
+    )
+    def test_run_task_applies_configured_base_branch(
+        self, _name: str, overrides: dict, extra_validated_data: dict, expected_branch: str | None
+    ):
+        SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"autostart_base_branches": overrides})
+        task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.SIGNAL_REPORT)
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "run_source": "signal_report", **extra_validated_data},
+            )
+
+        assert result is not None and result.error is None
+        run = task.runs.get()
+        self.assertEqual(run.branch, expected_branch)
+        self.assertEqual((run.state or {}).get("pr_base_branch"), expected_branch)
+
+    def test_run_task_leaves_branch_unset_for_user_created_tasks(self):
+        # The override is scoped to self-driving tasks. A user-created task keeps targeting the repo
+        # default, so broadening the resolution would silently redirect unrelated task runs.
+        SignalTeamConfig.objects.update_or_create(
+            team=self.team, defaults={"autostart_base_branches": {"acme/web": "dev"}}
+        )
+        task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.USER_CREATED)
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "run_source": "signal_report"},
+            )
+
+        assert result is not None and result.error is None
+        self.assertIsNone(task.runs.get().branch)
 
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
@@ -690,7 +775,36 @@ class TestFacadeReadsAndMappers(TestCase):
             repository="posthog/posthog",
             channel_id=channel_id,
         )
-        self.assertEqual(Task.objects.get(id=created.task_id).channel_id, channel_id if expect_filed else None)
+        task = Task.objects.select_related("channel").get(id=created.task_id)
+        if expect_filed:
+            self.assertEqual(task.channel_id, channel_id)
+        else:
+            assert task.channel is not None
+            self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
+            self.assertEqual(task.channel.created_by_id, self.user.id)
+
+    @parameterized.expand(
+        [
+            ("public", lambda self: self._make_channel().id, True),
+            ("unknown", lambda _self: uuid4(), False),
+            # Same rule as create_and_run_task above: someone else's "#me" is private,
+            # so filing into it must be refused, not just team-filtered.
+            ("other_users_personal", lambda self: self._make_teammates_personal_channel().id, False),
+        ]
+    )
+    def test_create_channel_task_respects_channel_visibility(self, _name, make_channel_id, expect_filed):
+        channel_id = make_channel_id(self)
+
+        if expect_filed:
+            task_id = facade.create_channel_task(
+                self.team.id, self.user.id, channel_id, title="From canvas", description="desc"
+            )
+            self.assertEqual(Task.objects.get(id=task_id).channel_id, channel_id)
+        else:
+            with self.assertRaises(ValueError):
+                facade.create_channel_task(
+                    self.team.id, self.user.id, channel_id, title="From canvas", description="desc"
+                )
 
     def test_ensure_personal_channel_id_idempotent_outside_request_scope(self):
         # No ambient team_scope here, like a Temporal activity — guards the for_team scoping.

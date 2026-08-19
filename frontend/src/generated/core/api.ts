@@ -26,11 +26,14 @@ import type {
     FileSystemShortcutListParams,
     FileSystemShortcutReorderApi,
     GitHubBranchesResponseApi,
+    GitHubInstallRequestListResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     IdentityProviderConfigApi,
     IdentityProviderConfigsListParams,
     InvitesListParams,
+    LeakedKeyReportApi,
+    LeakedKeyReportResponseApi,
     OauthApplicationsListParams,
     OnboardingSkipRequestApi,
     OrganizationDomainApi,
@@ -2293,6 +2296,28 @@ export const sessionRecordingsSharingRefreshCreate = async (
     })
 }
 
+export const getRevokeLeakedKeyCreateUrl = () => {
+    return `/api/revoke_leaked_key/`
+}
+
+/**
+ * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live.
+ *
+ * This endpoint only checks the region it is running on. `"found": false` does not guarantee the token is safe. If you're not sure which region issued it, check both: https://app.posthog.com/api/revoke_leaked_key and https://eu.posthog.com/api/revoke_leaked_key.
+ * @summary Report and revoke a leaked PostHog API key or token
+ */
+export const revokeLeakedKeyCreate = async (
+    leakedKeyReportApi: LeakedKeyReportApi,
+    options?: RequestInit
+): Promise<LeakedKeyReportResponseApi> => {
+    return apiMutator<LeakedKeyReportResponseApi>(getRevokeLeakedKeyCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(leakedKeyReportApi),
+    })
+}
+
 export const getUsersListUrl = (params?: UsersListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -2593,6 +2618,28 @@ export const usersIntegrationsGithubReposRefreshCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getUsersIntegrationsGithubInstallRequestsRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/github/install_requests/`
+}
+
+/**
+ * Return the requesting user's GitHub App install-approval requests, newest first.
+ *
+ * This is the durable server-side "awaiting org owner approval" state (see
+ * ``posthog.models.user_integration.GitHubInstallRequest``), distinct from the in-flight
+ * connect spinner, which never touches this table.
+ * @summary List the user's GitHub install-approval requests
+ */
+export const usersIntegrationsGithubInstallRequestsRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<GitHubInstallRequestListResponseApi> => {
+    return apiMutator<GitHubInstallRequestListResponseApi>(getUsersIntegrationsGithubInstallRequestsRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getUsersIntegrationsGithubPrepareCallbackCreateUrl = (uuid: string) => {

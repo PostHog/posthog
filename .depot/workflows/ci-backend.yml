@@ -29,7 +29,9 @@
 #   TRUNK_UPLOAD_ENABLED repo variable as an upload kill-switch, and its verdict step
 #   on TRUNK_QUARANTINE_ENABLED to decide whether known flakes are masked; since the
 #   shadow strips both the gate and the verdict step entirely, both variables are
-#   no-ops here and there is nothing to mirror)
+#   no-ops here and there is nothing to mirror. Canonical's turbo-tests gate now calls
+#   ./.github/actions/trunk-quarantine-gate, which retries the upload once; the shadow
+#   has no gate to call it from, so there is no ./.depot/actions mirror of it either)
 # - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain
@@ -46,6 +48,8 @@
 #   The shadow strips artifact uploads (above) and routes every cache write to Depot Cache
 #   (below), so it has neither the artifact to download nor a GitHub cache to fill: the job,
 #   and the check-migrations mig_schema_key output that feeds it, are depot-exempt.
+# - migrated-schema upload settings: canonical tunes the upload (e.g. retention-days);
+#   the shadow strips artifact uploads (above), so those tunings are depot-exempt.
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - events_json variants: the shadow never doubles the matrix (no RUN_NEW_EVENTS_SCHEMA
@@ -120,7 +124,7 @@ env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so the merge-base (PR)
     # and HEAD (push) key computations below can't drift.
-    # ci-e2e-playwright.yml, ci-dagster.yml, and ci-mcp.yml restore by the same key; keep their copies in sync when bumping.
+    # ci-e2e-playwright.yml, ci-dagster.yml, ci-mcp.yml and ci-rust-flags-integration.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v2
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -379,11 +383,27 @@ jobs:
                         # so they shouldn't trigger the Django/turbo-discover path either.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                        # Generated from frontend/src/queries/schema.json (see the `schema`
+                        # filter below). Excluding them here routes schema-only PRs into
+                        # turbo-discover's schema-impact narrowing instead of the
+                        # all-products legacy path. This cannot skip Django: the
+                        # schemaChanged branch hard-sets run_legacy=true. It also cannot
+                        # hide a hand-edit to the generated files — ci-python.yml
+                        # regenerates schema.py and fails on any diff, and both files stay
+                        # in the `schema` (and `backend`) filters so turbo-discover still
+                        # takes the schema path for them.
+                        - '!posthog/schema.py'
+                        - '!posthog/schema_enums.py'
                       schema:
                         # Tracked separately from `legacy` so turbo-discover can
                         # diff schema.json and narrow the product matrix to
                         # products that import the changed types.
                         - frontend/src/queries/schema.json
+                        # The generated outputs are excluded from `legacy` above; listing
+                        # them here keeps run_legacy=true (full Django) for any schema
+                        # change, including a stray hand-edit to a generated file.
+                        - posthog/schema.py
+                        - posthog/schema_enums.py
                       migrations:
                         - 'docker/clickhouse/**'
                         - 'posthog/migrations/*.py'
@@ -735,7 +755,8 @@ jobs:
 
                   # Partition selected files by the Django segment that owns them.
                   # Mirrors the positional path arguments in the Run Core / Run Temporal pytest invocations:
-                  #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags)
+                  #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags,
+                  #                   posthog/test/repo_invariants)
                   #   Core POE on:    posthog/clickhouse, posthog/queries, posthog/api/test/test_insight*,
                   #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
@@ -756,7 +777,7 @@ jobs:
                               poe+=("$f")
                               core+=("$f")
                               ;;
-                          posthog/dags/*|common/hogvm/python/test/*)
+                          posthog/dags/*|common/hogvm/python/test/*|posthog/test/repo_invariants/*)
                               # Explicitly --ignore'd by the Core invocation; nothing to do.
                               ;;
                           posthog/*|ee/*)
@@ -910,17 +931,42 @@ jobs:
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
             - name: Prime test_posthog from cached schema
-              # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
+              # Treat cache problems as misses; the migrate step below rebuilds the DB
+              # whenever this one reports restored=false.
+              id: prime-schema
               if: ${{ github.event_name == 'pull_request' }}
               run: |
+                  echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
-                      echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
+                      echo "::notice::Schema cache miss; the migrate step will build test_posthog"
                       exit 0
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  if ! ./bin/hogli db:restore-test-db; then
-                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  if ./bin/hogli db:restore-test-db; then
+                      echo "restored=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
+                  fi
+            - name: Migrate test_posthog from scratch
+              # Any run without a restored schema cache (master, dispatches, PR cache
+              # misses) replays the full migration chain here, in a process that exits
+              # before tests: the executor's memory high-water stays resident in
+              # whichever process runs it, and pytest must not carry it through the
+              # test phase. pytest --reuse-db adopts the DB like the PR prime above;
+              # any failure falls back to the in-pytest migrate.
+              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+              run: |
+                  admin_psql() { docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres "$@"; }
+                  if ! admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"; then
+                      echo "::warning::Could not recreate test_posthog; pytest --reuse-db will run the full migrate itself"
+                      exit 0
+                  fi
+                  if ! python manage.py migrate; then
+                      echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
+                      admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
             - name: Run product tests
               # --force: discover already decided this product needs testing, skip turbo cache
@@ -1000,6 +1046,19 @@ jobs:
                     run: tach check --dependencies --interfaces
                   - name: Check product facade enforcement (import-linter)
                     run: lint-imports
+                  # These guards take the whole repo as input (import graph after
+                  # django.setup(), signal registries, repo-wide AST scans), so diff-based
+                  # test selection can't pick them and the Django matrix skips them on
+                  # products-only diffs and drafts. They need no service containers.
+                  # Branches that predate the directory still carry the guards at their
+                  # old paths, so fall back to those rather than failing on a missing arg.
+                  - name: Run repo invariants (whole-repo pytest guards)
+                    run: |
+                        if [ -d posthog/test/repo_invariants ]; then
+                            pytest -p no:cacheprovider posthog/test/repo_invariants
+                        else
+                            pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
+                        fi
             # Block deleting historical migration files (see safe-django-migrations.md).
             # GITHUB_ACTIONS=false suppresses the command's PR annotations on the shadow.
             - name: Check deleted migrations
@@ -1135,8 +1194,7 @@ jobs:
               # Must match the migration-set computation in turbo-discover and the
               # push-side save below (inputs, hash, and key prefix). Keyed off the
               # master checkout (HEAD here) so a restored dump is exactly the state
-              # that "Run migrations up to master" would build from scratch; any
-              # difference in the migration set is a cache miss, never a stale hit.
+              # that "Run migrations up to master" would build from scratch.
               if: github.event_name != 'push'
               id: master-schema-key
               run: |
@@ -1160,6 +1218,11 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
+                  # The exact key misses in the minutes between a master migration
+                  # landing and its dump being saved. The PR base commit's dump is
+                  # always older than the checkout, so migrate just tops it up.
+                  restore-keys: |
+                      posthog-schema-master-${{ github.event.pull_request.base.sha }}
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -1732,7 +1795,10 @@ jobs:
               # changed (requirements.txt has the already-published version)
               run: |
                   sudo apt-get install unzip cmake curl uuid pkg-config
-                  curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  # Short budget: the `||` mirror is the real fallback for a host that is down.
+                  fetch=(curl --fail --location --retry 3 --retry-all-errors --retry-max-time 30 --connect-timeout 10)
+                  "${fetch[@]}" https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip \
+                      || "${fetch[@]}" https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
                   antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
@@ -1789,17 +1855,42 @@ jobs:
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
             - name: Prime test_posthog from cached schema
-              # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
+              # Treat cache problems as misses; the migrate step below rebuilds the DB
+              # whenever this one reports restored=false.
+              id: prime-schema
               if: ${{ github.event_name == 'pull_request' }}
               run: |
+                  echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
-                      echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
+                      echo "::notice::Schema cache miss; the migrate step will build test_posthog"
                       exit 0
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  if ! ./bin/hogli db:restore-test-db; then
-                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  if ./bin/hogli db:restore-test-db; then
+                      echo "restored=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
+                  fi
+            - name: Migrate test_posthog from scratch
+              # Any run without a restored schema cache (master, dispatches, PR cache
+              # misses) replays the full migration chain here, in a process that exits
+              # before tests: the executor's memory high-water stays resident in
+              # whichever process runs it, and pytest must not carry it through the
+              # test phase. pytest --reuse-db adopts the DB like the PR prime above;
+              # any failure falls back to the in-pytest migrate.
+              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+              run: |
+                  admin_psql() { docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres "$@"; }
+                  if ! admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"; then
+                      echo "::warning::Could not recreate test_posthog; pytest --reuse-db will run the full migrate itself"
+                      exit 0
+                  fi
+                  if ! python manage.py migrate; then
+                      echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
+                      admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
             # Tests
             - name: Set snapshot update flags
@@ -1905,6 +1996,7 @@ jobs:
                         --ignore=posthog/temporal \
                         --ignore=posthog/dags \
                         --ignore=common/hogvm/python/test \
+                        --ignore=posthog/test/repo_invariants \
                         "${full_ignores[@]}" \
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                         --durations=1000 --durations-min=1.0 \

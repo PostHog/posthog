@@ -188,6 +188,16 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["attr"], "scanner_id")
 
+    def test_backfills_inherit_scanner_object_rbac(self) -> None:
+        scanner = self._create_scanner()
+        self._set_resource_default("replay_scanner", "none")
+        self.client.force_login(self.other_user)
+        url = f"{self.scanners_url}{scanner.id}/backfills/"
+        self.assertEqual(self.client.get(url).status_code, 403)
+        window = {"window_start": "2026-01-01T00:00:00Z", "window_end": "2026-02-01T00:00:00Z"}
+        self.assertEqual(self.client.post(f"{url}estimate/", window, format="json").status_code, 403)
+        self.assertEqual(self.client.post(url, window, format="json").status_code, 403)
+
     def test_experiment_targeting_rejects_an_experiment_the_caller_cannot_view(self) -> None:
         # A scanner-editor without experiment access must not be able to confirm an experiment's
         # existence via the targeting validation response; a denied experiment reads as not-found.
@@ -202,7 +212,7 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
                 "name": "targeting-denied",
                 "scanner_type": "monitor",
                 "scanner_config": {"prompt": "p"},
-                "model": "gemini-3.6-flash",
+                "model": "gemini-3.7-flash",
                 "experiment_targeting": {
                     "experiment_id": experiment.id,
                     "variant_keys": [],
@@ -233,6 +243,38 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.client.force_login(self.user)
         resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
         self.assertEqual(resp.json()["experiment_targeting"], targeting)
+
+    def test_experiment_id_filter_returns_no_matches_for_an_inaccessible_experiment(self) -> None:
+        # Guards the ?experiment_id= disclosure: a scanner-viewer who can't access the experiment must
+        # not confirm a scanner targets it via the filter's match count. Distinct code path from the
+        # serializer redaction above — the scanner is hidden from the list entirely, not just nulled.
+        experiment = create_experiment(self.team, "hidden-flag")
+        targeting = {"experiment_id": experiment.id, "variant_keys": ["test"], "use_exposure_fallback": False}
+        self._create_scanner(name="targeted", experiment_targeting=targeting)
+        self._set_resource_default("replay_scanner", "viewer")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.get(f"{self.scanners_url}?experiment_id={experiment.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["results"], [])
+
+        # The creator, who can view the experiment, gets the match.
+        self.client.force_login(self.user)
+        resp = self.client.get(f"{self.scanners_url}?experiment_id={experiment.id}")
+        self.assertEqual([s["name"] for s in resp.json()["results"]], ["targeted"])
+
+    def test_experiment_id_filter_resolves_the_current_project_alias(self) -> None:
+        # The filter must resolve @current the way the viewset does, not pass the literal string to
+        # the DB lookup (which 500s). The user's current team is set by the test harness.
+        experiment = create_experiment(self.team, "aliased-flag")
+        targeting = {"experiment_id": experiment.id, "variant_keys": [], "use_exposure_fallback": False}
+        self._create_scanner(name="targeted", experiment_targeting=targeting)
+
+        resp = self.client.get(f"/api/environments/@current/vision/scanners/?experiment_id={experiment.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([s["name"] for s in resp.json()["results"]], ["targeted"])
 
 
 class TestVisionActionAccessControlInheritance(_VisionActionAPITestCase):

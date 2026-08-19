@@ -15,7 +15,7 @@ async function requestTaskResource<TResult>(
     query?: Record<string, string | number | boolean | undefined>
 ): Promise<TResult> {
     if (!context.api.config.taskId) {
-        throw new Error('Task comments are available only inside the current PostHog Code task.')
+        throw new Error('Task comments are available only inside the current PostHog Desktop task.')
     }
     const projectId = await context.stateManager.getProjectId()
     return await context.api.request<TResult>({

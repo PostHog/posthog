@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { capitalizeFirstLetter } from 'kea-forms'
 
 import { IconPencil } from '@posthog/icons'
@@ -66,6 +67,8 @@ export interface AccessControlTableProps {
     canEditAny: boolean
     visibleResources: Set<APIScopeObject>
     onEdit: (entry: AccessControlSettingsEntry) => void
+    /** Entry whose detail is currently open, highlighted in the list */
+    selectedEntryId?: string | null
 }
 
 export function AccessControlTable(props: AccessControlTableProps): JSX.Element {
@@ -80,7 +83,10 @@ export function AccessControlTable(props: AccessControlTableProps): JSX.Element 
             emptyState="No access control rules match these filters"
             pagination={{ pageSize: 50, hideOnSinglePage: true }}
             onRow={(entry) => ({
-                className: props.canEditAny ? 'cursor-pointer hover:bg-surface-secondary' : undefined,
+                className: clsx(
+                    props.canEditAny && 'cursor-pointer hover:bg-surface-secondary',
+                    getEntryId(entry) === props.selectedEntryId && 'bg-primary-highlight'
+                ),
                 onClick: (event) => {
                     if (!props.canEditAny) {
                         return

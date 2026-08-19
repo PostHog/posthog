@@ -131,6 +131,25 @@ class WarmRunDTO:
 
 
 @dataclass(frozen=True)
+class SlackThreadReferenceDTO:
+    """A passive link from a task to a public Slack discussion."""
+
+    url: str
+    channel: str
+    created_at: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskSlackUnfurlDTO:
+    """The task metadata needed to build a Slack unfurl."""
+
+    id: UUID
+    title: str
+    created_by_id: int | None
+    latest_run_status: str | None
+
+
+@dataclass(frozen=True)
 class TaskDetailDTO:
     """The HTTP detail representation of a task.
 
@@ -140,7 +159,8 @@ class TaskDetailDTO:
     ``None``). ``latest_run`` is the most-recent run as a ``TaskRunDetailDTO`` (or ``None``).
     ``latest_run_id`` carries just that run's id for the conversation envelope, which needs the id
     to reconnect to sandbox logs but not the full (presigned-log) run payload. ``created_by``
-    mirrors core ``UserBasicSerializer`` output.
+    mirrors core ``UserBasicSerializer`` output. ``last_activity_at`` is when something last
+    happened in the task, as opposed to ``updated_at``, which is when the row was last written.
     """
 
     id: UUID
@@ -164,9 +184,11 @@ class TaskDetailDTO:
     latest_run: "TaskRunDetailDTO | None" = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    last_activity_at: datetime | None = None
     created_by: "TaskUserBasicInfo | None" = None
     latest_run_id: UUID | None = None
     channel: UUID | None = None
+    slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -264,6 +286,8 @@ class TaskActivityDTO:
     latest_comment_id: UUID | None = None
     latest_comment_scope: str | None = None
     latest_comment_item_id: str | None = None
+    target_scope: str | None = None
+    target_id: str | None = None
     is_unread: bool = True
 
 
@@ -608,36 +632,6 @@ class CodeInviteRedeemResult:
     """
 
     outcome: str
-
-
-@dataclass(frozen=True)
-class TaskAutomationDTO:
-    """A scheduled task automation.
-
-    Mirrors exactly the fields ``TaskAutomationSerializer`` emits. Most read fields are
-    proxied off the underlying ``Task`` (``name``/``prompt``/``repository``/
-    ``github_integration``) or derived from the linked last run (``last_run_at``/
-    ``last_run_status``). ``github_integration`` is the integration's primary key (or
-    ``None``). ``last_task_id`` is always present (the automation's task id as a string);
-    ``last_task_run_id`` is the most recent run's id as a string, or ``None``.
-    """
-
-    id: UUID
-    name: str
-    prompt: str
-    repository: str | None
-    github_integration: int | None
-    cron_expression: str
-    timezone: str
-    template_id: str | None
-    enabled: bool
-    last_run_at: datetime | None
-    last_run_status: str | None
-    last_task_id: str
-    last_task_run_id: str | None
-    last_error: str | None
-    created_at: datetime
-    updated_at: datetime
 
 
 @dataclass(frozen=True)

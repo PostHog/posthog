@@ -172,6 +172,10 @@ class TestNotionSource:
                 "/v1/search (Caused by ReadTimeoutError(\"HTTPSConnectionPool(host='api.notion.com', "
                 'port=443): Read timed out."))',
             ),
+            (
+                "non_json_response_after_tenacity_exhausted",
+                "Notion returned a non-JSON response: status=200, url=https://api.notion.com/v1/search",
+            ),
         ]
     )
     def test_retryable_marker_matches_raised_message(self, _name: str, error_message: str) -> None:

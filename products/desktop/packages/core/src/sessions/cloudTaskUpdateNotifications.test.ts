@@ -145,6 +145,32 @@ function createHarness(isTaskAuthor = true) {
   const notifyPermissionRequest = vi.fn();
   const enqueueSpeech = vi.fn();
   const markActivity = vi.fn();
+  const notifyAgentSession: SessionServiceDeps["notifyAgentSession"] = (
+    notification,
+  ) => {
+    if (notification.isTaskAuthor === false) {
+      return;
+    }
+    if (notification.kind === "needs_input") {
+      notifyPermissionRequest(notification.taskTitle, notification.taskId);
+      if (!notification.agentSpoke) {
+        enqueueSpeech({ kind: "needs_input", source: "backstop" });
+      }
+      return;
+    }
+    if (notification.stopReason !== "end_turn") {
+      return;
+    }
+    notifyPromptComplete(
+      notification.taskTitle,
+      notification.stopReason,
+      notification.taskId,
+      notification.durationMs,
+    );
+    if (!notification.agentSpoke) {
+      enqueueSpeech({ kind: "done", source: "backstop" });
+    }
+  };
   const noopLog = {
     info: vi.fn(),
     warn: vi.fn(),
@@ -155,8 +181,7 @@ function createHarness(isTaskAuthor = true) {
   const deps = {
     store,
     log: noopLog,
-    notifyPromptComplete,
-    notifyPermissionRequest,
+    notifyAgentSession,
     enqueueSpeech,
     taskViewedApi: { markActivity },
     getPersistedConfigOptions: () => undefined,

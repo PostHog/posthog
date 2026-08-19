@@ -3,20 +3,19 @@ import {
   type IconWeight,
   LockSimpleIcon,
 } from "@phosphor-icons/react";
-import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { PERSONAL_CHANNEL_LABEL } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import type { ReactNode } from "react";
 
 /**
- * Whether only its own members can see a channel.
+ * Whether only its own members can see a channel, judged by its name.
  *
- * The personal "#me" channel is the only one today — it is per-user and can't
- * be shared. Channel names arrive server-normalized (lowercase-dashed), so a
- * case-insensitive match is enough; `Channel` carries no general privacy flag,
- * so this is the one place that has to learn about it when one lands.
+ * This is a fallback for surfaces that hold a name and nothing else. A caller
+ * with the channel in hand must pass `personal` to avoid deciding privacy from
+ * a display label.
  */
 export function isPrivateChannel(channelName: string | undefined): boolean {
   if (!channelName) return false;
-  return channelName.trim().toLowerCase() === PERSONAL_CHANNEL_NAME;
+  return channelName.trim().toLowerCase() === PERSONAL_CHANNEL_LABEL;
 }
 
 /**
@@ -35,10 +34,17 @@ export function channelGlyph(
     className?: string;
     weight?: IconWeight;
     space?: boolean;
+    /**
+     * Whether this is the viewer's private space. Pass it wherever the channel
+     * is in hand: the lock says "only you can see this", and deciding that from
+     * a name hands it to any public space that took the name.
+     */
+    personal?: boolean;
   },
 ): ReactNode {
-  if (!isPrivateChannel(channelName) && opts?.space) return null;
-  const Icon = isPrivateChannel(channelName) ? LockSimpleIcon : HashIcon;
+  const personal = opts?.personal ?? isPrivateChannel(channelName);
+  if (!personal && opts?.space) return null;
+  const Icon = personal ? LockSimpleIcon : HashIcon;
   return (
     <Icon
       size={opts?.size ?? 16}

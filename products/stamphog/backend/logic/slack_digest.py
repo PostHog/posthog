@@ -10,12 +10,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import structlog
+from slack_sdk.errors import SlackApiError
+from slack_sdk.web import SlackResponse
 
 from posthog.models.integration import Integration, SlackIntegration
 
 if TYPE_CHECKING:
     from ..models import DigestChannel
-    from .digest import DigestSummary
+    from .digest import DigestPRSummary, DigestSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -50,6 +52,21 @@ def _link(url: str, label: str) -> str:
     return f"<{url}|{_escape_mrkdwn(label).replace('|', '/')}>"
 
 
+def _pr_label(pr: DigestPRSummary, *, qualify: bool) -> str:
+    """``#412 Title``, or ``owner/repo#412 Title`` once the digest carries more than one repo.
+
+    A team audience collects merges from every repo it owns code in, and PR numbers only mean
+    something within a repo. Qualifying unconditionally would put the same constant prefix on
+    every line of the far more common single-repo digest.
+    """
+    number = f"{pr.repository}#{pr.pr_number}" if qualify and pr.repository else f"#{pr.pr_number}"
+    return f"{number} {pr.title}"
+
+
+def _spans_repositories(summary: DigestSummary) -> bool:
+    return len({pr.repository for pr in summary.prs}) > 1
+
+
 def _build_blocks(summary: DigestSummary) -> list[dict]:
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": "Merged PRs digest"}},
@@ -57,8 +74,9 @@ def _build_blocks(summary: DigestSummary) -> list[dict]:
     if summary.intro:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _clip(_escape_mrkdwn(summary.intro))}})
     blocks.append({"type": "divider"})
+    qualify = _spans_repositories(summary)
     for pr in summary.prs[:_MAX_PR_BLOCKS]:
-        link = _link(pr.url, f"#{pr.pr_number} {pr.title}")
+        link = _link(pr.url, _pr_label(pr, qualify=qualify))
         blocks.append(
             {
                 "type": "section",
@@ -78,8 +96,48 @@ def _build_blocks(summary: DigestSummary) -> list[dict]:
 def _build_fallback_text(summary: DigestSummary) -> str:
     # The top-level `text` fallback is parsed for mentions too, so escape it the same way.
     lines = [_escape_mrkdwn(summary.intro)] if summary.intro else []
-    lines.extend(f"#{pr.pr_number} {_escape_mrkdwn(pr.title)} — {_escape_mrkdwn(pr.summary)}" for pr in summary.prs)
+    qualify = _spans_repositories(summary)
+    lines.extend(
+        f"{_escape_mrkdwn(_pr_label(pr, qualify=qualify))} — {_escape_mrkdwn(pr.summary)}" for pr in summary.prs
+    )
     return "\n".join(lines) or "Merged PRs digest"
+
+
+def _post_message(slack: SlackIntegration, digest_channel: DigestChannel, summary: DigestSummary) -> SlackResponse:
+    # No unfurls: the summary text is LLM output over untrusted PR content, so a prompt-injected
+    # URL must not make Slack's unfurler fetch an attacker's server from inside the workspace.
+    return slack.client.chat_postMessage(
+        channel=digest_channel.slack_channel_id,
+        blocks=_build_blocks(summary),
+        text=_build_fallback_text(summary),
+        unfurl_links=False,
+        unfurl_media=False,
+    )
+
+
+def _join_channel(slack: SlackIntegration, digest_channel: DigestChannel) -> str | None:
+    """Join the channel so the retried post lands. Returns Slack's error code when it refused.
+
+    A channel resolved by name match is one the app was never invited to, which is the normal state
+    for an auto-provisioned row, so joining is what saves every team a manual ``/invite``. Tried
+    rather than gated on the scope: ``conversations.join`` needs ``channels:join``, and whether an
+    install granted it is not something the person who set up the digest can see or change. Slack
+    answers ``missing_scope`` in under a second, and the caller turns that into an error naming the
+    invite.
+
+    ``already_in_channel`` counts as joined: two audiences can resolve to the same channel, so
+    another worker may join between this one's failed post and its join, and treating that as a
+    refusal would fail a digest whose retry would have gone through.
+    """
+    try:
+        slack.client.conversations_join(channel=digest_channel.slack_channel_id)
+    except SlackApiError as e:
+        error = str(e.response.get("error") or "unknown_error")
+        if error == "already_in_channel":
+            return None
+        logger.warning("stamphog_digest_join_failed", digest_channel_id=str(digest_channel.id), error=error)
+        return error
+    return None
 
 
 def post_digest(team_id: int, digest_channel: DigestChannel, summary: DigestSummary) -> str | None:
@@ -90,14 +148,23 @@ def post_digest(team_id: int, digest_channel: DigestChannel, summary: DigestSumm
     if integration is None:
         raise DigestSlackError(f"No slack integration {digest_channel.slack_integration_id} for team {team_id}")
 
-    # No unfurls: the summary text is LLM output over untrusted PR content, so a prompt-injected
-    # URL must not make Slack's unfurler fetch an attacker's server from inside the workspace.
-    response = SlackIntegration(integration).client.chat_postMessage(
-        channel=digest_channel.slack_channel_id,
-        blocks=_build_blocks(summary),
-        text=_build_fallback_text(summary),
-        unfurl_links=False,
-        unfurl_media=False,
-    )
+    slack = SlackIntegration(integration)
+    try:
+        response = _post_message(slack, digest_channel, summary)
+    except SlackApiError as e:
+        if e.response.get("error") != "not_in_channel":
+            raise
+        # Retry once behind the join. A refusal names both Slack's reason and the fix: the run is what
+        # a human reads, and neither "invite the app" nor why the join failed is derivable from a
+        # raw Slack error code.
+        join_error = _join_channel(slack, digest_channel)
+        if join_error is not None:
+            channel = digest_channel.slack_channel_name or digest_channel.slack_channel_id
+            raise DigestSlackError(
+                f"Couldn't post to #{channel}. PostHog isn't in the channel and couldn't join it: Slack said "
+                f"{join_error}. Invite the app with /invite @PostHog."
+            ) from e
+        response = _post_message(slack, digest_channel, summary)
+
     ts = response.get("ts")
     return str(ts) if ts else None

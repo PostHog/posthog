@@ -354,6 +354,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # (a slow-to-wake service needs real wall-clock time, not an immediate re-dial);
             # Temporal's activity retry provides that backoff and reopens a fresh connection.
             "Read timed out",
+            # The source server rejected the client-construction probe because it was already
+            # at its concurrent-query limit (Code: 202, TOO_MANY_SIMULTANEOUS_QUERIES).
+            # `_get_client` already backs off and retries this in-process like a 429; this
+            # entry covers the case where the server stays saturated past all in-process
+            # attempts, so Temporal's own retry — with a fresh backoff budget — isn't noise.
+            "TOO_MANY_SIMULTANEOUS_QUERIES",
         }
 
     @contextmanager

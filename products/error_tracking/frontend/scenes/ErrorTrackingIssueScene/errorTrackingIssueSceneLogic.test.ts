@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import type { ErrorEventType } from 'lib/components/Errors/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -19,6 +20,8 @@ describe('errorTrackingIssueSceneLogic', () => {
             get: {
                 '/api/environments/:team_id/error_tracking/issues/:id/': {},
                 '/api/environments/:team_id/error_tracking/issues/:id/fingerprints/': [],
+                // Fails by default, so every test in this file also proves the panel degrades quietly.
+                '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'ClickHouse is unhappy' }],
             },
             post: {
                 '/api/environments/:team_id/query/': { results: [] },
@@ -42,6 +45,11 @@ describe('errorTrackingIssueSceneLogic', () => {
         expect(logic.values.eventsQueryKey).toBe(initialKey)
     })
 
+    it('leaves linked reports empty and does not fail when the signals lookup errors', async () => {
+        // Letting the loader reject would toast an error on every issue page during a signals outage.
+        await expectLogic(logic).toDispatchActions(['loadLinkedReportsSuccess']).toMatchValues({ linkedReports: [] })
+    })
+
     it('changes the events query key when the search query changes', () => {
         const initialKey = logic.values.eventsQueryKey
 
@@ -56,6 +64,14 @@ describe('errorTrackingIssueSceneLogic', () => {
         })
             .toDispatchActions(['loadInitialEventSuccess'])
             .toMatchValues({ initialEvent: null })
+    })
+
+    it('allows the event selection to close', () => {
+        const event = { uuid: 'event-1' } as ErrorEventType
+        logic.actions.selectEvent(event)
+        logic.actions.selectEvent(null)
+
+        expect(logic.values.selectedEvent).toBeNull()
     })
 
     it('keeps stable first and last event IDs in the issue summary', () => {

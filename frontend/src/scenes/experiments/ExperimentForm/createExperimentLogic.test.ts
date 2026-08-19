@@ -3,9 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
@@ -161,10 +159,6 @@ describe('createExperimentLogic', () => {
         })
 
         it('creates a scanner scoped to enrolled experiment sessions when selected', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION], {
-                [FEATURE_FLAGS.REPLAY_VISION]: true,
-            })
-
             await expectLogic(logic, () => {
                 logic.actions.setCreateReplayVisionScanner(true)
                 logic.actions.setExperiment({
@@ -268,10 +262,6 @@ describe('createExperimentLogic', () => {
             'creates a scoped scanner anyway when the exposure event looks unlinkable: $name',
             async ({ exposure_criteria, expectedQuery }) => {
                 exposureEventSeenWithSessionId = false
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION], {
-                    [FEATURE_FLAGS.REPLAY_VISION]: true,
-                })
-
                 await expectLogic(logic, () => {
                     logic.actions.setCreateReplayVisionScanner(true)
                     logic.actions.setExperiment({
@@ -293,10 +283,6 @@ describe('createExperimentLogic', () => {
 
         it('keeps the created experiment when scanner creation fails', async () => {
             scannerCreateSpy.mockResolvedValueOnce([500, { detail: 'Scanner unavailable' }])
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION], {
-                [FEATURE_FLAGS.REPLAY_VISION]: true,
-            })
-
             await expectLogic(logic, () => {
                 logic.actions.setCreateReplayVisionScanner(true)
                 logic.actions.setExperiment({

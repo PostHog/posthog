@@ -143,7 +143,7 @@ export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                     <Tooltip
                         title={
                             <>
-                                Version number cached once a day.
+                                Version number refreshed hourly.
                                 <br />
                                 Click 'Releases ↗' to check for any since.
                             </>

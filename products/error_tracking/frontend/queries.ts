@@ -18,7 +18,6 @@ import {
     ChartDisplayType,
     PropertyFilterType,
     PropertyGroupFilter,
-    PropertyOperator,
     UniversalFiltersGroup,
 } from '~/types'
 
@@ -269,10 +268,8 @@ export const errorTrackingIssueBreakdownQuery = ({
                     math: BaseMathType.TotalCount,
                     properties: [
                         {
-                            key: '$exception_issue_id',
-                            type: PropertyFilterType.Event,
-                            value: issueId,
-                            operator: PropertyOperator.Exact,
+                            key: `issue_id = ${escapeHogQLString(issueId)}`,
+                            type: PropertyFilterType.HogQL,
                         },
                         ...properties,
                     ],
@@ -291,12 +288,14 @@ export const errorTrackingBreakdownsQuery = ({
     issueId,
     breakdownProperties,
     dateRange,
+    filterGroup,
     filterTestAccounts,
     maxValuesPerProperty = LIMIT_ITEMS,
 }: {
     issueId: string
     breakdownProperties: string[]
     dateRange: DateRange
+    filterGroup: UniversalFiltersGroup
     filterTestAccounts: boolean
     maxValuesPerProperty?: number
 }): ErrorTrackingBreakdownsQuery => {
@@ -305,6 +304,7 @@ export const errorTrackingBreakdownsQuery = ({
         issueId,
         breakdownProperties,
         dateRange,
+        filterGroup: filterGroup as PropertyGroupFilter,
         filterTestAccounts,
         maxValuesPerProperty,
         tags: {

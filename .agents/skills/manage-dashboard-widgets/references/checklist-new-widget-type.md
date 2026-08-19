@@ -251,4 +251,4 @@ Capture when a user follows a widget link _into_ the product — the other half 
 </Link>
 ```
 
-Shipped examples: `SurveyResultsWidget.tsx` (`dashboard widget open survey clicked`), `ExperimentResultsWidget.tsx` (`dashboard widget open experiment clicked`).
+Shipped examples: `SurveyResultsWidget.tsx` (`dashboard widget open survey clicked`), `ExperimentResultsWidget.tsx` (`dashboard widget open experiment clicked`), and `ConversationsWidget.tsx` (`dashboard widget open support ticket clicked`).
