@@ -1882,6 +1882,25 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "(2003, \"Can't connect to MySQL server on 'db.example.com' (timed out)\")",
+            "(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)\")",
+        ],
+    )
+    def test_cannot_connect_surfaces_actionable_message(self, source, error_msg):
+        # A persistent connect failure is non-retryable, but the customer must get reachability
+        # guidance rather than the raw pymysql (2003, ...) tuple. Guards against reverting the
+        # umbrella message back to None.
+        non_retryable = source.get_non_retryable_errors()
+        friendly = next(
+            (message for pattern, message in non_retryable.items() if pattern in error_msg),
+            None,
+        )
+        assert friendly is not None, f"Connect failure should surface a friendly message: {error_msg}"
+        assert "SSH tunnel" in friendly
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "Cannot build decimal array from values",
             "ValueError: Cannot build decimal array from values",
         ],

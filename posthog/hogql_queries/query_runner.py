@@ -521,6 +521,26 @@ def get_query_runner(
         display_type = get_from_dict_or_attr(trends_filter, "display") if trends_filter else None
 
         if display_type == ChartDisplayType.CALENDAR_HEATMAP:
+            query_tags = get_from_dict_or_attr(query_obj, "tags")
+            if query_tags and get_from_dict_or_attr(query_tags, "productKey") == "web_analytics":
+                from products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute import (
+                    is_trends_precompute_enabled_for_team,
+                )
+
+                if is_trends_precompute_enabled_for_team(team):
+                    from products.web_analytics.backend.hogql_queries.web_calendar_heatmap import (
+                        WebCalendarHeatmapTrendsQueryRunner,
+                    )
+
+                    return WebCalendarHeatmapTrendsQueryRunner(
+                        query=query_obj,
+                        team=team,
+                        timings=timings,
+                        limit_context=limit_context,
+                        modifiers=modifiers,
+                        user=user,
+                    )
+
             from .insights.trends.calendar_heatmap_trends_query_runner import CalendarHeatmapTrendsQueryRunner
 
             return CalendarHeatmapTrendsQueryRunner(

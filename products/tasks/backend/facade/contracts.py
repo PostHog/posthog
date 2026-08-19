@@ -286,6 +286,8 @@ class TaskActivityDTO:
     latest_comment_id: UUID | None = None
     latest_comment_scope: str | None = None
     latest_comment_item_id: str | None = None
+    target_scope: str | None = None
+    target_id: str | None = None
     is_unread: bool = True
 
 
@@ -630,36 +632,6 @@ class CodeInviteRedeemResult:
     """
 
     outcome: str
-
-
-@dataclass(frozen=True)
-class TaskAutomationDTO:
-    """A scheduled task automation.
-
-    Mirrors exactly the fields ``TaskAutomationSerializer`` emits. Most read fields are
-    proxied off the underlying ``Task`` (``name``/``prompt``/``repository``/
-    ``github_integration``) or derived from the linked last run (``last_run_at``/
-    ``last_run_status``). ``github_integration`` is the integration's primary key (or
-    ``None``). ``last_task_id`` is always present (the automation's task id as a string);
-    ``last_task_run_id`` is the most recent run's id as a string, or ``None``.
-    """
-
-    id: UUID
-    name: str
-    prompt: str
-    repository: str | None
-    github_integration: int | None
-    cron_expression: str
-    timezone: str
-    template_id: str | None
-    enabled: bool
-    last_run_at: datetime | None
-    last_run_status: str | None
-    last_task_id: str
-    last_task_run_id: str | None
-    last_error: str | None
-    created_at: datetime
-    updated_at: datetime
 
 
 @dataclass(frozen=True)
