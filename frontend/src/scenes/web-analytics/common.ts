@@ -278,7 +278,7 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.AI_CRAWLERS_TREND]: 'AI crawler activity over time',
     [TileId.AI_CRAWLERS]: 'AI crawlers',
     [TileId.AI_CRAWLED_PAGES]: 'Pages AI crawlers read',
-    [TileId.PAGE_PERFORMANCE_TABLE]: 'Page performance',
+    [TileId.PAGE_PERFORMANCE_TABLE]: 'Pages by search & AI',
 }
 
 export interface BaseTile {

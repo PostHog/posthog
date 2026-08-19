@@ -133,6 +133,10 @@ class TestNonRetryableErrors:
     @parameterized.expand(
         [
             (
+                "bad_request",
+                "400 Client Error: Bad Request for url: https://www.clarity.ms/export-data/api/v1/project-live-insights?numOfDays=3",
+            ),
+            (
                 "unauthorized",
                 "401 Client Error: Unauthorized for url: https://www.clarity.ms/export-data/api/v1/project-live-insights",
             ),

@@ -4,7 +4,7 @@ import {
   type ExtensionFactory,
   isReadToolResult,
 } from "@earendil-works/pi-coding-agent";
-import { POSTHOG_OBJECT_REFERENCES_PROMPT } from "@posthog/shared";
+import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
 import {
   createEnrichment,
   enrichFileForAgent,
@@ -27,7 +27,7 @@ export function createPiEnrichmentExtension(config: PiEnrichmentConfig): {
     factory: (pi: ExtensionAPI) => {
       if (config.enableObjectReferences) {
         pi.on("before_agent_start", (event) => ({
-          systemPrompt: `${event.systemPrompt}\n\n${POSTHOG_OBJECT_REFERENCES_PROMPT}`,
+          systemPrompt: `${event.systemPrompt}\n\n## Rich output in replies\n${RICH_OUTPUT_TAGS_PROMPT}`,
         }));
       }
 

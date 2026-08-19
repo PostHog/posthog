@@ -119,8 +119,10 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
 
     task_run = await TaskRunModel.objects.select_related("task__created_by", "task__team").aget(id=input.run_id)
 
-    # Match the freshness window to the workflow's inactivity timeout for this run
-    # so the heartbeat suppression below never resets a timer it shouldn't.
+    # The workflow's inactivity timeout for this run also drives the heartbeat
+    # freshness guard (floored at the background default while a turn is in
+    # flight; see _background_heartbeat), so the relay never resets a timer for
+    # a run that is genuinely idle.
     origin_product = task_run.task.origin_product
     is_user_origin = not origin_product or origin_product == TaskModel.OriginProduct.USER_CREATED.value
     inactivity_timeout_seconds = resolve_inactivity_timeout(
@@ -289,13 +291,12 @@ async def _background_heartbeat(
         except TimeoutError:
             activity.heartbeat()
             now = time.monotonic()
-            if (
-                workflow_handle is not None
-                and last_event_time is not None
-                and last_event_time[0] > 0
-                and (now - last_event_time[0]) < inactivity_timeout_seconds
-                and (last_workflow_signal is None or (now - last_workflow_signal[0]) >= HEARTBEAT_INTERVAL_SECONDS)
-                and (agent_active is None or agent_active[0])
+            if workflow_handle is not None and _should_signal_workflow_heartbeat(
+                now=now,
+                last_event_time=last_event_time,
+                last_workflow_signal=last_workflow_signal,
+                agent_active=agent_active,
+                inactivity_timeout_seconds=inactivity_timeout_seconds,
             ):
                 if last_workflow_signal is not None:
                     last_workflow_signal[0] = now
@@ -305,6 +306,32 @@ async def _background_heartbeat(
                     )
                 except Exception as e:
                     logger.warning("relay_workflow_heartbeat_signal_failed", error=str(e))
+
+
+def _should_signal_workflow_heartbeat(
+    *,
+    now: float,
+    last_event_time: list[float] | None,
+    last_workflow_signal: list[float] | None,
+    agent_active: list[bool] | None,
+    inactivity_timeout_seconds: float,
+) -> bool:
+    """Gate for the periodic workflow keep-alive signal sent by _background_heartbeat."""
+    if last_event_time is None or last_event_time[0] <= 0:
+        return False
+    if agent_active is not None and not agent_active[0]:
+        return False
+    if last_workflow_signal is not None and (now - last_workflow_signal[0]) < HEARTBEAT_INTERVAL_SECONDS:
+        return False
+    # An in-flight turn can be legitimately quiet for minutes (a long tool call
+    # emits no session events), so a short per-run idle window (loop runs: 2
+    # minutes) must not starve keep-alives mid-turn and let the workflow tear
+    # the sandbox down under the agent. Floor the freshness guard at the
+    # background default; that still bounds how long a turn that hung without
+    # an end_of_turn can pin the sandbox, and the short window keeps applying
+    # to post-turn idleness because agent_active is false there.
+    event_freshness_seconds = max(inactivity_timeout_seconds, INACTIVITY_TIMEOUT_DEFAULT_SECONDS)
+    return (now - last_event_time[0]) < event_freshness_seconds
 
 
 async def _relay_loop(
@@ -421,6 +448,8 @@ async def _relay_loop(
 
                             if _is_end_of_turn(event_data):
                                 agent_active[0] = False
+                                if workflow_handle is not None:
+                                    await _signal_safely(workflow_handle, "agent_state_changed", arg=False)
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
                                 if task_run is not None and task_run.mode == "interactive":
@@ -440,6 +469,8 @@ async def _relay_loop(
                                     await asyncio.to_thread(_persist_final_message, run_id, final_text)
                             elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
+                                if workflow_handle is not None:
+                                    await _signal_safely(workflow_handle, "agent_state_changed", arg=True)
 
                             # Agent-design signal fan-out: first session/update opens the
                             # child relay; tool_call → step, agent_message_chunk → markdown.

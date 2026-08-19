@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams,
     InsightVariablesCreateBody,
     InsightVariablesDestroyParams,
     InsightVariablesPartialUpdateBody,
@@ -30,6 +31,47 @@ import {
 } from '@/generated/data_warehouse/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const ManagedWarehouseMetricHistoryGetSchema = DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams
+
+const managedWarehouseMetricHistoryGet = (): ToolBase<
+    typeof ManagedWarehouseMetricHistoryGetSchema,
+    Schemas.ManagedWarehouseMonitoringSeriesResponse
+> => ({
+    name: 'managed-warehouse-metric-history-get',
+    schema: ManagedWarehouseMetricHistoryGetSchema,
+    handler: async (context: Context, params: z.infer<typeof ManagedWarehouseMetricHistoryGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ManagedWarehouseMonitoringSeriesResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_warehouse/managed-warehouse-monitoring-timeseries/`,
+            query: {
+                metric: params.metric,
+                window: params.window,
+            },
+        })
+        return result
+    },
+})
+
+const ManagedWarehouseMonitoringGetSchema = z.object({})
+
+const managedWarehouseMonitoringGet = (): ToolBase<
+    typeof ManagedWarehouseMonitoringGetSchema,
+    Schemas.ManagedWarehouseMonitoringSnapshotResponse
+> => ({
+    name: 'managed-warehouse-monitoring-get',
+    schema: ManagedWarehouseMonitoringGetSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof ManagedWarehouseMonitoringGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ManagedWarehouseMonitoringSnapshotResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_warehouse/managed-warehouse-monitoring/`,
+        })
+        return result
+    },
+})
 
 const SavedQueryColumnAnnotationsCreateSchema = SavedQueryColumnAnnotationsCreateBody.extend({
     column_name: SavedQueryColumnAnnotationsCreateBody.shape['column_name'].describe(
@@ -557,6 +599,8 @@ const warehouseTablesRefreshSchemaCreate = (): ToolBase<typeof WarehouseTablesRe
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'managed-warehouse-metric-history-get': managedWarehouseMetricHistoryGet,
+    'managed-warehouse-monitoring-get': managedWarehouseMonitoringGet,
     'saved-query-column-annotations-create': savedQueryColumnAnnotationsCreate,
     'saved-query-column-annotations-list': savedQueryColumnAnnotationsList,
     'sql-variables-create': sqlVariablesCreate,

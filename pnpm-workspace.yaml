@@ -27,7 +27,6 @@ packages:
     - services/stripe-app
     - tools/*
     - '!tools/hedgebox-dummy'
-    - rust/cyclotron-node
     - rust/common/hogvm/node
     - rust/replay-anonymizer-node
 

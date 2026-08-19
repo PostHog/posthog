@@ -19,7 +19,11 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
-from products.engineering_analytics.backend.tests._github_fixtures import pr_association_entry, repo_id
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    pr_association_entry,
+    repo_id,
+    seeding_object_storage,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
@@ -92,7 +96,7 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
-        try:
+        with seeding_object_storage(self):
             table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
                 table_name=base_name,
@@ -101,8 +105,6 @@ class TestCIJobHistoryView(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 source_prefix=GITHUB_SOURCE_PREFIX,
             )
-        except PermissionError as err:
-            self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
         return table.name
 

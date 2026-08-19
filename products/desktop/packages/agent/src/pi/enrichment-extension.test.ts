@@ -3,7 +3,7 @@ import type {
   ExtensionContext,
   ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
-import { POSTHOG_OBJECT_REFERENCES_PROMPT } from "@posthog/shared";
+import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPiEnrichmentExtension } from "./enrichment-extension";
 
@@ -74,7 +74,7 @@ describe("createPiEnrichmentExtension", () => {
     expect(
       beforeAgentStartHandler?.({ systemPrompt: "Base system prompt" })
         .systemPrompt,
-    ).toContain(POSTHOG_OBJECT_REFERENCES_PROMPT);
+    ).toContain(RICH_OUTPUT_TAGS_PROMPT);
 
     const result = await handler?.(
       {

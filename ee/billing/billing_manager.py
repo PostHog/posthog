@@ -40,6 +40,11 @@ logger = structlog.get_logger(__name__)
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signature"
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
+BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
+
+# Marks tokens minted by the billing alerts evaluation job; billing recognizes this claim
+# on its read-only billing status path for tokens without a user role.
+BILLING_ALERTS_EVALUATION_SERVICE_ACTION = "billing_alerts_evaluation"
 
 
 class BillingAPIErrorCodes(Enum):
@@ -826,6 +831,20 @@ class BillingManager:
         handle_billing_service_error(res)
         return res.json()
 
+    def get_billing_status_for_alerts(self, organization: Organization) -> dict[str, Any]:
+        """Read billing status for billing alert evaluation.
+
+        Evaluation runs as a backend job without an acting user, so the token carries the
+        billing alerts service_action claim instead of a user role claim.
+        """
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers=self.get_auth_headers(organization, service_action=BILLING_ALERTS_EVALUATION_SERVICE_ACTION),
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
+        handle_billing_service_error(res)
+        return res.json()
+
     def get_usage_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
         return self._request_with_post_fallback(organization, "/api/v2/usage/", params)
 
@@ -846,7 +865,12 @@ class BillingManager:
         url = f"{BILLING_SERVICE_URL}{path}"
         headers = self.get_auth_headers(organization)
 
-        res = requests.get(url, headers=headers, params=self._to_query_params(params))
+        res = requests.get(
+            url,
+            headers=headers,
+            params=self._to_query_params(params),
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
 
         if res.status_code in (414, 431):
             logger.info(
@@ -855,7 +879,12 @@ class BillingManager:
                 status_code=res.status_code,
                 organization_id=str(organization.id),
             )
-            res = requests.post(url, headers=headers, json=self._to_post_body(params))
+            res = requests.post(
+                url,
+                headers=headers,
+                json=self._to_post_body(params),
+                timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+            )
 
         handle_billing_service_error(res)
         return res.json()
