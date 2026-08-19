@@ -402,6 +402,11 @@ export function GitHubConnectPanel() {
                                 installationId,
                                 handleConnectGitHub,
                               );
+                            } catch {
+                              // The pre-connect disconnect failed, so no
+                              // connect flow ever started; a later unmount
+                              // must not report this as user abandonment.
+                              inFlightConnectRef.current = null;
                             } finally {
                               setReconnectingInstallationId(null);
                             }
