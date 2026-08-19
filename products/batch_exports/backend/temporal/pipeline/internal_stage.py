@@ -701,20 +701,51 @@ async def _execute_query(
     query_id = str(uuid.uuid4())
     logger = LOGGER.bind(query_id=query_id)
     with log_query_duration(logger=logger, query_id=query_id, query_type="insert_into_internal_stage"):
-        try:
-            summary = await client.execute_query_with_summary(
-                query, query_parameters=query_parameters, query_id=query_id, timeout=300, settings=query_settings
-            )
-        except ClickHouseClientTimeoutError:
-            logger.warning(
-                "Timed-out waiting for insert into S3. Will attempt to check query status and wait for completion",
-                timeout=300,
-            )
-            await _wait_for_query_completion(client, query_id)
-            # The summary is gone with the timed-out response, but the query has finished, so
-            # recover the written-row count from its query log entry.
-            return await client.aget_written_rows_from_query_log(query_id)
+        async with _kill_query_on_cancellation(client, query_id):
+            try:
+                summary = await client.execute_query_with_summary(
+                    query, query_parameters=query_parameters, query_id=query_id, timeout=300, settings=query_settings
+                )
+            except ClickHouseClientTimeoutError:
+                logger.warning(
+                    "Timed-out waiting for insert into S3. Will attempt to check query status and wait for completion",
+                    timeout=300,
+                )
+                await _wait_for_query_completion(client, query_id)
+                # The summary is gone with the timed-out response, but the query has finished, so
+                # recover the written-row count from its query log entry.
+                return await client.aget_written_rows_from_query_log(query_id)
     return _written_rows_from_summary(summary)
+
+
+@asynccontextmanager
+async def _kill_query_on_cancellation(client: ClickHouseClient, query_id: str) -> typing.AsyncIterator[None]:
+    """Kill `query_id` if we are cancelled while waiting on it.
+
+    Dropping the connection does not stop an INSERT: `cancel_http_readonly_queries_on_client_close`
+    is enabled on our cluster but covers only reads, and ClickHouse currently offers no INSERT
+    equivalent. Without an explicit kill the query keeps writing to the stage until its own
+    execution time limit, despite us no longer waiting on it.
+
+    The kill is best-effort. It is timeout-bounded so a slow ClickHouse cannot hold up our exit, and
+    a kill that fails is logged rather than raised so it cannot replace the `CancelledError` we are
+    handling — a cancelled run must still be recorded as cancelled, not as a failure. Being cancelled
+    again abandons the attempt, which is deliberate: the kill cannot outlive the client.
+    """
+    logger = LOGGER.bind(query_id=query_id)
+    try:
+        yield
+    except asyncio.CancelledError:
+        logger.warning("Cancelled while waiting for insert into S3. Attempting to cancel the query")
+        try:
+            await asyncio.wait_for(client.acancel_query(query_id), timeout=30)
+        except asyncio.CancelledError:
+            logger.warning("Cancelled again while cancelling query")
+        except TimeoutError:
+            logger.warning("Timed out cancelling query", timeout=30)
+        except Exception:
+            logger.warning("Failed to cancel query after cancellation", exc_info=True)
+        raise
 
 
 async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) -> None:

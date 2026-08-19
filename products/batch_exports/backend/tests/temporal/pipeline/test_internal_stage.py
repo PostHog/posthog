@@ -384,6 +384,68 @@ async def test_execute_query_recovers_written_rows_from_query_log_on_timeout(que
     client.aget_written_rows_from_query_log.assert_awaited_once()
 
 
+@pytest.mark.parametrize("timed_out_first", [False, True], ids=["while_awaiting_query", "while_waiting_for_completion"])
+async def test_execute_query_cancels_the_query_when_cancelled(timed_out_first: bool):
+    """Test that on cancellation, we cancel the insert instead of leaving it running.
+
+    Dropping the connection does not stop an INSERT: `cancel_http_readonly_queries_on_client_close`
+    is enabled on our cluster but covers only reads, and ClickHouse currently offers no INSERT
+    equivalent. Without an explicit kill the query keeps writing to the stage until its own
+    execution time limit, despite us no longer waiting on it.
+
+    Covers cancellation both while awaiting the query's response and while polling for it to
+    finish after the response timed out.
+    """
+    started = asyncio.Event()
+
+    async def block_forever(*args, **kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    client = AsyncMock()
+    if timed_out_first:
+        client.execute_query_with_summary.side_effect = ClickHouseClientTimeoutError("INSERT ...", "test-query-id")
+        client.acheck_query.side_effect = block_forever
+    else:
+        client.execute_query_with_summary.side_effect = block_forever
+
+    task = asyncio.create_task(_execute_query(client, "INSERT INTO FUNCTION s3(...) SELECT ...", {}))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    client.acancel_query.assert_awaited_once()
+    # The kill has to target the query we started, which is the id the insert was sent with.
+    query_id = client.execute_query_with_summary.await_args.kwargs["query_id"]
+    assert client.acancel_query.await_args.args == (query_id,)
+
+
+async def test_execute_query_still_cancels_when_the_kill_fails():
+    """If our attempt to cancel the query fails, we still need to ensure we propagate the
+    CancelledError.
+    """
+    started = asyncio.Event()
+
+    async def block_forever(*args, **kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    client = AsyncMock()
+    client.execute_query_with_summary.side_effect = block_forever
+    client.acancel_query.side_effect = ClickHouseClientTimeoutError("KILL ...", "test-query-id")
+
+    task = asyncio.create_task(_execute_query(client, "INSERT INTO FUNCTION s3(...) SELECT ...", {}))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    client.acancel_query.assert_awaited_once()
+
+
 class PersonToExport(t.TypedDict):
     team_id: int
     person_id: str
