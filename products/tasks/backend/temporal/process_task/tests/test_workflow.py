@@ -2356,6 +2356,16 @@ class TestContinueAsNew:
         wf._context = ctx
         return wf
 
+    async def test_agent_state_tracks_end_of_turn(self) -> None:
+        workflow_instance = ProcessTaskWorkflow()
+
+        await workflow_instance.agent_state_changed(True)
+        assert workflow_instance._agent_active is True
+        assert workflow_instance._end_of_turn_received is False
+
+        await workflow_instance.agent_state_changed(False)
+        assert (workflow_instance._agent_active, workflow_instance._end_of_turn_received) == (False, True)
+
     def test_build_and_restore_round_trips_loop_state(self, monkeypatch) -> None:
         chain_start = datetime(2026, 7, 16, 9, 0, tzinfo=UTC)
         monkeypatch.setattr(
@@ -2371,6 +2381,9 @@ class TestContinueAsNew:
         wf._first_user_message_received = True
         wf._is_agent_design_enabled = True
         wf._last_active_time = datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
+        wf._agent_active = False
+        wf._end_of_turn_received = True
+        wf._last_agent_heartbeat_at = datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
         wf._slack_thread_context = {"channel": "C1"}
         wf._posthog_mcp_scopes = "full"
 
@@ -2394,6 +2407,9 @@ class TestContinueAsNew:
         assert restored._is_agent_design_enabled is True
         # The datetime survives the ISO round-trip.
         assert restored._last_active_time == datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
+        assert restored._agent_active is False
+        assert restored._end_of_turn_received is True
+        assert restored._last_agent_heartbeat_at == datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
         # The wall-clock cap anchors on the chain start, so the first execution seeds it from
         # its own start_time and every later continuation carries that same value forward.
         assert restored._chain_started_at == chain_start
