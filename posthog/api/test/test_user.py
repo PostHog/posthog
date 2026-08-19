@@ -344,7 +344,7 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is expected
 
-    def test_requires_credential_review_skipped_when_impersonating(self):
+    def test_requires_credential_review_skipped_when_impersonating_via_session(self):
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -352,8 +352,40 @@ class TestUserAPI(APIBaseTest):
             secure_value=hash_key_value("phx_test_value_impersonated"),
             scopes=["*"],
         )
-        with patch("posthog.api.user.is_impersonated_session", return_value=True):
+        with patch("posthog.helpers.impersonation.is_impersonated_session", return_value=True):
             response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is False
+
+    def test_requires_credential_review_skipped_when_impersonating_via_oauth_token(self):
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Test key",
+            secure_value=hash_key_value("phx_test_value_impersonated_oauth"),
+            scopes=["*"],
+        )
+        staff = User.objects.create_user(email="staff@example.com", password="x", first_name="Staff", is_staff=True)
+        app = OAuthApplication.objects.create(
+            name="MCP client",
+            client_id="test_impersonation_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="pha_test_impersonated_access_token",
+            scope="user:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+            impersonated_by=staff,
+        )
+        self.client.logout()
+        response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {token.token}"})
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is False
 

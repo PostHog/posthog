@@ -90,6 +90,7 @@ from posthog.helpers.email_utils import (
     reject_plus_addressed_email,
     validate_display_name,
 )
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
@@ -458,8 +459,7 @@ class UserSerializer(serializers.ModelSerializer):
         if instance.credentials_reviewed_at is not None:
             return False
         # impersonating users shouldn't bounced into the credential review screen
-        request = self.context.get("request")
-        if request is not None and is_impersonated_session(request):
+        if is_impersonated(self.context.get("request")):
             return False
         if PersonalAPIKey.objects.filter(user=instance).exists():
             return True
