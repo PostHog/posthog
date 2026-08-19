@@ -69,19 +69,13 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                                 type="warning"
                                 className="mb-2"
                                 action={{
-                                    children: 'Email an engineer',
-                                    onClick: () => {
-                                        openSupportForm({
-                                            kind: 'bug',
-                                            isEmailFormOpen: true,
-                                            exception_event: exceptionEvent ?? null,
-                                        })
-                                    },
+                                    children: 'Reload page',
+                                    onClick: () => window.location.reload(),
                                 }}
                             >
-                                This error is commonly caused by browser extensions (such as translation or ad-blocking
-                                extensions) that modify the page. Try disabling your browser extension(s) and reloading
-                                the page to avoid this error in the future.
+                                This page could not update, usually because your browser is translating it or an
+                                extension changed it. Reload the page to recover. To stop it happening again, turn off
+                                page translation for this site.
                             </LemonBanner>
                         )}
                         <pre>
@@ -98,43 +92,39 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                         {exceptionEvent?.uuid && (
                             <div className="text-muted text-xs mb-2">Exception ID: {exceptionEvent.uuid}</div>
                         )}
-                        {!isBrowserExtensionError && (
-                            <>
-                                <p className="mb-2">
-                                    Click below to send this to an engineer.{' '}
-                                    {exceptionEvent
-                                        ? "We'll attach the exception ID, stack trace, and session replay automatically"
-                                        : "We'll attach the session replay automatically"}{' '}
-                                    — just tell us what you were doing, and add a screenshot if you think it will help.
-                                </p>
-                                <div className="flex gap-2 flex-wrap">
-                                    <LemonButton
-                                        type="primary"
-                                        center
-                                        onClick={() => {
-                                            openSupportForm({
-                                                kind: 'bug',
-                                                isEmailFormOpen: true,
-                                                exception_event: exceptionEvent ?? null,
-                                            })
-                                        }}
-                                        className="flex-1"
-                                    >
-                                        Email an engineer
-                                    </LemonButton>
-                                    <LemonButton
-                                        type="secondary"
-                                        center
-                                        icon={<IconCopy />}
-                                        onClick={() => void copyToClipboard(errorDetails, 'error details')}
-                                        disabledReason={!errorDetails ? 'No details to copy' : undefined}
-                                        className="flex-1"
-                                    >
-                                        Copy error details
-                                    </LemonButton>
-                                </div>
-                            </>
-                        )}
+                        <p className="mb-2">
+                            Click below to send this to an engineer.{' '}
+                            {exceptionEvent
+                                ? "We'll attach the exception ID, stack trace, and session replay automatically"
+                                : "We'll attach the session replay automatically"}{' '}
+                            — just tell us what you were doing, and add a screenshot if you think it will help.
+                        </p>
+                        <div className="flex gap-2 flex-wrap">
+                            <LemonButton
+                                type="primary"
+                                center
+                                onClick={() => {
+                                    openSupportForm({
+                                        kind: 'bug',
+                                        isEmailFormOpen: true,
+                                        exception_event: exceptionEvent ?? null,
+                                    })
+                                }}
+                                className="flex-1"
+                            >
+                                Email an engineer
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                center
+                                icon={<IconCopy />}
+                                onClick={() => void copyToClipboard(errorDetails, 'error details')}
+                                disabledReason={!errorDetails ? 'No details to copy' : undefined}
+                                className="flex-1"
+                            >
+                                Copy error details
+                            </LemonButton>
+                        </div>
                     </div>
                 )
             }}

@@ -161,7 +161,10 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     return (
         <SceneContent>
             <div className="flex flex-col items-center pt-16 pb-8">
-                <div className="w-full max-w-5xl px-4 flex flex-col gap-6">
+                {/* Chrome's page translation rewrites text nodes in place, which orphans React's DOM
+                    references and crashes the step swap when React unmounts the previous step. Opting the
+                    wizard out of translation keeps those references valid. */}
+                <div className="w-full max-w-5xl px-4 flex flex-col gap-6" translate="no">
                     <SceneTitleSection
                         name={title}
                         resourceType={{ type: 'replay_vision' }}
