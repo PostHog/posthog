@@ -15,6 +15,7 @@ const allSteps = {
   hasCodeAccess: false,
   hasImportableConfig: true,
   hasGithubIntegration: undefined,
+  projectCount: 2,
 };
 
 describe("computeActiveSteps", () => {
@@ -40,6 +41,22 @@ describe("computeActiveSteps", () => {
     ).not.toContain("import-config");
   });
 
+  it("drops project-select only when there is exactly one project", () => {
+    expect(computeActiveSteps({ ...allSteps, projectCount: 1 })).not.toContain(
+      "project-select",
+    );
+    expect(computeActiveSteps({ ...allSteps, projectCount: 2 })).toContain(
+      "project-select",
+    );
+    // A list that has not loaded says nothing about how many projects exist.
+    expect(
+      computeActiveSteps({ ...allSteps, projectCount: undefined }),
+    ).toContain("project-select");
+    expect(computeActiveSteps({ ...allSteps, projectCount: 0 })).toContain(
+      "project-select",
+    );
+  });
+
   it("drops install-cli only on a confirmed github connection", () => {
     expect(
       computeActiveSteps({ ...allSteps, hasGithubIntegration: true }),
@@ -56,6 +73,7 @@ describe("nearestActiveStep", () => {
     hasCodeAccess: true,
     hasImportableConfig: false,
     hasGithubIntegration: undefined,
+    projectCount: 2,
   });
 
   it("returns the step itself while it is still active", () => {
@@ -93,6 +111,7 @@ describe("step navigation", () => {
     hasCodeAccess: true,
     hasImportableConfig: true,
     hasGithubIntegration: undefined,
+    projectCount: 2,
   });
 
   it("identifies first and last steps", () => {
