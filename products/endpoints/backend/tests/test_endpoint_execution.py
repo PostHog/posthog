@@ -2392,6 +2392,36 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
 
+    def test_materialized_user_safe_failure_is_still_captured(self):
+        # A user-safe error in the materialized path can mean the materialization is broken (e.g.
+        # UNKNOWN_TABLE). The inline fallback then hides it, so the materialized handler must still
+        # capture it and emit a failure signal — unlike the inline handler, which skips both.
+        endpoint = self._make_fresh_materialized_endpoint(
+            "mat-user-safe-failure", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+        )
+
+        error = CHQueryErrorNoCommonType(
+            "DB::Exception: Table default.foo does not exist. UNKNOWN_TABLE", code=60, code_name="UNKNOWN_TABLE"
+        )
+        inline_response = Response({"results": [[1]], "columns": ["count()"]})
+        with (
+            mock.patch.object(
+                EndpointExecutionService,
+                "_execute_query_and_respond",
+                side_effect=[error, inline_response],
+            ) as mock_exec,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_emit_signal,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
+        mock_capture.assert_called_once()
+        mock_emit_signal.assert_called_once()
+
     def test_materialized_cache_ttl_derived_from_modeling_jobs(self):
         """v2 DAG runs record success in DataModelingJob but never write saved_query.last_run_at.
         The cache TTL must key on the job, not clamp to 1s off the frozen saved-query timestamp."""

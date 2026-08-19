@@ -132,10 +132,11 @@ def _is_query_guardrail_error(error: BaseException) -> bool:
 
 
 def _is_customer_query_error(error: BaseException) -> bool:
-    """Errors that execute() turns into a clean 4xx, so handlers must not capture them or mint a
-    failure signal: cost guardrails plus HogQL/ClickHouse errors already classified as user-safe
-    (for example an unparseable date reaching ClickHouse). Capturing them floods error tracking
-    with customer-caused noise."""
+    """Errors that execute() turns into a clean 4xx during inline execution, so the inline handler
+    must not capture them or mint a failure signal: cost guardrails plus HogQL/ClickHouse errors
+    already classified as user-safe (for example an unparseable date reaching ClickHouse). Capturing
+    them floods error tracking with customer-caused noise. Not used for the materialized handler,
+    where the same user-safe error can instead mean the materialization is broken."""
     return _is_query_guardrail_error(error) or isinstance(error, (ExposedHogQLError, ExposedCHQueryError))
 
 
@@ -835,8 +836,10 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
-            # Customer-caused errors are not faults: skip capture and let execute() classify them.
-            if _is_customer_query_error(e):
+            # Only cost/capacity guardrails skip capture here: a user-safe error (e.g. UNKNOWN_TABLE,
+            # an unresolved field) can mean the materialization itself is broken. execute() then retries
+            # inline and, on success, keeps no fault record, so this branch must still report it.
+            if _is_query_guardrail_error(e):
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
