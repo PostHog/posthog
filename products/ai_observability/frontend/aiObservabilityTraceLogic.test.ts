@@ -109,9 +109,7 @@ describe('aiObservabilityTraceLogic', () => {
         // Navigate to a timestamped trace, then to a trace URL without a timestamp (the shape the
         // review-queue next/prev links produce). The stale range must not leak into the new query.
         const timestamp = '2024-01-01T00:00:00Z'
-        router.actions.push(
-            addProjectIdIfMissing(urls.aiObservabilityTrace('trace-a', { timestamp }), MOCK_TEAM_ID)
-        )
+        router.actions.push(addProjectIdIfMissing(urls.aiObservabilityTrace('trace-a', { timestamp }), MOCK_TEAM_ID))
         await expectLogic(logic).toFinishAllListeners()
 
         router.actions.push(addProjectIdIfMissing(urls.aiObservabilityTrace('trace-b'), MOCK_TEAM_ID))
