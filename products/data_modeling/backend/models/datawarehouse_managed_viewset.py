@@ -197,7 +197,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # creation entirely — no managed DAG is created for that kind.
         if saved_queries_to_schedule:
             managed_dag = DAG.get_or_create_revenue_analytics(self.team)
-            dag_database = Database.create_for(self.team.pk, bypass_warehouse_access_control=True)
+            dag_database = Database.create_for(team=self.team, bypass_warehouse_access_control=True)
             for saved_query in saved_queries_to_schedule:
                 try:
                     # reconcile once after both loops, not once per view
