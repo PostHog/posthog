@@ -328,6 +328,25 @@ describe('CdpCyclotronWorker', () => {
             )
         })
 
+        it('should keep the job for a later retry if the terminal row cannot be recorded', async () => {
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+            const dequeueInvocationsSpy = jest
+                .spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
+                .mockResolvedValue(undefined)
+            jest.spyOn(
+                processor['invocationResultsService'].invocationResultsRowsService,
+                'recordTerminalFailureDurably'
+            ).mockResolvedValue(false)
+            const invocation2 = createExampleInvocation(fn, globals)
+            invocation2.functionId = new UUIDT().toString()
+
+            const results = await processor['loadHogFunctions']([invocation2])
+
+            expect(results).toEqual([])
+            // Dequeuing without the terminal row would recreate the stuck-'running' state
+            expect(dequeueInvocationsSpy).toHaveBeenCalledWith([])
+        })
+
         describe('e2e lag metrics tracking', () => {
             let dateNowSpy: jest.SpyInstance
             const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })

@@ -151,7 +151,7 @@ export class CdpCyclotronWorker<
             // Record the terminal lifecycle row BEFORE dequeuing (same ordering as the
             // janitor's poison-pill recovery). Dropping the job without one leaves the
             // invocation stuck 'running' in the runs UI and permanently un-rerunnable.
-            await Promise.all(
+            const recorded = await Promise.all(
                 failedInvocations.map(({ invocation, errorKind, error }) =>
                     this.invocationResultsService.invocationResultsRowsService.recordTerminalFailureDurably(
                         invocation,
@@ -159,7 +159,12 @@ export class CdpCyclotronWorker<
                     )
                 )
             )
-            await this.cyclotronJobQueue.dequeueInvocations(failedInvocations.map((x) => x.invocation))
+            // Keep any job whose terminal row could not be produced so a later fetch retries
+            // it, unless lifecycle recording is disabled (then there is no row to go stale).
+            const dequeueable = failedInvocations.filter(
+                (_, i) => recorded[i] || !this.config.HOG_INVOCATION_RESULTS_ENABLED
+            )
+            await this.cyclotronJobQueue.dequeueInvocations(dequeueable.map((x) => x.invocation))
         }
 
         return loadedInvocations
