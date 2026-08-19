@@ -545,14 +545,14 @@ function buildBlocks(now, rows) {
     return blocks
 }
 
-async function postToSlack(blocks) {
+async function postToSlack(blocks, text = 'Weekly flaky test report') {
     const res = await fetch('https://slack.com/api/chat.postMessage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
         body: JSON.stringify({
             channel: SLACK_CHANNEL,
             blocks,
-            text: 'Weekly flaky test report', // notification fallback
+            text, // notification fallback
             unfurl_links: false,
         }),
     })
@@ -606,15 +606,21 @@ export {
     buildBlocks,
     buildQueue,
     buildRunnerReports,
+    cell,
     CLUSTER_MIN_TESTS,
     enrich,
     enrichRunnerCandidates,
     fetchCandidatePools,
     fetchTrunkQuarantined,
     flakyTestsUrl,
+    hogql,
+    linkedCell,
+    postToSlack,
     REPORT_RUNNERS,
     repoPathResolver,
+    resolveOwners,
     selectReportCandidates,
+    shortName,
     tableRows,
     testStatusFor,
     trackedTestPaths,
