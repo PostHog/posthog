@@ -1164,6 +1164,31 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 sessionRecordingsResponseLoading: false,
             })
         })
+
+        it('clears the error when the retry succeeds', async () => {
+            // The retry button dispatches loadSessionRecordings; the flag must clear on it and on the
+            // eventual success, or the error pane stays up over a loaded list.
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockRejectedValueOnce(new Error('boom'))
+                .mockResolvedValue({ results: listOfSessionRecordings, has_next: false } as Awaited<
+                    ReturnType<typeof api.recordings.list>
+                >)
+
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'retry-clears-error' })
+            logic.mount()
+
+            await jest.advanceTimersByTimeAsync(400)
+            await expectLogic(logic).toMatchValues({ sessionRecordingsAPIErrored: true })
+
+            logic.actions.loadSessionRecordings()
+            await jest.advanceTimersByTimeAsync(400)
+            await expectLogic(logic).toMatchValues({
+                sessionRecordingsAPIErrored: false,
+                sessionRecordingsResponseLoading: false,
+            })
+            expect(listSpy).toHaveBeenCalledTimes(2)
+        })
     })
 
     describe('person specific logic', () => {

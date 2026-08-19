@@ -1200,7 +1200,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             false,
             {
                 loadSessionRecordingsFailure: () => true,
-                loadSessionRecordingSuccess: () => false,
+                // Clear on retry start and on success — the retry button dispatches loadSessionRecordings,
+                // so without these the error pane stays up through a successful reload.
+                loadSessionRecordings: () => false,
+                loadSessionRecordingsSuccess: () => false,
                 setFilters: () => false,
                 setAdvancedFilters: () => false,
                 loadNext: () => false,
