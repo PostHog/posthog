@@ -216,11 +216,8 @@ SLACK_IMAGE_TITLE_LIMIT = 2000
 
 
 def build_chart_image_urls(charts: Any, *, team_id: int) -> list[dict]:
-    """Mint one delivery image url per persisted chart, dropping any whose asset is gone.
-
-    Takes Any because the input is raw JSONB read back from content_snapshot, where a row edited
-    out of band can hold anything — including a value that is not a list.
-    """
+    # Any, not list: this is raw JSONB read back from content_snapshot, where a row edited out of
+    # band can hold anything.
     if not isinstance(charts, list):
         return []
     urls: list[dict] = []

@@ -1,10 +1,13 @@
 import time
+from contextlib import ExitStack
 
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
+    ChartFailureReason,
+    ChartRenderFailure,
     ValidatedChart,
     build_export_context,
     render_charts,
@@ -166,30 +169,44 @@ async def test_a_failed_render_drops_that_chart_and_keeps_the_rest():
         rendered, failures = await render_charts(charts, team=MagicMock(), user=MagicMock())
 
     assert [chart.export_asset_id for chart in rendered] == [2]
-    assert failures == [(0, "render_failed")]
+    assert failures == [ChartRenderFailure(step_index=0, reason=ChartFailureReason.RENDER_FAILED)]
 
 
-async def test_a_raising_render_never_escapes():
-    with patch(f"{_CHARTS}.render_png_export", side_effect=RuntimeError("browserless down")):
+def _hangs(**kwargs):
+    time.sleep(5)
+    return MagicMock(id=1, exception=None), b"png"
+
+
+def _raises(**kwargs):
+    raise RuntimeError("browserless down")
+
+
+def _returns_no_png(**kwargs):
+    return MagicMock(id=1, exception="boom"), None
+
+
+@parameterized.expand(
+    [
+        ("the_renderer_raises", _raises, {}, ChartFailureReason.RENDER_ERROR),
+        ("the_export_produced_no_png", _returns_no_png, {}, ChartFailureReason.RENDER_FAILED),
+        ("one_render_hangs", _hangs, {"_RENDER_TIMEOUT_SECONDS": 0.2}, ChartFailureReason.RENDER_TIMED_OUT),
+        (
+            "the_phase_budget_runs_out",
+            _hangs,
+            {"_CHART_PHASE_BUDGET_SECONDS": 0.1},
+            ChartFailureReason.BUDGET_EXHAUSTED,
+        ),
+    ]
+)
+async def test_a_chart_that_cannot_render_is_dropped_with_a_reason(_name, side_effect, overrides, expected):
+    with ExitStack() as stack:
+        stack.enter_context(patch(f"{_CHARTS}.render_png_export", side_effect=side_effect))
+        for attribute, value in overrides.items():
+            stack.enter_context(patch(f"{_CHARTS}.{attribute}", value))
         rendered, failures = await render_charts([_chart()], team=MagicMock(), user=MagicMock())
 
     assert rendered == []
-    assert failures == [(0, "render_error")]
-
-
-async def test_the_phase_budget_bounds_the_whole_render():
-    def _hang(**kwargs):
-        time.sleep(5)
-        return MagicMock(id=1, exception=None), b"png"
-
-    with (
-        patch(f"{_CHARTS}._CHART_PHASE_BUDGET_SECONDS", 0.1),
-        patch(f"{_CHARTS}.render_png_export", side_effect=_hang),
-    ):
-        rendered, failures = await render_charts([_chart()], team=MagicMock(), user=MagicMock())
-
-    assert rendered == []
-    assert failures == [(0, "budget_exhausted")]
+    assert failures == [ChartRenderFailure(step_index=0, reason=expected)]
 
 
 async def test_a_slow_chart_does_not_discard_the_ones_that_rendered():
@@ -207,19 +224,4 @@ async def test_a_slow_chart_does_not_discard_the_ones_that_rendered():
         rendered, failures = await render_charts(charts, team=MagicMock(), user=MagicMock())
 
     assert [chart.step_index for chart in rendered] == [0]
-    assert failures == [(1, "budget_exhausted")]
-
-
-async def test_one_stuck_render_is_dropped_without_the_phase_budget():
-    def _hang(**kwargs):
-        time.sleep(5)
-        return MagicMock(id=1, exception=None), b"png"
-
-    with (
-        patch(f"{_CHARTS}._RENDER_TIMEOUT_SECONDS", 0.2),
-        patch(f"{_CHARTS}.render_png_export", side_effect=_hang),
-    ):
-        rendered, failures = await render_charts([_chart()], team=MagicMock(), user=MagicMock())
-
-    assert rendered == []
-    assert failures == [(0, "render_timed_out")]
+    assert failures == [ChartRenderFailure(step_index=1, reason=ChartFailureReason.BUDGET_EXHAUSTED)]

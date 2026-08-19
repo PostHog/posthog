@@ -137,11 +137,6 @@ _EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}
 
 
 def export_limit_context(export_context: dict | None) -> LimitContext:
-    """The row clamp an export pinned, defaulting to the ordinary query limits.
-
-    Every execution of an export's query — the cache warm and the render — must pass this, or they
-    key different cache entries and the render runs a wider clamp than the caller validated.
-    """
     requested = (export_context or {}).get("limit_context")
     if isinstance(requested, str):
         return _EXPORT_LIMIT_CONTEXTS.get(requested, LimitContext.QUERY)

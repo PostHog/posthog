@@ -245,8 +245,6 @@ class AssistantQueryExecutor:
         debug_timing=False,
         truncate_results: bool = True,
     ) -> tuple[str, bool]:
-        """Run a query and format the results. See `arun_format_and_capture` for the variant that
-        also hands back the raw response."""
         result = await self.arun_format_and_capture(
             query,
             execution_mode,

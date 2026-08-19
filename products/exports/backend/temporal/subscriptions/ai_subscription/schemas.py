@@ -2,6 +2,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from posthog.schema import ChartDisplayType
+
 # Hard cap on AI report query-plan steps — the contract the schema validator, planner prompt, and
 # synthesis result budget all key off. Named once here so they can't silently drift apart.
 MAX_QUERY_PLAN_STEPS = 25
@@ -15,18 +17,16 @@ MIN_CHART_CATEGORIES = 2
 MAX_CHART_CATEGORIES = 25
 MAX_CHART_TITLE_LENGTH = 80
 
-CONTINUOUS_CHART_DISPLAYS = frozenset({"ActionsLineGraph", "ActionsAreaGraph"})
-ALLOWED_CHART_DISPLAYS = CONTINUOUS_CHART_DISPLAYS | {"ActionsBar"}
+CONTINUOUS_CHART_DISPLAYS = frozenset({ChartDisplayType.ACTIONS_LINE_GRAPH, ChartDisplayType.ACTIONS_AREA_GRAPH})
+ALLOWED_CHART_DISPLAYS: frozenset[str] = CONTINUOUS_CHART_DISPLAYS | {ChartDisplayType.ACTIONS_BAR}
 
 
 class StepChart(BaseModel):
     """A chart the planner asked for.
 
-    Deliberately free of bounds constraints. A chart is a decoration, and every layer below treats
-    one as droppable, but this model is part of QueryPlan: a `le=5` or a `max_length` here turns a
-    bad importance or an over-long title into a whole-plan validation error, which surfaces as a
-    rejected prompt and auto-disables the subscription. The descriptions still steer the planner,
-    and `validate_chart` enforces the real limits where dropping costs only the picture.
+    Carries no bounds constraints on purpose. It is part of QueryPlan, so a bound here would fail
+    the whole plan over one bad chart. `validate_chart` enforces the limits, where a violation
+    costs only the picture.
     """
 
     display: str = Field(
@@ -41,13 +41,24 @@ class StepChart(BaseModel):
         MIN_CHART_IMPORTANCE,
         description=(
             f"How much this chart matters to the reader, {MIN_CHART_IMPORTANCE} to "
-            f"{MAX_CHART_IMPORTANCE}, with {MAX_CHART_IMPORTANCE} the most important."
+            f"{MAX_CHART_IMPORTANCE}, with {MAX_CHART_IMPORTANCE} the most important. "
+            f"A report shows at most {MAX_CHARTS_PER_REPORT} charts, and drops the least "
+            "important ones first, so score honestly."
         ),
     )
-    x_column: str = Field(..., description="Result column for the x axis, by its SELECT alias.")
+    x_column: str = Field(
+        ...,
+        description=(
+            "The column to spread the chart along the bottom, named by its SELECT alias. "
+            "Usually a day or a category name."
+        ),
+    )
     y_columns: list[str] = Field(
         ...,
-        description=f"Result columns to plot, by their SELECT aliases. At most {MAX_CHART_SERIES}.",
+        description=(
+            "The columns to draw as lines or bars, named by their SELECT aliases. Each one must "
+            f"hold numbers. At most {MAX_CHART_SERIES}."
+        ),
     )
 
 
