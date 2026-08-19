@@ -23,12 +23,6 @@ import { Heading, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-/**
- * A custom feed: the channel feed's card design over the tasks a saved query
- * matches, project-wide rather than one channel's. Read-only on purpose — a
- * feed is a lens over existing work, so there is no composer; cards open the
- * task in its own channel.
- */
 export function TaskFeedHome({ feedId }: { feedId: string }) {
   const navigate = useNavigate();
   const feed = useProjectTaskFeed(feedId);
@@ -36,8 +30,6 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
   const { tasks, isLoading, issues } = useTaskFeedResults(feed?.query);
   const [editOpen, setEditOpen] = useState(false);
 
-  // The id alone, not the feed object: edits replace the object, and an edit
-  // is not a new open.
   const trackedFeedId = feed?.id;
   useEffect(() => {
     if (!trackedFeedId) return;
@@ -59,8 +51,6 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
     void openTask(task, { channelId: task.channel ?? undefined });
   }, []);
 
-  // No thread dock here — like the spaces layout, a chip opens the session
-  // itself with the right panel on the chip's tab.
   const handleOpenThread = useCallback(
     (task: Task, tab?: ThreadPanelTab) => {
       if (tab) openRightPanelSide(tab, task.id);
@@ -94,8 +84,6 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
     );
   }
 
-  // Pinned above the cards, sharing their width: what the feed is showing and
-  // the two things you can do to it. Doubles as the header of the empty state.
   const queryBar = (
     <div className="mb-2 flex w-full items-center gap-2 rounded-xl border border-(--gray-4) bg-(--gray-2) px-4 py-3">
       <MagnifyingGlassIcon size={14} className="shrink-0 text-(--gray-9)" />
@@ -144,8 +132,6 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
     </div>
   );
 
-  // The empty message rides inside the intro (which always renders) so the
-  // query bar stays put while the feed has nothing to show under it.
   const intro = (
     <div>
       {queryBar}

@@ -1,25 +1,6 @@
 import type { TaskRunStatus } from "@posthog/shared/domain-types";
 
-/**
- * GitHub-style query language for custom task feeds.
- *
- * A query is whitespace-separated chunks. A chunk shaped `key:value` with a
- * known key is a filter token; everything else is free text, searched over
- * task title, description, and number. Semantics follow GitHub search:
- *
- * - the same key repeated is OR (`created-by:a created-by:b` — either author),
- * - different keys are AND,
- * - `-key:value` negates, and `key:not:value` is accepted as an alias,
- * - double quotes carry spaces (`space:"desktop app"`),
- * - person keys (`created-by:`, `commented-by:`, `mentions:`, `involves:`)
- *   accept `@me` and teammate names/emails.
- *
- * Unknown keys deliberately fall through to free text rather than erroring —
- * a URL's `https:` or a stray `re:` in pasted text must not break the query.
- * The autocomplete is what steers people onto real keys.
- */
-
-/** Canonical filter keys. Aliases (`author:`, `channel:`, …) map onto these. */
+// Unknown keys remain free text so pasted URLs and incomplete filters still search.
 export type FeedQueryKey =
   | "created-by"
   | "commented-by"
@@ -66,20 +47,17 @@ export const TASK_RUN_STATUSES: readonly TaskRunStatus[] = [
   "cancelled",
 ];
 
-/** Friendlier spellings people will type before they learn the enum. */
 const STATUS_ALIASES: Record<string, TaskRunStatus> = {
   running: "in_progress",
   done: "completed",
 };
 
-/** `is:` sugar that expands to a run-status token. */
 const IS_STATUS_SUGAR: Record<string, TaskRunStatus> = {
   running: "in_progress",
   done: "completed",
   failed: "failed",
 };
 
-/** Valid `is:` values beyond the status sugar. */
 const IS_FLAG_VALUES: ReadonlySet<string> = new Set(["archived", "pinned"]);
 
 export const PR_VALUES = [
@@ -92,8 +70,6 @@ export const PR_VALUES = [
 ] as const;
 export type PrValue = (typeof PR_VALUES)[number];
 
-/** PR states beyond presence, in the backend's snapshot vocabulary
- * (`TaskRun.output.pr_state`, kept fresh by the PR webhook). */
 const PR_STATE_VALUES: ReadonlySet<string> = new Set([
   "open",
   "draft",
@@ -110,24 +86,15 @@ export const CI_VALUES = [
   "none",
 ] as const;
 
-/** What `type:` can scope. Only the command palette acts on non-task kinds;
- * a feed carries tasks, so its planner flags the rest as ignored. */
 export const TYPE_VALUES = ["task", "space", "command", "saved"] as const;
 export type TypeValue = (typeof TYPE_VALUES)[number];
 
-/** Friendlier spellings onto the backend's snapshot vocabulary
- * (`TaskRun.output.ci_status`, kept fresh by the CI follow-up loop). */
 const CI_ALIASES: Record<string, string> = {
   red: "failing",
   green: "passing",
 };
 
-/**
- * The words people reach for onto the backend's `origin_product` enum
- * (`Task.OriginProduct`): a desktop-created task is stored as user_created,
- * a scout's as signals_scout. Unknown origins pass through untouched — the
- * enum grows server-side and an unaliased value still filters exactly.
- */
+// Keep unknown origins unchanged so new server-side enum values remain searchable.
 export const ORIGIN_ALIASES: Record<string, string> = {
   desktop: "user_created",
   user: "user_created",
@@ -141,7 +108,6 @@ export const ORIGIN_ALIASES: Record<string, string> = {
 };
 
 export interface FeedQueryToken {
-  /** The chunk as typed, for chips and error messages. */
   raw: string;
   key: FeedQueryKey;
   value: string;
@@ -151,14 +117,12 @@ export interface FeedQueryToken {
 export type FeedQueryIssueKind = "unknown-value" | "unsupported";
 
 export interface FeedQueryIssue {
-  /** The chunk or value the issue is about. */
   raw: string;
   kind: FeedQueryIssueKind;
   message: string;
 }
 
 export interface ParsedFeedQuery {
-  /** Free-text words, joined, for the server's substring search. */
   text: string;
   tokens: FeedQueryToken[];
   issues: FeedQueryIssue[];
@@ -192,8 +156,6 @@ export function parseFeedQuery(query: string): ParsedFeedQuery {
       value = value.slice("not:".length);
     }
     if (value === "") {
-      // A dangling `status:` is someone mid-typing, not a filter for the empty
-      // string — drop it rather than matching nothing.
       continue;
     }
     tokens.push({ raw, key, value, negated });
@@ -264,12 +226,6 @@ function validateToken(token: FeedQueryToken, issues: FeedQueryIssue[]): void {
   }
 }
 
-/**
- * One visual segment of a query string, in order and covering it exactly —
- * `segments.map(s => s.raw).join("")` reproduces the input. This is what the
- * editor's inline highlighter and the feed page's read-only rendering draw,
- * so both surfaces color the query the same way.
- */
 export interface FeedQuerySegment {
   raw: string;
   kind: "whitespace" | "text" | "token";
@@ -277,10 +233,7 @@ export interface FeedQuerySegment {
     key: FeedQueryKey;
     value: string;
     negated: boolean;
-    /** The parser flagged this token's value. */
     invalid: boolean;
-    /** Valid, but nothing can act on it yet. No key produces this today;
-     * kept so a future key can ship its syntax before its filter. */
     unsupported: boolean;
   };
 }
@@ -330,7 +283,6 @@ export function lexFeedQuery(query: string): FeedQuerySegment[] {
   return segments;
 }
 
-/** The structural slice of a member the planner needs (a `UserBasic` fits). */
 export interface FeedQueryMember {
   id: number;
   uuid: string;
@@ -344,14 +296,12 @@ export interface FeedQuerySpace {
   name: string;
 }
 
-/** Everything name resolution needs; the UI layer supplies live data. */
 export interface FeedQueryPlanContext {
   members: readonly FeedQueryMember[];
   spaces: readonly FeedQuerySpace[];
   me?: FeedQueryMember | null;
 }
 
-/** The tasks-list request parameters a query compiles down to. */
 export interface FeedQueryServerParams {
   search?: string;
   createdBy?: number;
@@ -360,19 +310,13 @@ export interface FeedQueryServerParams {
   status?: TaskRunStatus;
   originProduct?: string;
   archived?: boolean;
-  /** PR state of the latest run's pull request (open/draft/merged/closed). */
   prState?: string;
-  /** CI rollup on the latest run's pull request (passing/failing/pending/none). */
   ciStatus?: string;
-  /** Only tasks the requesting user has pinned. */
   pinned?: boolean;
-  /** Tasks carrying a thread comment by this user id. */
   commentedBy?: number;
-  /** Tasks whose thread mentions this user id. */
   mentions?: number;
 }
 
-/** The structural slice of a task the client-side predicate reads. */
 export interface FeedQueryTask {
   created_by?: { uuid: string } | null;
   channel?: string | null;
@@ -392,9 +336,7 @@ export interface FeedQueryPlan {
    * authors appear in one unfiltered recent page.
    */
   requests: FeedQueryServerParams[];
-  /** Covers what the server params can't: negation, OR groups, PR presence. */
   matches: (task: FeedQueryTask) => boolean;
-  /** Parser issues plus resolution issues (no teammate/space by that name). */
   issues: FeedQueryIssue[];
 }
 
@@ -402,7 +344,6 @@ function normalize(value: string): string {
   return value.trim().toLowerCase();
 }
 
-/** The result kind a query's `type:` token scopes to, or null for all. */
 export function feedQueryTypeScope(parsed: ParsedFeedQuery): TypeValue | null {
   const token = parsed.tokens.find(
     (t) =>
@@ -415,7 +356,6 @@ export function feedQueryTypeScope(parsed: ParsedFeedQuery): TypeValue | null {
 
 const MAX_SUGGESTED_NAME_LENGTH = 80;
 
-/** Friendlier words for the run-status enum, for suggested feed names. */
 const STATUS_WORDS: Partial<Record<string, string>> = {
   in_progress: "running",
   completed: "done",
@@ -426,13 +366,6 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-/**
- * A readable name for a feed, derived from its query — what the create modal
- * pre-fills so naming a feed costs nothing. `created-by:@me pr:any` suggests
- * "My tasks with a PR"; `billing status:failed` suggests "Failed billing
- * tasks". Best-effort phrasing: it only has to be a decent default, the field
- * stays editable.
- */
 export function suggestFeedName(query: string): string {
   const parsed = parseFeedQuery(query);
   const positives = (key: FeedQueryKey) =>

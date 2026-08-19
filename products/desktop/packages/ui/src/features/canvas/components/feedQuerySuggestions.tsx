@@ -26,28 +26,21 @@ import { getOriginProductMeta } from "@posthog/ui/features/sidebar/components/it
 import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { type ReactNode, useMemo } from "react";
 
-/** One row of the query autocomplete: what gets inserted, and why you'd pick it. */
 export interface FeedQuerySuggestion {
-  /** Inserted into the query. A key suggestion ends with ":" and keeps the
-   * completion open for its values; a value suggestion completes the token. */
   insert: string;
   label: string;
   hint?: string;
   icon?: ReactNode;
 }
 
-/** What the completion is offering, with the heading that says so. */
 export interface FeedQuerySuggestionGroup {
   heading: string;
   items: FeedQuerySuggestion[];
 }
 
-/** The chunk of text the caret is inside, and what the caret is editing. */
 export interface FeedQueryEditContext {
   chunk: { start: number; end: number; text: string };
-  /** The filter key being valued, or null while typing a key / free text. */
   activeKey: string | null;
-  /** What the highlighter should bold: the key prefix or the value so far. */
   typed: string;
 }
 
@@ -128,7 +121,6 @@ const KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
   },
 ];
 
-/** Only offered where results have kinds to scope (the command palette). */
 const PALETTE_KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
   {
     insert: "type:",
@@ -144,11 +136,6 @@ const PALETTE_KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
   },
 ];
 
-/**
- * Free-text words that look like a filter key someone stopped typing, with the
- * keys they could have meant. `created-by:shy i` searches for "i", which
- * quietly widens the results.
- */
 export function unfinishedFilterKeys(
   text: string,
 ): { word: string; keys: string[] }[] {
@@ -174,10 +161,6 @@ const TYPE_VALUES: FeedQuerySuggestion[] = [
 
 const IS_VALUES = ["archived", "pinned", "running", "done", "failed"];
 
-// The backend's `Task.OriginProduct` enum, most-reached-for first. Hints
-// carry the branded label where the sidebar has one (`getOriginProductMeta`)
-// so the same origin reads the same everywhere; the rest are spelled out
-// here. `origin:desktop`, `origin:scout`, … alias onto these in the planner.
 const ORIGIN_VALUES: { value: string; fallbackHint: string }[] = [
   { value: "user_created", fallbackHint: "you, from desktop or the app" },
   { value: "slack", fallbackHint: "Slack" },
@@ -239,7 +222,6 @@ const PR_SUGGESTIONS: FeedQuerySuggestion[] = [
   },
 ];
 
-/** Canonical first; the red/green spellings parse but aren't offered. */
 const CI_SUGGESTED_VALUES = ["failing", "passing", "pending"];
 
 const CI_DOT_TONE: Record<string, string> = {
@@ -270,9 +252,6 @@ function statusDot(status: string): ReactNode {
   );
 }
 
-// The chunk under the caret: the run of non-space characters around it. Quoted
-// values with spaces come from suggestion insertion, which moves the caret past
-// them, so the editing chunk itself never needs quote awareness.
 function chunkAt(
   value: string,
   caret: number,
@@ -288,7 +267,6 @@ function quoteIfNeeded(value: string): string {
   return /\s/.test(value) ? `"${value}"` : value;
 }
 
-/** Bolds the typed prefix inside a suggestion's label. */
 export function FeedQueryMatchedLabel({
   label,
   typed,
@@ -309,11 +287,6 @@ export function FeedQueryMatchedLabel({
   );
 }
 
-/**
- * What a suggestion does to the query when applied: the rewritten text and
- * where the caret lands. A key completion stays in the token (its values come
- * next); a value completion closes it with a trailing space.
- */
 export function applyFeedQuerySuggestion(
   value: string,
   context: FeedQueryEditContext,
@@ -335,12 +308,6 @@ export function applyFeedQuerySuggestion(
   };
 }
 
-/**
- * The query language's completion brain, shared by the feed modal's editor
- * and the command palette: given the text and the caret, what should be
- * offered — filter keys while typing a bare word, a key's values (teammates,
- * spaces, repos, statuses, …) while inside a token.
- */
 export function useFeedQuerySuggestions(
   value: string,
   caret: number,
@@ -348,7 +315,6 @@ export function useFeedQuerySuggestions(
 ): { group: FeedQuerySuggestionGroup; context: FeedQueryEditContext } {
   const includeType = options?.includeType ?? false;
 
-  // Value providers for the data-backed keys.
   const { members } = useOrgMembers();
   const { channels } = useChannels();
   const repositories = useMemo(
@@ -407,8 +373,6 @@ export function useFeedQuerySuggestions(
           items: [
             ...me,
             ...matches.map((member) => {
-              // Insert the first name where it names one person; fall back to
-              // the email's user part so "created-by:sam" can't mean two Sams.
               const first = (member.first_name ?? "").toLowerCase();
               const unique =
                 first !== "" &&

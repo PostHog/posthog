@@ -2,17 +2,10 @@ import { electronStorage } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-/**
- * A custom feed: a saved task query rendered with the channel feed's cards.
- * It is a saved question ("my failing CI tasks", "everything about billing"),
- * not a materialized list — the query runs each time the feed is opened, so
- * new matches appear without any per-feed bookkeeping.
- */
 export interface TaskFeed {
   id: string;
   projectId: number;
   name: string;
-  /** Free-text task query, run against the tasks list search filter. */
   query: string;
   createdAt: string;
 }
@@ -28,11 +21,7 @@ interface TaskFeedsState {
   removeFeed: (id: string) => void;
 }
 
-// Per-device on purpose for the first cut: a feed is a personal saved view,
-// like the sidebar's collapsed sections. Team-shared feeds need a backend
-// model and visibility rules, which this store deliberately doesn't fake.
-// Every feed carries the project it was saved in: read it through
-// `useProjectTaskFeeds`, never `feeds` directly, or searches cross projects.
+// Feeds are personal and project-scoped, so callers must use `useProjectTaskFeeds`.
 export const useTaskFeedsStore = create<TaskFeedsState>()(
   persist(
     (set) => ({

@@ -25,21 +25,15 @@ import { useMemo } from "react";
 
 const FEED_QUERY_DEBOUNCE_MS = 300;
 
-/**
- * What the palette is doing right now, derived once so the rows, the counts and
- * the footer can't each answer the question differently.
- */
 export type PaletteMode =
   | "browsing"
   | "completingKey"
   | "completingValue"
   | "querying";
 
-/** One sentence for both halves of one number: what matched, and what is listed. */
 export function matchSummary(
   matchCount: number | null,
   shownCount: number,
-  /** Repair rows are listed below, so they are the next step to point at. */
   hasRepairs = false,
 ): string {
   if (matchCount == null) return "Searching…";
@@ -54,7 +48,6 @@ export function matchSummary(
   return `${matchCount} ${matchCount === 1 ? "matching task" : "matching tasks"}`;
 }
 
-/** A filter-key chip for the strip under the palette input. */
 export interface FeedQueryKeyChip {
   label: string;
   hint?: string;
@@ -62,35 +55,17 @@ export interface FeedQueryKeyChip {
 }
 
 export interface FeedQueryPalette {
-  /** Value completions, matching tasks, and the repairs for a query that
-   * matches nothing. */
   sections: CommandSection[];
-  /** Filter keys the caret's bare word could start, for the chip strip. */
   keyChips: FeedQueryKeyChip[];
   mode: PaletteMode;
-  /** What `type:` scopes the results to, or null for everything. */
   scope: TypeValue | null;
-  /** The query carries a filter beyond `type:` — the palette is a feed query. */
   hasFilterTokens: boolean;
-  /** What the query matches right now, or null while it is still counting. */
   matchCount: number | null;
-  /** How many of those matches the list is showing. */
   shownCount: number;
-  /** A wider query was offered, so the empty state has rows to pick from. */
   hasRepairs: boolean;
-  /** The free-text words, for matching commands/spaces instead of the raw
-   * query (whose tokens would never substring-match a label). */
   searchText: string;
 }
 
-/**
- * The command palette's query brain — always on, not a mode. Every keystroke
- * gets completions for the chunk under the caret (filter keys while typing a
- * bare word, a key's values inside a token) folded into the palette list as
- * its leading section; a query carrying a real filter also gets its matching
- * tasks. Plain text contributes nothing beyond `searchText`, so ordinary
- * command searching stays exactly as it was.
- */
 export function useFeedQueryCommands({
   query,
   caret,
@@ -100,15 +75,10 @@ export function useFeedQueryCommands({
   onShowAll,
 }: {
   query: string;
-  /** The palette input's caret, for chunk-of-interest completion. */
   caret: number;
-  /** Feeds are a spaces-layout feature; off it this contributes nothing. */
   enabled: boolean;
-  /** How many matching tasks to list before offering the rest. */
   limit: number;
-  /** Replace the palette query after a completion, placing the caret. */
   onApply: (next: string, caret: number) => void;
-  /** Show the matches the list is holding back. */
   onShowAll: () => void;
 }): FeedQueryPalette {
   const trimmed = query.trim();
@@ -122,9 +92,6 @@ export function useFeedQueryCommands({
     includeType: true,
   });
 
-  // The task query runs whenever it filters something: real tokens, or a
-  // type:task scope narrowing by text. Debounced so keystrokes don't each
-  // become a round of list requests.
   const runsQuery = hasFilterTokens || scope === "task";
   const { debounced: previewQuery, isPending } = useDebouncedValue(
     enabled && runsQuery ? trimmed : "",
@@ -135,9 +102,6 @@ export function useFeedQueryCommands({
   const feeds = useProjectTaskFeeds();
   const { channels } = useChannels();
 
-  // A query that matches nothing is usually one clause too narrow, so count
-  // each half of it separately. Both counts come off the debounced query, or a
-  // zero-result state would fire a request per keystroke.
   const previewParsed = useMemo(
     () => parseFeedQuery(previewQuery),
     [previewQuery],
@@ -203,8 +167,6 @@ export function useFeedQueryCommands({
     }
     const sections: CommandSection[] = [];
 
-    // Key suggestions become chips; a key's values stay list rows — they are
-    // the thing being chosen mid-token, and there are only ever a few.
     const keyChips: FeedQueryKeyChip[] = keyMode
       ? group.items.map((suggestion) => ({
           label: suggestion.label,
@@ -239,8 +201,6 @@ export function useFeedQueryCommands({
       });
     }
 
-    // These rows leave the palette instead of completing a token, so they wear
-    // an arrow rather than looking like every other completion row.
     if (savedHits.length > 0) {
       sections.push({
         label: "Saved searches",
@@ -304,8 +264,6 @@ export function useFeedQueryCommands({
       sections.push({ label: "Matching tasks", items });
     }
 
-    // Each repair is a row, so widening is a keypress rather than a guess at
-    // which half of the query to delete.
     let hasRepairs = false;
     if (splittable) {
       const repairs: Command[] = [];

@@ -665,9 +665,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     spacesLayout,
   });
 
-  // Typing a filter token turns the palette into a live feed query, led by
-  // "Save as feed" — which closes the palette and hands the query to the
-  // feed modal, so a search someone wants to keep becomes a sidebar feed.
   const [feedModalQuery, setFeedModalQuery] = useState<string | null>(null);
   const onSaveAsFeed = useCallback(
     (feedQuery: string) => {
@@ -677,8 +674,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     [onOpenChange],
   );
 
-  // The caret drives which chunk of the query gets completions. Kept in
-  // state (not read ad hoc) so suggestion sections rebuild when it moves.
   const [caret, setCaret] = useState(0);
   const inputWrapRef = useRef<HTMLDivElement>(null);
   const trackCaret = useCallback(() => {
@@ -702,8 +697,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     pendingCaret.current = nextCaret;
   }, []);
 
-  // Keyed on the query it was lifted for, so the next query starts capped again
-  // without an effect to reset it.
   const [showAllFor, setShowAllFor] = useState<string | null>(null);
   const resultLimit =
     showAllFor === query ? Number.MAX_SAFE_INTEGER : DEFAULT_RESULT_LIMIT;
@@ -728,11 +721,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     hasRepairs,
   } = feedQuery;
 
-  // Commands, channels, and tasks share a single filterable list. What narrows
-  // them is the query's *free text* (`matchesCommandSearch` against the raw
-  // query would drop every label the moment a token appears), and the mode
-  // decides which sections exist at all: picking a value or reading a query's
-  // matches are single-question states, so the catalog stays out of them.
   const sections = useMemo(() => {
     const browsing = mode === "browsing" || mode === "completingKey";
     const showCommands = browsing && (!scope || scope === "command");
@@ -760,7 +748,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     searchText,
   ]);
 
-  // Free text is what narrows rows; tokens narrow via their own sections.
   const paletteFilter = useCallback(
     (command: { label: string; keywords?: string }) =>
       matchesCommandSearch(command, searchText),
@@ -772,7 +759,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     [sections],
   );
 
-  // Which row the keyboard is on, so Tab can complete the highlighted filter.
   const highlightedId = useRef<string | null>(null);
   const showMatchSummary = mode === "querying" || matchCount != null;
 
@@ -785,18 +771,12 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       channel_id: cmd.channelId,
     });
     cmd.onRun();
-    // Completing a filter refines the query in place — the palette stays
-    // open, mid-thought.
     if (cmd.keepOpen) return;
     onOpenChange(false);
     setQuery("");
   };
 
-  // Tab completes what is being typed: the first key chip while typing a bare
-  // word, otherwise the highlighted value suggestion, mirroring the feed
-  // editor. With nothing typed it is left alone and moves focus to the strip.
   const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    // ⌘S saves the query as a saved search — the footer advertises it.
     if (
       event.key.toLowerCase() === "s" &&
       (event.metaKey || event.ctrlKey) &&
@@ -834,8 +814,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             defaultOpen
             items={sections}
             value={query}
-            // `true`, not "always", so nothing is highlighted until something
-            // is typed and Enter on an untouched palette runs nothing.
             autoHighlight
             keepHighlight
             onItemHighlighted={(value) => {
@@ -848,14 +826,10 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                 trackCaret();
                 return;
               }
-              // The clear button reports a reason of its own.
               if (val === "") setQuery("");
             }}
             filter={paletteFilter}
           >
-            {/* The query is drawn twice: the input's own text is transparent
-                and a mirror underneath renders it with the feed editor's
-                inline token coloring, so a token is colored where it is typed. */}
             <div ref={inputWrapRef} className="relative">
               <PaletteQueryMirror
                 query={query}
@@ -899,7 +873,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                 {matchSummary(matchCount, shownCount, hasRepairs)}
               </div>
             ) : (
-              // A count of the untouched command catalog answers nothing.
               query !== "" && (
                 <AutocompleteStatus
                   emptyContent={
@@ -920,12 +893,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                         key={cmd.id}
                         value={cmd.id}
                         onClick={() => handleSelect(cmd.id)}
-                        // Long task names wrap instead of truncating, so the
-                        // item must grow: min-height, not a fixed height. Quill
-                        // wraps our children in an inner content span; force it to
-                        // fill the row (so a trailing shortcut can `ml-auto` to the
-                        // end) and let it overflow visibly so the shortcut Kbd
-                        // boxes aren't clipped by the wrapper's `truncate`.
                         className="group flex h-auto! min-h-7 w-full items-center gap-2 py-1.5 pr-2 text-left [&>span]:w-full [&>span]:overflow-visible"
                       >
                         {cmd.icon}
@@ -972,9 +939,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           </CommandKeyHints>
         </DialogContent>
       </Dialog>
-      {/* Outside the palette's dialog: "Save as feed" closes the palette, and
-        a modal opened inside a closing dialog would unmount with it. Keyed
-        remount is free — the modal reseeds from initialQuery on open. */}
       <TaskFeedModal
         open={feedModalQuery !== null}
         onOpenChange={(modalOpen) => {

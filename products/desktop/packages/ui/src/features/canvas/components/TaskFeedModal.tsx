@@ -21,17 +21,6 @@ import { useEffect, useMemo, useState } from "react";
 const MAX_FEED_NAME_LENGTH = 80;
 const PREVIEW_DEBOUNCE_MS = 400;
 
-/**
- * Create or edit a custom feed: the query its cards come from, plus a name.
- *
- * The query leads — it is what a feed is — with the suggestion panel inline
- * under it and the live match count beside the label, so a bad query is
- * visible before it is saved. The name follows and writes itself from the
- * query ("created-by:@me pr:any" suggests "My tasks with a PR") until it is
- * edited by hand, so naming a feed costs nothing. Pass `feed` to edit; without
- * one the modal creates and hands the new feed to `onCreated` so the caller
- * can open it right away.
- */
 export function TaskFeedModal({
   open,
   onOpenChange,
@@ -42,12 +31,8 @@ export function TaskFeedModal({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The feed being edited; absent when creating a new one. */
   feed?: TaskFeed;
-  /** Seeds the query when creating — e.g. the command palette's "Save as
-   * feed" hands over what was already typed there. */
   initialQuery?: string;
-  /** Where the modal was opened from, for analytics. */
   surface?: "sidebar" | "command_menu";
   onCreated?: (feed: TaskFeed) => void;
 }) {
@@ -59,12 +44,8 @@ export function TaskFeedModal({
     feed?.name ?? (seedQuery ? suggestFeedName(seedQuery) : ""),
   );
   const [query, setQuery] = useState(seedQuery);
-  // Until the name is touched it follows the query; an existing feed's name
-  // was already chosen, so editing never rewrites it.
   const [nameEdited, setNameEdited] = useState(!!feed);
 
-  // Seed the fields each time the modal opens, so a reopened create modal
-  // starts clean and an edit always shows the feed's current values.
   useEffect(() => {
     if (!open) return;
     const nextQuery = feed?.query ?? initialQuery ?? "";
@@ -85,19 +66,13 @@ export function TaskFeedModal({
     trimmedQuery !== "" &&
     (feed !== undefined || projectId !== null);
 
-  // Live preview: what the query matches right now, debounced so each
-  // keystroke doesn't become a request.
   const { debounced: previewQuery, isPending } = useDebouncedValue(
     open ? trimmedQuery : "",
     PREVIEW_DEBOUNCE_MS,
   );
   const preview = useTaskFeedResults(previewQuery);
-  // Issues come from the undebounced plan, so a typo is flagged the moment
-  // it is typed rather than after the debounce settles.
   const { plan } = useFeedQueryPlan(open ? trimmedQuery : "");
   const issue = plan?.issues[0];
-  // A word left mid-filter is valid free text, so the parser has nothing to say
-  // about it, and this is the last screen before the query is saved.
   const unfinished = useMemo(() => {
     const parsedText = parseFeedQuery(trimmedQuery).text;
     return unfinishedFilterKeys(parsedText)[0];
@@ -134,8 +109,6 @@ export function TaskFeedModal({
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      {/* overflow-visible: the query editor's suggestion popup hangs below
-          the field, and the dialog's default overflow:auto would clip it. */}
       <Dialog.Content maxWidth="520px" className="overflow-visible!">
         <Flex align="start" justify="between" gap="3">
           <Flex direction="column" gap="1">
@@ -164,8 +137,6 @@ export function TaskFeedModal({
         </Flex>
 
         <Flex direction="column" gap="2" mt="4">
-          {/* The label row carries the live match count: pinned up here it
-              never moves, and it reads as the query's own answer. */}
           <Flex align="center" justify="between" gap="3">
             <Text
               as="label"
@@ -188,17 +159,12 @@ export function TaskFeedModal({
           <FeedQueryInput
             id="task-feed-query"
             autoFocus
-            // The field is autofocused with a query already in it, so the
-            // suggestions would cover the buttons before anyone typed.
             openOnFocus={false}
             value={query}
             onChange={setQueryAndSuggestName}
             onSubmit={submit}
             placeholder="e.g. billing created-by:@me -status:failed"
           />
-          {/* Fixed-height meta row: the first problem with the query, or the
-              syntax reminder. Space is reserved either way, so typing never
-              moves the fields. */}
           <div
             className={cn(
               "h-5 min-w-0 truncate text-xs",
@@ -235,7 +201,6 @@ export function TaskFeedModal({
             maxLength={MAX_FEED_NAME_LENGTH}
             onChange={(e) => {
               setName(e.target.value);
-              // Clearing the name hands it back to the query's suggestion.
               setNameEdited(e.target.value.trim() !== "");
             }}
             onKeyDown={(e) => {

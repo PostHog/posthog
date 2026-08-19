@@ -24,14 +24,6 @@ import {
 export const EDITOR_TEXT_CLASS =
   "whitespace-pre font-mono text-[13px] leading-none tracking-normal";
 
-/**
- * A query string rendered with inline syntax coloring, from the same lexer the
- * parser uses: tokens get a tinted pill, negation reads red, a value the
- * parser rejects gets a wavy underline, a not-yet-supported one a dotted amber
- * underline. Doubles as the editor's mirror (metrics must match the input
- * exactly, so token styling never changes font or weight) and the feed page's
- * read-only query display.
- */
 export function FeedQueryHighlight({
   query,
   className,
@@ -55,8 +47,6 @@ function renderSegment(segment: FeedQuerySegment): ReactNode {
     return <span className="text-(--gray-12)">{segment.raw}</span>;
   }
   const { token, raw } = segment;
-  // Re-slice the raw chunk so the mirror renders exactly what was typed
-  // (alias spellings, quotes, `not:`) with color boundaries at the pieces.
   const negPrefix = raw.startsWith("-") ? "-" : "";
   const rest = raw.slice(negPrefix.length);
   const colon = rest.indexOf(":");
@@ -97,20 +87,6 @@ function renderSegment(segment: FeedQuerySegment): ReactNode {
   );
 }
 
-/**
- * The feed query editor. The input's own text is transparent; an exactly
- * aligned mirror underneath draws it with inline syntax coloring, so the query
- * is highlighted as it is typed — no separate preview row, nothing below the
- * field appearing and disappearing.
- *
- * Suggestions float in a popup anchored under the field, sized to what they
- * are: the filter catalog on focus, a key's values (teammates, spaces, repos,
- * statuses) while editing a token — applied with ⏎ or Tab — and nothing at
- * all while typing free text, which is just a search term. The host dialog
- * must not clip overflow, or the popup gets cut at the dialog's edge.
- * The completion logic itself is shared with the command palette
- * (`useFeedQuerySuggestions`), so the two surfaces can't drift.
- */
 export function FeedQueryInput({
   id,
   value,
@@ -124,11 +100,9 @@ export function FeedQueryInput({
   id?: string;
   value: string;
   onChange: (value: string) => void;
-  /** Called on Enter while no suggestion is highlighted. */
   onSubmit?: () => void;
   placeholder?: string;
   autoFocus?: boolean;
-  /** Open the suggestions as soon as the field takes focus. */
   openOnFocus?: boolean;
   "aria-label"?: string;
 }) {
@@ -162,9 +136,6 @@ export function FeedQueryInput({
 
   const { group, context } = useFeedQuerySuggestions(value, caret);
   const suggestions = group.items;
-  // The dropdown only exists while it has something to offer: focused, with
-  // suggestions for the chunk under the caret. Free text mid-word matches no
-  // key, so typing a search term shows no dropdown at all.
   const visible = open && suggestions.length > 0;
   const highlightedIndex = Math.min(highlighted, suggestions.length - 1);
 
@@ -174,8 +145,6 @@ export function FeedQueryInput({
     setCaret(edit.caret);
     pendingCaret.current = edit.caret;
     setHighlighted(0);
-    // A key completion keeps the dropdown open for its values; a value
-    // completion is done with the token.
     setOpen(edit.completedKey);
   };
 
@@ -218,9 +187,6 @@ export function FeedQueryInput({
 
   return (
     <div className="relative">
-      {/* The field: mirror below, transparent-text input above. Both carry
-          identical typography and padding, so the native caret and selection
-          sit exactly on the colored text. */}
       <div
         className={cn(
           "relative h-9 overflow-hidden rounded-md border border-(--gray-a7) bg-(--color-surface)",
@@ -263,22 +229,15 @@ export function FeedQueryInput({
             trackCaret();
           }}
           onScroll={syncScroll}
-          // A click asks for the suggestions even where focus alone doesn't.
           onClick={() => setOpen(true)}
           onSelect={trackCaret}
           onKeyDown={onKeyDown}
           onFocus={() => {
             if (openOnFocus) setOpen(true);
           }}
-          // Delayed so a mousedown on a suggestion lands before the list goes.
           onBlur={() => setTimeout(() => setOpen(false), 120)}
         />
       </div>
-      {/* Anchored under the field and sized to its contents, like an editor's
-          completion popup — a reserved panel left a wall of dead space around
-          one or two rows. The dialog that hosts this must not clip overflow
-          (see TaskFeedModal); everything else about the layout stays put
-          because the popup floats. */}
       {visible && (
         <div className="absolute top-full right-0 left-0 z-50 mt-1.5 overflow-hidden rounded-lg border border-(--gray-a6) bg-(--color-panel-solid) shadow-lg">
           {group.heading !== "" && (
@@ -303,7 +262,6 @@ export function FeedQueryInput({
                     ? "bg-fill-hover text-foreground"
                     : "text-(--gray-11)",
                 )}
-                // Before blur, so picking a row doesn't close the list first.
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setHighlighted(index)}
                 onClick={() => apply(suggestion)}
