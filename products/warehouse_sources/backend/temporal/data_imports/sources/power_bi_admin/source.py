@@ -46,9 +46,9 @@ class PowerBiAdminSource(ResumableSource[PowerBiAdminSourceConfig, PowerBiAdminR
 
     @property
     def connection_host_fields(self) -> list[str]:
-        # `tenant_id` picks which Entra directory the service principal's credentials are sent
-        # to. Without listing it here, an editor could repoint a preserved client_secret at a
-        # different tenant where the same multi-tenant app happens to be provisioned.
+        # `tenant_id` selects which Entra directory the service principal's credentials are
+        # sent to. Without listing it here, an editor could repoint a preserved client_secret
+        # at a different tenant the same multi-tenant app registration happens to be in.
         return ["tenant_id"]
 
     @property
