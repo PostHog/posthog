@@ -22,6 +22,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import PropertyOperatorType
 from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
 from posthog.models.file_system.constants import DEFAULT_SURFACE
@@ -1115,7 +1116,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         except Person.DoesNotExist:
             return False
-        except CH_TRANSIENT_ERRORS:
+        except ClickHouseAtCapacity:
             # Exhausted the capacity retries: an expected transient outcome that surfaces as a 503,
             # so re-raise for the caller to translate rather than capturing it as an error.
             raise

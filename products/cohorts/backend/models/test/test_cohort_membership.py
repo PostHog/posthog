@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.errors import CHQueryErrorTableIsReadOnly
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Team
 from posthog.personhog_client.fake_client import get_active_fake
@@ -159,6 +160,34 @@ class TestRemoveUserByUuid(BaseTest):
             result = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id, person=person)
             assert result is True
             assert mock_remove_ch.call_count == failures + 1
+
+    @parameterized.expand(
+        [
+            # (name, error factory, whether the exhausted failure is reported to error tracking)
+            ("capacity_not_reported", lambda: ClickHouseAtCapacity(), False),
+            ("readonly_table_reported", lambda: CHQueryErrorTableIsReadOnly("table is read only"), True),
+        ]
+    )
+    @patch("products.cohorts.backend.models.cohort.capture_exception")
+    @patch("products.cohorts.backend.models.cohort.time.sleep")
+    @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
+    @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
+    def test_persistent_transient_error_reporting(
+        self, _name, make_error, expect_reported, mock_get_size, mock_remove_ch, mock_sleep, mock_capture
+    ):
+        # A persistent capacity error is an expected transient 503 and stays out of error tracking;
+        # the other CH transient errors (read-only replica, S3 read failures) are captured so the
+        # opaque removal 500 the endpoint surfaces stays diagnosable.
+        person = create_person(team=self.team, distinct_ids=["d1"])
+        cohort = self._create_static_cohort()
+        add_cohort_members(cohort, [person])
+        error = make_error()
+        mock_remove_ch.side_effect = error
+
+        with self.assertRaises(type(error)):
+            cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id, person=person)
+
+        assert mock_capture.called is expect_reported
 
 
 class TestCheckCohortMembership(BaseTest):
