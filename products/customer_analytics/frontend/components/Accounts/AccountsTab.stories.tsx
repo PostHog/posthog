@@ -484,6 +484,7 @@ export const RowExpandedEmailThreads: Story = {
                             email: 'buyer@example.com',
                             display_name: 'Example buyer',
                             kind: 'customer',
+                            person_id: null,
                         },
                     ],
                 },

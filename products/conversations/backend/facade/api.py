@@ -267,6 +267,11 @@ def list_account_tickets(team_id: int, organization_id: str, *, limit: int = 50)
             last_message_at=ticket.last_message_at,
             last_message_text=ticket.last_message_text,
             deep_link=f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.ticket_number}",
+            created_at=ticket.created_at,
+            started_by=(ticket.anonymous_traits or {}).get("name")
+            or (ticket.anonymous_traits or {}).get("email")
+            or "Customer",
+            distinct_id=ticket.distinct_id,
         )
         for ticket in tickets
     ]
@@ -350,6 +355,7 @@ def _email_thread_participant_summary(
         email=participant.email,
         display_name=participant.display_name,
         kind=participant.kind,
+        person_id=str(participant.person_id) if participant.person_id else None,
     )
 
 

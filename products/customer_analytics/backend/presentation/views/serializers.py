@@ -990,11 +990,24 @@ class SupportTicketSerializer(DataclassSerializer):
         read_only=True, allow_null=True, help_text="Truncated preview of the most recent message."
     )
     deep_link = serializers.CharField(read_only=True, help_text="Absolute URL to open this ticket in the app.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the ticket conversation started.")
+    started_by = serializers.CharField(read_only=True, help_text="Display name of the customer who started the ticket.")
+    distinct_id = serializers.CharField(read_only=True, help_text="Distinct ID of the customer who started the ticket.")
 
     class Meta:
         dataclass = TicketSummary
         ref_name = "SupportTicket"
-        fields = ["id", "ticket_number", "status", "last_message_at", "last_message_text", "deep_link"]
+        fields = [
+            "id",
+            "ticket_number",
+            "status",
+            "last_message_at",
+            "last_message_text",
+            "deep_link",
+            "created_at",
+            "started_by",
+            "distinct_id",
+        ]
 
 
 class EmailThreadParticipantSerializer(DataclassSerializer):
@@ -1009,11 +1022,16 @@ class EmailThreadParticipantSerializer(DataclassSerializer):
         choices=[("internal", "Internal"), ("customer", "Customer")],
         help_text="Whether the participant belongs to the PostHog organization or the customer.",
     )
+    person_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="UUID of the matched PostHog person for a customer participant, when available.",
+    )
 
     class Meta:
         dataclass = EmailThreadParticipantSummary
         ref_name = "AccountEmailThreadParticipant"
-        fields = ["email", "display_name", "kind"]
+        fields = ["email", "display_name", "kind", "person_id"]
 
 
 class AccountEmailThreadSerializer(DataclassSerializer):

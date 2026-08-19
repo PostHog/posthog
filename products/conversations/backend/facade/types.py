@@ -31,6 +31,9 @@ class TicketSummary:
     last_message_at: datetime | None
     last_message_text: str | None
     deep_link: str
+    created_at: datetime
+    started_by: str
+    distinct_id: str
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,7 @@ class EmailThreadParticipantSummary:
     email: str
     display_name: str
     kind: str
+    person_id: str | None
 
 
 @dataclass(frozen=True)

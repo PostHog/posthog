@@ -498,6 +498,11 @@ export interface AccountEmailThreadParticipantApi {
      * * `internal` - Internal
      * * `customer` - Customer */
     readonly kind: EmailThreadParticipantKindEnumApi
+    /**
+     * UUID of the matched PostHog person for a customer participant, when available.
+     * @nullable
+     */
+    readonly person_id: string | null
 }
 
 export interface AccountEmailThreadApi {
@@ -704,6 +709,12 @@ export interface SupportTicketApi {
     readonly last_message_text: string | null
     /** Absolute URL to open this ticket in the app. */
     readonly deep_link: string
+    /** When the ticket conversation started. */
+    readonly created_at: string
+    /** Display name of the customer who started the ticket. */
+    readonly started_by: string
+    /** Distinct ID of the customer who started the ticket. */
+    readonly distinct_id: string
 }
 
 /**

@@ -25,7 +25,7 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, acc
 │                             AccountsOverviewTilesButton + AccountsColumnConfigurator on the right
 ├── AccountsOverviewTiles     metric tiles across the filtered set
 └── AccountsTable             the DataTable; keyed row renderers; controlled row expansion
-    └── AccountNotebooksExpansion   expanded row: sidebar (Useful links + active-relationships summary) + LemonTabs(Notes/Users/Relationships/Feature requests/Usage/Spend/Opportunities/Summaries/Support tickets/Email threads/Meetings/Event stream)
+    └── AccountNotebooksExpansion   expanded row: sidebar (Useful links + active-relationships summary) + LemonTabs(Notes/Users/Relationships/Feature requests/Usage/Spend/Opportunities/Conversations/Meetings/Event stream)
         ├── (notes)         paginated/searchable/sortable LemonTable + "New note" button  (accountNotebooksLogic, keyed by accountId)
         ├── (users)         AccountRelatedUsersExpansion             (accountRelatedUsersLogic, keyed by externalId)
         ├── (relationships) AccountRelationshipsExpansion            (accountRelationshipsLogic, keyed by accountId — full assignment timeline, paginated; assign/end controls + definition filter, current assignments sorted on top)
@@ -33,9 +33,7 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, acc
         ├── (usage)         AccountBillingExpansion kind="usage"     (accountBillingLogic — a saved billing-usage insight)
         ├── (spend)         AccountBillingExpansion kind="spend"     (accountBillingLogic — saved billing-spend insights)
         └── (opportunities) AccountOpportunitiesExpansion            (accountOpportunitiesLogic, keyed by accountId — DWH Salesforce opportunities)
-        └── (summaries)     AccountSummariesExpansion                (accountSummariesLogic, keyed by accountId — periodic AI summaries of the account's Slack channel, plus the cadence opt-in)
-        └── (support_tickets) AccountSupportTicketsExpansion         (accountSupportTicketsLogic, keyed by accountId — conversations support tickets, via the accounts/:id/support_tickets endpoint)
-        └── (email_threads) AccountEmailThreadsExpansion              (accountEmailThreadsLogic, keyed by accountId — matched Conversations email threads, with paginated summaries and message detail loaded on expansion)
+        └── (conversations) AccountConversationsExpansion             (accountConversationsLogic, keyed by accountId — combined email threads, support tickets, and Slack summaries with search, source filters, and shared expansion behavior)
         └── (meetings)      AccountMeetingsExpansion                 (accountMeetingsLogic, keyed by accountId — synced Google Calendar meetings via the accounts/:id/meetings endpoint, plus the matching editor; flag-gated tab, CUSTOMER_ANALYTICS_CSP)
         └── (event_stream)  AccountEventStreamToggle (`../EventStream/`)   flag-gated tab (CUSTOMER_ANALYTICS_CSP); membership toggle for the Slack event stream
 ```
