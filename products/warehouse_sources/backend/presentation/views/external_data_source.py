@@ -1793,7 +1793,7 @@ class IntegrationAccountsResponseSerializer(serializers.Serializer):
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class ResolvedStoredCredential:
-    payload: dict
+    payload: dict = dataclasses.field(repr=False)
     credential: PendingSourceCredential | None
     error_response: Response | None
 

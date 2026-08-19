@@ -1,6 +1,6 @@
 import shlex
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from django.conf import settings
@@ -8,6 +8,7 @@ from django.db import connection
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
@@ -180,7 +181,7 @@ class StartAgentServerOutput:
     boot_total_ms: int | None = None
 
 
-@dataclass
+@frozen
 class _LaunchParams:
     mcp_configs: list[McpServerConfig]
     relayed_mcp_servers: list[str]
@@ -189,8 +190,8 @@ class _LaunchParams:
     actor_user_id: int | None
     agentsh_domains: list[str] | None
     protected_base_branch: str | None
-    event_ingest_token: str | None
-    task_run_session_token: str | None
+    event_ingest_token: str | None = field(repr=False)
+    task_run_session_token: str | None = field(repr=False)
     event_ingest_url: str | None
     event_ingest_keep_stream_open: bool
 
