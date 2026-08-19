@@ -73,6 +73,7 @@ DEFAULT_MAX_STAGE_RETRY_INTERVAL_SECONDS = 600
 STAGE_NON_RETRYABLE_ERROR_TYPES = (
     "InvalidFilterError",
     "DataIntervalEndInFutureError",
+    "HogQLQueryResourceLimitExceededError",
 )
 
 
@@ -146,6 +147,14 @@ def _get_status_for_activity_error(error: exceptions.ActivityError) -> BatchExpo
     if isinstance(error.cause, exceptions.CancelledError):
         return BatchExportRun.Status.CANCELLED
 
+    if isinstance(error.cause, exceptions.ApplicationError) and error.cause.type in STAGE_NON_RETRYABLE_ERROR_TYPES:
+        return BatchExportRun.Status.FAILED
+
+    # Reaching this outside tests means one of two assumptions broke, so `finish_batch_export_run`
+    # logs it. Callers pass `maximum_attempts=0` with no schedule-to-close or run timeout, so a
+    # retryable error (or activity timeout) retries forever and never surfaces here; and a terminal
+    # error from the destination activity comes back as a `BatchExportResult` with `error_repr`
+    # rather than raising. That leaves `TEST`, which forces `maximum_attempts=1`.
     return BatchExportRun.Status.FAILED_RETRYABLE
 
 

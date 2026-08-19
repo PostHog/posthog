@@ -33,13 +33,17 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseClient,
     ClickHouseClientTimeoutError,
     ClickHouseError,
+    ClickHouseMemoryLimitExceededError,
     ClickHouseQueryNotFound,
     ClickHouseQueryStatus,
+    ClickHouseQueryTimeoutError,
+    ClickHouseTooManyBytesError,
     get_client,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
@@ -81,6 +85,58 @@ class DataIntervalEndInFutureError(Exception):
 
     def __init__(self, data_interval_end: dt.datetime) -> None:
         super().__init__(f"The provided 'data_interval_end' ({data_interval_end.isoformat()}) is in the future")
+
+
+class HogQLQueryResourceLimitExceededError(Exception):
+    """A user's HogQL batch export query exceeded a per-query ClickHouse resource limit.
+
+    Raised in place of the ClickHouse error so the workflow treats it as non-retryable (see the
+    stage activity's `non_retryable_error_types`): re-running the query unchanged would fail again.
+
+    Only raised for the `hogql` model. The fixed models keep their ClickHouse errors and stay
+    retryable, since their queries are ours and any failures are our responsibility to address.
+    """
+
+
+def _raise_on_hogql_resource_limit_error(exc: ClickHouseError, model_name: str) -> None:
+    """Re-raise a per-query resource limit breach as an error the workflow will not retry.
+
+    Returns for anything else, leaving the caller to re-raise the original and stay retryable.
+
+    The message we raise replaces the ClickHouse error rather than adding to it: the real one may
+    contain internal details that we should not expose to the user, plus we want to ensure we return
+    a user-friendly error.
+
+    Raises:
+        HogQLQueryResourceLimitExceededError: If a `hogql` export's query exceeded a per-query limit.
+    """
+    if model_name != BatchExport.Model.HOGQL:
+        return
+
+    if isinstance(exc, ClickHouseQueryTimeoutError):
+        limit_message = (
+            "The batch export query took too long to run. Simplifying it, or exporting a shorter date range may help."
+        )
+    elif isinstance(exc, ClickHouseTooManyBytesError):
+        limit_message = (
+            "The batch export query read too much data. Selecting fewer columns, or exporting a shorter date "
+            "range may help."
+        )
+    # The memory class also covers the shared ClickHouse user's budget and the whole server's, neither of which
+    # is this query's fault. Therefore, we only consider query memory limit errors as non-retryable.
+    # Since we're matching based on strings, this is rather fragile. We have an automated test in
+    # products/batch_exports/backend/tests/temporal/pipeline/test_internal_stage.py which runs
+    # against a real ClickHouse server in order to help catch any regressions.
+    elif isinstance(exc, ClickHouseMemoryLimitExceededError) and "query memory limit exceeded" in str(exc).lower():
+        limit_message = (
+            "The batch export query needed too much memory to run. Aggregating over fewer rows, or exporting a "
+            "shorter date range may help."
+        )
+    else:
+        return
+
+    LOGGER.warning("HogQL query exceeded a per-query resource limit", error=str(exc))
+    raise HogQLQueryResourceLimitExceededError(limit_message) from exc
 
 
 def _is_local_dev_or_test() -> bool:
@@ -251,6 +307,7 @@ async def insert_into_internal_stage_activity(
     """
     bind_contextvars(
         team_id=inputs.team_id,
+        batch_export_id=inputs.batch_export_id,
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
@@ -314,17 +371,21 @@ async def insert_into_internal_stage_activity(
             )
             query_or_model = query
 
-        records_total = await _write_batch_export_record_batches_to_internal_stage(
-            query_or_model=query_or_model,
-            full_range=full_range,
-            query_parameters=query_parameters,
-            team_id=inputs.team_id,
-            batch_export_id=inputs.batch_export_id,
-            data_interval_start=inputs.data_interval_start,
-            data_interval_end=inputs.data_interval_end,
-            s3_staging_folder_url=s3_staging_folder.url,
-            num_partitions=num_partitions,
-        )
+        try:
+            records_total = await _write_batch_export_record_batches_to_internal_stage(
+                query_or_model=query_or_model,
+                full_range=full_range,
+                query_parameters=query_parameters,
+                team_id=inputs.team_id,
+                batch_export_id=inputs.batch_export_id,
+                data_interval_start=inputs.data_interval_start,
+                data_interval_end=inputs.data_interval_end,
+                s3_staging_folder_url=s3_staging_folder.url,
+                num_partitions=num_partitions,
+            )
+        except ClickHouseError as e:
+            _raise_on_hogql_resource_limit_error(e, model_name)
+            raise
     logger.info("Staging data completed successfully", records_total=records_total)
     return InternalStageResult(stage_folder=s3_staging_folder.folder, records_total=records_total)
 
@@ -759,12 +820,13 @@ async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) ->
         ClickHouseError: If the query were are trying to check has failed.
     """
     logger = LOGGER.bind(query_id=query_id)
-    num_attempts = 5
-    # Sometimes this check can fail, especially when ClickHouse is under heavy load, so we retry a few times
+    num_attempts = 10
+    # This check can fail while ClickHouse is under heavy load, plus it can also take a while for
+    # queries to be flushed to the query_log, so we retry a few times, over a period of time.
     check_query = make_retryable_with_exponential_backoff(
         client.acheck_query,
         max_attempts=num_attempts,
-        max_retry_delay=1,
+        max_retry_delay=5,
         retryable_exceptions=(ClickHouseQueryNotFound, ClickHouseCheckQueryStatusError),
     )
 
