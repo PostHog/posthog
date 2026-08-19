@@ -974,6 +974,18 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
         access_level = uac.get_user_access_level(self.dashboard)
         assert access_level is None
 
+    def test_object_access_resolves_when_access_control_has_no_team(self):
+        # A create request builds the access control with team=None (no team exists yet). Serializing
+        # the create response must resolve the object's level from the organization scope instead of
+        # raising AttributeError on the missing team.
+        uac = UserAccessControl(user=self.user_with_no_role, team=None, organization_id=self.organization.id)
+
+        # user_with_no_role is a plain member and did not create self.team, so resolution falls through
+        # to the object-level lookup that would otherwise read the absent team. With no restricting
+        # access control it resolves to the project default rather than raising.
+        access_level = uac.get_user_access_level(self.team)
+        assert access_level == "admin"
+
     def test_unsupported_model_returns_none(self):
         """Test that unsupported models return None"""
 

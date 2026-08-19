@@ -1411,7 +1411,6 @@ class ProjectViewSet(
         permissions: list = [
             IsAuthenticated,
             APIScopePermission,
-            PremiumMultiProjectPermission,
             *self.permission_classes,
         ]
 
@@ -1425,6 +1424,10 @@ class ProjectViewSet(
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
                 permissions.append(TeamMemberLightManagementPermission)
+
+            # Evaluated after the create/update access check so a member who lacks permission gets the
+            # permission message, not the plan-upgrade one. It is a no-op outside create and update.
+            permissions.append(PremiumMultiProjectPermission)
 
         return [permission() for permission in permissions]
 

@@ -622,7 +622,14 @@ class UserAccessControl:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
-        return {"team_id": self._team.id, "resource": resource, "resource_id": resource_id}  # type: ignore
+        filters: dict[str, Any] = {"resource": resource, "resource_id": resource_id}
+        # A create request has no team yet, so fall back to the organization scope like the queryset
+        # variant does - otherwise serializing the create response raises AttributeError on team.id.
+        if self._team:
+            filters["team_id"] = self._team.id
+        elif self._organization_id:
+            filters["team__organization_id"] = str(self._organization_id)
+        return filters
 
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
         """
