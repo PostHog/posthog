@@ -11,6 +11,7 @@ import {
   type FlatThreadRow,
   FOLLOWING_END,
   nextThreadFollowState,
+  OLDER_HISTORY_LOAD_THRESHOLD_PX,
   SCROLL_PREVIOUS_ITEM_PEEK,
   SCROLL_UP_KEYS,
   type StickyAnchorEntry,
@@ -43,7 +44,6 @@ import {
 // tuning these rows share (same item mix, same measure-then-settle churn).
 const ESTIMATED_ROW_SIZE = 80;
 const OVERSCAN = 12;
-const OLDER_HISTORY_LOAD_THRESHOLD_PX = 800;
 /** Top of the virtual coordinate space — stands in for the non-virtualized content's `py-4`. */
 const PADDING_START = 16;
 /** Frames a programmatic scroll keeps re-issuing while rows around the target still measure. */

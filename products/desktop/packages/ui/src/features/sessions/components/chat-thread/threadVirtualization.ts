@@ -107,16 +107,8 @@ export function completedTurnTimestamp(turn: AgentTurn): number | undefined {
   return undefined;
 }
 
-/**
- * A windowed transcript virtualizes regardless of row count: scroll-up paging
- * of the older history only exists in the virtualized body.
- */
-export function shouldVirtualizeThread(
-  flatCount: number,
-  hasOlderHistory: boolean,
-): boolean {
-  return flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD || hasOlderHistory;
-}
+/** Viewport distance from the top of the loaded window that triggers an older-history page load. */
+export const OLDER_HISTORY_LOAD_THRESHOLD_PX = 800;
 
 /** Flatten turn rows into the windowed row list (see {@link FlatThreadRow}). */
 export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
