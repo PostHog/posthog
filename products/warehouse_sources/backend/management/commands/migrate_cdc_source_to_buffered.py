@@ -35,6 +35,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BatchQueue,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import strip_s3_protocol
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
+    is_pipeline_v3_enabled,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +96,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"Already {target_mode}; nothing to do."))
             return
         if not rollback:
+            self._require_pipeline_v3(source)
             self._require_write_resolution(source, eligible)
             self._require_no_reserved_columns(eligible)
         if dry_run:
@@ -103,6 +107,21 @@ class Command(BaseCommand):
             self._roll_back(source, eligible, cdc_schemas, options["drain_timeout"])
         else:
             self._flip_to_buffered(source, eligible, options["drain_timeout"])
+
+    def _require_pipeline_v3(self, source: ExternalDataSource) -> None:
+        """Refuse to flip a team that still runs the v2 pipeline.
+
+        Position resolution lives only in the v3 loader; on v2 nothing records a load position, so
+        every scheduled sync re-merges the entire buffer and no file is ever deleted — a snowballing
+        re-merge on every tick, observed live before this guard existed.
+        """
+        if is_pipeline_v3_enabled(source.team_id, source.source_type):
+            return
+        raise CommandError(
+            f"Team {source.team_id} runs the v2 pipeline for {source.source_type}. Buffered ingress "
+            "requires v3: v2 has no position resolution, so the buffer re-merges in full on every "
+            "sync and consumed files are never deleted."
+        )
 
     def _require_write_resolution(self, source: ExternalDataSource, eligible: list[ExternalDataSchema]) -> None:
         """Refuse to flip a team whose write resolution is off.

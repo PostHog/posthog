@@ -21,6 +21,7 @@ _CMD = "products.warehouse_sources.backend.management.commands.migrate_cdc_sourc
 def _mocked_side_effects(
     oldest_batch_age: float | None = None,
     write_resolution: bool = True,
+    pipeline_v3: bool = True,
     buffer_keys: list[str] | None = None,
     extraction_running: bool = False,
 ):
@@ -38,6 +39,7 @@ def _mocked_side_effects(
         patch(f"{_CMD}.psycopg.Connection.connect") as mock_connect,
         patch(f"{_CMD}.BatchQueue.get_oldest_non_terminal_batch_age_seconds", return_value=oldest_batch_age),
         patch(f"{_CMD}.is_cdc_write_resolution_enabled", return_value=write_resolution),
+        patch(f"{_CMD}.is_pipeline_v3_enabled", return_value=pipeline_v3),
         patch(f"{_CMD}.purge_buffer_prefix") as mock_purge,
         patch("products.data_warehouse.backend.facade.api.get_s3_client", return_value=s3),
         patch(
@@ -224,6 +226,20 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
 
         with _mocked_side_effects(write_resolution=False) as mocks:
             with pytest.raises(CommandError, match="dwh-cdc-write-resolution is off"):
+                self._run(source)
+
+        source.refresh_from_db()
+        assert "cdc_ingest_mode" not in source.job_inputs
+        mocks["pause"].assert_not_called()
+
+    def test_flipping_a_v2_pipeline_team_is_refused(self):
+        # v2 has no position resolution: nothing records a load position, so the consumer re-merges
+        # the whole buffer on every sync and never deletes a file.
+        source = self._source()
+        self._schema(source, "users")
+
+        with _mocked_side_effects(pipeline_v3=False) as mocks:
+            with pytest.raises(CommandError, match="requires v3"):
                 self._run(source)
 
         source.refresh_from_db()

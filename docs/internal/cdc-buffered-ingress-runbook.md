@@ -23,6 +23,10 @@ preserved, so there is no WAL gap and no re-sync.
 
 ## Before flipping
 
+0. The team runs the v3 pipeline for this source type. **The command refuses to flip a v2 team.**
+   Position resolution lives only in the v3 loader; on v2 nothing records a load position, so every
+   scheduled sync re-merges the entire buffer and no file is ever deleted — per-run row counts grow
+   with the buffer on every tick.
 1. `dwh-cdc-write-resolution` is on for the team. **The command refuses to flip without it.**
    Without the flag the loader records no load position, so no consumed file is ever proven safe to
    delete; the buffer then fills until the S3 TTL expires it, with the slot long advanced past those
