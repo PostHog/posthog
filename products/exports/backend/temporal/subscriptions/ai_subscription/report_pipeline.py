@@ -25,6 +25,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
     SPEC_INVALID_DROP_REASONS,
     RenderedChart,
     ValidatedChart,
+    charts_enabled,
     render_charts,
     validate_chart,
 )
@@ -252,6 +253,8 @@ async def generate_ai_report(
             # Rank before rendering: a render costs a browserless worker and a second query
             # execution, so charts that lose the ranking must never be built. Python's sort is
             # stable, so equal importance keeps plan order.
+            if not await database_sync_to_async(charts_enabled, thread_sensitive=False)(team, user):
+                charts = []
             ranked = sorted(charts, key=lambda chart: chart.spec.importance, reverse=True)
             selected, dropped = ranked[:MAX_CHARTS_PER_REPORT], ranked[MAX_CHARTS_PER_REPORT:]
             if dropped:

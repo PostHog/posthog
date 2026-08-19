@@ -108,6 +108,12 @@ def _chart(spec=_LINE, hogql="SELECT 1", step_index=0) -> ValidatedChart:
     return ValidatedChart(spec=spec, hogql=hogql, title="signups", step_index=step_index)
 
 
+def test_the_export_context_pins_the_render_to_the_step_row_limits():
+    # Without this the render clamps at 50k rows while the step validated at 500, so the chart can
+    # plot rows the report never saw, on a cache key that can never hit the step's result.
+    assert build_export_context(_chart())["limit_context"] == "posthog_ai"
+
+
 def test_the_export_context_wraps_the_executed_sql_for_the_renderer():
     source = build_export_context(_chart())["source"]
 

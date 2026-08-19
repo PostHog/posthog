@@ -2,6 +2,7 @@ import asyncio
 from typing import Any, Optional
 
 import structlog
+import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
@@ -16,6 +17,31 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
 )
 
 logger = structlog.get_logger(__name__)
+
+# Charts change what every AI report looks like and add a render plus a query to each delivery, so
+# the rollout is per-team rather than a deploy.
+AI_REPORT_CHARTS_FEATURE_FLAG_KEY = "ai-report-charts"
+
+
+def charts_enabled(team: Team, user: User) -> bool:
+    """Whether this team renders charts. Fails closed: a flag service error means text-only."""
+    if not getattr(user, "distinct_id", None):
+        return False
+    org_id = str(team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                AI_REPORT_CHARTS_FEATURE_FLAG_KEY,
+                str(user.distinct_id),
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+            )
+        )
+    except Exception:
+        logger.warning("ai_report.chart_flag_lookup_failed", team_id=team.id, exc_info=True)
+        return False
+
 
 # Displays whose x axis is a continuous run of points, so a chart of one or two rows reads as noise.
 _CONTINUOUS_DISPLAYS = {"ActionsLineGraph", "ActionsAreaGraph"}
@@ -135,12 +161,17 @@ def build_export_context(chart: ValidatedChart) -> dict:
     if len(chart.spec.y_columns) > 1:
         chart_settings["showLegend"] = True
     return {
+        # Pins the render to the same row limits the step ran under. Without it the render clamps at
+        # LimitContext.QUERY (50k rows) while the step validated at POSTHOG_AI (500), so the chart
+        # could plot rows the report never saw — and the differing cache key guaranteed a second
+        # full execution rather than a hit on the step's result.
+        "limit_context": "posthog_ai",
         "source": {
             "kind": "DataVisualizationNode",
             "source": {"kind": "HogQLQuery", "query": chart.hogql},
             "display": chart.spec.display,
             "chartSettings": chart_settings,
-        }
+        },
     }
 
 

@@ -53,6 +53,13 @@ _WINDOW_END = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
 _RESPONSE: dict = {"results": [], "columns": []}
 
 
+@pytest.fixture(autouse=True)
+def _charts_flag_on():
+    # These tests exercise chart behavior, not the rollout gate, which has its own test.
+    with patch(f"{_RP}.charts_enabled", return_value=True):
+        yield
+
+
 def _test_window() -> ReportWindow:
     return ReportWindow(start=_WINDOW_END - timedelta(days=1), end=_WINDOW_END)
 
@@ -971,6 +978,35 @@ async def test_a_plan_whose_chart_spec_failed_validation_is_not_frozen(
 
     assert result.markdown == "# Report"
     assert result.plan_to_persist is None
+
+
+@parameterized.expand([("flag_off", False), ("flag_on", True)])
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}.charts_enabled")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_charts_render_only_for_a_flagged_team(
+    _name: str,
+    enabled: bool,
+    mock_bep: MagicMock,
+    mock_run: AsyncMock,
+    mock_render: AsyncMock,
+    mock_enabled: MagicMock,
+    mock_chat: MagicMock,
+    _capture: MagicMock,
+) -> None:
+    # Charts add a render and a query to every delivery, so an unflagged team must render none.
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = _charted_run()
+    mock_enabled.return_value = enabled
+    mock_render.return_value = ([], [])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    assert bool(mock_render.call_args.args[0]) is enabled
 
 
 def _candidate(step_index: int, importance: int) -> ValidatedChart:

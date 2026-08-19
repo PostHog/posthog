@@ -24,6 +24,8 @@ from rest_framework.request import Request
 
 from posthog.schema import SharingConfigurationSettings
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.api.data_color_theme import DataColorTheme, PublicDataColorThemeSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
@@ -284,6 +286,18 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
     serializer.is_valid(raise_exception=True)
     export_asset = serializer.synthetic_create("opengraph image")
     return export_asset
+
+
+# Limit contexts an export may pin, by name. An allowlist, not a lookup: export_context is written
+# by server-side callers, and a free-form value here would let one widen its own row limits.
+_EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}
+
+
+def _export_limit_context(export_context: dict | None) -> LimitContext:
+    requested = (export_context or {}).get("limit_context")
+    return (
+        _EXPORT_LIMIT_CONTEXTS.get(requested, LimitContext.QUERY) if isinstance(requested, str) else LimitContext.QUERY
+    )
 
 
 def get_themes_for_team(team: Team):
@@ -1301,6 +1315,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     resource.team,
                     source_query,
                     execution_mode=execution_mode,
+                    # Clamp exactly as the caller that produced this export did. limit_context is
+                    # part of the cache key, so a mismatch guarantees a second full execution and
+                    # can render a wider row set than the caller validated.
+                    limit_context=_export_limit_context(resource.export_context),
                     # Anonymous render surface; attribute the read to the export owner so
                     # warehouse HogQL access control resolves against their access.
                     user=resource.created_by,
