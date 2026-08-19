@@ -89,3 +89,25 @@ export const LifecycleStates: Story = {
     </div>
   ),
 };
+
+export const LoadingDetails: Story = {
+  render: () => (
+    <div className="text-[13px]">
+      <GithubRefChip
+        href="https://github.com/example-org/example-repo/pull/105"
+        kind="pr"
+        prDetails={{
+          state: null,
+          merged: false,
+          draft: false,
+          title: null,
+          author: null,
+          ciStatus: "loading",
+          isLoading: true,
+        }}
+      >
+        example-org/example-repo#105
+      </GithubRefChip>
+    </div>
+  ),
+};
