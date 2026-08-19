@@ -30,6 +30,7 @@ export function ChecksTable(props: DataQualityChecksLogicProps): JSX.Element {
 
     return (
         <LemonTable
+            rowKey="id"
             dataSource={sortedChecks}
             loading={checksLoading}
             nouns={['check', 'checks']}
