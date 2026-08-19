@@ -37,6 +37,7 @@ def _testcase(
         classname="m",
         name=name,
         file=file,
+        file_source="junit",
         selector=f"m.py::{name}",
         duration_seconds=duration,
         start=test_start,
@@ -67,6 +68,80 @@ def _testcase(
 )
 def test_to_pytest_selector(file: str, classname: str, name: str, expected: str) -> None:
     assert report_test_timings.to_pytest_selector(file, classname, name) == expected
+
+
+def test_find_repo_root_walks_to_repository_markers(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    script = repo_root / ".github/scripts/report_test_timings.py"
+    script.parent.mkdir(parents=True)
+    script.touch()
+    (repo_root / "owners.yaml").touch()
+
+    assert report_test_timings.find_repo_root(script) == repo_root
+
+
+def test_test_identity_infers_existing_pytest_file_when_junit_omits_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    test_file = tmp_path / "products/approvals/backend/tests/test_approvals_api.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.touch()
+    monkeypatch.setattr(report_test_timings, "REPO_ROOT", tmp_path)
+
+    file, nodeid, selector, file_source = report_test_timings.test_identity(
+        "pytest",
+        "",
+        "products.approvals.backend.tests.test_approvals_api.TestApprovalsFeatureGating",
+        "test_accessible",
+    )
+
+    assert file == "products/approvals/backend/tests/test_approvals_api.py"
+    assert nodeid == "products/approvals/backend/tests/test_approvals_api/TestApprovalsFeatureGating::test_accessible"
+    assert (
+        selector
+        == "products/approvals/backend/tests/test_approvals_api.py::TestApprovalsFeatureGating::test_accessible"
+    )
+    assert file_source == "inferred"
+
+
+@pytest.mark.parametrize(
+    "classname,file_exists,expected",
+    [
+        (
+            "products.logs.skills.authoring-log-alerts.tests.test_baseline_stats.TestBaselineStats",
+            True,
+            "products/logs/skills/authoring-log-alerts/tests/test_baseline_stats.py",
+        ),
+        (
+            "products.approvals.backend.tests.test_new_api.TestNewAPI",
+            False,
+            "products/approvals/backend/tests/test_new_api.py",
+        ),
+    ],
+)
+def test_infer_pytest_file_supports_safe_test_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    classname: str,
+    file_exists: bool,
+    expected: str,
+) -> None:
+    monkeypatch.setattr(report_test_timings, "REPO_ROOT", tmp_path)
+    if file_exists:
+        test_file = tmp_path / expected
+        test_file.parent.mkdir(parents=True)
+        test_file.touch()
+
+    assert report_test_timings.infer_pytest_file(classname) == expected
+
+
+def test_infer_pytest_file_rejects_path_traversal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (tmp_path / "secret.py").touch()
+    monkeypatch.setattr(report_test_timings, "REPO_ROOT", repo_root)
+
+    assert report_test_timings.infer_pytest_file("products/../../secret") == ""
 
 
 # ---------- artifact name parsing ----------
@@ -675,7 +750,11 @@ def test_emit_shard_span_stamps_owner_team_only_for_owned_files(monkeypatch: pyt
     owners = {"products/x/test_a.py": "team-devex"}
     report_test_timings._emit_shard_span(tracer, shard, "Backend CI / core (1)", lambda f: owners.get(f, ""))
 
+    assert tracer.spans[1].attributes["test.file"] == "products/x/test_a.py"
+    assert tracer.spans[1].attributes["test.file_source"] == "junit"
     assert tracer.spans[1].attributes["test.owner_team"] == "team-devex"
+    assert tracer.spans[2].attributes["test.file"] == "stray/test_b.py"
+    assert tracer.spans[2].attributes["test.file_source"] == "junit"
     assert "test.owner_team" not in tracer.spans[2].attributes
 
 
