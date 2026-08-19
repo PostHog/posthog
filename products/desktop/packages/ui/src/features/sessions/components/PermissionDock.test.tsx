@@ -65,6 +65,29 @@ describe("PermissionDock", () => {
     expect(dockEl.style.maxHeight).toBe(`min(${expected}, calc(100% - 120px))`);
   });
 
+  it("releasing the button outside the window ends the drag", () => {
+    render(
+      <div>
+        <PermissionDock compact={false}>
+          <div>Question card</div>
+        </PermissionDock>
+      </div>,
+    );
+
+    const separator = screen.getByRole("separator");
+    const dockEl = stubHeights(separator, 300, 600);
+    fireEvent.mouseDown(separator, { clientY: 400 });
+    fireEvent.mouseMove(document, { clientY: 360, buttons: 1 });
+    const draggedTo = dockEl.style.maxHeight;
+
+    // No mouseup ever arrives; the pointer just comes back with nothing held.
+    fireEvent.mouseMove(document, { clientY: 200, buttons: 0 });
+    fireEvent.mouseMove(document, { clientY: 100, buttons: 1 });
+
+    expect(document.body.style.cursor).toBe("");
+    expect(dockEl.style.maxHeight).toBe(draggedTo);
+  });
+
   it("answering mid-drag leaves the app without a stuck cursor", () => {
     const { unmount } = render(
       <div>

@@ -89,6 +89,13 @@ export function PermissionDock({
       const startHeight = dockRef.current?.getBoundingClientRect().height ?? 0;
 
       const onMouseMove = (moveEvent: MouseEvent) => {
+        // A button released outside the window delivers no mouseup, so the
+        // first move back inside — the one reporting no button held — is what
+        // ends that drag.
+        if (moveEvent.buttons === 0) {
+          endDrag();
+          return;
+        }
         resizeTo(startHeight + (startY - moveEvent.clientY));
       };
       const endDrag = () => {
