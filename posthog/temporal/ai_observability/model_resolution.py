@@ -134,7 +134,7 @@ def _resolve_key_by_id(team_id: int, key_id: str) -> LLMProviderKey:
 # `State.OK` is the only usable state, but the other three fail for different reasons, and a key
 # that was never validated is not the same thing as one the provider rejected. Naming the real
 # state is what tells someone whether to validate, re-validate, or replace the key.
-_UNUSABLE_KEY_MESSAGES = {
+_UNUSABLE_KEY_MESSAGES: dict[str, str] = {
     LLMProviderKey.State.UNKNOWN: (
         "This API key has not been validated yet. Validate it in AI observability settings, "
         "then re-enable this evaluation."
