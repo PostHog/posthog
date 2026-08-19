@@ -10,7 +10,7 @@ from pydantic import (
 
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
-from posthog.hogql.errors import NotImplementedError, ResolutionError
+from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
 
 # Import Workload at module level for Pydantic (needed at runtime)
 from posthog.clickhouse.workload import Workload
@@ -231,7 +231,10 @@ class Table(FieldOrTable):
         name = str(name)
         if self.has_field(name):
             return self.fields[name]
-        raise Exception(f'Field "{name}" not found on table {self.__class__.__name__}')
+        # A missing column is a query problem, so raise the catchable, user-facing QueryError:
+        # it reads as a query error rather than an internal one, and lets callers recover — see
+        # `_recursively_resolve_column`, which degrades a pruned CTE column instead of dying.
+        raise QueryError(f'Field "{name}" not found on table {self.__class__.__name__}')
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
         raise NotImplementedError("Table.to_printed_clickhouse not overridden")

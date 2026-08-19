@@ -26,6 +26,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
     TableNode,
+    UnknownDatabaseField,
     UUIDDatabaseField,
 )
 from posthog.hogql.database.schema.events import EventsTable
@@ -737,6 +738,28 @@ class TestResolver(BaseTest):
             f"a CTE table was rebuilt: {len(built_ids)} builds for {len(set(built_ids))} distinct CTEs"
         )
         assert len(set(built_ids)) == 3, "all 3 CTEs (base, mid, top) should be built exactly once"
+
+    def test_get_field_missing_raises_query_error(self):
+        # A missing column must surface as a readable QueryError, not a bare Exception that reads
+        # as an internal error. Projection pushdown can prune a column a later transform still
+        # references, and this is where that mismatch is caught.
+        with self.assertRaises(QueryError):
+            Table(fields={}).get_field("timestamp")
+
+    def test_build_cte_table_degrades_pruned_column(self):
+        # A CTE column can reference a field that projection pushdown removed from an inner table
+        # (a JOIN constraint synthesized after pruning still names it). Rebuilding the CTE table
+        # must not die; the unresolvable column degrades to an unknown field.
+        inner = Table(fields={"event": StringDatabaseField(name="event")})  # no "timestamp"
+        pruned_column = ast.FieldAliasType(
+            alias="timestamp",
+            type=ast.FieldType(name="timestamp", table_type=ast.TableType(table=inner)),
+        )
+        select_query_type = ast.SelectQueryType(columns={"timestamp": pruned_column}, tables={})
+
+        table = resolver_utils._build_cte_database_table(select_query_type, self.context)
+
+        assert isinstance(table.get_field("timestamp"), UnknownDatabaseField)
 
     def test_same_named_ctes_in_different_scopes_do_not_collide(self):
         # Same name, different scopes: keyed by type identity not name, so they must not collide.

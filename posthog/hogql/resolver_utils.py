@@ -350,12 +350,22 @@ def _recursively_resolve_column(
     if isinstance(column, ast.FieldAliasType):
         return _recursively_resolve_column(name, column.type, fields, context)
     elif isinstance(column, ast.FieldType):
-        db_field = column.resolve_database_field(context)
+        # The column can reference a field that projection pushdown pruned from an inner
+        # subquery/CTE (e.g. a JOIN constraint synthesized after pruning still names it). Both
+        # resolution paths then call Table.get_field, which raises QueryError. Degrade to the
+        # constant type, then to an unknown field, so rebuilding the CTE table does not die.
+        try:
+            db_field = column.resolve_database_field(context)
+        except QueryError:
+            db_field = None
         if db_field:
             fields[name] = db_field
         else:
-            const_type = column.resolve_constant_type(context)
-            fields[name] = _constant_type_to_database_field(name, const_type)
+            try:
+                const_type = column.resolve_constant_type(context)
+                fields[name] = _constant_type_to_database_field(name, const_type)
+            except QueryError:
+                fields[name] = UnknownDatabaseField(name=name)
     elif isinstance(column, ast.ExpressionFieldType):
         fields[name] = ExpressionField(name=column.name, expr=column.expr, isolate_scope=column.isolate_scope)
     elif isinstance(column, ast.FieldTraverserType):
