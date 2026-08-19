@@ -16,6 +16,7 @@ from products.growth.backend.enrichment.icp_lists import (
     clear_lists_cache,
     parse_investors_csv_rows,
     parse_tags_csv_rows,
+    unrecognized_recommendation_tokens,
 )
 from products.growth.backend.models import IcpScoringConfig
 
@@ -79,3 +80,11 @@ class Command(BaseCommand):
                 f"created IcpScoringConfig {version}: {len(tags)} tag rows, {len(investors)} investors — {state}"
             )
         )
+
+        unrecognized = unrecognized_recommendation_tokens(tags)
+        if unrecognized:
+            total = sum(unrecognized.values())
+            detail = ", ".join(f"{token!r} x{count}" for token, count in unrecognized.most_common())
+            self.stdout.write(
+                self.style.WARNING(f"{total} unrecognized recommendation token(s) dropped from every bucket: {detail}")
+            )

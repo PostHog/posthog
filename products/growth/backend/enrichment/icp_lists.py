@@ -21,6 +21,7 @@ import time
 import typing
 import threading
 import dataclasses
+from collections import Counter
 from typing import Any, Optional
 
 if typing.TYPE_CHECKING:
@@ -28,6 +29,9 @@ if typing.TYPE_CHECKING:
 
 # Buckets a tag row's recommendation may name; anything else (e.g. "ignore") is skipped.
 TAG_BUCKETS = frozenset({"dq", "capital_quality", "software_positive", "software_negative", "ai_positive"})
+
+# The one non-bucket recommendation value the sheet uses deliberately; not a typo to flag.
+_IGNORE_RECOMMENDATION = "ignore"
 
 _CACHE_TTL_SECONDS = 60
 
@@ -72,6 +76,7 @@ def build_curated_lists(config: "IcpScoringConfig") -> CuratedLists:
         if not tag:
             continue
         for bucket in str(row.get("recommendation") or "").split("+"):
+            bucket = bucket.strip().lower()
             if bucket in buckets:
                 buckets[bucket].add(tag)
 
@@ -155,6 +160,21 @@ def parse_tags_csv_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return stored
+
+
+def unrecognized_recommendation_tokens(tags: list[dict[str, Any]]) -> Counter[str]:
+    """Count recommendation tokens that match neither a TAG_BUCKETS bucket nor "ignore".
+
+    Normalizes the same way build_curated_lists does, so a token this misses is exactly one
+    that would otherwise silently drop out of every bucket at load time.
+    """
+    counts: Counter[str] = Counter()
+    for row in tags:
+        for token in str(row.get("recommendation") or "").split("+"):
+            token = token.strip().lower()
+            if token and token not in TAG_BUCKETS and token != _IGNORE_RECOMMENDATION:
+                counts[token] += 1
+    return counts
 
 
 def parse_investors_csv_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

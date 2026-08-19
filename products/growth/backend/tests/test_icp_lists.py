@@ -11,6 +11,7 @@ from products.growth.backend.enrichment.icp_lists import (
     clear_lists_cache,
     load_active_lists,
     parse_tags_csv_rows,
+    unrecognized_recommendation_tokens,
 )
 from products.growth.backend.models import IcpScoringConfig
 
@@ -75,6 +76,24 @@ class TestIcpLists(BaseTest):
         assert active_version() == "lists-1"  # cached
         clear_lists_cache()
         assert active_version() == "lists-2"
+
+    def test_recommendation_tokens_are_normalized_and_strays_are_countable(self):
+        # A reformatted sheet export ("AI_Positive ", "Capital_Quality") must not silently
+        # empty a bucket; genuinely unknown tokens are surfaced by the counter the sync
+        # command warns with.
+        config = _config(
+            version="messy",
+            tags=[
+                {"tag": "Artificial Intelligence", "recommendation": " AI_POSITIVE "},
+                {"tag": "Developer Tools", "recommendation": "Software_Positive+banana"},
+            ],
+        )
+        lists = build_curated_lists(config)
+        assert "artificial intelligence" in lists.ai_positive
+        assert "developer tools" in lists.software_positive
+
+        strays = unrecognized_recommendation_tokens(config.tags)
+        assert strays == {"banana": 1}
 
     def test_ai_grant_rows_are_upgraded_to_both_buckets_at_import(self):
         rows = parse_tags_csv_rows(
