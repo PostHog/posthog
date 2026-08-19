@@ -114,6 +114,7 @@ export function HogFunctionFilters({
     const isTransformation = type === 'transformation'
     const isDataWarehouse = configuration?.filters?.source === 'data-warehouse-table'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
+    const cdpGroupUpdatesEnabled = useFeatureFlag('CDP_GROUP_UPDATES')
     const cdpDwhTableSourceEnabled = useFeatureFlag('CDP_DWH_TABLE_SOURCE')
 
     // The table matcher's column suggestions read from databaseTableListLogic, which isn't loaded
@@ -182,7 +183,9 @@ export function HogFunctionFilters({
 
     // NOTE: Mappings won't work for person updates currently as they are totally event based...
     const showSourcePicker =
-        (cdpPersonUpdatesEnabled || cdpDwhTableSourceEnabled) && type === 'destination' && !useMapping
+        (cdpPersonUpdatesEnabled || cdpGroupUpdatesEnabled || cdpDwhTableSourceEnabled) &&
+        type === 'destination' &&
+        !useMapping
     const showEventMatchers =
         !useMapping && ['events', 'data-warehouse-table'].includes(configuration?.filters?.source ?? 'events')
 
@@ -206,6 +209,8 @@ export function HogFunctionFilters({
                             <br />
                             <b>Person updates</b> will trigger whenever a Person is created, updated or deleted.
                             <br />
+                            <b>Group updates</b> will trigger whenever a group's properties are updated.
+                            <br />
                             <b>Warehouse table</b> will trigger whenever a new row is synced into a data warehouse
                             table.
                         </>
@@ -218,6 +223,9 @@ export function HogFunctionFilters({
                                     { value: 'events', label: 'Events' },
                                     ...(cdpPersonUpdatesEnabled
                                         ? [{ value: 'person-updates', label: 'Person updates' }]
+                                        : []),
+                                    ...(cdpGroupUpdatesEnabled
+                                        ? [{ value: 'group-updates', label: 'Group updates' }]
                                         : []),
                                     ...(cdpDwhTableSourceEnabled
                                         ? [{ value: 'data-warehouse-table', label: 'Warehouse table' }]

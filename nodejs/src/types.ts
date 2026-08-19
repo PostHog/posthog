@@ -140,6 +140,7 @@ export interface PluginServerCapabilities {
     cdpProcessedEvents?: boolean
     cdpDataWarehouseEvents?: boolean
     cdpPersonUpdates?: boolean
+    cdpGroupUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorkerBatchResolve?: boolean

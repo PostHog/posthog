@@ -30,6 +30,7 @@ import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
+import { CdpGroupUpdatesConsumer } from './cdp/consumers/cdp-group-updates.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './cdp/consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
@@ -94,6 +95,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpDataWarehouseEvents ||
             capabilities.cdpInternalEvents ||
             capabilities.cdpPersonUpdates ||
+            capabilities.cdpGroupUpdates ||
             capabilities.cdpLegacyOnEvent ||
             capabilities.cdpApi ||
             capabilities.cdpCyclotronWorker ||
@@ -201,6 +203,14 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpPersonUpdates) {
             serviceLoaders.push(async () => {
                 const consumer = new CdpPersonUpdatesConsumer(this.config, cdpDeps!, kafkaQueue)
+                await consumer.start()
+                return consumer.service
+            })
+        }
+
+        if (capabilities.cdpGroupUpdates) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpGroupUpdatesConsumer(this.config, cdpDeps!, kafkaQueue)
                 await consumer.start()
                 return consumer.service
             })

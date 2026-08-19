@@ -51,6 +51,11 @@ export class GroupsManagerService {
         this.groupPropertiesLoader.clear()
     }
 
+    public async getGroupTypeName(teamId: number, groupTypeIndex: number): Promise<string | null> {
+        const typeMapping = await this.groupTypesLoader.get(String(teamId))
+        return Object.entries(typeMapping ?? {}).find(([, index]) => index === groupTypeIndex)?.[0] ?? null
+    }
+
     /**
      * Loads groups for a given team and event, returning the groups record.
      * Can be used directly when a full globals object isn't available (e.g. hogflow worker).
