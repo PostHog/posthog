@@ -39,7 +39,12 @@ WORKDIR /code
 COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY ./bin/turbo ./bin/turbo
 COPY ./patches ./patches
-COPY ./rust ./rust
+# Manifests for the two rust workspace packages nodejs depends on, so the
+# frozen-lockfile install below can resolve them. The full rust source is
+# copied later, after the install, so a rust change no longer busts this
+# expensive install layer.
+COPY ./rust/common/hogvm/node/package.json ./rust/common/hogvm/node/
+COPY ./rust/replay-anonymizer-node/package.json ./rust/replay-anonymizer-node/
 COPY ./common/esbuilder/ ./common/esbuilder/
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
@@ -66,6 +71,10 @@ COPY ./common/replay-shared/src/ ./common/replay-shared/src/
 COPY ./common/replay-shared/tsconfig.json ./common/replay-shared/
 COPY ./common/replay-headless/src/ ./common/replay-headless/src/
 COPY ./common/replay-headless/build.mjs ./common/replay-headless/
+
+# Full rust source: turbo compiles the two rust napi addons nodejs depends on.
+# Kept below the pnpm install so rust changes only re-run the builds, not the install.
+COPY ./rust ./rust
 
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/replay-headless build
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs build
