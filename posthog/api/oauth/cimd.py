@@ -116,6 +116,7 @@ CIMD_THROTTLE_CLASSES: list[type[SimpleRateThrottle]] = [CIMDBurstThrottle, CIMD
 class ComPostHogNamespace(TypedDict, total=False):
     verification_token: str
     scopes: list[str]
+    optional_scopes: list[str]
     provisioning: bool
 
 

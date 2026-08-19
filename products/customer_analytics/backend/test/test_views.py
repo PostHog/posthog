@@ -470,6 +470,7 @@ class TestAccountViewSet(APIBaseTest):
         self.assertIsNone(data["external_id"])
         self.assertEqual(data["properties"], {})
         self.assertIsNone(data["churned_at"])
+        self.assertIsNone(data["ignored_at"])
 
     def test_create_with_churned_at(self):
         response = self.client.post(
@@ -514,10 +515,27 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         self.assertEqual({account["name"] for account in response.json()["results"]}, expected_names)
 
+    @parameterized.expand(
+        [
+            ("default", {}, {"Tracked"}),
+            ("include_ignored", {"include_ignored": "true"}, {"Tracked", "Ignored"}),
+        ]
+    )
+    def test_list_ignored_visibility(self, _name: str, params: dict[str, str], expected_names: set[str]) -> None:
+        self._create_account(name="Tracked")
+        self._create_account(name="Ignored", ignored_at=timezone.now())
+
+        response = self.client.get(self.endpoint_base, data=params)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual({account["name"] for account in response.json()["results"]}, expected_names)
+
     def test_retrieve(self):
+        ignored_at = timezone.now()
         account = self._create_account(
             external_id="ext-1",
             properties={"stripe_customer_id": "cus_123"},
+            ignored_at=ignored_at,
         )
 
         response = self.client.get(f"{self.endpoint_base}{account.id}/")
@@ -528,6 +546,7 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(data["name"], "Acme Corp")
         self.assertEqual(data["external_id"], "ext-1")
         self.assertEqual(data["properties"]["stripe_customer_id"], "cus_123")
+        self.assertEqual(data["ignored_at"], ignored_at.isoformat().replace("+00:00", "Z"))
 
     def test_retrieve_hides_retired_role_keys_in_stored_rows(self):
         # Rows not yet cleaned by backfill_account_relationships must not leak role keys:
@@ -556,6 +575,16 @@ class TestAccountViewSet(APIBaseTest):
         account.refresh_from_db()
         self.assertEqual(account.name, "Renamed")
         self.assertEqual(account.properties.sfdc_id, "001xx")
+
+    def test_update_does_not_accept_ignored_at(self):
+        ignored_at = timezone.now()
+        account = self._create_account(ignored_at=ignored_at)
+
+        response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"ignored_at": None}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        account.refresh_from_db()
+        self.assertEqual(account.ignored_at, ignored_at)
 
     def test_update_and_clear_churned_at(self):
         account = self._create_account()

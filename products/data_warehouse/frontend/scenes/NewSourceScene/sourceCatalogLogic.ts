@@ -1073,6 +1073,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Productboard'
                       | 'Productiv'
                       | 'Productive'
+                      | 'Profound'
                       | 'PromptingCompany'
                       | 'PromptWatch'
                       | 'ProofpointTap'
