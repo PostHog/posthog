@@ -421,14 +421,14 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             render={(props) => (
                                                 <Link
                                                     {...props}
-                                                    to={urls.queryPerformance()}
+                                                    to={urls.experimentsStaffTools()}
                                                     buttonProps={{
                                                         menuItem: true,
                                                     }}
-                                                    data-attr="new-account-menu-query-performance"
+                                                    data-attr="new-account-menu-experiments-staff-tools"
                                                 >
                                                     <IconDatabase />
-                                                    Query performance
+                                                    Experiments staff tools
                                                 </Link>
                                             )}
                                         />

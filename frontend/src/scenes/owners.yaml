@@ -51,8 +51,6 @@ rules:
       owners: team-product-analytics
     - match: '/instance/'
       owners: team-growth
-    - match: '/instance/QueryPerformance/'
-      owners: team-experiments
     - match: '/marketing-analytics/'
       owners: team-web-analytics
     - match: '/max/'
