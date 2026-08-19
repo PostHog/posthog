@@ -534,6 +534,26 @@ def test_view_logs_strips_terminal_control_characters(runner: CliRunner) -> None
     assert "]52;c;payloadFAILED x::y" in result.output
 
 
+# When the overall 2000-line cap bites, the query forces the last job's `truncated` flag on and drops
+# whole jobs; the render must announce the dropped jobs and not blame the last job's own line cap.
+def test_view_logs_announces_the_overall_cap_without_blaming_the_per_job_cap(runner: CliRunner) -> None:
+    logs = {
+        **_PAYLOADS["run_failure_logs"],
+        "truncated": True,
+        "jobs": [
+            {**_PAYLOADS["run_failure_logs"]["jobs"][0], "truncated": True},
+        ],
+    }
+    result = _invoke(
+        runner,
+        ["view", "test_capture", "--logs", "--format", "text"],
+        _Recorder(overrides={"run_failure_logs": logs}),
+    )
+    assert result.exit_code == 0
+    assert "Overall log cap reached" in result.output
+    assert "per-job line cap reached" not in result.output
+
+
 # Merging failure lines with the test-health queue would invent a verdict neither made.
 def test_search_keeps_the_two_grains_in_separate_sections(runner: CliRunner) -> None:
     recorder = _Recorder()

@@ -846,4 +846,8 @@ def _render_logs(logs: dict[str, Any]) -> None:
             text = _terminal_text(line.get("text", ""))
             click.echo(f"    {str(number) if number else '·':>7}  {text}")
         if job.get("truncated"):
-            click.echo("    (per-job line cap reached)")
+            # The overall cap forces the last job's flag on, so its clip may be the run-level cap
+            # rather than this job's line cap — don't name a cap the flag can't distinguish.
+            click.echo("    (lines truncated)")
+    if logs.get("truncated"):
+        click.echo("\n  Overall log cap reached; some failed jobs are omitted and the last job above is clipped.")
