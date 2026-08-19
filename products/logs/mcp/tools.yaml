@@ -48,6 +48,7 @@ tools:
                 - evaluation_periods
                 - datapoints_to_alarm
                 - cooldown_minutes
+                - schedule_restriction
                 - snooze_until
                 - next_check_at
                 - last_notified_at
@@ -167,6 +168,7 @@ tools:
                 - threshold_count
                 - threshold_operator
                 - window_minutes
+                - schedule_restriction
                 - created_at
                 - updated_at
     logs-alerts-partial-update:
@@ -181,7 +183,7 @@ tools:
         title: Update log alert
         description: >
             Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust
-            thresholds, filters, enable/disable alerts, or snooze them.
+            thresholds, filters, quiet hours, enable/disable alerts, or snooze them.
         exclude_params:
             - id
             - state
@@ -208,6 +210,7 @@ tools:
                 - evaluation_periods
                 - datapoints_to_alarm
                 - cooldown_minutes
+                - schedule_restriction
                 - snooze_until
                 - next_check_at
                 - last_notified_at
@@ -247,6 +250,7 @@ tools:
                 - evaluation_periods
                 - datapoints_to_alarm
                 - cooldown_minutes
+                - schedule_restriction
                 - snooze_until
                 - next_check_at
                 - last_notified_at
@@ -424,7 +428,6 @@ tools:
             idempotent: true
         title: Mine log patterns
         description_file: ./prompts/logs-patterns.md
-        feature_flag: logs-patterns-view
         response:
             exclude:
                 - patterns.*.examples
@@ -443,7 +446,6 @@ tools:
             idempotent: true
         title: Diff log patterns between two windows
         description_file: ./prompts/logs-patterns-diff.md
-        feature_flag: logs-patterns-view
         response:
             exclude:
                 - entries.*.pattern.examples

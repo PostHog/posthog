@@ -2,7 +2,7 @@ import os
 import logging
 from collections.abc import Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import StrEnum
 from functools import cache
 from typing import TYPE_CHECKING
@@ -11,6 +11,8 @@ from django.conf import settings
 
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
+
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
@@ -34,6 +36,7 @@ class NodeRole(StrEnum):
     # Below nodes are part of separate clusters.
     AI_EVENTS = "ai_events"
     AUX = "aux"
+    BATCH_EXPORTS = "batch_exports"
     OPS = "ops"
     SESSIONS = "sessions"
 
@@ -42,11 +45,19 @@ class NodeRole(StrEnum):
 # LOGS hosts replicated tables too (metric_series1/metric_samples1 via migration
 # 0283); non-sharded ALTERs on it run via any_host_by_roles like the satellites.
 DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.DATA, NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.LOGS, NodeRole.OPS, NodeRole.SESSIONS}
+    {
+        NodeRole.DATA,
+        NodeRole.AI_EVENTS,
+        NodeRole.AUX,
+        NodeRole.BATCH_EXPORTS,
+        NodeRole.LOGS,
+        NodeRole.OPS,
+        NodeRole.SESSIONS,
+    }
 )
 # Single-shard data clusters: ALTER runs on one host, replication propagates.
 SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.OPS, NodeRole.SESSIONS}
+    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.BATCH_EXPORTS, NodeRole.OPS, NodeRole.SESSIONS}
 )
 
 
@@ -92,7 +103,7 @@ class ClickHouseUser(StrEnum):
     DICT_READER = "dict_reader"
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ClickHouseCredentials:
     user: str
     password: str = field(repr=False)

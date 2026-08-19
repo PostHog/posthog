@@ -43,7 +43,11 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     if (!projectId) {
       throw new Error("Pi requires a selected PostHog project");
     }
-    const baseUrl = await this.getProxyUrl(credentials.region, projectId);
+    const access = await this.auth.getValidAccessToken();
+    const [baseUrl, enrichmentApiUrl] = await Promise.all([
+      this.getProxyUrl(credentials.region, projectId),
+      this.authProxy.start(access.apiHost),
+    ]);
 
     const mcpConfiguration =
       await this.mcpServerSource.getMcpRuntimeConfiguration();
@@ -54,6 +58,13 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       model: input.model,
       sessionFile: input.sessionFile,
       projectTrusted: input.projectTrusted,
+      enrichment: {
+        apiUrl: enrichmentApiUrl,
+        publicApiUrl: access.apiHost,
+        enableObjectReferences: true,
+        projectId,
+        apiKey: PROXY_API_KEY,
+      },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
       providerOptions: {

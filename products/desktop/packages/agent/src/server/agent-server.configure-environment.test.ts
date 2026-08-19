@@ -79,10 +79,9 @@ describe("AgentServer.configureEnvironment", () => {
     );
   });
 
-  // The Claude session builder reads posthogProjectId from GatewayEnv to emit
-  // the `x-posthog-property-team_id` attribution header (see
-  // adapters/claude/session/options.ts), so the cloud path must include it.
-  it("includes posthogProjectId for the team_id attribution header", () => {
+  // The Claude session builder reads posthogProjectId from GatewayEnv to scope
+  // the request to a project, so the cloud path must include it.
+  it("includes posthogProjectId for the gateway project scope", () => {
     const env = buildServer("background").configureEnvironment({
       isInternal: false,
     });
@@ -199,9 +198,8 @@ describe("AgentServer.configureEnvironment", () => {
 
   // The codex/OpenAI path sets provider http_headers rather than
   // ANTHROPIC_CUSTOM_HEADERS, so the same task metadata must be exposed as a
-  // record — including team_id, which the Claude path adds separately in
-  // buildEnvironment.
-  it("forwards task metadata (plus team_id) as openaiCustomHeaders", () => {
+  // record. It carries both the selected project scope and event attribution.
+  it("forwards task metadata and project scope as openaiCustomHeaders", () => {
     const env = buildServer("background").configureEnvironment({
       isInternal: true,
       originProduct: "signal_report",
@@ -510,7 +508,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
 
   it("emits attribution as one X-PostHog-Properties blob, not per-property headers", () => {
     // Asserts the gateway env this function produces. The Claude adapter's
-    // buildEnvironment later appends `x-posthog-property-team_id` and
+    // buildEnvironment later appends `X-PostHog-Project-Id` and
     // `x-posthog-use-bedrock-fallback` as separate header lines; the Go gateway
     // reads only the blob (team_id is already in it, and it does Bedrock
     // failover itself), so those extra lines are inert on this path.

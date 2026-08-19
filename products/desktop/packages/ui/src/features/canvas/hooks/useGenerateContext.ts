@@ -127,7 +127,7 @@ export function useGenerateContext() {
         }
 
         const task = result.data.task;
-        // File into the context so its Recents/Artifacts tabs pick it up.
+        // File into the context so its Recents list picks it up.
         // Best-effort — a failure here shouldn't undo a started task.
         void fileTask(channelId, task.id).catch(() => {});
         // Announce the CONTEXT.md build in the channel feed (durable, team-

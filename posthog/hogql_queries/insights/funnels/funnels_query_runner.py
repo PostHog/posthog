@@ -45,6 +45,7 @@ from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     RequireAtLeastTwoFunnelSteps,
     ValidateFunnelExclusions,
     ValidateFunnelStepRange,
+    ValidateMaxFunnelSteps,
     ValidateOptionalFunnelSteps,
 )
 from posthog.hogql_queries.insights.funnels.utils import get_breakdown_cohort_name
@@ -103,6 +104,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
     def validators(self) -> Sequence[QueryValidationRule[FunnelsQuery]]:
         return (
             RequireAtLeastTwoFunnelSteps(),
+            ValidateMaxFunnelSteps(),
             ValidateFunnelStepRange(),
             ValidateFunnelExclusions(),
             ValidateOptionalFunnelSteps(),

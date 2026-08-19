@@ -45,12 +45,12 @@ const Component = (props: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): JS
 const ContextualTraceList = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): JSX.Element | null => {
     const { expanded, notebookLogic } = useValues(notebookNodeLogic)
     const { setMenuItems } = useActions(notebookNodeLogic)
-    const { groupKey, groupTypeIndex, personId, tabId } = attributes
+    const { groupKey, groupTypeIndex, nodeId, personId, tabId } = attributes
     const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
     const logicKey = getLogicKey({ groupKey, personId, tabId })
 
-    const sharedLogic = aiObservabilitySharedLogic({ logicKey, personId, group })
-    const tracesLogic = aiObservabilityTracesTabLogic({ personId, group })
+    const sharedLogic = aiObservabilitySharedLogic({ logicKey: nodeId, personId, group })
+    const tracesLogic = aiObservabilityTracesTabLogic({ logicKey: nodeId, personId, group })
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(sharedLogic)
     const { setTracesQuery } = useActions(tracesLogic)
     const { tracesQuery } = useValues(tracesLogic)
@@ -109,7 +109,7 @@ const ContextualSettings = ({
     const { personId, groupKey, groupTypeIndex, nodeId } = attributes
     const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
     const sharedLogic = aiObservabilitySharedLogic({ logicKey: nodeId, personId, group })
-    const tracesLogic = aiObservabilityTracesTabLogic({ personId, group })
+    const tracesLogic = aiObservabilityTracesTabLogic({ logicKey: nodeId, personId, group })
     const { setDates, setPropertyFilters } = useActions(sharedLogic)
     const { setTracesQuery } = useActions(tracesLogic)
     const { tracesQuery } = useValues(tracesLogic)

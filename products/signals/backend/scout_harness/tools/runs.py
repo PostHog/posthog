@@ -353,6 +353,7 @@ class FleetFindingsSummary:
     scout_count: int
     authored_report_count: int
     edited_report_count: int
+    run_count: int
     latest_at: str | None
 
     def as_dict(self) -> dict[str, Any]:
@@ -379,6 +380,9 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     """
     window_hours = max(1, min(window_hours, MAX_FINDINGS_WINDOW_HOURS))
     window_start = timezone.now() - timedelta(hours=window_hours)
+    # Every run in the window, quiet ones included, so the roster's runs headline sits on the same
+    # span as its report tallies instead of a per-scout depth that doesn't sum across a fleet.
+    run_count = SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start).count()
     touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
         ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
     )
@@ -428,6 +432,7 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
         scout_count=len(scouts),
         authored_report_count=len(authored_reports),
         edited_report_count=len(edited_reports),
+        run_count=run_count,
         latest_at=latest_at.isoformat() if latest_at is not None else None,
     )
 

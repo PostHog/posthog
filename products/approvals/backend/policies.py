@@ -1,12 +1,13 @@
-from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
+
+from posthog.dataclasses import frozen
 
 
-@dataclass
+@frozen
 class PolicyDecision:
     """Result of policy evaluation"""
 
-    result: str
+    result: Literal["ALLOW", "DENY", "REQUIRE_APPROVAL"]
     reason: str
     message: str
     approvers: dict

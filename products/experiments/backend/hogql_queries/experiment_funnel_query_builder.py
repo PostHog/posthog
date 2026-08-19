@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.utils import timezone
@@ -7,6 +6,8 @@ from posthog.schema import ExperimentDataWarehouseNode, ExperimentFunnelMetric, 
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
+
+from posthog.dataclasses import frozen
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import (
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class FunnelTemporalSetup:
     first_exposures_cte: str
     temporal_join: str

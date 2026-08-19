@@ -12,7 +12,7 @@
  * localhost:8010; see docs/LOCAL-DEVELOPMENT.md).
  *
  * Usage:
- *   node scripts/use-local-posthog.mjs                  # auto-fetch project key from ../posthog
+ *   node scripts/use-local-posthog.mjs                  # auto-fetch project key from the monorepo checkout
  *   node scripts/use-local-posthog.mjs phc_xxx          # pass the project key explicitly
  *   LOCAL_POSTHOG_PROJECT_KEY=phc_xxx node scripts/use-local-posthog.mjs
  *   POSTHOG_DIR=/path/to/posthog node scripts/use-local-posthog.mjs
@@ -42,8 +42,14 @@ function resolveProjectKey() {
   )?.trim();
   if (explicit) return explicit;
 
+  // products/desktop lives inside the posthog monorepo, so the Django checkout
+  // is two levels up; ../posthog covers a standalone sibling-checkout layout.
+  const monorepoRoot = resolve(repoRoot, "..", "..");
   const posthogDir =
-    process.env.POSTHOG_DIR || resolve(repoRoot, "..", "posthog");
+    process.env.POSTHOG_DIR ||
+    (existsSync(join(monorepoRoot, "manage.py"))
+      ? monorepoRoot
+      : resolve(repoRoot, "..", "posthog"));
   if (!existsSync(join(posthogDir, "manage.py"))) {
     fail(
       `No project key given and no PostHog checkout at ${posthogDir}.\n` +

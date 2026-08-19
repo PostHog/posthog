@@ -81,7 +81,10 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
-import type { DataWarehouseSavedQueryApiSuspended } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type {
+    DataWarehouseSavedQueryApiSuspended,
+    SyncFrequencyBoundsApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -679,6 +682,12 @@ export interface ListOrganizationMembersParams {
     limit?: number
     updated_after?: string
     search?: string
+    /** Only members whose email is on this domain. */
+    email_domain?: string
+    /** Only members whose email is outside the organization's verified domains. */
+    outside_verified_domains?: boolean
+    /** Comma-separated membership levels to return, e.g. `1,8`. */
+    levels?: string
 }
 
 export interface APIErrorType {
@@ -1558,6 +1567,12 @@ export interface RecordingUniversalFilters {
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
+    /**
+     * Server-resolved population narrowing (sessions of persons exposed to the experiment).
+     * Not part of `filter_group`, so the filter-pill editor neither renders nor edits it;
+     * it rides through conversions so saved filters and scanners keep the narrowing.
+     */
+    experiment_exposure?: RecordingsQuery['experiment_exposure']
 }
 
 export interface UniversalFiltersGroup {
@@ -1617,6 +1632,8 @@ export interface ActionFilter extends EntityFilter {
     days?: string[] // TODO: why was this added here?
     operator?: FilterLogicalOperator | null
     nestedFilters?: EntityFilter[] | null
+    /** Replay-only. When true, matches sessions that do NOT contain any event matching this entity */
+    negation?: boolean
 }
 
 export const isGroupFilter = (filter: EntityFilter): filter is ActionFilter => filter.type === EntityTypes.GROUPS
@@ -2071,8 +2088,6 @@ export interface SessionRecordingType {
     expiry_time?: string
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
-    has_summary?: boolean
-    summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
     /** False when the recording was included in list results via a direct link despite not matching the filters. */
@@ -2362,6 +2377,7 @@ export interface BillingType {
     projected_total_amount_usd_with_limit?: string
     projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
+    usage_summary?: Record<string, { usage?: number | null; limit?: number | null; todays_usage?: number | null }>
 
     custom_limits_usd?: {
         [key: string]: number | null
@@ -2653,6 +2669,10 @@ export interface DashboardBasicType extends WithAccessControl {
     tags?: string[]
     /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
     folder?: string | null
+    /** Null when the dashboard was never filed, which is the case that cannot be moved. */
+    file_system_id?: string | null
+    /** Unlike `folder`, keeps the dashboard's own name as the last segment, which a move needs to compute the destination. */
+    file_system_path?: string | null
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /**
@@ -2683,7 +2703,12 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     breakdown_colors?: BreakdownColorConfig[]
     data_color_theme_id?: number | null
     quick_filter_ids?: string[] | null
+    customization?: {
+        tile_spacing?: DashboardTileSpacing
+    }
 }
+
+export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'
 
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',
@@ -3010,6 +3035,7 @@ export enum ChartDisplayType {
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
     BoxPlot = 'BoxPlot',
     SlopeGraph = 'SlopeGraph',
+    ScatterPlot = 'ScatterPlot',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -5502,6 +5528,7 @@ export const INTEGRATION_KINDS = [
     'aws-s3',
     's3-compatible',
     'snowflake',
+    'youtube-analytics',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5745,6 +5772,7 @@ export const API_SCOPE_OBJECTS = [
     'batch_export',
     'batch_import',
     'batch_import_support',
+    'billing',
     'business_knowledge',
     'canvas',
     'clickhouse_test_cluster_perf',
@@ -5908,6 +5936,29 @@ export type AccessControlUpdateType = Pick<AccessControlType, 'access_level' | '
     resource?: AccessControlType['resource']
 }
 
+/** Which rule supplied an inherited access level — mirrors `ResolvedAccess.source` on the backend. */
+export type InheritedAccessSource =
+    | 'object'
+    | 'parent_object'
+    | 'resource'
+    | 'parent_resource'
+    | 'system_default'
+    | 'org_admin'
+    | 'creator'
+    | 'org_membership'
+
+/** What an object falls back to while it carries no override of its own, with the rule that
+ * decided it, resolved by the same walker that enforces access. */
+export type InheritedAccessType = {
+    access_level: AccessControlLevel
+    source: InheritedAccessSource
+    source_subject: 'member' | 'role' | 'default' | null
+    source_resource: APIScopeObject
+    source_resource_id: string | null
+    /** Human name of the parent object the level comes through (e.g. a table's source type). */
+    source_display_name: string | null
+}
+
 export type AccessControlResponseType = {
     access_controls: AccessControlType[]
     available_access_levels: AccessControlLevel[]
@@ -5915,22 +5966,20 @@ export type AccessControlResponseType = {
     default_access_level: AccessControlLevel
     minimum_access_level?: AccessControlLevel
     user_can_edit_access_levels: boolean
-    /** Resource whose project-wide rules apply while the object carries no override of its own. */
-    inherited_resource?: APIScopeObject | null
-    /** The level that applies while the object carries no override: the project-wide rule for
-     * `inherited_resource`, or its built-in default when no rule is set. */
-    inherited_access_level?: AccessControlLevel | null
+    /** The level and rule that apply while the object carries no override of its own; null when
+     * nothing sits above the object (e.g. a project). */
+    inherited_access?: InheritedAccessType | null
 }
 
-export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'
-
 export interface EffectiveAccessControlEntry {
+    /** The subject's own stored rule, if any — what the settings UI edits. */
     access_level: AccessControlLevel | null
+    /** What the subject actually gets, as enforced. */
     effective_access_level: AccessControlLevel | null
-    inherited_access_level: AccessControlLevel | null
-    inherited_access_level_reason: InheritedAccessLevelReason | null
-    /** What applies when no rule exists anywhere. Only returned by the defaults endpoint. */
-    system_default_access_level?: AccessControlLevel
+    /** What the subject would get if their own rule were removed, with the rule that decides
+     * it — resolved by the same walker that enforces access. Null only when nothing sits above
+     * the object's own default (a project's default). */
+    inherited_access: Omit<InheritedAccessType, 'source_display_name'> | null
     minimum: AccessControlLevel
     maximum: AccessControlLevel
 }
@@ -6186,6 +6235,8 @@ export interface DataWarehouseSavedQuery {
     sync_frequency?: string
     /** True when the DAG's single schedule owns the cadence, so `sync_frequency` is not editable per view */
     sync_frequency_managed_by_dag?: boolean
+    /** Which cadences this view's lineage allows, and what withholds the rest. Single fetches only */
+    sync_frequency_bounds?: SyncFrequencyBoundsApi
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     folder_id?: string | null
@@ -6203,6 +6254,36 @@ export interface DataWarehouseSavedQuery {
     is_test?: boolean
     expires_at?: string
     user_access_level?: AccessControlLevel
+    incremental?: DataWarehouseSavedQueryIncremental | null
+    incremental_state?: DataWarehouseSavedQueryIncrementalState | null
+}
+
+export interface DataWarehouseSavedQueryIncremental {
+    enabled: boolean
+    /** Output column whose advancing value marks rows as new */
+    incremental_key: string
+    /** Output columns that identify a row. Must cover every GROUP BY column, and never be null */
+    unique_key: string[]
+    /** How far back before the last high point to re-read, for late-arriving data */
+    lookback_seconds?: number
+}
+
+export interface DataWarehouseSavedQueryIncrementalState {
+    watermark?: string | null
+    definition_fingerprint?: string | null
+    last_full_refresh_at?: string | null
+    last_run_mode?: 'incremental' | 'full_refresh' | null
+}
+
+export interface DataWarehouseSavedQueryIncrementalCheck {
+    eligible: boolean
+    key_candidates: string[]
+    /** Superset of key_candidates: identity only needs equality, so strings qualify here */
+    unique_key_candidates?: string[]
+    /** Coarse type per candidate (datetime, date, integer, ...). No entry: type unknown */
+    key_candidate_types?: Record<string, string>
+    blockers: string[]
+    warnings: string[]
 }
 
 export interface DataWarehouseSavedQueryFolder {
@@ -6364,6 +6445,8 @@ export interface DataModelingJob {
     id: string
     saved_query_id: string
     status: DataModelingJobStatus
+    /** full_refresh: rows_materialized is the whole table. incremental: only the rows synced. Null: unknown (old run) */
+    run_mode?: 'full_refresh' | 'incremental' | null
     rows_materialized: number
     rows_expected: number | null
     error: string | null
@@ -7290,6 +7373,7 @@ export type HogFunctionConfigurationContextId =
     | 'experiment-alerts'
     | 'logs-alerting'
     | 'health-alerts'
+    | 'batch-export-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7310,6 +7394,7 @@ export type HogFunctionSubTemplateIdType =
     | 'logs-alert-errored'
     | 'health-check-firing'
     | 'health-check-resolved'
+    | 'batch-export-run-failed'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -7893,55 +7978,6 @@ export interface DataWarehouseManagedViewsetSavedQuery {
     created_at: string
     created_by_id: string | null
     name: string
-}
-
-// Session Summaries
-export interface SessionSummaryResponse {
-    patterns: EnrichedSessionGroupSummaryPattern[]
-}
-
-export interface EnrichedSessionGroupSummaryPattern {
-    pattern_id: number
-    pattern_name: string
-    pattern_description: string
-    severity: 'low' | 'medium' | 'high' | 'critical'
-    indicators: string[]
-    events: PatternAssignedEventSegmentContext[]
-    stats: EnrichedSessionGroupSummaryPatternStats
-}
-
-export interface EnrichedSessionGroupSummaryPatternStats {
-    occurences: number
-    sessions_affected: number
-    sessions_affected_ratio: number
-    segments_success_ratio: number
-}
-
-export interface PatternAssignedEventSegmentContext {
-    segment_name: string
-    segment_outcome: string
-    segment_success: boolean
-    segment_index: number
-    previous_events_in_segment: EnrichedPatternAssignedEvent[]
-    target_event: EnrichedPatternAssignedEvent
-    next_events_in_segment: EnrichedPatternAssignedEvent[]
-}
-
-export interface EnrichedPatternAssignedEvent {
-    event_id: string
-    event_uuid: string
-    session_id: string
-    description: string
-    abandonment: boolean
-    confusion: boolean
-    exception: string | null
-    timestamp: string
-    milliseconds_since_start: number
-    window_id: string | null
-    current_url: string | null
-    event: string
-    event_type: string | null
-    event_index: number
 }
 
 export interface QuickFilterOption {

@@ -4,7 +4,6 @@ export const CLOUD_COMPUTE_BILLING_FLAG =
 export const SPEND_ANALYSIS_FLAG = "posthog-code-spend-analysis";
 export const EXPERIMENT_SUGGESTIONS_FLAG =
   "posthog-code-experiment-suggestions";
-export const SYNC_CLOUD_TASKS_FLAG = "posthog-code-sync-cloud-tasks";
 /** Autoresearch (metric-optimization loop). Staff-gated while it bakes. */
 export const AUTORESEARCH_FLAG = "posthog-code-autoresearch";
 export const DISCOVERY_RUN_FLAG = "posthog-code-discovery-run";
@@ -21,6 +20,7 @@ export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
 export const LOOPS_FLAG = "loops";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";
+export const GLM53_MODEL_FLAG = "posthog-code-glm-53-model";
 /** PostHog Desktop: show DeepSeek V4 Flash in the model picker. Off = hidden. */
 export const DEEPSEEK_MODEL_FLAG = "posthog-code-deepseek-model";
 export const KIMI_MODEL_FLAG = "tasks-kimi-k3";
@@ -39,11 +39,10 @@ export const MCP_GATEWAY_FLAG = "mcp-gateway";
 /** Per-task estimated cost readout in the context usage indicator. */
 export const TASK_COST_FLAG = "posthog-code-task-cost";
 /**
- * Rollout gate for re-staging desktop updates: keep polling after an update
- * is staged and replace it when the feed offers a newer version. Off keeps
- * the legacy stop-polling-once-staged behavior.
+ * Shows the task cost as text beside the context ring rather than only inside
+ * the popover. Requires TASK_COST_FLAG, which is what fetches the figure.
  */
-export const STAGED_UPDATES_FLAG = "posthog-desktop-staged-updates";
+export const TASK_COST_VISIBLE_FLAG = "posthog-code-task-cost-visible";
 /**
  * Remote in-app announcements. The flag's JSON payload carries the
  * announcements (schema: `announcements.ts`); rollout % arms the system.
@@ -53,3 +52,5 @@ export const STAGED_UPDATES_FLAG = "posthog-desktop-staged-updates";
 export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";
 /** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
 export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";
+/** Gates replacing Inbox report navigation with generated report canvases. */
+export const REPORT_CANVAS_INBOX_FLAG = "posthog-desktop-report-canvases";

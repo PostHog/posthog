@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -57,6 +58,43 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.assertEqual(data["limited"]["ai_credits"], {"limited": False, "usage": None, "limit": None})
         # Org holds no billing-granted Desktop usage feature -> reads as not paying
         self.assertIs(data["code_usage_billing_active"], False)
+
+    def test_any_deactivated_org_limits_only_credit_buckets_and_reads_unbilled(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}
+        ]
+        self.organization.is_active = False
+        self.organization.is_not_active_reason = "Past due invoice"
+        self.organization.save()
+
+        # The deactivated-org answer must not depend on Redis being reachable.
+        with patch(
+            "ee.api.quota_limits.get_fresh_team_limited_resources",
+            side_effect=Exception("redis unavailable"),
+        ):
+            response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        credit_buckets = {QuotaResource.AI_CREDITS.value, QuotaResource.POSTHOG_CODE_CREDITS.value}
+        for resource in QuotaResource:
+            expected = resource.value in credit_buckets
+            self.assertIs(data["limited"][resource.value]["limited"], expected)
+        for field in INFORMATIONAL_USAGE_RESOURCES:
+            self.assertIs(data["limited"][field]["limited"], False)
+        self.assertIs(data["code_usage_billing_active"], False)
+
+    def test_null_active_org_is_not_treated_as_deactivated(self) -> None:
+        self.organization.is_active = None
+        self.organization.save()
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["limited"]["ai_credits"],
+            {"limited": False, "usage": None, "limit": None},
+        )
 
     def test_reports_code_usage_billing_state(self) -> None:
         # The LLM gateway keys posthog_code per-user cap bypass and model gating

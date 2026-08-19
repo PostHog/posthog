@@ -125,6 +125,11 @@ def classify_task_needs_repo(
         r"\bserializer\b",
         r"\bviewset\b",
         r"\bmigration\b",
+        # A failing test is code work, but it is named after the feature it covers, so the
+        # product terms above would answer no-repo first. Keep these narrow: they match the
+        # whole thread, and a bare "ci" would also catch confidence intervals.
+        r"\bflak(?:y|e|es|iness)\b",
+        r"\bmerge queue\b",
     )
 
     if any(term in normalized for term in product_debug_terms) and not any(
@@ -150,7 +155,12 @@ def classify_task_needs_repo(
         "the team's code → no_repo. Important exception: 'wrong data', 'missing events', or "
         "'numbers look off' in PostHog usually means the team's tracking code is broken (wrong "
         "event names, identification logic, SDK setup) — that's a code fix in their repo → "
-        "needs_repo. When in doubt, lean needs_repo=false — code-focused tasks usually carry "
+        "needs_repo.\n\n"
+        "A failing, broken, or flaky CI run, test suite, or build is work in the team's own "
+        "repository → needs_repo, including when the test is named after a PostHog feature "
+        "('the experiment insight test is flaky'): the subject is their test, not our "
+        "product.\n\n"
+        "When in doubt, lean needs_repo=false — code-focused tasks usually carry "
         "explicit signals (file extensions, 'PR', 'commit', framework names, function or class "
         "names). Analytics, data, and configuration asks are the common case and should not send "
         "us hunting for a repository on a guess.\n\n"
@@ -243,8 +253,9 @@ def classify_message_is_agent_directed(
         "have stopped tagging it. Decide whether the latest message is an instruction to "
         "the agent that happens to omit the @mention.\n\n"
         "Answer true only when the message is addressed to the agent:\n"
-        "  - An order or request to do something ('also handle the empty case', 'skip the "
-        "migration', 'open a PR for that too', 'try again with the other helper').\n"
+        "  - An order or request to do something, with the agent as the only plausible "
+        "audience ('also handle the empty case', 'skip the migration', 'open a PR for that "
+        "too', 'try again with the other helper').\n"
         "  - A question put to the agent about its own work ('why did you skip the "
         "redesign commit?', 'does your PR cover the mobile breakpoint?').\n"
         "  - An answer to something the agent just asked in this thread.\n"
@@ -261,6 +272,15 @@ def classify_message_is_agent_directed(
         "the audience.\n"
         "  - Conversation between humans — answering each other, tagging each other, "
         "deciding something among themselves.\n"
+        "  - An instruction or request aimed at a named person, even with no @mention "
+        "('sam go ahead and add yourself as the owner', 'jake, can you take this one'). A "
+        "name in the thread is the audience; an order is not addressed to the agent just "
+        "because it is phrased as one.\n"
+        "  - A request only a person could carry out — joining a call, meeting a customer, "
+        "updating an account in a system the agent has no access to — even when it says "
+        "'you', and even when it directly follows something the agent said.\n"
+        "  - Someone taking the work on themselves ('let me fix that', 'I'm on it', 'I'll "
+        "take a look'). That stands the agent down; it is not a handoff to it.\n"
         "  - Acknowledgements, praise, and reactions ('thanks', 'lgtm', 'nice', '+1').\n"
         "  - Context dropped into the thread with no instruction attached — a link, a "
         "stack trace, a screenshot — unless the message asks the agent to act on it.\n"

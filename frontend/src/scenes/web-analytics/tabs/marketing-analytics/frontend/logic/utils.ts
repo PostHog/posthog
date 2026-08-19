@@ -346,7 +346,9 @@ function buildConversionExpr(
 
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
     GoogleAds: {
-        idField: 'id',
+        // idField is a column on the stats table, which flattens `campaign.id` to
+        // `campaign_id` and has no bare `id`.
+        idField: 'campaign_id',
         timestampField: 'segments_date',
         columnMappings: {
             cost: 'metrics_cost_micros',
@@ -389,7 +391,8 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         },
     },
     LinkedinAds: {
-        idField: 'id',
+        // campaign_group_stats keys rows by `campaign_group_id`, it has no `id`.
+        idField: 'campaign_group_id',
         timestampField: 'date_start',
         columnMappings: {
             cost: 'cost_in_usd',

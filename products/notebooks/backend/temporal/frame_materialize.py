@@ -10,8 +10,12 @@ turns it into a 302 to a presigned GET.
 
 Load protection mirrors the Celery async path (`process_query_task`): a Redis Lua
 concurrency limiter gates activity starts (global + per-team), slot exhaustion and
-ClickHouse overload raise retryable errors, and Temporal's retry policy provides the
-exponential backoff with a hard schedule-to-close deadline. For a run whose user has the
+ClickHouse overload raise retryable errors, Temporal's retry policy provides the
+exponential backoff with a hard schedule-to-close deadline, and the ClickHouse kill switch
+lowers the per-query caps during an incident on both transports (see `_capped_settings` —
+the streaming one needs it because it never passes through sync_execute).
+
+For a run whose user has the
 `notebooks-frame-store-ch-writes` flag, the query goes to the OFFLINE pool (batch exports'
 home) as the dedicated `notebooks` ClickHouse user, so a whale materialization contends
 with batch work rather than interactive queries, and the user's server-side profile/quota
@@ -60,8 +64,9 @@ from posthog.clickhouse.client.connection import (
     get_kwargs_for_client,
     make_ch_pool,
 )
+from posthog.clickhouse.client.execute import kill_switch_overrides
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, get_query_status
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
@@ -99,7 +104,9 @@ _SLOT_TTL_SECONDS = 15 * 60
 
 # Standing per-query caps, printed into the SQL's SETTINGS clause. max_execution_time is
 # raised to HOGQL_INCREASED_MAX_EXECUTION_TIME by the NOTEBOOK_MATERIALIZE limit context.
-_MAX_BYTES_TO_READ = 50_000_000_000  # 50GB scan budget, the logs-queries precedent
+# The scan budget matches the kill switch's most severe ceiling, so a frame is never held to a
+# standing limit tighter than the one ClickHouse imposes on everything else during an incident.
+_MAX_BYTES_TO_READ = 1_000_000_000_000  # 1TB
 _MAX_THREADS = 16  # below interactive traffic (the API query-service cap is 60)
 # Output-side cap (applied as a query setting on the HTTP request): row/scan caps don't
 # bound the result — `repeat('x', 10000)` over 500k rows makes a ~5GB object from a
@@ -300,20 +307,49 @@ def _materialize_slots(team_id: int, task_id: str) -> Iterator[None]:
     """
     global_limiter = _get_global_limiter()
     team_limiter = _get_per_team_limiter()
-    global_key, global_task = global_limiter.use(task_id=f"{task_id}:global", team_id=team_id)
-    team_key = team_task = None
+    global_slot = global_limiter.use(task_id=f"{task_id}:global", team_id=team_id)
+    team_slot: ConcurrencySlot | None = None
     try:
-        team_key, team_task = team_limiter.use(task_id=f"{task_id}:team", team_id=team_id)
+        team_slot = team_limiter.use(task_id=f"{task_id}:team", team_id=team_id)
         yield
     finally:
         # Release each slot independently: a Redis blip releasing the team slot must not
         # skip the global release and leak a global slot until its 15-minute TTL.
-        if team_key and team_task:
+        if team_slot is not None:
             with suppress(Exception):
-                team_limiter.release(team_key, team_task)
-        if global_key and global_task:
+                team_limiter.release(team_slot)
+        if global_slot is not None:
             with suppress(Exception):
-                global_limiter.release(global_key, global_task)
+                global_limiter.release(global_slot)
+
+
+def _capped_settings(team_id: int) -> HogQLGlobalSettings:
+    """The standing caps, lowered to whatever ceilings the ClickHouse kill switch imposes.
+
+    The streaming transport reaches ClickHouse over raw HTTP, so it never passes through
+    sync_execute, which is where every other caller picks the kill switch up. Applying the
+    ceilings here stops a frame from being the one notebook query that ignores an incident, and
+    makes both transports behave the same whatever the rollout flag says.
+
+    They belong in the printed SETTINGS clause, not in the HTTP params: a query-level SETTINGS
+    clause outranks a URL param, so params alone would lose to the caps HogQL prints.
+
+    max_execution_time is the exception. HogQLQueryExecutor raises it to
+    HOGQL_INCREASED_MAX_EXECUTION_TIME for this limit context *after* it reads these settings, so
+    a ceiling set here is discarded. That is a general HogQL gap rather than a notebook one:
+    every HogQL query prints its own max_execution_time, and so outranks the kill switch on
+    that one key.
+    """
+    settings = HogQLGlobalSettings(max_bytes_to_read=_MAX_BYTES_TO_READ, max_threads=_MAX_THREADS)
+    for name, ceiling in kill_switch_overrides(team_id).items():
+        if name not in type(settings).model_fields:
+            # A kill-switch key HogQL has no field for. Running with the remaining ceilings beats
+            # failing the frame, but the dropped one must not pass silently.
+            logger.warning("notebook_frame_kill_switch_setting_unprintable", setting=name, team_id=team_id)
+            continue
+        current = getattr(settings, name)
+        setattr(settings, name, ceiling if current is None else min(current, ceiling))
+    return settings
 
 
 def _generate_sql(
@@ -330,7 +366,7 @@ def _generate_sql(
         user=user,
         user_access_control=UserAccessControl(user=user, team=team) if user else None,
         limit_context=LimitContext.NOTEBOOK_MATERIALIZE,
-        settings=HogQLGlobalSettings(max_bytes_to_read=_MAX_BYTES_TO_READ, max_threads=_MAX_THREADS),
+        settings=_capped_settings(team.pk),
         pretty=False,
     )
     if output_format:
@@ -900,7 +936,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             # Post-write verification failed: the object is missing or predates this write
             # (see stat_frame). Retryable — a transient object-store blip should re-run — but
             # log it, because a deterministic cause (CH wrote to a store the app can't read,
-            # endpoint/bucket skew) would otherwise re-scan the whale silently up to 10 times.
+            # endpoint/bucket skew) would otherwise re-scan the whale silently on every attempt.
             logger.warning(
                 "notebook_frame_materialize_object_unverified",
                 team_id=inputs.team_id,
@@ -1004,14 +1040,18 @@ class NotebookFrameMaterializeWorkflow(PostHogWorkflow):
                 # the job fails with a clear error instead of piling onto ClickHouse.
                 schedule_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=common.RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=1),
+                    # Slot exhaustion raises before the activity touches ClickHouse, so this
+                    # backoff is the only queue a blocked job gets. The intervals are wide
+                    # enough that a job blocked behind a short frame still gets a turn inside
+                    # the small attempt budget below.
+                    initial_interval=dt.timedelta(seconds=5),
                     backoff_coefficient=2.0,
-                    maximum_interval=dt.timedelta(seconds=10),
-                    # Bound the storm: a deterministically-failing heavy query (e.g. a
-                    # mid-stream resource overrun that can't be caught up front) must not
-                    # re-execute for the full schedule_to_close window. Matches the Celery
-                    # async path's max_retries=10.
-                    maximum_attempts=10,
+                    maximum_interval=dt.timedelta(seconds=30),
+                    # Bound the storm. A transient failure re-runs the entire scan on either
+                    # transport, and schedule_to_close only caps that for queries slow enough to
+                    # fill the window, so a fast query could otherwise repeat its scan on every
+                    # attempt. The deterministic failures are already non-retryable in the activity.
+                    maximum_attempts=3,
                 ),
             )
         except Exception:

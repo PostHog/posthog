@@ -751,14 +751,14 @@ export const ScannerProviderEnumApi = {
 /**
  * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
  * * `gemini-3-flash-preview` - Gemini 3 Flash
- * * `gemini-3.6-flash` - Gemini 3.6 Flash
+ * * `gemini-3.7-flash` - Gemini 3.7 Flash
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
 
 export const ScannerModelEnumApi = {
     Gemini35FlashLite: 'gemini-3.5-flash-lite',
     Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini36Flash: 'gemini-3.6-flash',
+    Gemini37Flash: 'gemini-3.7-flash',
 } as const
 
 /**
@@ -822,6 +822,12 @@ export interface ReplayScannerApi {
      * @maxLength 1000
      */
     description?: string
+    /**
+     * Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.
+     * @maxItems 32
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** What the scanner does: monitor, classifier, scorer, or summarizer.
      *
      * * `monitor` - Monitor
@@ -845,6 +851,13 @@ export interface ReplayScannerApi {
      * * `balanced` - Balanced
      * * `comprehensive` - Comprehensive */
     sampling_mode?: SamplingModeEnumApi
+    /**
+     * Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.
+     * @minimum 1
+     * @maximum 2147483647
+     * @nullable
+     */
+    credit_limit?: number | null
     /** LLM provider. v1 is Google-only.
      *
      * * `google` - Google */
@@ -853,7 +866,7 @@ export interface ReplayScannerApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -879,6 +892,10 @@ export interface ReplayScannerApi {
     readonly credits_this_month: number
     /** Succeeded observations this scanner produced in the current billing period. */
     readonly observations_this_month: number
+    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+    readonly credits_used_against_limit: number
+    /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
+    readonly limit_reached: boolean
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -918,6 +935,12 @@ export interface PatchedReplayScannerApi {
      * @maxLength 1000
      */
     description?: string
+    /**
+     * Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.
+     * @maxItems 32
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** What the scanner does: monitor, classifier, scorer, or summarizer.
      *
      * * `monitor` - Monitor
@@ -941,6 +964,13 @@ export interface PatchedReplayScannerApi {
      * * `balanced` - Balanced
      * * `comprehensive` - Comprehensive */
     sampling_mode?: SamplingModeEnumApi
+    /**
+     * Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.
+     * @minimum 1
+     * @maximum 2147483647
+     * @nullable
+     */
+    credit_limit?: number | null
     /** LLM provider. v1 is Google-only.
      *
      * * `google` - Google */
@@ -949,7 +979,7 @@ export interface PatchedReplayScannerApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -975,6 +1005,10 @@ export interface PatchedReplayScannerApi {
     readonly credits_this_month?: number
     /** Succeeded observations this scanner produced in the current billing period. */
     readonly observations_this_month?: number
+    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+    readonly credits_used_against_limit?: number
+    /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
+    readonly limit_reached?: boolean
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string
@@ -1048,8 +1082,9 @@ export interface BulkObserveRequestApi {
  * * `started` - Started
  * * `already_running` - Already running
  * * `already_scanned` - Already scanned
- * * `skipped_limit` - Skipped - in-flight limit reached
- * * `skipped_quota` - Skipped - monthly credit quota reached
+ * * `skipped_limit` - Skipped, in-flight limit reached
+ * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+ * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
  * * `failed` - Failed to start
  */
 export type ScanOutcomeEnumApi = (typeof ScanOutcomeEnumApi)[keyof typeof ScanOutcomeEnumApi]
@@ -1060,6 +1095,7 @@ export const ScanOutcomeEnumApi = {
     AlreadyScanned: 'already_scanned',
     SkippedLimit: 'skipped_limit',
     SkippedQuota: 'skipped_quota',
+    SkippedScannerLimit: 'skipped_scanner_limit',
     Failed: 'failed',
 } as const
 
@@ -1069,13 +1105,14 @@ export const ScanOutcomeEnumApi = {
 export interface BulkObserveResultApi {
     /** The session recording this outcome is for. */
     session_id: string
-    /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the monthly credit quota would be exceeded; 'failed' - the workflow failed to start.
+    /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.
      *
      * * `started` - Started
      * * `already_running` - Already running
      * * `already_scanned` - Already scanned
-     * * `skipped_limit` - Skipped - in-flight limit reached
-     * * `skipped_quota` - Skipped - monthly credit quota reached
+     * * `skipped_limit` - Skipped, in-flight limit reached
+     * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+     * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
      * * `failed` - Failed to start */
     scan_outcome: ScanOutcomeEnumApi
 }
@@ -1129,6 +1166,20 @@ export interface ObserveAlreadyScannedApi {
 export interface ObserveResponseApi {
     /** Temporal workflow id for this scanner application. Look up the resulting ReplayObservation via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
     workflow_id: string
+}
+
+/**
+ * Response of GET /vision/scanners/:id/self_driving_stats/.
+ */
+export interface ScannerSelfDrivingStatsApi {
+    /** Signals this scanner has pushed into the Signals inbox, all time. */
+    signals_emitted: number
+    /** Signal reports that include at least one of this scanner's signals. Reports usually aggregate signals from several sources, so this counts contributions, not sole causes. */
+    reports_contributed: number
+    /** Implementation PRs opened by self-driving on those reports. */
+    prs_opened: number
+    /** Of the opened PRs, how many have merged. */
+    prs_merged: number
 }
 
 /**
@@ -1256,6 +1307,38 @@ export interface ObservationVersionMarkerApi {
     prompt: string
     /** The full type-specific config this version ran with (prompt plus, depending on scanner type, allow_inconclusive, tags, scale, or length), taken from the observation run snapshots. */
     scanner_config: unknown
+    /**
+     * The scanner type this version ran as.
+     * @nullable
+     */
+    scanner_type: string | null
+    /**
+     * The model this version ran on.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * The provider this version ran on.
+     * @nullable
+     */
+    provider: string | null
+    /**
+     * Whether this version emitted signals.
+     * @nullable
+     */
+    emits_signals: boolean | null
+    /** The `RecordingsQuery` recording filters this version ran with. */
+    query: unknown
+    /**
+     * The 0..1 downsample this version ran with.
+     * @nullable
+     */
+    sampling_rate: number | null
+    /**
+     * The session-coverage pre-filter this version ran with.
+     * @nullable
+     */
+    sampling_mode: string | null
     /** Thumbs-up ratings on this version's observations. */
     up: number
     /** Thumbs-down ratings on this version's observations. */
@@ -1273,7 +1356,7 @@ export interface ObservationLabelStatsApi {
     by_day: ObservationLabelDayCountApi[]
     /** Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted. */
     by_rating_day: ObservationLabelDayCountApi[]
-    /** Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, and rating counts, for chart markers and the prompt version history. */
+    /** Each scanner version that produced observations (all-time), with its first day, the config it ran with, and rating counts, for chart markers and the config version history. */
     version_markers: ObservationVersionMarkerApi[]
 }
 
@@ -1531,6 +1614,40 @@ export interface ScannerCreatorsResponseApi {
 }
 
 /**
+ * Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words.
+ */
+export interface DraftScannerRequestApi {
+    /**
+     * What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.
+     * @maxLength 2000
+     */
+    goal: string
+}
+
+/**
+ * An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted.
+ */
+export interface DraftScannerResponseApi {
+    /** Drafted scanner name. */
+    name: string
+    /** Drafted one-sentence description. */
+    description: string
+    /** The scanner type the draft picked for the goal.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer */
+    scanner_type: ScannerTypeEnumApi
+    /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
+    scanner_config: unknown
+    /** Why the draft picked this scanner type and configuration, addressed to the user. */
+    rationale: string
+    /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
+    query: unknown
+}
+
+/**
  * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
  */
 export interface EstimateRequestApi {
@@ -1557,7 +1674,7 @@ export interface EstimateRequestApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
     model?: ScannerModelEnumApi
 }
 
@@ -1611,7 +1728,7 @@ export interface InlineScanRequestApi {
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+     * * `gemini-3.7-flash` - Gemini 3.7 Flash */
     model?: ScannerModelEnumApi
 }
 
@@ -1672,7 +1789,7 @@ export interface SuggestTagsRequestApi {
      */
     prompt: string
     /**
-     * The current tag vocabulary, so suggestions never duplicate a tag the user already has.
+     * The categories already configured, so suggestions never duplicate one the user has.
      * @maxItems 200
      * @items.maxLength 200
      */
@@ -1862,6 +1979,10 @@ export type VisionScannersListParams = {
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string
+    /**
+     * Filter to scanners carrying at least one of the given tags (comma-separated).
+     */
+    tags?: string
 }
 
 export type VisionScannersImpactRetrieveParams = {

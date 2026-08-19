@@ -1,32 +1,20 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import { dayjs } from 'lib/dayjs'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { EnrichedTraceTreeNode } from '../aiObservabilityTraceDataLogic'
+import { llmAnalyticsSummarizationCreate } from '../generated/api'
+import type { StructuredSummaryApi, SummarizeRequestApi, SummarizeResponseApi } from '../generated/api.schemas'
 
-export type SummaryMode = 'minimal' | 'detailed'
+export type SummaryMode = NonNullable<SummarizeRequestApi['mode']>
 
-export interface SummaryBullet {
-    text: string
-    line_refs: string
-}
-
-export interface InterestingNote {
-    text: string
-    line_refs: string // Can be empty string if no line refs
-}
-
-export interface StructuredSummary {
-    title: string
-    flow_diagram: string
-    summary_bullets: SummaryBullet[]
-    interesting_notes: InterestingNote[] // Empty array if none
-}
+type SummaryData = Pick<SummarizeResponseApi, 'summary' | 'text_repr'>
 
 export interface SummaryViewLogicProps {
     trace?: LLMTrace
@@ -43,11 +31,9 @@ export interface summaryViewLogicValues {
     isFlowExpanded: boolean
     isNotesExpanded: boolean
     isSummaryExpanded: boolean
-    summaryData: {
-        summary: StructuredSummary
-        text_repr: string
-    } | null
+    summaryData: SummaryData | null
     summaryDataLoading: boolean
+    summaryError: string | null
     summaryMode: SummaryMode
 }
 
@@ -66,8 +52,8 @@ export interface summaryViewLogicActions {
     }
     generateSummarySuccess: (
         summaryData: {
-            summary: any
-            text_repr: any
+            summary: StructuredSummaryApi
+            text_repr: string
         },
         payload?: {
             mode: SummaryMode
@@ -75,8 +61,8 @@ export interface summaryViewLogicActions {
         }
     ) => {
         summaryData: {
-            summary: any
-            text_repr: any
+            summary: StructuredSummaryApi
+            text_repr: string
         }
         payload?: {
             mode: SummaryMode
@@ -117,6 +103,37 @@ export type summaryViewLogicType = MakeLogicType<
     SummaryViewLogicProps,
     summaryViewLogicMeta
 >
+
+/**
+ * Days either side of the entity's own timestamp to search for it, instead of the endpoint's 30-day
+ * default. Narrow keeps the lookup off traces that reuse a customer-supplied ID, and a single trace
+ * rarely spans longer than this.
+ */
+const LOOKUP_WINDOW_DAYS = 1
+
+function lookupWindow(createdAt: string): Pick<SummarizeRequestApi, 'date_from' | 'date_to'> {
+    const timestamp = dayjs(createdAt)
+    return {
+        date_from: timestamp.subtract(LOOKUP_WINDOW_DAYS, 'day').toISOString(),
+        date_to: timestamp.add(LOOKUP_WINDOW_DAYS, 'day').toISOString(),
+    }
+}
+
+/**
+ * A gateway rejection or timeout carries no body, so `ApiError` has no `detail` to show and falls
+ * back to its own `Non-OK response [POST ...] (status 504: )` string. The status is carried over so
+ * transient gateway errors stay out of error tracking.
+ */
+function toReadableError(error: unknown): unknown {
+    if (!(error instanceof ApiError) || error.detail) {
+        return error
+    }
+    const message =
+        error.status === 504
+            ? 'Generating this summary took too long. Try again in a moment.'
+            : "Couldn't generate a summary. Try again, and if it keeps happening contact support."
+    return new ApiError(message, error.status, error.headers, error.data)
+}
 
 export const summaryViewLogic = kea<summaryViewLogicType>([
     path(['products', 'ai_observability', 'frontend', 'summary-view', 'summaryViewLogic']),
@@ -167,6 +184,23 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
                 toggleNotesExpanded: (state) => !state,
             },
         ],
+        summaryData: [
+            null as SummaryData | null,
+            {
+                generateSummary: () => null,
+            },
+        ],
+        // kea-loaders dispatches `generateSummaryFailure` but keeps no value, so the failure has to
+        // be held here for the view to show it.
+        summaryError: [
+            null as string | null,
+            {
+                generateSummary: () => null,
+                generateSummarySuccess: () => null,
+                generateSummaryFailure: (_, { error }) =>
+                    error || "Couldn't generate a summary. Try again, and if it keeps happening contact support.",
+            },
+        ],
     }),
     selectors({
         entityId: [
@@ -184,7 +218,6 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
     }),
     loaders(({ props, values }) => ({
         summaryData: {
-            __default: null as { summary: StructuredSummary; text_repr: string } | null,
             generateSummary: async ({ mode, forceRefresh }: { mode: SummaryMode; forceRefresh?: boolean }) => {
                 // Initialize here rather than in the function signature to avoid TS2371
                 // Kea should be fixed to avoid including the default value in the function signature
@@ -197,37 +230,27 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
                     throw new Error('AI data processing must be approved before generating summaries')
                 }
 
-                // Determine if we're summarizing a trace or an event
-                const isTrace = !!props.trace
-
-                // Build request payload
-                const payload = isTrace
-                    ? {
-                          summarize_type: 'trace',
-                          mode,
-                          force_refresh: forceRefresh,
-                          data: {
-                              trace: props.trace,
-                              hierarchy: props.tree || [],
-                          },
-                      }
-                    : {
-                          summarize_type: 'event',
-                          mode,
-                          force_refresh: forceRefresh,
-                          data: {
-                              event: props.event,
-                          },
-                      }
-
-                // Call the summarization API endpoint
                 const teamId = values.currentTeamId
                 if (!teamId) {
                     throw new Error('Team ID not available')
                 }
 
-                // nosemgrep: prefer-codegen-api
-                const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/`, payload)
+                // Ask for the trace or event by ID: the endpoint reads it back from ClickHouse itself,
+                // so a trace with large prompts no longer has to fit in a request body.
+                const entity = props.trace ?? props.event
+                if (!entity) {
+                    throw new Error('Nothing to summarize')
+                }
+                const request: SummarizeRequestApi = {
+                    mode,
+                    force_refresh: forceRefresh,
+                    ...(props.trace ? { trace_id: entity.id } : { generation_id: entity.id }),
+                    ...lookupWindow(entity.createdAt),
+                }
+
+                const data = await llmAnalyticsSummarizationCreate(String(teamId), request).catch((error: unknown) => {
+                    throw toReadableError(error)
+                })
 
                 // The endpoint can resolve to an empty body (e.g. no summary available yet),
                 // so guard before reading fields to avoid a null dereference.

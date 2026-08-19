@@ -105,6 +105,9 @@ export interface dataCatalogMetricSceneLogicActions {
     refreshMetricFromInsight: () => {
         value: true
     }
+    renameMetric: (name: string) => {
+        name: string
+    }
     setDraftMarkdown: (draftMarkdown: string) => {
         draftMarkdown: string
     }
@@ -173,6 +176,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         approveMetric: true,
         refreshMetricFromInsight: true,
         deleteMetric: true,
+        renameMetric: (name: string) => ({ name }),
         updateMetric: (patch: PatchedDataCatalogMetricApi) => ({ patch }),
         setMutating: (mutating: boolean) => ({ mutating }),
         setEditingDefinition: (editingDefinition: boolean) => ({ editingDefinition }),
@@ -327,6 +331,26 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || 'Could not save the metric. Try again.')
             } finally {
+                actions.setMutating(false)
+            }
+        },
+        renameMetric: async ({ name }) => {
+            if (values.mutating || isInvalidMetricName(props.name) || name === props.name) {
+                return
+            }
+            const validationError = validateMetricName(name)
+            if (validationError) {
+                lemonToast.error(validationError)
+                return
+            }
+            actions.setMutating(true)
+            try {
+                await dataCatalogMetricsPartialUpdate(projectId(), props.name, { name })
+                lemonToast.success('Metric renamed')
+                // The logic is keyed by name, so navigating remounts a fresh instance at the new URL.
+                router.actions.replace(urls.dataCatalogMetric(name))
+            } catch (error) {
+                lemonToast.error(apiErrorDetail(error) || 'Could not rename the metric. Try again.')
                 actions.setMutating(false)
             }
         },

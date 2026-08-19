@@ -37,7 +37,7 @@ import {
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { AddCustomSoundDialog } from "@posthog/ui/features/settings/sections/AddCustomSoundDialog";
-import { SlackCommentNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackCommentNotificationsSettings";
+import { TipsSection } from "@posthog/ui/features/settings/sections/TipsSettings";
 import {
   type CompletionSound,
   type CustomSound,
@@ -431,7 +431,7 @@ export function NotificationsSettings() {
 
       {spokenNarrationEnabled && <VoiceSection />}
 
-      <SlackCommentNotificationsSettings />
+      <TipsSection />
 
       <TestSection
         bus={bus}
@@ -821,7 +821,12 @@ function TestSection({
                 </Button>
               }
             />
-            <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+            <DropdownMenuContent
+              align="end"
+              side="bottom"
+              sideOffset={6}
+              className="w-max"
+            >
               <DropdownMenuItem onClick={testToast} disabled={!bus}>
                 In-app toast
               </DropdownMenuItem>

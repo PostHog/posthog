@@ -8,6 +8,7 @@ import {
   ThumbsUp,
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -53,17 +54,13 @@ import type {
   BuildResult,
   ConversationItem,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
-import { CloudArtifactDownloads } from "@posthog/ui/features/sessions/components/CloudArtifactDownloads";
 import {
   ChatMarkdown,
   ChatStreamingMarkdown,
 } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import { ChatThreadFooter } from "@posthog/ui/features/sessions/components/chat-thread/ChatThreadFooter";
 import { ChatThreadChromeProvider } from "@posthog/ui/features/sessions/components/chat-thread/chatThreadChrome";
-import {
-  PROMPT_RECALL_HINT_KEY,
-  type PromptRecallHandler,
-} from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
+import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { MessageMinimap } from "@posthog/ui/features/sessions/components/chat-thread/MessageMinimap";
 import { ToolGroup } from "@posthog/ui/features/sessions/components/chat-thread/ToolGroup";
@@ -132,6 +129,7 @@ import {
   useSessionTaskId,
 } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
@@ -562,7 +560,7 @@ function UserBubble({
                   icon={<FileText size={12} />}
                   label={`${
                     channelContext.mention.name
-                      ? `#${channelContext.mention.name} `
+                      ? `${channelDisplayLabel(channelContext.mention.name)} `
                       : ""
                   }CONTEXT.md`}
                   onClick={
@@ -734,9 +732,9 @@ const AgentProse = memo(function AgentProse({
           <ChatBubble variant="ghost">
             <ChatBubbleContent>
               {isStreaming ? (
-                <ChatStreamingMarkdown content={smoothed} />
+                <ChatStreamingMarkdown content={smoothed} renderObjectTags />
               ) : (
-                <ChatMarkdown content={text} />
+                <ChatMarkdown content={text} renderObjectTags />
               )}
             </ChatBubbleContent>
           </ChatBubble>
@@ -1018,7 +1016,7 @@ function ThreadKeyboardNav({
       const nextId = userMessageIds[nextIndex];
       if (!nextId) return;
 
-      useSettingsStore.getState().markHintLearned(PROMPT_RECALL_HINT_KEY);
+      useSettingsStore.getState().markHintLearned(TIP_KEYS.recallMessageNav);
       setKeyboardFocusedMessageId(nextId);
       jump(nextId);
     },
@@ -1094,6 +1092,7 @@ function ThreadScrollBody({
   keyboardFocusedMessageId,
   onUserInteract,
   resumeStateRef,
+  autoFollowRef,
 }: {
   items: ConversationItem[];
   rows: TurnRow[];
@@ -1105,10 +1104,9 @@ function ThreadScrollBody({
   onUserInteract?: () => void;
   /** Continuously updated so the virtualized body can take over mid-session (see {@link ThreadScrollResume}). */
   resumeStateRef: RefObject<ThreadScrollResume>;
+  autoFollowRef: RefObject<ThreadFollowState>;
 }) {
   const keyedRows = useMemo(() => keyTurnRows(rows), [rows]);
-
-  const autoFollowRef = useRef<ThreadFollowState>(FOLLOWING_END);
 
   // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the thread,
   // mirroring the legacy ConversationView container. `@container/thread` makes the thread's own
@@ -1246,6 +1244,13 @@ interface SharedChatThreadProps {
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
+  /**
+   * Chain index of the oldest loaded entry; 0 means the whole transcript is loaded. Above 0 the
+   * thread renders windowed regardless of length, because only that body survives a prepend.
+   */
+  olderHistoryCursor?: number;
+  isLoadingOlderHistory?: boolean;
+  onLoadOlderHistory?: () => void;
 }
 
 export interface ChatThreadProps extends SharedChatThreadProps {
@@ -1258,12 +1263,35 @@ export interface ChatThreadProps extends SharedChatThreadProps {
 function ThreadScrollRequestBridge({
   taskId,
   jumpToMessage,
+  onFocusMessage,
+  autoFollowRef,
 }: {
   taskId?: string;
-  jumpToMessage?: (id: string) => void;
+  jumpToMessage?: (id: string) => boolean;
+  /** Marks the arrived-at message, so a jump from another pane lands as visibly as the
+   *  keyboard's own. Without it the thread moves and nothing says where to. */
+  onFocusMessage?: (id: string) => void;
+  autoFollowRef?: RefObject<ThreadFollowState>;
 }) {
   const { scrollToMessage } = useChatMessageScroller();
-  useThreadScrollRequest(taskId, jumpToMessage ?? scrollToMessage);
+  const jump = jumpToMessage ?? scrollToMessage;
+  const handleRequest = useCallback(
+    (id: string) => {
+      // A jump is the reader choosing a spot, so following lets go before the scroll rather
+      // than in reaction to it: the scroll event that would release it arrives a frame late,
+      // by which point following has already pulled the thread back down.
+      if (autoFollowRef)
+        autoFollowRef.current = { following: false, leftEnd: true };
+      // Both jumps answer false while the target row is absent (from the element registry,
+      // or from the row index), and the caller retries, so only claim the focus once the
+      // thread actually moved.
+      const landed = jump(id);
+      if (landed) onFocusMessage?.(id);
+      return landed;
+    },
+    [jump, onFocusMessage, autoFollowRef],
+  );
+  useThreadScrollRequest(taskId, handleRequest);
   return null;
 }
 
@@ -1321,6 +1349,9 @@ function ChatThreadRenderer({
   footerState,
   hasPendingPermission,
   promptRecallRef,
+  olderHistoryCursor = 0,
+  isLoadingOlderHistory,
+  onLoadOlderHistory,
 }: ChatThreadRendererProps) {
   const diffWorkerFactory = useService<DiffWorkerFactory>(DIFF_WORKER_FACTORY);
   const diffsPoolOptions = useMemo(
@@ -1349,11 +1380,15 @@ function ChatThreadRenderer({
   // stays there for the life of this mount (see CHAT_THREAD_VIRTUALIZATION_THRESHOLD). Long
   // sessions start virtualized from the first render; a live session flips once mid-stream,
   // resuming from the scroll state the non-virtualized body recorded.
+  //
+  // A pageable transcript is windowed however short it is: prepending older history shifts the
+  // non-virtualized body's ordinal keys, which rebinds mounted rows to older content and loses the
+  // reader's place (see {@link keyTurnRows}).
   const flatCount = useMemo(() => countFlatRows(rows), [rows]);
-  const [virtualized, setVirtualized] = useState(
-    () => flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD,
-  );
-  if (!virtualized && flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD) {
+  const needsWindowing =
+    flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD || olderHistoryCursor > 0;
+  const [virtualized, setVirtualized] = useState(() => needsWindowing);
+  if (!virtualized && needsWindowing) {
     setVirtualized(true);
   }
   const flatRows = useMemo(
@@ -1438,7 +1473,6 @@ function ChatThreadRenderer({
 
   const footer = (
     <>
-      <CloudArtifactDownloads taskId={taskId} task={task} />
       <ChatThreadFooter
         events={footerEvents}
         isPromptPending={isPromptPending}
@@ -1462,9 +1496,13 @@ function ChatThreadRenderer({
     [renderItem, keyboardFocusedMessageId],
   );
 
+  // Lives here rather than in the plain body so a jump from another pane can drop the pin
+  // before it scrolls.
+  const autoFollowRef = useRef<ThreadFollowState>(FOLLOWING_END);
+
   // The nav layer sits beside the scroll body so it can be handed the windowed body's jump
   // implementation — the engine's `scrollToMessage` only reaches mounted rows.
-  const renderNav = (jumpToMessage?: (id: string) => void) => (
+  const renderNav = (jumpToMessage?: (id: string) => boolean) => (
     <>
       <ThreadKeyboardNav
         items={items}
@@ -1478,6 +1516,9 @@ function ChatThreadRenderer({
       <ThreadScrollRequestBridge
         taskId={taskId}
         jumpToMessage={jumpToMessage}
+        onFocusMessage={setKeyboardFocusedMessageId}
+        // Only the plain body needs it: the windowed body's own jump drops its pin.
+        autoFollowRef={jumpToMessage ? undefined : autoFollowRef}
       />
     </>
   );
@@ -1511,10 +1552,14 @@ function ChatThreadRenderer({
                 footer={footer}
                 renderNav={renderNav}
                 resumeRef={threadResumeRef}
+                olderHistoryCursor={olderHistoryCursor}
+                isLoadingOlderHistory={isLoadingOlderHistory}
+                onLoadOlderHistory={onLoadOlderHistory}
               />
             ) : (
               <>
                 <ThreadScrollBody
+                  autoFollowRef={autoFollowRef}
                   items={items}
                   rows={rows}
                   renderItem={renderItem}

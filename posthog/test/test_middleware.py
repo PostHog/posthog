@@ -201,7 +201,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 52
+        cls.base_app_num_queries = 53
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -355,7 +355,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
         with self.assertNumQueries(
             FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)
-        ):  # +1 from activity logging _get_before_update(), +1 from passkey credential review check
+        ):  # +1 from activity logging _get_before_update(), +1 from the credential review checks
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -1867,6 +1867,22 @@ class TestCSPMiddleware(APIBaseTest):
         assert response.status_code == 200
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
+
+    def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
+        # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
+        # renaming it silently stops crash ingestion.
+        response = self.client.get("/")
+        header = response["Reporting-Endpoints"]
+        assert 'posthog="https://us.i.posthog.com/report/' in header
+        assert 'default="https://us.i.posthog.com/report/' in header
+        assert f"distinct_id={self.user.distinct_id}" in header
+
+    def test_reporting_endpoints_omit_distinct_id_when_logged_out(self):
+        self.client.logout()
+        response = self.client.get("/login")
+        header = response["Reporting-Endpoints"]
+        assert 'default="https://us.i.posthog.com/report/' in header
+        assert "distinct_id" not in header
 
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):

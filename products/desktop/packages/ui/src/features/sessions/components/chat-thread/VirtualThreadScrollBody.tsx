@@ -10,6 +10,7 @@ import {
   computeStickyAnchor,
   type FlatThreadRow,
   FOLLOWING_END,
+  nextOlderHistoryLoadState,
   nextThreadFollowState,
   SCROLL_PREVIOUS_ITEM_PEEK,
   SCROLL_UP_KEYS,
@@ -301,6 +302,9 @@ export function VirtualThreadScrollBody({
   onUserInteract,
   renderNav,
   resumeRef,
+  olderHistoryCursor = 0,
+  isLoadingOlderHistory = false,
+  onLoadOlderHistory,
 }: {
   items: ConversationItem[];
   flatRows: FlatThreadRow[];
@@ -311,11 +315,19 @@ export function VirtualThreadScrollBody({
   onUserInteract?: () => void;
   /**
    * Navigation layer, rendered as a sibling of the scroller so it can be handed this body's jump
-   * implementation — the engine's `scrollToMessage` only reaches mounted rows.
+   * implementation, because the engine's `scrollToMessage` only reaches mounted rows. The jump
+   * reports whether the target resolved, so a caller can retry rather than fail silently.
    */
-  renderNav?: (jumpToMessage: (id: string) => void) => ReactNode;
+  renderNav?: (jumpToMessage: (id: string) => boolean) => ReactNode;
   /** Where the non-virtualized body left off, read once when this body takes over mid-session. */
   resumeRef: RefObject<ThreadScrollResume>;
+  /**
+   * Chain index of the oldest loaded entry; 0 means the whole transcript is loaded. Doubles as the
+   * loader's progress signal, because it only moves when a page actually lands.
+   */
+  olderHistoryCursor?: number;
+  isLoadingOlderHistory?: boolean;
+  onLoadOlderHistory?: () => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
@@ -337,6 +349,46 @@ export function VirtualThreadScrollBody({
     paddingEnd: footerHeight,
     getItemKey: (index) => flatRows[index]?.key ?? index,
   });
+
+  const loadOlderArmedRef = useRef(false);
+  const canLoadOlderRef = useRef(false);
+  const isLoadingOlderRef = useRef(isLoadingOlderHistory);
+  isLoadingOlderRef.current = isLoadingOlderHistory;
+  const onLoadOlderHistoryRef = useRef(onLoadOlderHistory);
+  useEffect(() => {
+    onLoadOlderHistoryRef.current = onLoadOlderHistory;
+  }, [onLoadOlderHistory]);
+
+  const maybeLoadOlderHistory = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const next = nextOlderHistoryLoadState(loadOlderArmedRef.current, {
+      canLoad: canLoadOlderRef.current,
+      isLoading: isLoadingOlderRef.current,
+      scrollTop: el.scrollTop,
+      maxScrollTop: el.scrollHeight - el.clientHeight,
+    });
+    loadOlderArmedRef.current = next.armed;
+    if (next.load) onLoadOlderHistoryRef.current?.();
+  }, []);
+
+  // Arming belongs to the scroll handler, so one gesture buys one page. This
+  // only covers what a gesture cannot reach: the first cursor the body sees, and
+  // a viewport parked with no scroll room, which emits no scroll events at all.
+  // Arming on every cursor move would instead chain page after page, because a
+  // page of collapsed tool rows lands the viewport back inside the threshold.
+  useEffect(() => {
+    const canLoad = olderHistoryCursor > 0 && onLoadOlderHistory != null;
+    const becameAvailable = canLoad && !canLoadOlderRef.current;
+    canLoadOlderRef.current = canLoad;
+    if (!canLoad) {
+      loadOlderArmedRef.current = false;
+      return;
+    }
+    if (becameAvailable) loadOlderArmedRef.current = true;
+    const id = window.setTimeout(maybeLoadOlderHistory, 250);
+    return () => window.clearTimeout(id);
+  }, [olderHistoryCursor, onLoadOlderHistory, maybeLoadOlderHistory]);
 
   const { followRef, leaveEnd, settleAtEnd, settleToIndex } = useSettleControls(
     virtualizer,
@@ -368,7 +420,9 @@ export function VirtualThreadScrollBody({
   const jumpToMessage = useCallback(
     (id: string) => {
       const index = rowIndexRef.current.get(id);
-      if (index != null) settleToIndex(index);
+      if (index == null) return false;
+      settleToIndex(index);
+      return true;
     },
     [settleToIndex],
   );
@@ -401,9 +455,10 @@ export function VirtualThreadScrollBody({
       const sample = sampleThreadScroll(el, lastScrollTopRef.current);
       lastScrollTopRef.current = el.scrollTop;
       followRef.current = nextThreadFollowState(followRef.current, sample);
+      maybeLoadOlderHistory();
     }
     scheduleStickyRecompute();
-  }, [scheduleStickyRecompute, followRef]);
+  }, [scheduleStickyRecompute, followRef, maybeLoadOlderHistory]);
 
   useFollowBottom({
     virtualizer,
@@ -426,6 +481,11 @@ export function VirtualThreadScrollBody({
           onJump={jumpToMessage}
           anchorId={stickyState.anchorId}
         />
+        {isLoadingOlderHistory && (
+          <div className="-translate-x-1/2 pointer-events-none absolute top-2 left-1/2 z-10 rounded-full border border-(--gray-5) bg-(--gray-2) px-3 py-1 text-(--gray-11) text-xs">
+            Loading earlier messages…
+          </div>
+        )}
         <ChatMessageScrollerViewport
           ref={viewportRef}
           onScroll={handleScroll}

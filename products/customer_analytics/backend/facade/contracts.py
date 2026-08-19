@@ -16,7 +16,7 @@ from dataclasses import (
 )
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, TypedDict
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -90,6 +90,13 @@ class Account:
     name: str
     properties: AccountProperties
     created_at: datetime | None
+
+
+@dataclass(frozen=True)
+class EmailAccountMatch:
+    account_id: str
+    account_external_id: str | None
+    match_source: str
 
 
 @dataclass(frozen=True)
@@ -184,6 +191,8 @@ class AccountTableField(str, Enum):
     EXTERNAL_ID = "external_id"
     CREATED_AT = "created_at"
     UPDATED_AT = "updated_at"
+    CHURNED_AT = "churned_at"
+    IGNORED_AT = "ignored_at"
     STRIPE_CUSTOMER_ID = "stripe_customer_id"
     HUBSPOT_DEAL_ID = "hubspot_deal_id"
     BILLING_ID = "billing_id"
@@ -369,6 +378,8 @@ class AccountContextData:
     name: str
     external_id: str | None
     created_at: datetime | None
+    churned_at: datetime | None
+    ignored_at: datetime | None
     properties: AccountProperties
     tags: list[str] = field(default_factory=list)
     notes: list[AccountNote] = field(default_factory=list)
@@ -380,10 +391,9 @@ class ExternalAccount:
     """The account shape the external (CDP worker) API serializes verbatim.
 
     ``properties`` is carried as a plain dict set to exactly
-    ``account.properties.model_dump(mode="json")`` so the JSON the CDP worker
-    consumes stays byte-identical to the pre-facade response — a validated
-    pydantic pass-through, not a re-typed projection. ``id`` is the stringified
-    UUID, matching the wire shape.
+    ``account.properties.model_dump(mode="json")`` — a validated pydantic
+    pass-through, not a re-typed projection. ``id`` is the stringified UUID,
+    while ``churned_at`` and ``ignored_at`` carry lifecycle timestamps.
 
     ``custom_properties`` contains every team-defined custom property definition
     keyed by definition name, with the account's current scalar value (or ``None``
@@ -394,6 +404,8 @@ class ExternalAccount:
     id: str
     external_id: str | None
     name: str
+    churned_at: datetime | None
+    ignored_at: datetime | None
     properties: dict
     tags: list[str] = field(default_factory=list)
     relationships: dict[str, list[dict]] = field(default_factory=dict)
@@ -416,11 +428,13 @@ class ExternalAccountAssignment:
 
 @dataclass(frozen=True)
 class ExternalAccountListItem:
-    """One account row on the external list wire shape, with active relationship
-    assignments to current organization members keyed by definition name."""
+    """One account row on the external list wire shape, with its churn timestamp and
+    active relationship assignments to current organization members keyed by definition name."""
 
     external_id: str
     name: str
+    churned_at: datetime | None
+    ignored_at: datetime | None
     relationships: dict[str, list[ExternalAccountAssignment]] = field(default_factory=dict)
 
 
@@ -517,6 +531,8 @@ class AccountView:
     tags: list[str] = field(default_factory=list)
     notebooks: list[str] = field(default_factory=list)
     slack_summary_cadence: str | None = None
+    churned_at: datetime | None = None
+    ignored_at: datetime | None = None
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
@@ -537,6 +553,107 @@ class CustomerJourneyView:
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestProductAreaView:
+    id: UUID | None = None
+    name: str = ""
+    display_order: int = 0
+    is_active: bool = True
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestAccountView:
+    id: UUID | None = None
+    name: str = ""
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestView:
+    id: UUID | None = None
+    title: str = ""
+    description: str = ""
+    request_status: str = "requested"
+    request_priority: str | None = None
+    is_archived: bool = False
+    archived_at: datetime | None = None
+    archived_by: int | None = None
+    version: int = 1
+    account: FeatureRequestAccountView | None = None
+    product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
+    created_by: int | None = None
+    updated_by: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class FeatureRequestHistoryChange(TypedDict):
+    field: str
+    before: object
+    after: object
+
+
+@dataclass(frozen=True)
+class FeatureRequestHistoryView:
+    id: UUID
+    changes: list[FeatureRequestHistoryChange]
+    is_initial: bool
+    change_source: str
+    actor_id: int | None
+    actor_name: str | None
+    changed_at: datetime
+
+
+@dataclass(frozen=True)
+class FeatureRequestStatusHistoryView:
+    id: UUID
+    previous_status: str | None
+    request_status: str
+    change_source: str
+    actor_id: int | None
+    actor_name: str | None
+    changed_at: datetime
+
+
+@dataclass(frozen=True)
+class FeatureRequestListFilters:
+    search: str = ""
+    statuses: tuple[str, ...] = ()
+    priorities: tuple[str, ...] = ()
+    product_area_ids: tuple[UUID, ...] = ()
+    account_ids: tuple[UUID, ...] = ()
+    archive_state: str = "active"
+    ordering: str = "-updated_at"
+
+
+@dataclass(frozen=True)
+class CreateFeatureRequestInput:
+    title: str
+    description: str
+    account_id: UUID
+    product_area_ids: tuple[UUID, ...]
+    idempotency_key: UUID
+
+
+@dataclass(frozen=True)
+class FeatureRequestCreateOutcome:
+    request: FeatureRequestView
+    created: bool
+
+
+@dataclass(frozen=True)
+class UpdateFeatureRequestInput:
+    expected_version: int
+    title: str | None = None
+    description: str | None = None
+    account_id: UUID | None = None
+    product_area_ids: tuple[UUID, ...] | None = None
+    request_status: str | None = None
+    request_priority: str | None = None
+    request_priority_is_set: bool = False
 
 
 @stdlib_dataclass(frozen=True)
@@ -607,14 +724,15 @@ class CustomPropertyDefinitionView:
 
 @stdlib_dataclass(frozen=True)
 class CustomPropertySourceView:
-    """A custom-property source: binds a materialized view's column to a definition, feeding its
-    values on each materialization.
+    """A custom-property source: binds warehouse columns to a definition, feeding its values on every
+    warehouse run of what it reads.
 
-    ``definition`` / ``saved_query`` are ids (the definition this feeds, and the data-warehouse
-    saved query read from). ``last_sync_error`` is null when the last run succeeded or hasn't run.
-    Account-target sources set ``saved_query`` + ``source_column``; person-target sources set
-    ``external_data_schema`` + ``column_property_map`` instead. Defaults exist so the wrapping
-    serializer can parse partial request bodies (see :class:`AccountView`).
+    ``definition`` / ``saved_query`` / ``external_data_schema`` are ids (the definition this feeds, and
+    the warehouse object read from). ``last_sync_error`` is null when the last run succeeded or hasn't
+    run. Account-target sources set ``saved_query`` + ``source_column``; person- and group-target
+    sources set ``column_property_map`` plus exactly one of ``external_data_schema`` (an imported
+    table) and ``saved_query`` (a materialized view). Defaults exist so the wrapping serializer can
+    parse partial request bodies (see :class:`AccountView`).
     """
 
     id: UUID | None = None
@@ -632,17 +750,20 @@ class CustomPropertySourceView:
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
-    # Person-target schedule visibility (None for account sources). ``sync_frequency_interval`` is
-    # in seconds; ``next_sync_at`` is approximate (last synced + interval), it drifts if the
-    # underlying schedule was paused. ``latest_run`` is the most recent sync/backfill run.
+    # Person/group-target schedule visibility (None for account sources). ``sync_frequency_interval``
+    # is in seconds; ``next_sync_at`` is approximate (last run + interval), it drifts if the underlying
+    # schedule was paused, and is null for a view whose frequency lives on its DAG node.
+    # ``latest_run`` is the most recent sync/backfill run.
     sync_frequency_interval_seconds: float | None = None
     next_sync_at: datetime | None = None
     latest_run: "CustomPropertySyncRunView | None" = None
-    # Person-target warehouse binding, for naming and linking to the table this source reads.
-    # ``external_data_source`` is the warehouse source owning the schema; ``table_name`` is the
-    # table as it is named in HogQL. Both None for account sources.
+    # Person/group-target warehouse binding, for naming and linking to what this source reads.
+    # ``table_name`` is the imported table as named in HogQL, or the view's name. ``external_data_source``
+    # is the warehouse source owning the schema, set only for a table binding; ``saved_query_name`` is
+    # set only for a view binding. All None for account sources.
     external_data_source: UUID | None = None
     table_name: str | None = None
+    saved_query_name: str | None = None
 
 
 @stdlib_dataclass(frozen=True)
@@ -716,6 +837,7 @@ class CreateAccountInput:
     properties: dict = field(default_factory=dict)
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
+    churned_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -732,10 +854,12 @@ class UpdateAccountInput:
     properties: dict | None = None
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
-    # Distinguishes "external_id omitted" from "external_id explicitly set to null".
+    churned_at: datetime | None = None
+    # Distinguishes omitted fields from fields explicitly set to null.
     external_id_provided: bool = False
     properties_provided: bool = False
     slack_summary_cadence_provided: bool = False
+    churned_at_provided: bool = False
 
 
 @dataclass(frozen=True)

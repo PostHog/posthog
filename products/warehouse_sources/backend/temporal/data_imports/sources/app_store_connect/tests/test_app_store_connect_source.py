@@ -51,12 +51,12 @@ class TestAppStoreConnectSource:
     def test_source_type(self) -> None:
         assert AppStoreConnectSource().source_type == ExternalDataSourceType.APPSTORECONNECT
 
-    def test_source_is_visible_and_labelled_alpha(self) -> None:
+    def test_source_is_visible_and_labelled_beta(self) -> None:
         config = AppStoreConnectSource().get_source_config
 
         # `unreleasedSource` hides a source from users entirely; a finished source must not set it.
         assert not config.unreleasedSource
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert config.category == DataWarehouseSourceCategory.ANALYTICS
         assert config.docsUrl is not None
 
@@ -216,6 +216,14 @@ class TestAppStoreConnectSource:
             (
                 "read_timeout",
                 "HTTPSConnectionPool(host='api.appstoreconnect.apple.com', port=443): Read timed out. (read timeout=60)",
+            ),
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://api.appstoreconnect.apple.com/v1/salesReports?filter%5Bfrequency%5D=DAILY",
+            ),
+            (
+                "rate_limited",
+                "429 Client Error: Too Many Requests for url: https://api.appstoreconnect.apple.com/v1/salesReports",
             ),
         ]
     )

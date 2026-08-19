@@ -14,6 +14,7 @@ import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { quotaUx } from '../utils/quotaProjection'
+import { VisionDocsLink } from './DocsLink'
 import { ObservationDockCard } from './ObservationCard'
 
 const COLLAPSED_HEIGHT = 44
@@ -140,7 +141,10 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         </div>
                     ) : summaries.length === 0 ? (
                         <div className="text-muted text-sm py-4">
-                            No summary yet. Summarize this recording to generate one.
+                            No summary yet. Summarize this recording to generate one.{' '}
+                            <VisionDocsLink page="observations" dataAttr="vision-empty-docs-link-dock">
+                                Learn how observations work
+                            </VisionDocsLink>
                         </div>
                     ) : (
                         summaries.map((observation) => (
