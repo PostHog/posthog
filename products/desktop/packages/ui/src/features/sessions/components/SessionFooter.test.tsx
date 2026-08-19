@@ -7,7 +7,7 @@ describe("SessionFooter", () => {
   it.each([
     ["compaction", { isCompacting: true }],
     ["conversation clearing", { isClearing: true }],
-  ])("keeps the generating footer visible during %s", (_label, state) => {
+  ])("hides the generating footer during %s", (_label, state) => {
     render(
       <Theme>
         <SessionFooter
@@ -15,6 +15,21 @@ describe("SessionFooter", () => {
           promptStartedAt={Date.now()}
           lastGenerationDuration={null}
           {...state}
+        />
+      </Theme>,
+    );
+
+    expect(screen.queryByText(/Esc to stop/)).not.toBeInTheDocument();
+  });
+
+  it("shows the generating footer for a background Codex turn", () => {
+    render(
+      <Theme>
+        <SessionFooter
+          isPromptPending={false}
+          isBackgroundTurnActive
+          promptStartedAt={Date.now()}
+          lastGenerationDuration={null}
         />
       </Theme>,
     );
