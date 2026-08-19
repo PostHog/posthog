@@ -75,10 +75,11 @@
                                                             },
                                                             "source": {
                                                                 "default": "events",
-                                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `group-updates` - group-updates\n* `data-warehouse-table` - data-warehouse-table",
                                                                 "enum": [
                                                                     "events",
                                                                     "person-updates",
+                                                                    "group-updates",
                                                                     "data-warehouse-table"
                                                                 ],
                                                                 "type": "string"
@@ -157,10 +158,11 @@
                                                                 },
                                                                 "source": {
                                                                     "default": "events",
-                                                                    "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                                                    "description": "* `events` - events\n* `person-updates` - person-updates\n* `group-updates` - group-updates\n* `data-warehouse-table` - data-warehouse-table",
                                                                     "enum": [
                                                                         "events",
                                                                         "person-updates",
+                                                                        "group-updates",
                                                                         "data-warehouse-table"
                                                                     ],
                                                                     "type": "string"
@@ -257,8 +259,8 @@
                                     },
                                     "source": {
                                         "default": "events",
-                                        "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
-                                        "enum": ["events", "person-updates", "data-warehouse-table"],
+                                        "description": "* `events` - events\n* `person-updates` - person-updates\n* `group-updates` - group-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                        "enum": ["events", "person-updates", "group-updates", "data-warehouse-table"],
                                         "type": "string"
                                     },
                                     "transpiled": {}
@@ -387,8 +389,13 @@
                                             },
                                             "source": {
                                                 "default": "events",
-                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
-                                                "enum": ["events", "person-updates", "data-warehouse-table"],
+                                                "description": "* `events` - events\n* `person-updates` - person-updates\n* `group-updates` - group-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                                "enum": [
+                                                    "events",
+                                                    "person-updates",
+                                                    "group-updates",
+                                                    "data-warehouse-table"
+                                                ],
                                                 "type": "string"
                                             },
                                             "transpiled": {}
