@@ -12,8 +12,8 @@ from sklearn.metrics import roc_auc_score
 
 from posthog.dataclasses import frozen
 
+from products.signals.backend.ranking.features import FEATURE_NAMES
 from products.signals.dags.inbox_ranking.training.examples import holdout_mask
-from products.signals.dags.inbox_ranking.training.features import FEATURE_NAMES
 from products.signals.dags.inbox_ranking.training.heads import Head
 
 XGB_PARAMS: dict[str, object] = {

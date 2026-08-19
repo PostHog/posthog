@@ -1,10 +1,10 @@
 """Feature universe for the report-ranking model.
 
 One ordered list of feature names, one function that turns a report-state row into that vector.
-Training (this package) and serving (the scoring sweep) must build features through the same
-code, so the booster's `feature_names` match the serving matrix by construction; the model's
-`metadata.json` records FEATURE_SCHEMA_VERSION and the serving side refuses a booster whose
-version or feature names disagree with what it can produce.
+Training (`products/signals/dags/inbox_ranking/training/`) and serving (the scoring sweep in this
+package) must build features through the same code, so the booster's `feature_names` match the
+serving matrix by construction; the model's `metadata.json` records FEATURE_SCHEMA_VERSION and the
+serving side refuses a booster whose version or feature names disagree with what it can produce.
 
 v0 is tabular only: the report-state columns the dataset dag snapshots from Postgres plus the
 report's age at the scoring moment. No report embedding and no impression-derived columns

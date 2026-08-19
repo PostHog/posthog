@@ -19,7 +19,7 @@ import pandas as pd
 
 from posthog.dataclasses import frozen
 
-from products.signals.dags.inbox_ranking.training.features import FEATURE_NAMES, feature_frame
+from products.signals.backend.ranking.features import FEATURE_NAMES, feature_frame
 from products.signals.dags.inbox_ranking.training.heads import Head
 
 # Report-state columns an example carries, besides the features. `report_age_hours` is the

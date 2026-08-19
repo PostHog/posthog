@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 
+from products.signals.backend.ranking.features import FEATURE_NAMES, feature_frame, feature_vector
 from products.signals.dags.inbox_ranking.training.dag import champion_object_key, model_object_key, snapshot_dates
 from products.signals.dags.inbox_ranking.training.examples import (
     EXAMPLE_COLUMNS,
@@ -14,7 +15,6 @@ from products.signals.dags.inbox_ranking.training.examples import (
     build_examples,
     holdout_mask,
 )
-from products.signals.dags.inbox_ranking.training.features import FEATURE_NAMES, feature_frame, feature_vector
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
 from products.signals.dags.inbox_ranking.training.promotion import AUC_TOLERANCE, decide_promotion
 from products.signals.dags.inbox_ranking.training.train import train_head

@@ -9,7 +9,7 @@ Read `README.md` first for what the dataset is and how partitions behave. This f
 
 ## Training dag specifics
 
-- `training/features.py` is a serving contract: the scoring sweep (products/signals backend) imports `FEATURE_NAMES` / `feature_vector` and refuses a booster whose `feature_names` or `feature_schema_version` disagree. Adding a feature means bumping `FEATURE_SCHEMA_VERSION`, and the sweep must be able to compute it from the `SignalReport` row at scoring time — nothing impression-derived, nothing that needs the label streams.
+- `products/signals/backend/ranking/features.py` is the serving contract (it lives in the backend so the scoring sweep owns it and the dag imports it): the training code and the sweep both import `FEATURE_NAMES` / `feature_vector`, and the sweep refuses a booster whose `feature_names` or `feature_schema_version` disagree. Adding a feature means bumping `FEATURE_SCHEMA_VERSION`, and the sweep must be able to compute it from the `SignalReport` row at scoring time — nothing impression-derived, nothing that needs the label streams.
 - `feature_vector` (one row, serving) and `feature_frame` (vectorized, training) must agree row for row; a test pins it. Change both together.
 - Examples are scoring moments (every report × every snapshot), labeled from the snapshot `horizon_days` later. Keep the holdout cut by report; a row-level split leaks near-duplicate snapshots of the same report.
 - `inbox_ranking_models/v1/dt=D/` is immutable history like the dataset partitions; `champion.json` is the only mutable object and only the champion asset (or a human, deliberately) writes it.

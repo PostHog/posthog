@@ -26,6 +26,7 @@ from botocore.exceptions import ClientError
 
 from posthog import settings
 
+from products.signals.backend.ranking.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
     S3_BUCKET_ENV,
@@ -47,7 +48,6 @@ from products.signals.dags.inbox_ranking.training.examples import (
     Snapshot,
     build_examples,
 )
-from products.signals.dags.inbox_ranking.training.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION
 from products.signals.dags.inbox_ranking.training.heads import HEADS
 from products.signals.dags.inbox_ranking.training.promotion import decide_promotion
 from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS, TrainedHead, train_head
