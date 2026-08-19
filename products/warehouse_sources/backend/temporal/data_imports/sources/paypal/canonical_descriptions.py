@@ -1,0 +1,92 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "transactions": {
+        "description": "Money movement on the PayPal account, from the Transaction Search reporting API. Covers up to three years of history.",
+        "docs_url": "https://developer.paypal.com/docs/api/transaction-search/v1/",
+        "columns": {
+            "transaction_id": "PayPal-generated identifier for the transaction, hoisted from transaction_info.",
+            "transaction_initiation_date": "Date and time the transaction was initiated, hoisted from transaction_info.",
+            "transaction_updated_date": "Date and time the transaction was last changed, hoisted from transaction_info.",
+            "transaction_info": "Core transaction detail: status, event code, amounts, fees, and reference ids.",
+            "payer_info": "The counterparty on the transaction: account id, email address, name, and country code.",
+            "shipping_info": "Recipient name and shipping address supplied with the transaction.",
+            "cart_info": "Line items, each with an item name, quantity, unit price, and tax amount.",
+            "store_info": "Store and terminal identifiers for in-store transactions.",
+            "auction_info": "Auction site, buyer id, item site, and closing date for auction transactions.",
+            "incentive_info": "Incentives, such as coupons or gift certificates, applied to the transaction.",
+        },
+    },
+    "balances": {
+        "description": "Point-in-time balance held on the PayPal account, one row per currency, taken at the moment of the sync.",
+        "docs_url": "https://developer.paypal.com/docs/api/transaction-search/v1/#balances",
+        "columns": {
+            "account_id": "PayPal payer id of the account the balance belongs to.",
+            "as_of_time": "Date and time the balance snapshot was taken.",
+            "currency": "Three-character ISO-4217 currency code for this balance.",
+            "primary": "Whether this currency is the account's primary holding currency.",
+            "total_balance": "Total funds held in this currency, available plus withheld.",
+            "available_balance": "Funds in this currency that can be spent or withdrawn now.",
+            "withheld_balance": "Funds in this currency that PayPal is holding and are not yet available.",
+        },
+    },
+    "disputes": {
+        "description": "Customer disputes, chargebacks, and claims raised against the account.",
+        "docs_url": "https://developer.paypal.com/docs/api/customer-disputes/v1/",
+        "columns": {
+            "dispute_id": "PayPal-generated identifier for the dispute.",
+            "create_time": "Date and time the dispute was created.",
+            "update_time": "Date and time the dispute was last updated.",
+            "status": "Current state of the dispute, such as OPEN, WAITING_FOR_BUYER_RESPONSE, or RESOLVED.",
+            "reason": "Why the dispute was raised, such as MERCHANDISE_OR_SERVICE_NOT_RECEIVED or UNAUTHORISED.",
+            "dispute_state": "Stage the dispute has reached, such as REQUIRED_ACTION or UNDER_PAYPAL_REVIEW.",
+            "dispute_amount": "Currency and value in dispute.",
+            "dispute_life_cycle_stage": "Lifecycle stage: INQUIRY, CHARGEBACK, PRE_ARBITRATION, or ARBITRATION.",
+            "dispute_channel": "How the dispute was raised: INTERNAL or EXTERNAL.",
+            "links": "HATEOAS links for acting on this dispute.",
+        },
+    },
+    "invoices": {
+        "description": "Invoices created on the account through PayPal Invoicing.",
+        "docs_url": "https://developer.paypal.com/docs/api/invoicing/v2/",
+        "columns": {
+            "id": "PayPal-generated invoice id.",
+            "status": "Invoice status, such as DRAFT, SENT, PAID, MARKED_AS_PAID, or CANCELLED.",
+            "detail": "Invoice metadata: invoice number, invoice date, currency code, note, and payment terms.",
+            "invoicer": "Business details of the merchant issuing the invoice.",
+            "primary_recipients": "Billing and shipping details for the invoice recipients.",
+            "items": "Line items on the invoice, with name, quantity, unit amount, tax, and discount.",
+            "amount": "Invoice total, broken down into item total, tax, discount, and shipping.",
+            "due_amount": "Amount still outstanding on the invoice.",
+            "links": "HATEOAS links for acting on this invoice.",
+        },
+    },
+    "plans": {
+        "description": "Billing plans that define the pricing and billing cycles a subscription can be created against.",
+        "docs_url": "https://developer.paypal.com/docs/api/subscriptions/v1/#plans",
+        "columns": {
+            "id": "PayPal-generated billing plan id.",
+            "product_id": "Id of the catalog product the plan bills for.",
+            "name": "Plan name.",
+            "description": "Plan description.",
+            "status": "Plan status: CREATED, ACTIVE, or INACTIVE.",
+            "usage_type": "Whether the plan is LICENSED (fixed quantity) or METERED (usage based).",
+            "create_time": "Date and time the plan was created.",
+            "update_time": "Date and time the plan was last updated.",
+            "links": "HATEOAS links for acting on this plan.",
+        },
+    },
+    "products": {
+        "description": "Catalog products — the goods or services that billing plans and subscriptions reference.",
+        "docs_url": "https://developer.paypal.com/docs/api/catalog-products/v1/",
+        "columns": {
+            "id": "PayPal-generated product id.",
+            "name": "Product name.",
+            "description": "Product description.",
+            "create_time": "Date and time the product was created.",
+            "links": "HATEOAS links for acting on this product.",
+        },
+    },
+}

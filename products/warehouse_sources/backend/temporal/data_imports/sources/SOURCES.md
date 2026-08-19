@@ -524,6 +524,7 @@ the row lists both.
 | partnerize                       | HTTP                        | requests                                                        | ✅                          |
 | partnerstack                     | HTTP                        | requests                                                        | ✅                          |
 | payfit                           | HTTP                        | requests                                                        | ✅                          |
+| paypal                           | HTTP                        | requests                                                        | ✅                          |
 | paystack                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pendo                            | HTTP                        | requests                                                        | ✅                          |
 | perigon                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1238,7 +1239,6 @@ doesn't conflict with concurrent PRs.
 - paylocity
 - paymob
 - paymongo
-- paypal
 - peec_ai
 - pendo
 - pennylane
