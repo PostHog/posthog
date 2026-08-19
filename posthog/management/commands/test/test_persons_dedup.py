@@ -715,6 +715,47 @@ class TestPersonsDedupSurvivorSelection:
 
         assert list(tmp_path.glob("blocked_team_*.jsonl")) == []
 
+    def test_a_reconciliation_backup_row_does_not_claim_the_blocking_reason(self, persons_conn, tmp_path):
+        # The backup stopped refusing deletes, so it must not be named as the cause either.
+        # This group is held by its tombstone; attributing it to the backup would send the
+        # follow-up work at the wrong table.
+        uuid = _uuid(83)
+        survivor = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, survivor, "did-83")
+        tombstoned = _add_person(persons_conn, uuid, is_deleted=True)
+        _add_recon_backup_row(persons_conn, tombstoned, uuid)
+
+        _run("classify", tmp_path)
+
+        records = [
+            json.loads(line) for dump in tmp_path.glob("blocked_team_*.jsonl") for line in dump.read_text().splitlines()
+        ]
+        assert len(records) == 1
+        assert records[0]["reason"] == "tombstoned_member"
+        assert records[0]["recon_held"] == 1, "still reported, just not as the reason"
+
+    def test_two_distinct_id_owners_are_blocked_even_when_one_is_unreachable(self, persons_conn, tmp_path):
+        # live_owners is what refuses the group; reachable_owners only says whether the product
+        # can still resolve both. A reason keyed on reachable_owners alone called this 'other'.
+        uuid = _uuid(84)
+        survivor = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, survivor, "did-84")
+        dead_owner = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, dead_owner, "did-84-dead", is_deleted=True)
+
+        _run("classify", tmp_path)
+
+        records = [
+            json.loads(line) for dump in tmp_path.glob("blocked_team_*.jsonl") for line in dump.read_text().splitlines()
+        ]
+        assert len(records) == 1
+        assert records[0]["reason"] == "multiple_distinct_id_owners"
+        assert records[0]["live_owners"] == 2
+        assert records[0]["reachable_owners"] == 1
+        # And the foreign key is why: the tombstoned mapping still references the row.
+        _run("repair", tmp_path, apply=True)
+        assert _persons(persons_conn) == 2
+
 
 class TestPersonsDedupVerify:
     def test_verify_fails_while_resolvable_duplicates_remain(self, persons_conn, tmp_path):

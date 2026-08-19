@@ -314,8 +314,15 @@ BLOCKED_DETAIL_SQL = (
     _MEMBERS_CTE
     + """
 SELECT g.uuid,
+       -- Mirrors the WHERE below, branch for branch, so the reason names the condition that
+       -- actually refused the group. Two rows owning distinct IDs is the merge case, split by
+       -- whether the product can still reach both; a tombstone is the other. A reconciliation
+       -- backup row no longer refuses anything, so it is a reported column, not a reason --
+       -- ranking it here attributed tombstone-blocked groups to the backup. 'other' should be
+       -- unreachable: the survivor ranking puts any row owning a distinct ID first, so a group
+       -- with one live owner and no tombstone always resolves down to a single member.
        CASE WHEN g.reachable_owners > 1 THEN 'multiple_reachable_rows'
-            WHEN g.recon_held > 0       THEN 'held_by_reconciliation_backup'
+            WHEN g.live_owners > 1      THEN 'multiple_distinct_id_owners'
             WHEN g.tombstoned > 0       THEN 'tombstoned_member'
             ELSE 'other' END AS reason,
        g.members, g.reachable_owners, g.live_owners, g.tombstoned, g.recon_held,
@@ -476,13 +483,6 @@ DELETE_PERSONS_SQL = f"""
 DELETE FROM posthog_person p
 USING {VICTIMS_TABLE}_batch b
 WHERE p.team_id = b.team_id AND p.id = b.id AND p.team_id = %(team)s
-"""
-
-VERIFY_DUPS_SQL = """
-SELECT count(*) FROM (
-    SELECT uuid FROM posthog_person WHERE team_id = %(team)s
-    GROUP BY team_id, uuid HAVING count(*) > 1
-) x
 """
 
 VERIFY_ORPHANS_SQL = """
@@ -728,16 +728,20 @@ class Command(BaseCommand):
         with conn.cursor() as cur:
             cur.execute("BEGIN")
             cur.execute("SET LOCAL statement_timeout = 0")
-            cur.execute(VERIFY_DUPS_SQL, {"team": team})
-            dups_row = cur.fetchone()
-            cur.execute(VERIFY_ORPHANS_SQL, {"team": team})
-            orphans_row = cur.fetchone()
+            # Both counts come from one statement on purpose. Read committed takes a fresh
+            # snapshot per statement, so counting the groups and the blocked subset separately
+            # lets a write land between them -- and since resolvable is the difference, that
+            # reports a resolvable group the team does not have, or a negative count. One
+            # statement over one snapshot cannot disagree with itself, and it saves a second
+            # group-by pass over the whole team.
             cur.execute(COUNT_BLOCKED_SQL, {"team": team})
             blocked_row = cur.fetchone()
+            cur.execute(VERIFY_ORPHANS_SQL, {"team": team})
+            orphans_row = cur.fetchone()
             cur.execute("COMMIT")
-        dups = int(dups_row[0]) if dups_row else 0
-        orphans = int(orphans_row[0]) if orphans_row else 0
+        dups = int(blocked_row[0]) if blocked_row else 0
         blocked = int(blocked_row[1]) if blocked_row else 0
+        orphans = int(orphans_row[0]) if orphans_row else 0
         resolvable = dups - blocked
         logger.info(
             "persons_dedup.verify",
