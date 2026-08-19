@@ -227,6 +227,29 @@ class TestBillingAlertDestinations(APIBaseTest):
             id__in=[destination.id for destination in destinations], deleted=True
         ).count() == len(destinations)
 
+    def test_delete_destination_removes_a_group_created_through_the_api(self) -> None:
+        # The other delete tests build HogFunctions without inputs, so they only ever exercise the
+        # unreadable-config path. Creating through the API gives rows with a real config, which is
+        # what the shared delete actually groups on.
+        self._sync_webhook_template()
+        alert = self._alert()
+        created = self.client.post(
+            f"{self.url}{alert.id}/destinations/",
+            {"type": "webhook", "webhook_url": "https://example.com/billing-alert"},
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        hog_function_ids = created.json()["hog_function_ids"]
+
+        response = self.client.post(
+            f"{self.url}{alert.id}/destinations/delete/",
+            {"hog_function_ids": hog_function_ids},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).count() == 0
+
     def test_delete_destination_rejects_another_alerts_hog_function(self) -> None:
         alert = self._alert()
         other_alert = self._alert("Other alert")

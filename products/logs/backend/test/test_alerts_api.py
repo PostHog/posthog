@@ -24,6 +24,7 @@ from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCou
 from products.logs.backend.alert_utils import compute_shard_offset_seconds
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.presentation.views.alerts_api import (
+    ALERT_DESTINATION_DELETE_MAX_IDS,
     ALLOWED_WINDOW_MINUTES,
     LOGS_ALERT_EVENT_IDS,
     MAX_ALERTS_PER_TEAM,
@@ -1021,12 +1022,12 @@ class TestLogsAlertAPI(APIBaseTest):
         assert b_ids[0] not in message
         assert "Refresh the alert and try again." in message
 
-    def test_delete_destination_rejects_more_ids_than_one_destination_group(self):
+    def test_delete_destination_rejects_more_ids_than_the_request_cap(self):
         created = self._create_via_api()
 
         response = self.client.post(
             self._destinations_delete_url(created["id"]),
-            {"hog_function_ids": [str(uuid4()) for _ in range(len(LOGS_ALERT_EVENT_IDS) + 1)]},
+            {"hog_function_ids": [str(uuid4()) for _ in range(ALERT_DESTINATION_DELETE_MAX_IDS + 1)]},
             format="json",
         )
 
@@ -1094,6 +1095,62 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["attr"] == "hog_function_ids"
         assert "Delete every HogFunction in the destination group together." in response.json()["detail"]
         assert HogFunction.objects.filter(id__in=ids, deleted=False, enabled=True).count() == len(ids)
+
+    @parameterized.expand(
+        [
+            (
+                "slack_channel",
+                {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C111", "slack_channel_name": "eng"},
+            ),
+            ("webhook_url", {"type": "webhook", "webhook_url": "https://example.com/hook"}),
+        ]
+    )
+    def test_create_destination_rejects_a_duplicate_of_an_existing_destination(self, _name: str, payload: dict):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], payload)
+
+        response = self.client.post(self._destinations_url(created["id"]), payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "This destination is already configured for this alert."
+        assert HogFunction.objects.filter(id__in=ids, deleted=False, enabled=True).count() == len(ids)
+        assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(LOGS_ALERT_EVENT_IDS)
+
+    def _clone_hog_function(self, hog_function: HogFunction) -> HogFunction:
+        # A duplicate can no longer be created through the API, so an alert that already had one
+        # is reproduced by copying its rows.
+        return HogFunction.objects.create(
+            team=self.team,
+            name=hog_function.name,
+            type=hog_function.type,
+            template_id=hog_function.template_id,
+            enabled=True,
+            inputs_schema=hog_function.inputs_schema,
+            inputs=hog_function.inputs,
+            hog=hog_function.hog,
+            filters=hog_function.filters,
+        )
+
+    def test_delete_destination_removes_a_pre_existing_duplicate_pair(self):
+        # Duplicates predating the create-time check are indistinguishable, so they share one
+        # delete group and come out only when every row of it is named. That is what the UI
+        # already sends, since it groups by config too.
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+        duplicate_ids = [
+            str(self._clone_hog_function(hog_function).id) for hog_function in HogFunction.objects.filter(id__in=ids)
+        ]
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": [*ids, *duplicate_ids]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert HogFunction.objects.filter(id__in=[*ids, *duplicate_ids], deleted=False).count() == 0
 
     def test_delete_alert_removes_both_destinations_of_the_same_type(self):
         self._sync_destination_templates()

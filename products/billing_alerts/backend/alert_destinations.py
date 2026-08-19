@@ -124,8 +124,10 @@ def destination_groups_for_alerts(
     """Map alert id -> destination type value -> event id -> HogFunction id for enabled,
     billing-owned destinations.
 
-    This is the single implementation of destination-group resolution; callers enforce the
-    complete-group invariant (a group must cover every event kind) on the returned mapping.
+    Billing allows one destination per type, so the type alone identifies a group here, and
+    `destinations_for_alerts` drops any group that does not cover every event kind. Deletes group
+    differently: products.alerts.backend.destinations keys on template plus config, because logs
+    alerts allow several destinations of one type.
     """
     if not team_ids or not alert_ids:
         return {}

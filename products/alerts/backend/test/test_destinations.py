@@ -12,6 +12,7 @@ from products.alerts.backend.destinations import (
     AlertDelivery,
     alert_internal_event_delivered,
     list_active_alert_destinations,
+    raise_if_alert_destination_exists,
     serialize_deliveries,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
@@ -43,7 +44,9 @@ _DEFAULT_INPUTS: dict[str, dict[str, Any]] = {
 }
 
 
-class TestSoftDeleteAlertDestinations(APIBaseTest):
+class AlertDestinationTestCase(APIBaseTest):
+    """HogFunction fixtures shared by the destination grouping tests."""
+
     def _make_hog_function(
         self,
         *,
@@ -98,6 +101,52 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
             assert hog_function.deleted is False
             assert hog_function.enabled is True
 
+
+class TestRaiseIfAlertDestinationExists(AlertDestinationTestCase):
+    def _raise_if_exists(self, *, template_id: str, inputs: dict[str, Any], alert_id: str = "alert-1") -> None:
+        raise_if_alert_destination_exists(
+            team_id=self.team.id,
+            alert_id=alert_id,
+            allowed_event_ids=ALLOWED_EVENT_IDS,
+            template_id=template_id,
+            inputs=inputs,
+        )
+
+    def test_rejects_a_destination_whose_config_already_exists(self) -> None:
+        self._make_group(template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://a"))
+
+        with self.assertRaisesRegex(ValidationError, "already configured for this alert"):
+            self._raise_if_exists(template_id="template-webhook", inputs=webhook_inputs("https://a"))
+
+    def test_allows_a_second_destination_with_a_different_config(self) -> None:
+        self._make_group(template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://a"))
+
+        self._raise_if_exists(template_id="template-webhook", inputs=webhook_inputs("https://b"))
+
+    def test_allows_a_config_that_only_matches_another_alerts_destination(self) -> None:
+        self._make_group(template_id="template-webhook", alert_id="alert-2", inputs=webhook_inputs("https://a"))
+
+        self._raise_if_exists(template_id="template-webhook", inputs=webhook_inputs("https://a"))
+
+    def test_allows_a_config_whose_only_match_is_deleted(self) -> None:
+        destinations = self._make_group(
+            template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://a")
+        )
+        HogFunction.objects.filter(id__in=[destination.id for destination in destinations]).update(deleted=True)
+
+        self._raise_if_exists(template_id="template-webhook", inputs=webhook_inputs("https://a"))
+
+    def test_rejects_a_duplicate_of_a_disabled_destination(self) -> None:
+        # A disabled destination is still in the delete group, so a duplicate of it would be stuck
+        # to it the same way an enabled one would.
+        destinations = self._make_group(template_id="template-slack", alert_id="alert-1", inputs=slack_inputs("C-ENG"))
+        HogFunction.objects.filter(id__in=[destination.id for destination in destinations]).update(enabled=False)
+
+        with self.assertRaisesRegex(ValidationError, "already configured for this alert"):
+            self._raise_if_exists(template_id="template-slack", inputs=slack_inputs("C-ENG"))
+
+
+class TestSoftDeleteAlertDestinations(AlertDestinationTestCase):
     def test_deletes_alert_destination_with_matching_alert_id(self) -> None:
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 
@@ -189,9 +238,70 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
 
         self._assert_intact([*first, *second])
 
-    def test_deletes_row_with_unreadable_config_on_its_own(self) -> None:
-        # Without a config the row cannot be matched to siblings, so it is its own group rather
-        # than being folded into the Slack destination next to it.
+    def test_deletes_a_pre_existing_duplicate_pair_together(self) -> None:
+        # Two destinations built from the same config are indistinguishable, so they form one
+        # group. Naming every row of it is the way an already-duplicated alert gets cleaned up.
+        first = self._make_group(template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://x"))
+        second = self._make_group(
+            template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://x")
+        )
+
+        soft_delete_alert_destinations(
+            team_id=self.team.id,
+            alert_id="alert-1",
+            allowed_event_ids=ALLOWED_EVENT_IDS,
+            hog_function_ids=[destination.id for destination in (*first, *second)],
+        )
+
+        self._assert_deleted([*first, *second])
+
+    def test_rejects_deleting_half_of_a_pre_existing_duplicate_pair(self) -> None:
+        first = self._make_group(template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://x"))
+        second = self._make_group(
+            template_id="template-webhook", alert_id="alert-1", inputs=webhook_inputs("https://x")
+        )
+
+        with self.assertRaisesRegex(ValidationError, "Delete every HogFunction"):
+            soft_delete_alert_destinations(
+                team_id=self.team.id,
+                alert_id="alert-1",
+                allowed_event_ids=ALLOWED_EVENT_IDS,
+                hog_function_ids=[destination.id for destination in first],
+            )
+
+        self._assert_intact([*first, *second])
+
+    def test_rejects_partial_delete_when_a_row_config_cannot_be_read(self) -> None:
+        # An unreadable row could belong to any Slack destination of the alert, so deleting the
+        # readable ones without it could leave part of a live destination still sending.
+        orphan = self._make_hog_function(template_id="template-slack", alert_id="alert-1", inputs={})
+        destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
+
+        with self.assertRaisesRegex(ValidationError, "can no longer be read"):
+            soft_delete_alert_destinations(
+                team_id=self.team.id,
+                alert_id="alert-1",
+                allowed_event_ids=ALLOWED_EVENT_IDS,
+                hog_function_ids=[destination.id for destination in destinations],
+            )
+
+        self._assert_intact([orphan, *destinations])
+
+    def test_rejects_deleting_only_the_row_whose_config_cannot_be_read(self) -> None:
+        orphan = self._make_hog_function(template_id="template-slack", alert_id="alert-1", inputs={})
+        destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
+
+        with self.assertRaisesRegex(ValidationError, "can no longer be read"):
+            soft_delete_alert_destinations(
+                team_id=self.team.id,
+                alert_id="alert-1",
+                allowed_event_ids=ALLOWED_EVENT_IDS,
+                hog_function_ids=[orphan.id],
+            )
+
+        self._assert_intact([orphan, *destinations])
+
+    def test_deletes_every_row_of_a_template_that_has_an_unreadable_config(self) -> None:
         orphan = self._make_hog_function(template_id="template-slack", alert_id="alert-1", inputs={})
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")
 
@@ -199,11 +309,42 @@ class TestSoftDeleteAlertDestinations(APIBaseTest):
             team_id=self.team.id,
             alert_id="alert-1",
             allowed_event_ids=ALLOWED_EVENT_IDS,
-            hog_function_ids=[orphan.id],
+            hog_function_ids=[orphan.id, *(destination.id for destination in destinations)],
         )
 
-        self._assert_deleted([orphan])
-        self._assert_intact(destinations)
+        self._assert_deleted([orphan, *destinations])
+
+    def test_unreadable_config_does_not_block_deleting_another_template(self) -> None:
+        orphan = self._make_hog_function(template_id="template-slack", alert_id="alert-1", inputs={})
+        webhooks = self._make_group(template_id="template-webhook", alert_id="alert-1")
+
+        soft_delete_alert_destinations(
+            team_id=self.team.id,
+            alert_id="alert-1",
+            allowed_event_ids=ALLOWED_EVENT_IDS,
+            hog_function_ids=[destination.id for destination in webhooks],
+        )
+
+        self._assert_deleted(webhooks)
+        self._assert_intact([orphan])
+
+    @patch("products.alerts.backend.destinations.logger")
+    @patch("products.alerts.backend.destinations.ALERT_DESTINATION_UNREADABLE_CONFIGS")
+    def test_unreadable_config_is_counted_and_logged(self, unreadable_configs, logger) -> None:
+        self._make_hog_function(template_id="template-slack", alert_id="alert-1", inputs={})
+        webhooks = self._make_group(template_id="template-webhook", alert_id="alert-1")
+
+        soft_delete_alert_destinations(
+            team_id=self.team.id,
+            alert_id="alert-1",
+            allowed_event_ids=ALLOWED_EVENT_IDS,
+            hog_function_ids=[destination.id for destination in webhooks],
+        )
+
+        unreadable_configs.labels.assert_called_once_with(template_id="template-slack")
+        unreadable_configs.labels.return_value.inc.assert_called_once_with(1)
+        assert logger.warning.call_args.args == ("Alert destination config could not be read",)
+        assert logger.warning.call_args.kwargs["row_counts_by_template"] == {"template-slack": 1}
 
     def test_rejects_destinations_belonging_to_another_alert(self) -> None:
         destinations = self._make_group(template_id="template-slack", alert_id="alert-1")

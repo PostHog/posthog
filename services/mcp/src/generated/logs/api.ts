@@ -2838,7 +2838,7 @@ export const LogsAlertsDestinationsDeleteCreateParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 4
+export const logsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
 
 export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
