@@ -51,6 +51,14 @@ PERSON_PROPERTY_BACKFILL_DURATION_SECONDS = Histogram(
     buckets=(0.5, 1.0, 2.5, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0),
 )
 
+# Same funnel stages as the scheduled sync (warehouse_person_property_sync_rows_total), kept as a
+# separate metric so a large one-off backfill can't distort the steady-state sync funnel.
+PERSON_PROPERTY_BACKFILL_ROWS_TOTAL = Counter(
+    "warehouse_person_property_backfill_rows_total",
+    "Rows flowing through each stage of the person-property backfill funnel",
+    labelnames=["team_id", "stage"],
+)
+
 
 @activity.defn
 async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBackfillActivityInputs) -> dict[str, Any]:
@@ -89,6 +97,15 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
     )
     PERSON_PROPERTY_BACKFILL_TOTAL.labels(team_id=str(inputs.team_id), outcome="completed").inc()
     PERSON_PROPERTY_BACKFILL_DURATION_SECONDS.observe(time.monotonic() - start)
+    for stage, count in (
+        ("read", result.rows_read),
+        ("changed", result.changed),
+        ("existing", result.existing),
+        ("produced", result.produced),
+        ("skipped_missing_person", result.skipped_missing_person),
+    ):
+        if count:
+            PERSON_PROPERTY_BACKFILL_ROWS_TOTAL.labels(team_id=str(inputs.team_id), stage=stage).inc(count)
 
     log.info(
         "Person-property backfill finished",
