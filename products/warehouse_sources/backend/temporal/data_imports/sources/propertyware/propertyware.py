@@ -1,9 +1,10 @@
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 from requests import PreparedRequest
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -32,7 +33,7 @@ PAGE_SIZE = 500
 TOTAL_COUNT_HEADER = "X-Total-Count"
 
 
-@dataclasses.dataclass
+@frozen
 class PropertywareResumeConfig:
     offset: int
 
