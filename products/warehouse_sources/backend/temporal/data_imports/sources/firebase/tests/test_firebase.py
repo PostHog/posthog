@@ -8,6 +8,7 @@ import jwt
 import requests
 from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.firebase import (
     AccessTokenProvider,
     FirebaseAuthError,
@@ -45,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     REALTIME_DATABASE_VALUE_COLUMN,
     RESPONSE_TOO_LARGE_ERROR,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source import FirebaseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.tests.conftest import (
     PUBLIC_KEY_PEM,
     TOKEN_PAYLOAD,
@@ -553,6 +555,31 @@ class TestTableDiscovery:
         with mock.patch(_SESSION_FACTORY, return_value=session.as_session()):
             with pytest.raises(requests.HTTPError):
                 get_tables(credentials())
+
+
+class TestNonRetryableErrors:
+    def _match(self, error_msg: str) -> Optional[str]:
+        errors = FirebaseSource().get_non_retryable_errors()
+        for pattern, message in errors.items():
+            if error_message_matches(error_msg, [pattern]):
+                return message
+        return None
+
+    def test_firestore_400_reports_the_firestore_cause(self) -> None:
+        message = self._match(
+            "400 Client Error: Bad Request for url: https://firestore.googleapis.com/v1/projects/demo/databases/(default)/documents"
+        )
+        assert message is not None
+        assert "Firestore" in message
+
+    def test_400_from_another_surface_does_not_report_the_firestore_cause(self) -> None:
+        # A 400 from the Auth surface must not claim a Firestore cause.
+        assert (
+            self._match(
+                "400 Client Error: Bad Request for url: https://identitytoolkit.googleapis.com/v1/accounts:batchGet"
+            )
+            is None
+        )
 
 
 class TestSampleCapture:

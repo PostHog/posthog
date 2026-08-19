@@ -63,7 +63,9 @@ class FirebaseSource(ResumableSource[FirebaseSourceConfig, FirebaseResumeConfig]
             "error=invalid_grant": "Google rejected this service account key. Generate a new key in the Firebase console and reconnect.",
             "Google refused to issue an access token": "Google could not issue an access token for this service account. Check that the key file is complete and the service account still exists.",
             "private key could not be read": "The uploaded key file does not contain a usable private key. Upload the JSON key exactly as Google generated it.",
-            "400 Client Error: Bad Request": "Firebase could not read Firestore for this project. The project may run Cloud Datastore mode, or the database id may not name a real Firestore database. Check the database id, then re-run the sync.",
+            # Scope to the Firestore host: a bare 400 also comes from the Auth and Realtime Database
+            # surfaces, and this message only fits Firestore. raise_for_status embeds the request URL.
+            "400 Client Error: Bad Request for url: https://firestore.googleapis.com/": "Firebase could not read Firestore for this project. The project may run Cloud Datastore mode, or the database id may not name a real Firestore database. Check the database id, then re-run the sync.",
             "401 Client Error: Unauthorized": "Firebase rejected the access token. The service account key may have been revoked — please reconnect.",
             "403 Client Error: Forbidden": "This service account cannot read the requested Firebase data. Grant it the Firebase Viewer, Cloud Datastore Viewer, or Firebase Realtime Database Viewer role.",
             RESPONSE_TOO_LARGE_ERROR: "Firebase returned a page too large to process. Reduce the size of the documents in this collection or path, then re-run the sync.",
