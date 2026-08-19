@@ -66,7 +66,8 @@ class AppleSearchAdsCredentials:
     client_id: str
     team_id: str
     key_id: str
-    private_key: str
+    # repr=False: keep the PEM out of tracebacks, logs, and pytest assertion diffs.
+    private_key: str = dataclasses.field(repr=False)
 
 
 @dataclasses.dataclass(frozen=True)
