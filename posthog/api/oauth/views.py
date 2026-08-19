@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
-from django.db import DatabaseError, OperationalError
+from django.db import DatabaseError, OperationalError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
@@ -20,6 +20,7 @@ import posthoganalytics
 from oauth2_provider.compat import login_not_required
 from oauth2_provider.exceptions import FatalClientError, OAuthToolkitError
 from oauth2_provider.http import OAuth2ResponseRedirect
+from oauth2_provider.models import AbstractApplication
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauth2_provider.settings import oauth2_settings
 from oauth2_provider.views import (
@@ -51,11 +52,12 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.api.oauth.client_assertion import (
     ClientAssertionError,
+    ResolvedClientAssertion,
     expected_assertion_audiences,
     resolve_client_assertion,
     verify_client_assertion,
 )
-from posthog.api.oauth.client_auth import verify_client_secret
+from posthog.api.oauth.client_auth import client_credentials_from_basic_auth, verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
@@ -65,6 +67,7 @@ from posthog.models.oauth import (
     OAuthGrant,
     OAuthRefreshToken,
     TokenEndpointAuthMethod,
+    lock_oauth_connection,
     revoke_oauth_session,
 )
 from posthog.scopes import (
@@ -476,12 +479,15 @@ class OAuthValidator(OAuth2Validator):
         return None
 
     def authenticate_client(self, request, *args, **kwargs):
-        """Authenticate a confidential client, adding ``private_key_jwt`` (RFC 7523).
+        """Authenticate a client presenting ``private_key_jwt`` (RFC 7523).
 
-        CIMD clients register as confidential with a ``jwks_uri`` and never receive a secret,
-        so the library's secret-based paths cannot authenticate them. A client presenting a
-        signed assertion is verified here against the keys it publishes; every other client
-        falls through to the library's HTTP Basic and request-body secret checks.
+        CIMD clients that hold a jwks_uri never receive a secret, so the library's
+        secret-based paths cannot authenticate them — confidential partners, whose signature
+        is required, and public CIMD clients that publish keys and sign opportunistically,
+        whose signature is only ever a bonus (see ``_authenticate_client_assertion``). A
+        client presenting a signed assertion is verified here against the keys it publishes;
+        every other client falls through to the library's HTTP Basic and request-body secret
+        checks.
         """
         if self._authenticate_client_assertion(request):
             return True
@@ -504,7 +510,7 @@ class OAuthValidator(OAuth2Validator):
             )
 
     @staticmethod
-    def _resolve_request_assertion(request) -> tuple[str, str] | None:
+    def _resolve_request_assertion(request) -> ResolvedClientAssertion | None:
         return resolve_client_assertion(
             getattr(request, "client_assertion", None) or "",
             getattr(request, "client_assertion_type", None) or "",
@@ -516,22 +522,24 @@ class OAuthValidator(OAuth2Validator):
         if assertion is None:
             return False
 
-        assertion_value, client_id = assertion
-        app = self._load_application(client_id, request)
-        if app is None or not app.uses_private_key_jwt_auth:
+        app = self._load_application(assertion.client_id, request)
+        # jwks_uri alone gates this, not client_type: a public CIMD client may publish keys
+        # and start signing before any partner registration. What's REQUIRED is a separate
+        # question, decided by client_type via client_authentication_required.
+        if app is None or not app.jwks_uri:
             return False
 
         if app.is_cimd_client and app.cimd_metadata_url:
-            self._enqueue_cimd_metadata_refresh(app.cimd_metadata_url, client_id)
+            self._enqueue_cimd_metadata_refresh(app.cimd_metadata_url, assertion.client_id)
 
         try:
             verify_client_assertion(
                 app,
-                assertion_value,
+                assertion.client_assertion,
                 audiences=expected_assertion_audiences(*STANDARD_TOKEN_ENDPOINT_PATHS),
             )
         except ClientAssertionError as e:
-            logger.warning("oauth_client_assertion_rejected", client_id=client_id, error=str(e))
+            logger.warning("oauth_client_assertion_rejected", client_id=assertion.client_id, error=str(e))
             return False
 
         request.client = app
@@ -745,7 +753,9 @@ class OAuthValidator(OAuth2Validator):
 
     def save_bearer_token(self, token, request, *args, **kwargs):
         """
-        Override to use custom token expiry for certain clients.
+        Override to use custom token expiry for certain clients, and to serialize a refresh
+        against a concurrent revoke of the same connection.
+
         Sets token["expires_in"] before calling parent, which uses this value
         when calculating the actual expiry datetime stored in the database.
         """
@@ -768,7 +778,28 @@ class OAuthValidator(OAuth2Validator):
             refresh_token_suppressed=skip_refresh,
             grant_type=getattr(request, "grant_type", "unknown"),
         )
-        return super().save_bearer_token(token, request, *args, **kwargs)
+
+        presented_refresh_token = getattr(request, "refresh_token_instance", None)
+        if not isinstance(presented_refresh_token, OAuthRefreshToken):
+            return super().save_bearer_token(token, request, *args, **kwargs)
+
+        # Take the connection lock before `super()`, which is where DOT opens its transaction and
+        # locks the refresh-token row: acquiring in the other order would deadlock against
+        # `revoke_oauth_session`, which takes this lock and then writes those same rows.
+        with transaction.atomic():
+            lock_oauth_connection(
+                user_id=presented_refresh_token.user_id,
+                application_id=presented_refresh_token.application_id,
+            )
+            # DOT validated this token in autocommit, so a revoke may have deleted the row while
+            # this request waited for the lock. DOT's own re-read is an unguarded `.get()`, which
+            # would surface as a 500; reject the grant instead so the client re-authorizes.
+            if not OAuthRefreshToken.objects.filter(pk=presented_refresh_token.pk).exists():
+                raise InvalidGrantError(
+                    description="This application's access was revoked; re-authorize.",
+                    request=request,
+                )
+            return super().save_bearer_token(token, request, *args, **kwargs)
 
     def _save_bearer_token(self, token, request, *args, **kwargs):
         """
@@ -1707,15 +1738,35 @@ class OAuthTokenView(TokenView):
         if request.content_type == "application/json" and request.body:
             try:
                 json_data = json.loads(request.body)
-                request.POST = request.POST.copy()
-                for key, value in json_data.items():
-                    request.POST[key] = value
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, ValueError, RecursionError):
                 self._capture_token_rejected("unknown", "", "invalid_request")
                 return JsonResponse(
                     {"error": "invalid_request", "error_description": "Invalid JSON payload"},
                     status=400,
                 )
+
+            if not isinstance(json_data, dict):
+                return JsonResponse(
+                    {"error": "invalid_request", "error_description": "JSON payload must be an object"},
+                    status=400,
+                )
+
+            # Everything downstream (oauthlib, our own logging) treats these as form
+            # parameters, so anything that isn't a scalar is rejected here rather than
+            # left to blow up as a string operation on a dict or a list.
+            request.POST = request.POST.copy()
+            for key, value in json_data.items():
+                if value is None:
+                    continue
+                if isinstance(value, dict | list):
+                    return JsonResponse(
+                        {
+                            "error": "invalid_request",
+                            "error_description": f"Parameter '{key}' must be a string",
+                        },
+                        status=400,
+                    )
+                request.POST[str(key)] = str(value)
 
         grant_type = request.POST.get("grant_type", "unknown")
 
@@ -1860,6 +1911,27 @@ class OAuthRevokeTokenView(RevokeTokenView):
     pass
 
 
+class ConfidentialClientOnlyOAuthValidator(OAuthValidator):
+    """Client-credentials gate that only a confidential client can pass.
+
+    A public client holds no secret to prove, so it must never satisfy an endpoint whose
+    only authentication is client credentials. The library does let it: both
+    `_authenticate_basic_auth` and `_authenticate_request_body` return True for a public
+    client whose request carries `grant_type=urn:ietf:params:oauth:grant-type:device_code`,
+    and they do so before reaching `_check_secret`, so the blank-secret guard in
+    `verify_client_secret` never runs on that path. `grant_type` is read from the request
+    body, so the application's own configured grant does not constrain it.
+
+    Kept separate from `OAuthValidator` because the token endpoint legitimately tolerates a
+    public client presenting a secret it then ignores (the grant is bound by PKCE instead).
+    """
+
+    def authenticate_client(self, request, *args, **kwargs):
+        if not super().authenticate_client(request, *args, **kwargs):
+            return False
+        return getattr(request.client, "client_type", None) == AbstractApplication.CLIENT_CONFIDENTIAL
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 @method_decorator(login_not_required, name="dispatch")
 class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
@@ -1869,7 +1941,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
     To access this view the request must pass a OAuth2 Bearer Token
     which is allowed to access the scope `introspection`. Alternatively,
-    if the client_id and client_secret are provided, the request is
+    if a confidential client's client_id and client_secret are provided, the request is
     authenticated using client credentials and does not require the `introspection` scope.
 
     Self-introspection: An access token can always introspect itself without
@@ -1879,6 +1951,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
     """
 
     required_scopes = ["introspection"]
+    validator_class = ConfidentialClientOnlyOAuthValidator
 
     def _is_self_introspection(self, request) -> bool:
         """
@@ -1899,7 +1972,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             if not token_to_introspect and request.content_type == "application/json" and request.body:
                 try:
                     token_to_introspect = json.loads(request.body).get("token")
-                except (json.JSONDecodeError, ValueError):
+                except (json.JSONDecodeError, ValueError, RecursionError):
                     pass
 
         return bool(bearer_token and token_to_introspect and bearer_token == token_to_introspect)
@@ -1923,8 +1996,25 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             return True, request
         return super().verify_request(request)
 
-    @staticmethod
-    def get_token_response(token_value=None):
+    def _client_credentials_client_id(self, request) -> str | None:
+        """The client_id that authenticated this request via client credentials, or None.
+
+        None means the request reached us through the bearer-token path instead (self-
+        introspection or the `introspection` scope): ClientProtectedResourceMixin.dispatch
+        only sets `resource_owner` on that path, since a successful `authenticate_client`
+        (the client-credentials path) skips it entirely. The client_id is read back rather
+        than re-verified, because dispatch already proved this request holds a valid secret
+        for it.
+        """
+        if hasattr(request, "resource_owner"):
+            return None
+
+        credentials = client_credentials_from_basic_auth(request)
+        if credentials is not None:
+            return credentials.client_id
+        return request.POST.get("client_id") or None
+
+    def get_token_response(self, request, token_value=None):
         """
         RFC 7662 Token Introspection response.
 
@@ -1939,6 +2029,8 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         if not token_value:
             return JsonResponse({"active": False}, status=200)
 
+        credential_client_id = self._client_credentials_client_id(request)
+
         # Try access token first (indexed lookup via token_checksum)
         token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
         try:
@@ -1947,6 +2039,11 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             access_token = None
 
         if access_token:
+            # A client-credentials caller may only introspect its own tokens. Being
+            # confidential is not a meaningful barrier on its own, since /oauth/register/
+            # issues a confidential client_id and secret to anyone who asks.
+            if credential_client_id and getattr(access_token.application, "client_id", None) != credential_client_id:
+                return JsonResponse({"active": False}, status=200)
             # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
             if not access_token.is_valid():
                 return JsonResponse({"active": False}, status=200)
@@ -1971,6 +2068,8 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             refresh_token = None
 
         if refresh_token:
+            if credential_client_id and getattr(refresh_token.application, "client_id", None) != credential_client_id:
+                return JsonResponse({"active": False}, status=200)
             # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
             # so we only return the fields that are available
             data = {
@@ -1991,7 +2090,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         Get the token from the URL parameters.
         URL: https://example.com/introspect?token=mF_9.B5f-4.1JqM
         """
-        return self.get_token_response(request.GET.get("token", None))
+        return self.get_token_response(request, request.GET.get("token", None))
 
     def post(self, request, *args, **kwargs):
         """
@@ -2004,9 +2103,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             try:
                 json_data = json.loads(request.body)
                 token = json_data.get("token")
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, ValueError, RecursionError):
                 pass
-        return self.get_token_response(token)
+        return self.get_token_response(request, token)
 
 
 class OAuthConnectDiscoveryInfoView(ConnectDiscoveryInfoView):

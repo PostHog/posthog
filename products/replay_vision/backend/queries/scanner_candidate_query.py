@@ -35,6 +35,11 @@ tracer = trace.get_tracer(__name__)
 # Partition prune anchored to the SDK's 24h session_id rotation + 2h headroom for skew and lag.
 _PARTITION_LOOKBACK = dt.timedelta(hours=26)
 
+# How far behind the watermark the frequent sweep's events subqueries scan. Covers the events of any
+# session up to ~3h long plus skew; sessions whose matching events are older surface via the periodic
+# deep sweep instead (see `find_scanner_candidates_activity`), which scans the full lookback.
+SWEEP_EVENTS_LOOKBACK = dt.timedelta(hours=4)
+
 SAMPLE_RATE_PRECISION = 10_000
 # Smallest non-zero rate the modulo bucketing can express (one bucket); the API rejects non-zero rates below it.
 MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
@@ -99,14 +104,14 @@ def eligibility_predicates() -> list[ast.Expr]:
     ]
 
 
-def _execute_candidate_query(
-    query: ast.SelectQuery, *, team: Team, query_type: str, max_execution_time_seconds: int
+def execute_candidate_query(
+    query: ast.SelectQuery, *, team: Team, query_type: str, max_execution_time_seconds: int, scanner_id: str | None
 ) -> list[list]:
     """One home for the candidate queries' ClickHouse execution policy.
 
     The dedicated user keeps sweep and backfill admission out of the contended shared `default` pool.
     """
-    with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT):
+    with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT, scanner_id=scanner_id):
         response = execute_hogql_query(
             query=query,
             team=team,
@@ -137,6 +142,12 @@ class ScannerCandidateQuery:
         last_seen_session_id: str | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
+        events_lookback: dt.timedelta | None = None,
+        # The sweep drops negative-filter matches after fetching, so it turns the in-query blocklists
+        # off and asks about its own candidates instead.
+        skip_negative_blocklists: bool = False,
+        # Tags the ClickHouse query for per-scanner read metering; sweep callers should always pass it.
+        scanner_id: str | None = None,
     ) -> None:
         if not isinstance(last_swept_at, dt.datetime):
             raise TypeError(f"last_swept_at must be a datetime, got {type(last_swept_at).__name__}")
@@ -154,6 +165,7 @@ class ScannerCandidateQuery:
         self._sampling_salt = sampling_salt
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
+        self._scanner_id = scanner_id
         # Fixed at construction and exposed so callers can persist exactly the horizon the query filtered on.
         self.settle_cutoff = dt.datetime.now(dt.UTC) - SETTLE_INTERVAL
 
@@ -173,15 +185,36 @@ class ScannerCandidateQuery:
         if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
             extra_having.append(surfacing)
 
-        self._inner = SessionRecordingListFromQuery(team=team, query=inner_query, extra_having_predicates=extra_having)
+        # Bounding positive events subqueries to a few hours keeps the every-few-minutes sweep from
+        # re-scanning the full events lookback each tick. Exclusion blocklists ignore the floor (see
+        # ReplayFiltersEventsSubQuery), so negative filters stay exact; a session whose only matching
+        # event is older than the floor is missed here and caught by the deep sweep.
+        events_timestamp_floor = (last_swept_at - events_lookback) if events_lookback is not None else None
+
+        self._inner = SessionRecordingListFromQuery(
+            team=team,
+            query=inner_query,
+            extra_having_predicates=extra_having,
+            events_timestamp_floor=events_timestamp_floor,
+            skip_negative_blocklists=skip_negative_blocklists,
+        )
+
+    def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
+        """Delegates, so the exclusion inherits the window and filters this query fetched with."""
+        return self._inner.excluded_sessions_queries(session_ids)
+
+    def matches_on_events(self) -> bool:
+        """Whether `events_lookback` can cost this query candidates, so a deep pass has work to do."""
+        return self._inner.matches_on_events()
 
     @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
-        rows = _execute_candidate_query(
+        rows = execute_candidate_query(
             self.get_query(),
             team=self._team,
             query_type="ReplayVisionScannerCandidateQuery",
             max_execution_time_seconds=self._max_execution_time_seconds,
+            scanner_id=self._scanner_id,
         )
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
@@ -266,14 +299,18 @@ def sampling_predicate(sampling_rate: float, sampling_salt: str) -> ast.Expr | N
     )
 
 
-class BackfillCandidateQuery:
-    """Enumerate a backfill's candidate sessions inside a closed historical window.
+class WindowedCandidateQuery:
+    """Enumerate a scanner's candidate sessions inside a closed historical window.
 
     Same eligibility, sampling, and surfacing predicates as `ScannerCandidateQuery`, but bounded on both
     sides and walked newest-first: batches descend from `window_end` via a `(end_time, session_id)` keyset
     cursor. `count()` runs the identical predicate set without cursor or limit, so the creation-time
     enumeration is exactly the set the ticks will walk (the window is closed, so it can only shrink as
     recordings expire from retention — never grow).
+
+    Two callers walk windows this way: backfills over a user-chosen range, and the sweep's deep pass
+    over the range behind its own watermark. Each names its own reads, so a shared class cannot make
+    one path's ClickHouse cost look like the other's.
     """
 
     def __init__(
@@ -283,14 +320,24 @@ class BackfillCandidateQuery:
         query: RecordingsQuery,
         window_start: dt.datetime,
         window_end: dt.datetime,
+        # Tags this caller's reads in `system.query_log`; required so a new caller names itself.
+        query_type: str,
         sampling_rate: float,
         sampling_salt: str,
         sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
         cursor_end_time: dt.datetime | None = None,
         cursor_session_id: str | None = None,
         exclude_observed_by_scanner: str | None = None,
+        # Session ids to drop inside the query. Unlike `exclude_observed_by_scanner` this comes from
+        # the caller rather than from the `$recording_observed` event, so it can carry observations in
+        # any state and cannot be influenced by ingested events.
+        exclude_session_ids: list[str] | None = None,
+        # Only for callers that drop negative-filter matches from the rows they fetched. The quote
+        # path counts rather than dispatching, so it keeps the in-query blocklist and stays exact.
+        skip_negative_blocklists: bool = False,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
+        scanner_id: str | None = None,
     ) -> None:
         for name, value in (("window_start", window_start), ("window_end", window_end)):
             if not isinstance(value, dt.datetime):
@@ -305,11 +352,14 @@ class BackfillCandidateQuery:
         self._team = team
         self._window_start = window_start
         self._window_end = window_end
+        self._query_type = query_type
         self._cursor_end_time = cursor_end_time
         self._cursor_session_id = cursor_session_id
         self._exclude_observed_by_scanner = exclude_observed_by_scanner
+        self._exclude_session_ids = exclude_session_ids
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
+        self._scanner_id = scanner_id
 
         # The backfill owns the time window; the frozen scanner query only contributes filters.
         inner_query = query.model_copy(deep=True)
@@ -326,29 +376,41 @@ class BackfillCandidateQuery:
         if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
             extra_having.append(surfacing)
 
-        self._inner = SessionRecordingListFromQuery(team=team, query=inner_query, extra_having_predicates=extra_having)
+        self._inner = SessionRecordingListFromQuery(
+            team=team,
+            query=inner_query,
+            extra_having_predicates=extra_having,
+            session_ids_to_exclude=exclude_session_ids,
+            skip_negative_blocklists=skip_negative_blocklists,
+        )
 
-    @tracer.start_as_current_span("BackfillCandidateQuery.run")
+    def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
+        """Delegates, so the exclusion inherits the window and filters this query fetched with."""
+        return self._inner.excluded_sessions_queries(session_ids)
+
+    @tracer.start_as_current_span("WindowedCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
-        rows = _execute_candidate_query(
+        rows = execute_candidate_query(
             self.get_query(),
             team=self._team,
-            query_type="ReplayVisionBackfillCandidateQuery",
+            query_type=self._query_type,
             max_execution_time_seconds=self._max_execution_time_seconds,
+            scanner_id=self._scanner_id,
         )
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
-    @tracer.start_as_current_span("BackfillCandidateQuery.count")
-    def count(self) -> int:
+    @tracer.start_as_current_span("WindowedCandidateQuery.count")
+    def count(self, *, query_type: str) -> int:
         counted = ast.SelectQuery(
             select=[ast.Call(name="count", args=[])],
             select_from=ast.JoinExpr(table=self._windowed_candidates(), alias="candidates"),
         )
-        rows = _execute_candidate_query(
+        rows = execute_candidate_query(
             counted,
             team=self._team,
-            query_type="ReplayVisionBackfillCountQuery",
+            query_type=query_type,
             max_execution_time_seconds=self._max_execution_time_seconds,
+            scanner_id=self._scanner_id,
         )
         return int(rows[0][0]) if rows else 0
 

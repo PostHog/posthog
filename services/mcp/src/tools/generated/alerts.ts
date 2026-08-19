@@ -219,7 +219,9 @@ const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.
             path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/`,
             query: {
                 created_by: params.created_by,
+                has_detector: params.has_detector,
                 insight_id: params.insight_id,
+                insight_tag: params.insight_tag,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,

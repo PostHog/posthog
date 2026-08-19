@@ -135,12 +135,21 @@ narrow:
 ## Trust boundaries
 
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
-  able to rewrite the policy that gates it. Same for the `digest:` channel declaration.
+  able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
+  root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts
   it: its flags were set by someone who never proved GitHub access. Reinstall rebinds keep
   settings — those were configured under a verified binding.
 - Name-matched Slack digest channels provision **disabled** pending a human enable (a workspace
-  member can squat a channel named like a team slug). Only repo-declared channels auto-enable.
+  member can squat a channel named like a team slug). Channels named by a declaration — the repo's
+  `digest:` config, or a team's entry in the root `owners.yaml` registry — auto-enable, because
+  somebody typed that name on a protected branch. The derived `#<slug>` is not a declaration: the
+  registry step returns nothing when a team has no entry, so it falls through to the name match and
+  its disabled-pending-human rule rather than laundering a guess into a declaration. Only the
+  repo's own `digest:` channel skips the shared-channel exclusion; the registry can name a channel
+  for a team the declaring repo does not own, so that path keeps the leak guard.
+- A declared channel that does not resolve is a dead end, never a retry with the audience slug —
+  the slug is the wrong name the declaration exists to correct.
 - PR content — title, body, diff, comments, reactions — is untrusted input everywhere, including
   in reviewer prompts and error messages persisted to API-readable fields (`run.error` keeps only
   a truncated first line for exactly this reason).

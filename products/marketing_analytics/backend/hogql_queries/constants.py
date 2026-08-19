@@ -7,16 +7,10 @@ from pydantic import BaseModel
 
 from posthog.schema import (
     BingAdsDefaultSources,
-    BingAdsTableExclusions,
-    BingAdsTableKeywords,
     DefaultChannelTypes,
     GoogleAdsDefaultSources,
-    GoogleAdsTableExclusions,
-    GoogleAdsTableKeywords,
     InfinityValue,
     LinkedinAdsDefaultSources,
-    LinkedinAdsTableExclusions,
-    LinkedinAdsTableKeywords,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants,
@@ -34,24 +28,14 @@ from posthog.schema import (
     MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes,
     MetaAdsDefaultSources,
-    MetaAdsTableExclusions,
-    MetaAdsTableKeywords,
     NativeMarketingSource,
     NodeKind,
     PinterestAdsDefaultSources,
-    PinterestAdsTableExclusions,
-    PinterestAdsTableKeywords,
     RedditAdsDefaultSources,
-    RedditAdsTableExclusions,
-    RedditAdsTableKeywords,
     SnapchatAdsConversionFields,
     SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources,
-    SnapchatAdsTableExclusions,
-    SnapchatAdsTableKeywords,
     TikTokAdsDefaultSources,
-    TikTokAdsTableExclusions,
-    TikTokAdsTableKeywords,
     WebAnalyticsItemKind,
 )
 
@@ -539,28 +523,6 @@ _DEFAULT_SOURCES_ENUMS = {
     NativeMarketingSource.PINTEREST_ADS: PinterestAdsDefaultSources,
 }
 
-_TABLE_KEYWORDS_ENUMS = {
-    NativeMarketingSource.GOOGLE_ADS: GoogleAdsTableKeywords,
-    NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsTableKeywords,
-    NativeMarketingSource.META_ADS: MetaAdsTableKeywords,
-    NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableKeywords,
-    NativeMarketingSource.REDDIT_ADS: RedditAdsTableKeywords,
-    NativeMarketingSource.BING_ADS: BingAdsTableKeywords,
-    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableKeywords,
-    NativeMarketingSource.PINTEREST_ADS: PinterestAdsTableKeywords,
-}
-
-_TABLE_EXCLUSIONS_ENUMS = {
-    NativeMarketingSource.GOOGLE_ADS: GoogleAdsTableExclusions,
-    NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsTableExclusions,
-    NativeMarketingSource.META_ADS: MetaAdsTableExclusions,
-    NativeMarketingSource.TIK_TOK_ADS: TikTokAdsTableExclusions,
-    NativeMarketingSource.REDDIT_ADS: RedditAdsTableExclusions,
-    NativeMarketingSource.BING_ADS: BingAdsTableExclusions,
-    NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsTableExclusions,
-    NativeMarketingSource.PINTEREST_ADS: PinterestAdsTableExclusions,
-}
-
 # Derived constants from generated types
 NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
     source: [
@@ -572,9 +534,8 @@ NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
 
 TABLE_PATTERNS = {
     source: {
-        "campaign_table_keywords": _get_enum_values(_TABLE_KEYWORDS_ENUMS[source]),
-        "campaign_table_exclusions": _get_enum_values(_TABLE_EXCLUSIONS_ENUMS[source]),
         "stats_table_keywords": [_get_field_default(config, "statsTableName")],
+        "campaign_table_name": _get_field_default(config, "campaignTableName"),
     }
     for source, config in _CONFIG_MODELS.items()
 }

@@ -93,10 +93,11 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export ADDRESS=0.0.0.0:3309 # avoid port conflict in local dev (3308 is used by llm-gateway)
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
-    export KAFKA_TOPIC=ai_events_ingestion
+    export KAFKA_TOPIC=events_plugin_ingestion_ai
     export REDIS_URL="$DEFAULT_REDIS"
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
-    export CAPTURE_MODE=events
+    # `ai` mode produces to the AI lane as its main topic, matching prod capture-ai
+    export CAPTURE_MODE=ai
     export LOG_LEVEL=debug
     export DEBUG=1
     export DEV_RUST_SVC_OVERRIDE=capture # we want to run the same "capture" binary in a separate mode
@@ -195,18 +196,6 @@ case "$RS_SVC" in
     export FRAME_CACHE_TTL_SECONDS=1
     export BIND_PORT=3305 # HACK! avoid local-dev clash with property-defs-rs port
     export ALLOW_INTERNAL_IPS="true"
-    ;;
-
-  cyclotron-janitor)
-    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
-    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
-    export RUST_BACKTRACE=1
-    export KAFKA_HOSTS="$DEFAULT_KAFKA"
-    export KAFKA_TOPIC=clickhouse_app_metrics2
-    export DATABASE_URL="${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}"
-    export BIND_PORT=3310 # default 3303 collides with property-vals-rs in local dev
-    export DEBUG=1
-    export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;
 
   feature-flags)

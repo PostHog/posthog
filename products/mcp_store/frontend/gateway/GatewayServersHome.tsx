@@ -22,14 +22,9 @@ import { urls } from 'scenes/urls'
 import { InstallCustomAuthTypeEnumApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
 import { GatewayAddServerModal } from './GatewayAddServerModal'
+import { GatewayServersSearch } from './GatewayServersSearch'
 import { toProfileUser } from './gatewayUtils'
-import {
-    CONNECTED_SERVERS_FILTER,
-    GATEWAY_CATEGORY_LABELS,
-    GatewayServerEntry,
-    isTemplateOnlyServer,
-    mcpGatewayLogic,
-} from './mcpGatewayLogic'
+import { GATEWAY_CATEGORY_LABELS, GatewayServerEntry, isTemplateOnlyServer, mcpGatewayLogic } from './mcpGatewayLogic'
 
 const AUTH_TYPE_OPTIONS = [
     { value: 'oauth' as const, label: 'OAuth' },
@@ -61,7 +56,6 @@ export function GatewayServersHome({ onOpenServer }: { onOpenServer?: (serverId:
         searchQuery,
         categoryFilter,
         categoryCounts,
-        connectedServerCount,
         isAdmin,
         mergedServers,
     } = useValues(mcpGatewayLogic)
@@ -91,17 +85,6 @@ export function GatewayServersHome({ onOpenServer }: { onOpenServer?: (serverId:
                 </LemonButton>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-                <LemonInput
-                    type="search"
-                    placeholder="Search MCP servers…"
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    className="w-full"
-                    aria-label="Search MCP servers"
-                />
-            </div>
-
             <div className="flex items-center justify-between gap-2 text-sm text-secondary">
                 <span>
                     {filteredServers.length} {filteredServers.length === 1 ? 'server' : 'servers'}
@@ -120,6 +103,8 @@ export function GatewayServersHome({ onOpenServer }: { onOpenServer?: (serverId:
                 )}
             </div>
 
+            <GatewayServersSearch />
+
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonButton
                     size="small"
@@ -128,14 +113,6 @@ export function GatewayServersHome({ onOpenServer }: { onOpenServer?: (serverId:
                     onClick={() => setCategoryFilter(null)}
                 >
                     All <LemonSnack className="ml-1">{mergedServers.length}</LemonSnack>
-                </LemonButton>
-                <LemonButton
-                    size="small"
-                    type={categoryFilter === CONNECTED_SERVERS_FILTER ? 'primary' : 'tertiary'}
-                    aria-pressed={categoryFilter === CONNECTED_SERVERS_FILTER}
-                    onClick={() => setCategoryFilter(CONNECTED_SERVERS_FILTER)}
-                >
-                    Connected <LemonSnack className="ml-1">{connectedServerCount}</LemonSnack>
                 </LemonButton>
                 {categories.map((category) => (
                     <LemonButton
@@ -237,7 +214,6 @@ export function GatewayServerCard({
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                     <span className="font-semibold">{server.name}</span>
-                    {recommended && <LemonTag type="highlight">Recommended</LemonTag>}
                     {connected && <LemonTag type="success">Connected</LemonTag>}
                     {connection?.pending_oauth && <LemonTag type="warning">Finishing setup</LemonTag>}
                     {connection?.needs_reauth && <LemonTag type="danger">Needs reauth</LemonTag>}
@@ -460,7 +436,8 @@ function PeopleRow({ server }: { server: GatewayServerEntry }): JSX.Element {
         return <div className="text-xs text-secondary mt-1">Disabled. Enable it in Team settings.</div>
     }
     const connections = server.connections ?? []
-    const agentCount = (server.agents ?? []).length
+    // `agents` holds one row per member grant, so an agent repeats once per member sharing it.
+    const agentCount = new Set((server.agents ?? []).map((agent) => agent.service_account_id)).size
     return (
         <div className="flex items-center gap-2 text-xs text-secondary mt-1">
             <div className="flex -space-x-1">

@@ -41,6 +41,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     FilterLogicalOperator,
+    GroupMathType,
     GroupNode,
     HogQLQueryModifiers,
     InCohortVia,
@@ -97,7 +98,7 @@ class GroupTestProperties:
 
 
 @dataclass
-class SeriesTestData:
+class SeriesFixture:
     distinct_id: str
     events: list[Series]
     properties: dict[str, str | int]
@@ -111,7 +112,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     default_date_from = "2020-01-09"
     default_date_to = "2020-01-19"
 
-    def _create_events(self, data: list[SeriesTestData]):
+    def _create_events(self, data: list[SeriesFixture]):
         person_result = []
         properties_to_create: dict[str, str] = {}
         for person in data:
@@ -156,7 +157,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_test_events(self):
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -181,7 +182,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$browser": "Chrome", "prop": 10, "bool_field": True},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -197,7 +198,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$browser": "Firefox", "prop": 20, "bool_field": False},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
@@ -205,7 +206,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$browser": "Edge", "prop": 30, "bool_field": True},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p4",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
@@ -278,7 +279,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_test_events_for_groups(self):
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -306,7 +307,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         group0_properties={"industry": "finance"},
                     ),
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -325,7 +326,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         group0_properties={"industry": "technology"},
                     ),
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
@@ -343,7 +344,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         group1_properties={"industry": "service", "employee_count": "50-249"},
                     ),
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p4",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
@@ -526,7 +527,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_quarter_and_year_intervals(self, _name, interval, date_to, expected_days, expected_data):
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -564,7 +565,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # 2020-01-06 is a Monday
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -590,7 +591,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_days_of_week_restricts_events_within_longer_buckets(self):
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -618,7 +619,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         # 06:00 UTC Sunday = 22:00 Saturday in US/Pacific
@@ -638,7 +639,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # p1 fires on Mon Jan 13 and Tue Jan 14 — only the Monday event counts with daysOfWeek=[1]
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -782,6 +783,21 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = TrendsQueryRunner(team=self.team, query=query).calculate()
 
         self.assertEqual("2020-01-14", response.results[0]["days"][-1])
+
+    def test_exclude_incomplete_periods_drops_leading_partial_bucket(self):
+        self._create_test_events()
+
+        # 2020-01-19 is a Sunday (default week start), so -13d starts mid-week on Jan 6: the
+        # partial Jan 6-11 bucket is dropped alongside the current week, leaving Jan 12-18 only
+        with freeze_time("2020-01-19T12:00:00Z"):
+            query = TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange=DateRange(date_from="-13d", excludeIncompletePeriods=True),
+                interval=IntervalType.WEEK,
+            )
+            response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual(["2020-01-12"], response.results[0]["days"])
 
     def test_trends_days(self):
         self._create_test_events()
@@ -2405,17 +2421,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         """
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
                     properties={"breakdown_prop": 1, "agg_prop": 100},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
                     properties={"breakdown_prop": 2, "agg_prop": 200},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
                     properties={"breakdown_prop": 3, "agg_prop": 150},
@@ -2485,7 +2501,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_histogram_breakdown_on_string_typed_property(self, _name, values, expected_buckets):
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id=f"p{i}",
                     events=[Series(event="$pageview", timestamps=[f"2020-01-1{1 + i}T12:00:00Z"])],
                     properties={"str_amount": value} if value is not None else {},
@@ -2515,12 +2531,12 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # that path so the toFloatOrNull symmetry stays pinned end to end.
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
                     properties={"str_amount": "10"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
                     properties={"str_amount": "40"},
@@ -4287,7 +4303,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_event_multiple_breakdowns_normalizes_url(self):
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -4312,7 +4328,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$url": "https://posthog.com/?"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -4328,7 +4344,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$url": "https://posthog.com"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
@@ -4336,7 +4352,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$url": "https://posthog.com/foo/bar/#"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p4",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
@@ -4396,22 +4412,22 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
                     properties={"$pathname": "/product/123"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
                     properties={"$pathname": "/product/456"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[Series(event="$pageview", timestamps=["2020-01-13T12:00:00Z"])],
                     properties={"$pathname": "/user/789"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p4",
                     events=[Series(event="$pageview", timestamps=["2020-01-14T12:00:00Z"])],
                     properties={"$pathname": "/user/999"},
@@ -4442,22 +4458,22 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
                     properties={"$pathname": "/product/123"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
                     properties={"$pathname": "/product/456"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[Series(event="$pageview", timestamps=["2020-01-13T12:00:00Z"])],
                     properties={"$pathname": "/user/789"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p4",
                     events=[Series(event="$pageview", timestamps=["2020-01-14T12:00:00Z"])],
                     properties={"$pathname": "/user/999"},
@@ -4488,12 +4504,12 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
                     properties={"$pathname": "/thing_a"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
                     properties={"$pathname": "/other"},
@@ -4523,17 +4539,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
                     properties={"$current_url": "https://example.com/product/123?utm_source=test"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
                     properties={"$current_url": "https://example.com/product/456?utm_campaign=test#anchor"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[Series(event="$pageview", timestamps=["2020-01-13T12:00:00Z"])],
                     properties={"$current_url": "https://example.com/other?foo=bar"},
@@ -4575,12 +4591,12 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
                     properties={"$pathname": "/product/123"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
                     properties={"$pathname": "/product/456"},
@@ -4610,17 +4626,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
                     properties={"$pathname": "/product/123"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
                     properties={"$pathname": ""},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[Series(event="$pageview", timestamps=["2020-01-13T12:00:00Z"])],
                     properties={},
@@ -4651,17 +4667,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
                     properties={"$pathname": "/product/123", "$browser": "Chrome"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
                     properties={"$pathname": "/product/456", "$browser": "Firefox"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[Series(event="$pageview", timestamps=["2020-01-13T12:00:00Z"])],
                     properties={"$pathname": "/other", "$browser": "Chrome"},
@@ -4700,12 +4716,12 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
                     properties={"$pathname": "/product/123", "$browser": "Chrome"},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
                     properties={"$pathname": "/product/456", "$browser": "Firefox"},
@@ -4739,7 +4755,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_event_multiple_numeric_breakdowns(self):
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -4764,7 +4780,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 4},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -4780,7 +4796,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 8},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
@@ -4788,7 +4804,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 16},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p4",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
@@ -4796,7 +4812,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 32},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p5",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
@@ -4804,7 +4820,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 64},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p6",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
@@ -4838,7 +4854,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_event_multiple_numeric_breakdowns_into_bins(self):
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -4863,7 +4879,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 4},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -4879,7 +4895,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 8},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
@@ -4887,7 +4903,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 16},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p4",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
@@ -4895,7 +4911,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 32},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p5",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
@@ -4903,7 +4919,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 64},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p6",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
@@ -4912,7 +4928,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 128},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p7",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
@@ -4977,7 +4993,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_event_histogram_breakdowns_return_equal_result(self):
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -5002,7 +5018,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 4},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -5018,7 +5034,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 8},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
@@ -5026,7 +5042,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 16},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p4",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
@@ -5083,7 +5099,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_event_breakdowns_handle_null(self):
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(
@@ -5108,7 +5124,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     properties={"$bin": 4},
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p2",
                     events=[
                         Series(
@@ -5586,7 +5602,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_test_events()
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p99",
                     events=[
                         Series(
@@ -5788,6 +5804,127 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0]["count"] == 0
         assert response.results[0]["data"] == [0, 0, 0, 0, 0]
+
+    @parameterized.expand(
+        [
+            # Full range: each group counted on the day of its first-ever pageview
+            ("2020-01-09", 4, [1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0]),
+            # Narrowed start drops groups whose first-ever pageview predates the range
+            ("2020-01-12", 2, [1, 0, 0, 1, 0, 0, 0, 0, 0]),
+        ]
+    )
+    def test_trends_math_first_time_for_group(self, date_from, expected_count, expected_data):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+        self._create_test_events_for_groups()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            date_from,
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=GroupMathType.FIRST_TIME_FOR_GROUP,
+                    math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == expected_count
+        assert response.results[0]["data"] == expected_data
+
+    def test_trends_math_first_matching_event_for_group_applies_filter(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+        self._create_test_events_for_groups()
+        flush_persons_and_events()
+
+        # Only the group on Chrome (org:5) matches; it is counted on its first matching pageview (2020-01-11)
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=GroupMathType.FIRST_MATCHING_EVENT_FOR_GROUP,
+                    math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                    properties=[EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+    def test_trends_math_first_time_for_group_ignores_events_without_a_group(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        self._create_test_events_for_groups()
+        # An event with no group key must not count as a group of its own, on any day
+        _create_person(team_id=self.team.pk, distinct_ids=["no_group"])
+        for timestamp in ["2020-01-10T12:00:00Z", "2020-01-14T12:00:00Z"]:
+            _create_event(team=self.team, event="$pageview", distinct_id="no_group", timestamp=timestamp)
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=GroupMathType.FIRST_TIME_FOR_GROUP,
+                    math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert response.results[0]["count"] == 4
+        assert response.results[0]["data"] == [1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0]
+
+    def test_trends_math_first_time_for_group_actors_are_groups(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        self._create_test_events_for_groups()
+        flush_persons_and_events()
+
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=GroupMathType.FIRST_TIME_FOR_GROUP,
+                    math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        # org:5's first-ever pageview is on 2020-01-11, so it is the only actor behind that day's count
+        actors_query = query_runner.to_actors_query(time_frame="2020-01-11", series_index=0)
+        result = execute_hogql_query(query=actors_query, team=self.team)
+
+        assert [str(row[0]) for row in result.results] == ["org:5"]
 
     def test_trends_math_first_time_for_user_breakdowns_basic(self):
         self._create_test_events()
@@ -6522,7 +6659,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_trends_aggregation_total_with_null(self):
         self._create_events(
             [
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p1",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-08T12:00:00Z"]),
@@ -6534,7 +6671,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "nullable_prop": "1.1",
                     },
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p7",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
@@ -6546,7 +6683,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "nullable_prop": "1.1",
                     },
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p3",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"]),
@@ -6558,7 +6695,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "nullable_prop": "garbage",
                     },
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p4",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"]),
@@ -6570,7 +6707,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "nullable_prop": "garbage",
                     },
                 ),
-                SeriesTestData(
+                SeriesFixture(
                     distinct_id="p5",
                     events=[
                         Series(event="$pageview", timestamps=["2020-01-09T12:00:00Z"]),

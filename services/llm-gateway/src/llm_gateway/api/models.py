@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Literal
 
 import structlog
@@ -6,13 +7,13 @@ from pydantic import BaseModel
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError, get_auth_service
-from llm_gateway.config import get_settings
 from llm_gateway.products.config import (
     FREE_TIER_RESTRICTION_REASON,
     CreditBucket,
     filter_to_free_tier_models,
     validate_product,
 )
+from llm_gateway.rate_limiting.model_cost_service import ModelCostService
 from llm_gateway.rate_limiting.throttles import is_usage_unlimited
 from llm_gateway.services.model_registry import get_available_models
 from llm_gateway.services.quota_resolver import resolve_quota_status
@@ -29,6 +30,13 @@ class TruncationPolicyConfig(BaseModel):
     # Default: bytes(10_000), matches codex fallback. Override with tool_output_token_limit.
     mode: Literal["bytes", "tokens"] = "bytes"
     limit: int = 10_000
+
+
+class ModelPricing(BaseModel):
+    prompt: str
+    completion: str
+    input_cache_read: str | None = None
+    input_cache_write: str | None = None
 
 
 class ModelObject(BaseModel):
@@ -53,6 +61,7 @@ class ModelObject(BaseModel):
     truncation_policy: TruncationPolicyConfig = TruncationPolicyConfig()
     supports_parallel_tool_calls: bool = True
     experimental_supported_tools: list[str] = []
+    pricing: ModelPricing | None = None
     # Free-tier gate (posthog_code): restricted models are marked, not omitted.
     allowed: bool = True
     restriction_reason: str | None = None
@@ -62,6 +71,31 @@ class ModelsResponse(BaseModel):
     object: Literal["list"] = "list"
     data: list[ModelObject]
     models: list[ModelObject] = []  # Alias for `data` — codex-acp expects this field
+
+
+def _format_rate(rate: float) -> str:
+    return format(Decimal(str(rate)), "f")
+
+
+def _get_model_pricing(cost_model_id: str) -> ModelPricing | None:
+    costs = ModelCostService.get_instance().get_costs(cost_model_id)
+    if costs is None:
+        return None
+
+    input_cost = costs.get("input_cost_per_token")
+    output_cost = costs.get("output_cost_per_token")
+    if input_cost is None or output_cost is None:
+        return None
+
+    supports_prompt_caching = bool(costs.get("supports_prompt_caching", False))
+    cache_read_cost = costs.get("cache_read_input_token_cost", input_cost) if supports_prompt_caching else None
+    cache_write_cost = costs.get("cache_creation_input_token_cost", input_cost) if supports_prompt_caching else None
+    return ModelPricing(
+        prompt=_format_rate(input_cost),
+        completion=_format_rate(output_cost),
+        input_cache_read=_format_rate(cache_read_cost) if cache_read_cost is not None else None,
+        input_cache_write=_format_rate(cache_write_cost) if cache_write_cost is not None else None,
+    )
 
 
 def _build_response(product: str) -> ModelsResponse:
@@ -75,6 +109,7 @@ def _build_response(product: str) -> ModelsResponse:
             context_window=m.context_window,
             supports_streaming=m.supports_streaming,
             supports_vision=m.supports_vision,
+            pricing=_get_model_pricing(m.cost_model_id),
         )
         for m in models
     ]
@@ -131,7 +166,7 @@ async def list_models_for_product(product: str, request: Request) -> ModelsRespo
 
     user = await _authenticated_caller(request)
 
-    if resolved != "posthog_code" or not get_settings().posthog_code_model_gate_enabled:
+    if resolved != "posthog_code":
         return response
     if not await _caller_confirmed_free_tier(request, user):
         return response

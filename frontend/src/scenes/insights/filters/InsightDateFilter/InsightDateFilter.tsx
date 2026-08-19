@@ -28,7 +28,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     const { dateRange, interval, querySource, trendsFilter, isTrends } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { insightData } = useValues(insightVizDataLogic(insightProps))
-    const { reportInsightDatePickerOpened } = useActions(eventUsageLogic)
+    const { reportInsightDatePickerOpened, reportInsightDateExclusionsChanged } = useActions(eventUsageLogic)
 
     // The picker speaks excluded days; the query schema stores included days
     const excludedDaysOfWeek = getExcludedDaysOfWeek(dateRange)
@@ -54,11 +54,19 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     }
     const handleExclusionsChange = (next: DateFilterExclusions): void => {
         const nextExcludedDaysOfWeek = parseIsoDaysOfWeek(next.days)
-        if (showDaysOfWeekExclusions && !daysOfWeekSetsEqual(nextExcludedDaysOfWeek, excludedDaysOfWeek)) {
-            updateQuerySource(computeDaysOfWeekUpdate(nextExcludedDaysOfWeek, dateRange))
+        const daysChanged = showDaysOfWeekExclusions && !daysOfWeekSetsEqual(nextExcludedDaysOfWeek, excludedDaysOfWeek)
+        const incompleteChanged = next.incomplete !== exclusions.incomplete
+        const daysUpdate = daysChanged ? computeDaysOfWeekUpdate(nextExcludedDaysOfWeek, dateRange) : null
+        if (daysUpdate) {
+            updateQuerySource(daysUpdate)
         }
-        if (next.incomplete !== exclusions.incomplete) {
+        if (incompleteChanged) {
             updateDateRange({ excludeIncompletePeriods: next.incomplete ? true : null }, true)
+        }
+        if (daysChanged || incompleteChanged) {
+            // Report what got persisted, not what was picked: a full-week selection normalizes back to "exclude nothing"
+            const persistedExcludedDays = daysUpdate ? getExcludedDaysOfWeek(daysUpdate.dateRange) : excludedDaysOfWeek
+            reportInsightDateExclusionsChanged(querySource?.kind, next.incomplete, persistedExcludedDays.length)
         }
     }
 

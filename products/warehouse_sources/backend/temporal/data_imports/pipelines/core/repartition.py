@@ -101,12 +101,25 @@ class RepartitionBudgetExceededError(Exception):
     half-built temp table: the next attempt resumes appending from that offset rather than
     re-streaming from row 0, letting a table too large to rewrite in one activity converge across
     attempts instead of failing the same way every time.
+
+    `resumed_from` is how many rows this attempt inherited: 0 when it started fresh, either because it
+    is the first attempt or because the resume path rejected the prior checkpoint. The caller needs it
+    to tell convergence from a treadmill. `rows_written` alone cannot: a rewrite that restarts every
+    run writes hundreds of millions of rows each time and still ends where it began.
     """
 
-    def __init__(self, message: str, *, rows_written: int = 0, resolved: RepartitionTarget | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        rows_written: int = 0,
+        resolved: RepartitionTarget | None = None,
+        resumed_from: int = 0,
+    ) -> None:
         super().__init__(message)
         self.rows_written = rows_written
         self.resolved = resolved
+        self.resumed_from = resumed_from
 
 
 class RepartitionSupersededError(Exception):
@@ -773,6 +786,7 @@ async def _rewrite_into_temp(
                 f"rewrite exceeded its activity budget after {rows_written} rows written to {temp_uri}",
                 rows_written=rows_written,
                 resolved=resolved,
+                resumed_from=skip_rows,
             )
 
         # Resume: temp already holds the first `skip_rows` rows in scan order, so read past them and
@@ -807,13 +821,13 @@ async def _rewrite_into_temp(
         if result is None:
             raise RepartitionUnpartitionableError(f"No supported partition mode for keys={target.partition_keys}")
 
-        partitioned_table, used_mode, used_format, used_keys = result
+        partitioned_table = result.table
         if resolved is None:
             resolved = dataclasses.replace(
                 target,
-                partition_mode=used_mode,
-                partition_format=used_format,
-                partition_keys=used_keys,
+                partition_mode=result.partition_mode,
+                partition_format=result.partition_format,
+                partition_keys=result.partition_keys,
             )
 
         # Align each batch against the live table's own declared schema before writing. Without

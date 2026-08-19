@@ -46,12 +46,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
-from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
+from posthog.clickhouse.client.execute_async import QueryNotFoundError, cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -70,6 +71,9 @@ from posthog.rate_limit import (
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
 
+from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
+from products.warehouse_sources.backend.facade.models import is_managed_warehouse_connection_ready
+
 from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
@@ -80,6 +84,10 @@ tracer = trace.get_tracer(__name__)
 # exception embeds an internal Redis key + task id, so we log that for debugging and surface this
 # friendly message instead of leaking implementation details into the UI.
 CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
+MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE = (
+    "This managed warehouse connection is no longer available. Select a source and run the query again."
+)
+MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE = "managed_warehouse_connection_unavailable"
 
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
@@ -176,6 +184,10 @@ def _required_scopes_for_query_payload(query: object) -> list[str] | None:
     current_query = query
     while isinstance(current_query, dict):
         kind = current_query.get("kind")
+        # The experiment_exposure recordings filter reads experiment data, so it needs
+        # experiment:read on top of query:read — keyed on query content, not kind alone.
+        if kind == "RecordingsQuery" and current_query.get("experiment_exposure"):
+            return ["query:read", "experiment:read"]
         if isinstance(kind, str) and kind in _QUERY_KIND_SCOPES:
             return _QUERY_KIND_SCOPES[kind]
         current_query = current_query.get("source")
@@ -358,6 +370,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             raise
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
+        except QuotaLimitExceeded:
+            # Expected while an org is over quota - a 402 the caller can act on, not error noise.
+            raise
         except Exception as e:
             # Breaker replays were already captured when the original failure happened.
             if not getattr(e, "served_from_query_failure_cache", False):
@@ -376,6 +391,27 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
+        managed_connection_id = next(
+            (
+                label.removeprefix(managed_warehouse_feature_flags.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
+                for label in query_status.labels or []
+                if label.startswith(managed_warehouse_feature_flags.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
+            ),
+            None,
+        )
+        if managed_connection_id is not None and not is_managed_warehouse_connection_ready(
+            self.team.pk, managed_connection_id
+        ):
+            logger.info(
+                "Managed warehouse query result is unavailable",
+                team_id=self.team.pk,
+                query_id=pk,
+                connection_id=managed_connection_id,
+            )
+            raise QueryNotFoundError(
+                detail=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
+                code=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
+            )
         query_status_response = QueryStatusResponse(query_status=query_status)
 
         http_code: int = status.HTTP_202_ACCEPTED
@@ -462,6 +498,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             return Response(result.model_dump(), status=200)
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
+        except QuotaLimitExceeded:
+            # Expected while an org is over quota - a 402 the caller can act on, not error noise.
+            raise
         except Exception as e:
             # Breaker replays were already captured when the original failure happened.
             if not getattr(e, "served_from_query_failure_cache", False):

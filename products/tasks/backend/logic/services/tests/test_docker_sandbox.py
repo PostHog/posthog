@@ -96,3 +96,23 @@ def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
 
     # A genuine non-zero launch is a real fault — it still gets captured.
     capture_exception.assert_called_once()
+
+
+@parameterized.expand([("empty", b""), ("with_content", b"GITHUB_TOKEN=ghs_x\x00")])
+def test_write_file_creates_the_temp_file_before_moving_it(_name: str, payload: bytes):
+    # Blanking a credential file writes an empty payload. Chunking over an empty string produces
+    # no writes at all, so the mv would rename a temp path that was never created.
+    config = SandboxConfig(name="test-sandbox")
+    sandbox = DockerSandbox(container_id="c" * 64, config=config, host_port=8000)
+    commands: list[str] = []
+
+    def _record(command: str, **kwargs) -> ExecutionResult:
+        commands.append(command)
+        return ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    with patch.object(sandbox, "is_running", return_value=True), patch.object(sandbox, "execute", side_effect=_record):
+        result = sandbox.write_file("/tmp/creds.env", payload)
+
+    assert result.exit_code == 0
+    assert any("EOF_SANDBOX_WRITE" in command for command in commands), "temp file was never written"
+    assert commands[-1].startswith("mv ")

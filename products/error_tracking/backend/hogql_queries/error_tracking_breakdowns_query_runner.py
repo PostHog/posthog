@@ -54,12 +54,32 @@ class ErrorTrackingBreakdownsQueryRunner(
     def to_query(self) -> ast.SelectQuery:
         array_elements: list[ast.Expr] = []
         for prop in self.query.breakdownProperties:
+            property_value: ast.Expr = ast.Field(chain=["properties", prop])
+            if "%" in prop:
+                raw_property_value = ast.Call(
+                    name="JSONExtractRaw",
+                    args=[ast.Field(chain=["properties"]), ast.Constant(value=prop)],
+                )
+                property_value = ast.Call(
+                    name="replaceRegexpAll",
+                    args=[
+                        ast.Call(
+                            name="nullIf",
+                            args=[
+                                ast.Call(name="nullIf", args=[raw_property_value, ast.Constant(value="")]),
+                                ast.Constant(value="null"),
+                            ],
+                        ),
+                        ast.Constant(value='^"|"$'),
+                        ast.Constant(value=""),
+                    ],
+                )
             tuple_elements = [
                 ast.Constant(value=prop),
                 ast.Call(
                     name="ifNull",
                     args=[
-                        ast.Call(name="toString", args=[ast.Field(chain=["properties", prop])]),
+                        ast.Call(name="toString", args=[property_value]),
                         ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                     ],
                 ),
@@ -193,6 +213,9 @@ class ErrorTrackingBreakdownsQueryRunner(
         if self.query.filterTestAccounts:
             for prop in self.team.test_account_filters or []:
                 conditions.append(property_to_expr(prop, self.team))
+
+        if self.query.filterGroup:
+            conditions.append(property_to_expr(self.query.filterGroup, self.team))
 
         return ast.And(exprs=conditions)
 

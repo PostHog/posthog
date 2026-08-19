@@ -6,7 +6,6 @@ describe('summarizeRecording', () => {
     // success toast tells the user a summary is coming when the quota or the in-flight cap refused it.
     it.each<[ScanOutcomeEnumApi | undefined, SummarizeOutcomeMessage['level']]>([
         ['started', 'success'],
-        ['already_scanned', 'info'],
         ['already_running', 'info'],
         ['skipped_quota', 'warning'],
         ['skipped_limit', 'warning'],

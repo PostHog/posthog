@@ -443,9 +443,9 @@ describe('updateFeatureFlagArchived', () => {
         })
 
         logic.actions.toggleFeatureFlagActive(1, false)
-        expect(openDialog.mock.calls[0][0].primaryButton?.children).toBe('Disable and archive')
+        expect(openDialog.mock.calls[0][0].secondaryButton?.children).toBe('Disable and archive')
 
-        openDialog.mock.calls[0][0].primaryButton?.onClick?.(undefined as any)
+        openDialog.mock.calls[0][0].secondaryButton?.onClick?.(undefined as any)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(capturesOf('feature flag archived')).toEqual([

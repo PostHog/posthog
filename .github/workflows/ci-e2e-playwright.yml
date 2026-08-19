@@ -644,7 +644,10 @@ jobs:
               # changed (requirements.txt has the already-published version)
               run: |
                   sudo apt-get install unzip cmake curl uuid pkg-config
-                  curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  # Short budget: the `||` mirror is the real fallback for a host that is down.
+                  fetch=(curl --fail --location --retry 3 --retry-all-errors --retry-max-time 30 --connect-timeout 10)
+                  "${fetch[@]}" https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip \
+                      || "${fetch[@]}" https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
                   antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
@@ -863,9 +866,9 @@ jobs:
                   # ingestion-error-tracking: error tracking ingestion (ingestion-errortracking mode)
                   # ingestion-logs: logs ingestion (ingestion-logs mode)
                   # ingestion-traces: traces ingestion (ingestion-traces mode)
-                  # capture-ai: AI event capture (/i/v0/ai/batch/, CAPTURE_MODE=events)
-                  # ingestion-ai: AI event ingestion incl. multimodal blob offload (INGESTION_PIPELINE=ai)
-                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai ingestion-ai
+                  # capture-ai: AI event capture (/i/v0/ai/batch/, CAPTURE_MODE=ai); ingestion-general's
+                  # combined-mode AI consumer ingests the lane incl. multimodal blob offload
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -883,7 +886,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
-              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai ingestion-ai
+              run: bin/ci-wait-for-docker wait plugins ingestion-general ingestion-sessionreplay recording-api ingestion-error-tracking ingestion-logs ingestion-traces capture-ai
 
             - name: Clean snapshot directory
               run: find playwright/__snapshots__ -name '*.png' -delete 2>/dev/null || true
@@ -1005,7 +1008,6 @@ jobs:
                   docker logs posthog-ingestion-logs-1 > playwright/test-results/docker-ingestion-logs.log 2>&1 || echo "No ingestion-logs container" > playwright/test-results/docker-ingestion-logs.log
                   docker logs posthog-ingestion-traces-1 > playwright/test-results/docker-ingestion-traces.log 2>&1 || echo "No ingestion-traces container" > playwright/test-results/docker-ingestion-traces.log
                   docker logs posthog-capture-ai-1 > playwright/test-results/docker-capture-ai.log 2>&1 || echo "No capture-ai container" > playwright/test-results/docker-capture-ai.log
-                  docker logs posthog-ingestion-ai-1 > playwright/test-results/docker-ingestion-ai.log 2>&1 || echo "No ingestion-ai container" > playwright/test-results/docker-ingestion-ai.log
 
             - name: Archive test artifacts
               if: always()
@@ -1039,6 +1041,9 @@ jobs:
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
             # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
+            # Inlined rather than ./.github/actions/trunk-quarantine-gate, and so without its retry:
+            # this job checks out the PR head ref, which cannot resolve a local action that only
+            # exists on master until the branch rebases.
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
@@ -1067,6 +1072,14 @@ jobs:
                   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: |
                   BRANCH="${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'master' }}"
+                  # Cloudflare Pages rejects any single file over 25 MiB, which fails the whole
+                  # deploy and leaves triagers with no report on a red run. Trace zips and videos
+                  # can cross that, so drop them from the copy we publish; the full attachments
+                  # stay in the uploaded playwright-test-results artifact. Prune at 24 MiB for margin.
+                  # Guarded and non-fatal so a missing/partial report dir still reaches the deploy.
+                  if [ -d playwright/playwright-report ]; then
+                      find playwright/playwright-report -type f -size +24M -printf 'Pruning oversized report file (%s bytes): %p\n' -delete || true
+                  fi
                   npx --yes wrangler@3 pages deploy playwright/playwright-report \
                     --project-name=playwright-report \
                     --branch="$BRANCH" \

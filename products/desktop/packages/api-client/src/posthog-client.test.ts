@@ -1,8 +1,67 @@
+import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "./fetcher";
-import { CloudCommandError, PostHogAPIClient } from "./posthog-client";
+import {
+  CloudCommandError,
+  CloudUsageLimitError,
+  DESKTOP_BILLING_LIMIT_ERROR_CODE,
+  PostHogAPIClient,
+  SESSION_LOGS_PAGE_TIMEOUT_MS,
+} from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it("fetches later task pages before reporting complete results", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    const getTasksPage = vi
+      .spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 2 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 2 });
+
+    await expect(
+      client.getTasksWithStatus(
+        { repository: "posthog/posthog" },
+        { maxPages: 2 },
+      ),
+    ).resolves.toMatchObject({
+      isComplete: true,
+      tasks: [{ id: "task-1" }, { id: "task-2" }],
+    });
+    expect(getTasksPage).toHaveBeenNthCalledWith(1, {
+      limit: 100,
+      offset: 0,
+      repository: "posthog/posthog",
+    });
+    expect(getTasksPage).toHaveBeenNthCalledWith(2, {
+      limit: 100,
+      offset: 1,
+      repository: "posthog/posthog",
+    });
+  });
+
+  it("reports partial task results after reaching the page cap", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    vi.spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 3 });
+
+    await expect(
+      client.getTasksWithStatus(undefined, { maxPages: 2 }),
+    ).resolves.toMatchObject({
+      isComplete: false,
+      tasks: [{ id: "task-1" }, { id: "task-2" }],
+    });
+  });
+
   it.each([
     "user_message",
     "permission_response",
@@ -1246,6 +1305,34 @@ describe("PostHogAPIClient", () => {
         }),
       ).rejects.toThrow("Bad Request");
     });
+
+    it("maps the Desktop billing denial to a cloud usage limit", async () => {
+      const body = {
+        type: "rate_limit",
+        code: DESKTOP_BILLING_LIMIT_ERROR_CODE,
+        detail: "Your organization reached its PostHog Desktop usage limit.",
+      };
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new ApiRequestError(429, JSON.stringify(body), body),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.warmTask({ repository: null, github_integration: null }),
+      ).rejects.toBeInstanceOf(CloudUsageLimitError);
+    });
+
+    it("does not map unrelated 429 responses to billing", async () => {
+      const body = { code: "another_rate_limit" };
+      const error = new ApiRequestError(429, JSON.stringify(body), body);
+      const client = makeClient(vi.fn().mockRejectedValue(error));
+
+      await expect(
+        client.warmTask({ repository: null, github_integration: null }),
+      ).rejects.toBe(error);
+    });
   });
 
   describe("getSignalReport", () => {
@@ -1997,11 +2084,19 @@ describe("PostHogAPIClient", () => {
       }));
     }
 
-    function page(entries: unknown[], hasMore: boolean) {
+    function page(
+      entries: unknown[],
+      hasMore: boolean,
+      matchingCount?: number,
+    ) {
+      const headers = new Headers({ "X-Has-More": String(hasMore) });
+      if (matchingCount !== undefined) {
+        headers.set("X-Matching-Count", String(matchingCount));
+      }
       return {
         ok: true,
         json: async () => entries,
-        headers: new Headers({ "X-Has-More": String(hasMore) }),
+        headers,
       };
     }
 
@@ -2108,6 +2203,185 @@ describe("PostHogAPIClient", () => {
       });
     });
 
+    it("fetches the newest entries when the log exceeds the requested cap", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(page(makeEntries(5000, "head"), true, 9000))
+        .mockResolvedValueOnce(page(makeEntries(5000, "tail-a"), true, 9000))
+        .mockResolvedValueOnce(page(makeEntries(1000, "tail-b"), false, 9000));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 6000 },
+      );
+
+      expect(result.complete).toBe(true);
+      expect(result.truncatedHeadCount).toBe(3000);
+      expect(result.entries).toHaveLength(6000);
+      expect(
+        (result.entries[0] as { notification: { method: string } }).notification
+          .method,
+      ).toBe("tail-a-0");
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(requestedParams(fetch.mock.calls[1][0])).toEqual({
+        limit: "5000",
+        offset: "3000",
+      });
+      expect(requestedParams(fetch.mock.calls[2][0])).toEqual({
+        limit: "1000",
+        offset: "8000",
+      });
+    });
+
+    it("does not refetch when the matching count equals the cap", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(page(makeEntries(5000, "a"), false, 5000));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 5000 },
+      );
+
+      expect(result.complete).toBe(true);
+      expect(result.truncatedHeadCount).toBe(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries a rejected page fetch once and keeps paginating", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(page(makeEntries(50, "a"), true))
+        .mockRejectedValueOnce(new Error("socket hang up"))
+        .mockResolvedValueOnce(page(makeEntries(10, "b"), false));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 100000 },
+      );
+
+      expect(result.complete).toBe(true);
+      expect(result.entries).toHaveLength(60);
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(
+        (fetch.mock.calls[0][0] as { overrides: { signal: unknown } }).overrides
+          .signal,
+      ).toBeInstanceOf(AbortSignal);
+    });
+
+    it("reports a null matching count when the header is absent", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => makeEntries(10, "a"),
+        headers: new Headers({ "X-Has-More": "true" }),
+      });
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsPage("task-1", "run-1", {
+        limit: 10,
+      });
+
+      expect(result.matchingCount).toBeNull();
+      expect(result.hasMore).toBe(true);
+    });
+
+    it("does not retry a definite client error", async () => {
+      const fetch = vi.fn().mockRejectedValue(new ApiRequestError(404, "{}"));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 100000 },
+      );
+
+      expect(result.complete).toBe(false);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("gives up after a second rejection on the same page", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(page(makeEntries(50, "a"), true))
+        .mockRejectedValue(new Error("socket hang up"));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 100000 },
+      );
+
+      expect(result.complete).toBe(false);
+      expect(result.entries).toHaveLength(50);
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it("retries a page whose body read fails", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => {
+            throw new Error("terminated");
+          },
+          headers: new Headers({ "X-Has-More": "true" }),
+        })
+        .mockResolvedValueOnce(page(makeEntries(10, "a"), false));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 100000 },
+      );
+
+      expect(result.complete).toBe(true);
+      expect(result.entries).toHaveLength(10);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("aborts a page whose body stalls after the headers arrive", async () => {
+      vi.useFakeTimers();
+      try {
+        const fetch = vi
+          .fn()
+          .mockImplementation((call: { overrides: { signal: AbortSignal } }) =>
+            Promise.resolve({
+              ok: true,
+              json: () =>
+                new Promise((_resolve, reject) => {
+                  call.overrides.signal.addEventListener("abort", () =>
+                    reject(call.overrides.signal.reason),
+                  );
+                }),
+              headers: new Headers({ "X-Has-More": "false" }),
+            }),
+          );
+        const client = makeClient(fetch);
+
+        const pending = client.getTaskRunSessionLogsResult("task-1", "run-1", {
+          limit: 100000,
+        });
+        // Once for the first attempt, once for its retry.
+        await vi.advanceTimersByTimeAsync(SESSION_LOGS_PAGE_TIMEOUT_MS);
+        await vi.advanceTimersByTimeAsync(SESSION_LOGS_PAGE_TIMEOUT_MS);
+
+        const result = await pending;
+        expect(result.complete).toBe(false);
+        expect(result.entries).toHaveLength(0);
+        expect(fetch).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("marks entries collected before a failed page as incomplete", async () => {
       const fetch = vi
         .fn()
@@ -2126,7 +2400,11 @@ describe("PostHogAPIClient", () => {
         { limit: 100000 },
       );
 
-      expect(result).toEqual({ entries: expect.any(Array), complete: false });
+      expect(result).toEqual({
+        entries: expect.any(Array),
+        complete: false,
+        truncatedHeadCount: 0,
+      });
       expect(result.entries).toHaveLength(50);
       expect(fetch).toHaveBeenCalledTimes(2);
     });

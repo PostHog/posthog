@@ -66,10 +66,12 @@ class CostThrottle(Throttle):
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
         limit, window = self._get_limit_and_window(context)
         if limit <= 0:
+            # A zero limit never refills, so the window is only a back-off hint.
             return ThrottleResult.deny(
                 detail=self._get_limit_exceeded_detail(),
                 scope=self.scope,
                 retry_after=window,
+                retry_after_resets_limit=False,
             )
         limiter = self._get_limiter(context)
         key = self._get_cache_key(context)

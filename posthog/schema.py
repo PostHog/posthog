@@ -14,8 +14,10 @@ from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
     AccessControlLevel as AccessControlLevel,
     AccountsTableAccountField as AccountsTableAccountField,
+    AccountsTableAggregation as AccountsTableAggregation,
     AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
     AccountsTableSortDirection as AccountsTableSortDirection,
+    AccountsTableThresholdOperator as AccountsTableThresholdOperator,
     Action as Action,
     AgentMode as AgentMode,
     AggregationAxisFormat as AggregationAxisFormat,
@@ -51,8 +53,6 @@ from posthog.schema_enums import (
     BillingSpendResponseBreakdownType as BillingSpendResponseBreakdownType,
     BillingUsageResponseBreakdownType as BillingUsageResponseBreakdownType,
     BingAdsDefaultSources as BingAdsDefaultSources,
-    BingAdsTableExclusions as BingAdsTableExclusions,
-    BingAdsTableKeywords as BingAdsTableKeywords,
     BounceRatePageViewMode as BounceRatePageViewMode,
     BreakdownAttributionType as BreakdownAttributionType,
     BreakdownType as BreakdownType,
@@ -122,9 +122,8 @@ from posthog.schema_enums import (
     FunnelVizType as FunnelVizType,
     Goal as Goal,
     GoogleAdsDefaultSources as GoogleAdsDefaultSources,
-    GoogleAdsTableExclusions as GoogleAdsTableExclusions,
-    GoogleAdsTableKeywords as GoogleAdsTableKeywords,
     GradientScaleMode as GradientScaleMode,
+    GroupMathType as GroupMathType,
     HeatmapSortOrder as HeatmapSortOrder,
     HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
     HedgehogActorColorOption as HedgehogActorColorOption,
@@ -150,8 +149,6 @@ from posthog.schema_enums import (
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
     LinkedinAdsDefaultSources as LinkedinAdsDefaultSources,
-    LinkedinAdsTableExclusions as LinkedinAdsTableExclusions,
-    LinkedinAdsTableKeywords as LinkedinAdsTableKeywords,
     LogPropertyFilterType as LogPropertyFilterType,
     LogSeverityLevel as LogSeverityLevel,
     LogsOrderBy as LogsOrderBy,
@@ -178,8 +175,6 @@ from posthog.schema_enums import (
     MetaAdsConversionOmniActionTypes as MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes as MetaAdsConversionSpecificActionTypes,
     MetaAdsDefaultSources as MetaAdsDefaultSources,
-    MetaAdsTableExclusions as MetaAdsTableExclusions,
-    MetaAdsTableKeywords as MetaAdsTableKeywords,
     Method as Method,
     Metric as Metric,
     MetricsAggregation as MetricsAggregation,
@@ -208,8 +203,6 @@ from posthog.schema_enums import (
     PersonsJoinMode as PersonsJoinMode,
     PersonsOnEventsMode as PersonsOnEventsMode,
     PinterestAdsDefaultSources as PinterestAdsDefaultSources,
-    PinterestAdsTableExclusions as PinterestAdsTableExclusions,
-    PinterestAdsTableKeywords as PinterestAdsTableKeywords,
     PlanningStepStatus as PlanningStepStatus,
     Position as Position,
     PrecomputationMode as PrecomputationMode,
@@ -227,8 +220,6 @@ from posthog.schema_enums import (
     RecordingOrder as RecordingOrder,
     RecordingOrderDirection as RecordingOrderDirection,
     RedditAdsDefaultSources as RedditAdsDefaultSources,
-    RedditAdsTableExclusions as RedditAdsTableExclusions,
-    RedditAdsTableKeywords as RedditAdsTableKeywords,
     RefreshType as RefreshType,
     ReleaseStatus as ReleaseStatus,
     ResultCustomizationBy as ResultCustomizationBy,
@@ -248,8 +239,6 @@ from posthog.schema_enums import (
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,
     SnapchatAdsConversionValueFields as SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources as SnapchatAdsDefaultSources,
-    SnapchatAdsTableExclusions as SnapchatAdsTableExclusions,
-    SnapchatAdsTableKeywords as SnapchatAdsTableKeywords,
     SnapshotSource as SnapshotSource,
     SourceFieldInputConfigType as SourceFieldInputConfigType,
     SourceFieldSelectConfigConverter as SourceFieldSelectConfigConverter,
@@ -276,8 +265,6 @@ from posthog.schema_enums import (
     TextMatching as TextMatching,
     Theme as Theme,
     TikTokAdsDefaultSources as TikTokAdsDefaultSources,
-    TikTokAdsTableExclusions as TikTokAdsTableExclusions,
-    TikTokAdsTableKeywords as TikTokAdsTableKeywords,
     TimeWindowMode as TimeWindowMode,
     TraceOrderColumn as TraceOrderColumn,
     TraceSpanBreakdownOrderBy as TraceSpanBreakdownOrderBy,
@@ -298,6 +285,7 @@ from posthog.schema_enums import (
     WebVitalsMetricBand as WebVitalsMetricBand,
     WebVitalsPercentile as WebVitalsPercentile,
     WindowDays as WindowDays,
+    XScale as XScale,
     YAxisPosition as YAxisPosition,
     YAxisScaleType as YAxisScaleType,
 )
@@ -338,6 +326,13 @@ class AccountsTableAccountIdFilter(BaseModel):
     )
     accountId: str
     kind: Literal["account_id"] = "account_id"
+
+
+class AccountsTableCountMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["count"] = "count"
 
 
 class AccountsTableCustomPropertyColumn(BaseModel):
@@ -1807,8 +1802,6 @@ class MarketingIntegrationConfig1(BaseModel):
     primarySource: Literal["google"] = "google"
     sourceType: Literal["GoogleAds"] = "GoogleAds"
     statsTableName: Literal["campaign_overview_stats"] = "campaign_overview_stats"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig2(BaseModel):
@@ -1826,8 +1819,6 @@ class MarketingIntegrationConfig2(BaseModel):
     primarySource: Literal["linkedin"] = "linkedin"
     sourceType: Literal["LinkedinAds"] = "LinkedinAds"
     statsTableName: Literal["campaign_group_stats"] = "campaign_group_stats"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class ConversionActionTypes(BaseModel):
@@ -1855,8 +1846,6 @@ class MarketingIntegrationConfig3(BaseModel):
     primarySource: Literal["meta"] = "meta"
     sourceType: Literal["MetaAds"] = "MetaAds"
     statsTableName: Literal["campaign_stats"] = "campaign_stats"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig4(BaseModel):
@@ -1874,8 +1863,6 @@ class MarketingIntegrationConfig4(BaseModel):
     primarySource: Literal["tiktok"] = "tiktok"
     sourceType: Literal["TikTokAds"] = "TikTokAds"
     statsTableName: Literal["campaign_report"] = "campaign_report"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig5(BaseModel):
@@ -1893,8 +1880,6 @@ class MarketingIntegrationConfig5(BaseModel):
     primarySource: Literal["reddit"] = "reddit"
     sourceType: Literal["RedditAds"] = "RedditAds"
     statsTableName: Literal["campaign_report"] = "campaign_report"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig6(BaseModel):
@@ -1912,8 +1897,6 @@ class MarketingIntegrationConfig6(BaseModel):
     primarySource: Literal["bing"] = "bing"
     sourceType: Literal["BingAds"] = "BingAds"
     statsTableName: Literal["campaign_performance_report"] = "campaign_performance_report"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig7(BaseModel):
@@ -1933,8 +1916,6 @@ class MarketingIntegrationConfig7(BaseModel):
     primarySource: Literal["snapchat"] = "snapchat"
     sourceType: Literal["SnapchatAds"] = "SnapchatAds"
     statsTableName: Literal["campaign_stats_daily"] = "campaign_stats_daily"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig8(BaseModel):
@@ -1952,8 +1933,6 @@ class MarketingIntegrationConfig8(BaseModel):
     primarySource: Literal["pinterest"] = "pinterest"
     sourceType: Literal["PinterestAds"] = "PinterestAds"
     statsTableName: Literal["campaign_analytics"] = "campaign_analytics"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig(
@@ -2270,7 +2249,15 @@ class PathCleaningFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    alias: str | None = None
+    alias: str | None = Field(
+        default=None,
+        description=(
+            "The replacement for the matched path. Use angle-bracket placeholders"
+            " (`<id>`, `<uuid>`, `<slug>`) by convention, or reuse a capture group from"
+            " the regex with ClickHouse `replaceRegexpAll` replacement syntax: `\\1` to"
+            " `\\9` for a group and `\\0` for the whole match."
+        ),
+    )
     order: float | None = None
     regex: str | None = None
 
@@ -2592,6 +2579,30 @@ class SamplingRate(BaseModel):
     numerator: float
 
 
+class ScatterChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showBestFit: bool | None = Field(
+        default=None,
+        description=("Whether to draw a least-squares fit line through each series' points."),
+    )
+    xScale: XScale | None = Field(
+        default=None,
+        description=(
+            "X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped."
+        ),
+    )
+    xStartAtZero: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the X axis should start at zero. Off by default, because pinning"
+            " either axis of two independent measures to zero squashes the correlation"
+            " into a corner."
+        ),
+    )
+
+
 class SessionData(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2645,14 +2656,6 @@ class SessionRecordingExternalReference(BaseModel):
     issue_id: str
     metadata: dict[str, str] | None = None
     title: str
-
-
-class SummaryOutcome(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str | None = None
-    success: bool | None = None
 
 
 class SessionReplayBlock(BaseModel):
@@ -3078,6 +3081,16 @@ class AccountCustomPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class AccountsTableAggregateMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation: AccountsTableAggregation
+    column: AccountsTableCustomPropertyColumn
+    kind: Literal["aggregate"] = "aggregate"
+    scale: float | None = None
+
+
 class AccountsTableAssignedToFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3087,6 +3100,16 @@ class AccountsTableAssignedToFilter(BaseModel):
         ...,
         description=("Match accounts where any listed user actively holds any relationship."),
     )
+
+
+class AccountsTableCountThresholdMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: AccountsTableCustomPropertyColumn
+    kind: Literal["count_threshold"] = "count_threshold"
+    operator: AccountsTableThresholdOperator
+    value: float
 
 
 class AccountsTableCustomPropertyFilter(BaseModel):
@@ -3264,7 +3287,8 @@ class AssistantDataVisualizationChartSettings(BaseModel):
         description=(
             "Column that splits a single Y series into multiple colored series — e.g."
             " breaking down a line chart by `country`. Set to `null` or omit to"
-            " disable."
+            " disable. A breakdown buckets rows by x value, so it is ignored when"
+            " `display` is `ScatterPlot`."
         ),
     )
     showLegend: bool | None = Field(default=None, description="Show the chart legend.")
@@ -3283,7 +3307,11 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     )
     xAxis: AssistantDataVisualizationAxis | None = Field(
         default=None,
-        description=("Column used as the X axis. Typically a time bucket or categorical column."),
+        description=(
+            "Column used as the X axis. Typically a time bucket or categorical column,"
+            " but `ScatterPlot` plots two measures against each other, so it needs a"
+            " numeric column here too."
+        ),
     )
     xAxisLabel: str | None = Field(default=None, description="Label rendered under the X axis.")
     yAxis: list[AssistantDataVisualizationAxis] | None = Field(
@@ -4445,6 +4473,14 @@ class AutocompleteCompletionItem(BaseModel):
         description=(
             "The label of this completion item. By default this is also the text that"
             " is inserted when selecting this completion."
+        ),
+    )
+    sortText: str | None = Field(
+        default=None,
+        description=(
+            "Overrides the editor's default ordering for this item. Set when the"
+            " backend can rank a suggestion, for example a function whose return type"
+            " fits the comparison being written."
         ),
     )
 
@@ -5797,8 +5833,6 @@ class MarketingIntegrationConfigType(BaseModel):
     primarySource: str
     sourceType: NativeMarketingSource
     statsTableName: str
-    tableExclusions: list[str]
-    tableKeywords: list[str]
 
 
 class MatchedRecording(BaseModel):
@@ -6392,6 +6426,22 @@ class QueryStatusResponse(BaseModel):
     query_status: QueryStatus
 
 
+class RecordingsQueryExperimentExposureFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiment_id: int = Field(
+        ...,
+        description=(
+            "Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in."
+        ),
+    )
+    variant: str | None = Field(
+        default=None,
+        description=("Narrow to persons exposed to this variant. Defaults to all of the experiment's variants."),
+    )
+
+
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):
     root: ResultCustomizationByValue | ResultCustomizationByPosition
 
@@ -6772,7 +6822,6 @@ class SessionRecordingType(BaseModel):
     external_references: list[SessionRecordingExternalReference] | None = Field(
         default=None, description="External references to third party issues."
     )
-    has_summary: bool | None = None
     id: str
     inactive_seconds: float | None = None
     keypress_count: float | None = None
@@ -6806,7 +6855,6 @@ class SessionRecordingType(BaseModel):
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
     summary: str | None = None
-    summary_outcome: SummaryOutcome | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
@@ -8033,7 +8081,30 @@ class TrendsFilter(BaseModel):
     )
     xAxisLabel: str | None = Field(default=None, description="Custom label rendered under the X axis.")
     yAxisLabel: str | None = Field(default=None, description="Custom label rendered alongside the Y axis.")
+    yAxisMax: float | None = Field(
+        default=None,
+        description=(
+            "Pins the top of the y-axis; unset means automatic. Ignored in the same"
+            " cases as `yAxisStartAtZero`, and when `yAxisMin` is not below it."
+        ),
+    )
+    yAxisMin: float | None = Field(
+        default=None,
+        description=(
+            "Pins the bottom of the y-axis; unset means automatic. Ignored in the same"
+            " cases as `yAxisStartAtZero`, while it is on, and when not below"
+            " `yAxisMax`."
+        ),
+    )
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR
+    yAxisStartAtZero: bool | None = Field(
+        default=True,
+        description=(
+            "Y-axis baseline. When false the axis floats to the data range instead of"
+            " starting at zero. Ignored on bar displays (bars always draw from zero),"
+            " on a logarithmic scale, and while showing percentages."
+        ),
+    )
 
 
 class TrendsQueryResponse(BaseModel):
@@ -8676,6 +8747,10 @@ class AccountsTableQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -8894,8 +8969,9 @@ class AssistantDataVisualizationNode(BaseModel):
             " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
             " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n-"
             " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
-            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise →"
-            " `ActionsTable`."
+            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship"
+            " between two numeric measures, one point per row → `ScatterPlot`.\n-"
+            " Otherwise → `ActionsTable`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -9612,9 +9688,9 @@ class AssistantStickinessActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9673,9 +9749,9 @@ class AssistantStickinessEventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9842,9 +9918,9 @@ class AssistantTrendsActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9905,9 +9981,9 @@ class AssistantTrendsEventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9967,9 +10043,9 @@ class AssistantTrendsGroupNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = Field(
@@ -10439,6 +10515,10 @@ class CachedAccountsTableQueryResponse(BaseModel):
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     last_refresh: AwareDatetime
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int
@@ -14682,6 +14762,7 @@ class ChartSettings(BaseModel):
         description=("Per-breakdown-value color customizations. Keyed by the raw breakdown column value."),
     )
     rightYAxisSettings: YAxisSettings | None = None
+    scatter: ScatterChartSettings | None = None
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
     showNullsAsZero: bool | None = None
@@ -14753,9 +14834,9 @@ class ConversionGoalFilter1(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -14816,9 +14897,9 @@ class ConversionGoalFilter2(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -14881,9 +14962,9 @@ class ConversionGoalFilter3(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -15834,6 +15915,10 @@ class Response23(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -15890,9 +15975,9 @@ class DataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16263,9 +16348,9 @@ class EntityNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16564,9 +16649,9 @@ class EventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16742,9 +16827,9 @@ class ExperimentDataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16869,9 +16954,9 @@ class FunnelExclusionActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16909,9 +16994,9 @@ class FunnelExclusionEventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16950,9 +17035,9 @@ class FunnelsDataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -17318,9 +17403,9 @@ class LifecycleDataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -21187,6 +21272,10 @@ class QueryResponseAlternative58(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -22380,6 +22469,10 @@ class QueryResponseAlternative88(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -24352,8 +24445,18 @@ class AccountsTableQuery(BaseModel):
         default=None,
         description=("Filters are combined with AND. Values within tag and assignment filters use OR."),
     )
+    includeChurned: bool | None = Field(
+        default=None,
+        description="Include churned accounts. Churned accounts are hidden by default.",
+    )
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: conint(ge=1) | None = None
+    metrics: (
+        list[AccountsTableCountMetric | AccountsTableAggregateMetric | AccountsTableCountThresholdMetric] | None
+    ) = Field(
+        default=None,
+        description=("Aggregates to evaluate against the filtered account set. A metrics query skips row loading."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: AccountsTableQueryResponse | None = None
@@ -24378,9 +24481,9 @@ class ActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -25222,22 +25325,6 @@ class EnsembleDetectorConfig(BaseModel):
     ] = Field(..., description="Sub-detector configurations (minimum 2)")
     operator: EnsembleOperator = Field(..., description="How to combine sub-detector results")
     type: Literal["ensemble"] = "ensemble"
-
-
-class ErrorTrackingBreakdownsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdownProperties: list[str]
-    dateRange: DateRange | None = None
-    filterTestAccounts: bool | None = None
-    issueId: str
-    kind: Literal["ErrorTrackingBreakdownsQuery"] = "ErrorTrackingBreakdownsQuery"
-    maxValuesPerProperty: int | None = None
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    response: ErrorTrackingBreakdownsQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ErrorTrackingCorrelatedIssue(BaseModel):
@@ -26133,6 +26220,14 @@ class MaxRecordingUniversalFilters(BaseModel):
             " order direction here"
         ),
     )
+    session_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "Pin the result to specific recordings by their session id, e.g. the ones"
+            " just summarized. `$session_id` is not a session property, so it cannot be"
+            " filtered on in `filter_group`."
+        ),
+    )
 
 
 class MetricsQuery(BaseModel):
@@ -26350,6 +26445,18 @@ class RecordingsQuery(BaseModel):
     date_to: str | None = None
     distinct_ids: list[str] | None = None
     events: list[dict[str, Any]] | None = None
+    experiment_exposure: RecordingsQueryExperimentExposureFilter | None = Field(
+        default=None,
+        description=(
+            "Only sessions of persons exposed to this experiment, each ending at or"
+            " after the person's first exposure as the experiment's exposure criteria"
+            " count it. Resolved server-side from the experiment, so it links sessions"
+            " even when the exposure events themselves carry no session id (e.g."
+            " server-side SDKs). Composes with the query's date range like any other"
+            " filter, so set date_from to the experiment's start (or earlier) to cover"
+            " the full run: the default window only reaches back a few days."
+        ),
+    )
     filter_test_accounts: bool | None = None
     having_predicates: list[AnyPropertyFilterDiscriminated] | None = None
     hide_viewed_recordings: HideViewedRecordings | None = Field(
@@ -26898,6 +27005,23 @@ class DetectorConfig(
     ) = Field(..., description="Detector configuration types", discriminator="type")
 
 
+class ErrorTrackingBreakdownsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownProperties: list[str]
+    dateRange: DateRange | None = None
+    filterGroup: PropertyGroupFilter | None = None
+    filterTestAccounts: bool | None = None
+    issueId: str
+    kind: Literal["ErrorTrackingBreakdownsQuery"] = "ErrorTrackingBreakdownsQuery"
+    maxValuesPerProperty: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: ErrorTrackingBreakdownsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class ErrorTrackingIssueCorrelationQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -27071,9 +27195,9 @@ class GroupNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -28012,9 +28136,20 @@ class DatabaseSchemaQuery(BaseModel):
         default=None,
         description="Optional direct external data source id for schema introspection",
     )
+    includeFields: bool | None = Field(
+        default=None,
+        description=("When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true."),
+    )
     kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: DatabaseSchemaQueryResponse | None = None
+    tables: list[str] | None = Field(
+        default=None,
+        description=(
+            "Only serialize these tables (keys as returned in the response, e.g."
+            " `events` or `zendesk.groups`). Omit for all tables."
+        ),
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -30364,6 +30499,10 @@ class SourceFieldSelectConfig(BaseModel):
     converter: SourceFieldSelectConfigConverter | None = None
     defaultValue: str
     label: str
+    multiple: bool | None = Field(
+        default=None,
+        description=("Allow selecting multiple values; the field's payload value becomes string[]."),
+    )
     name: str
     options: list[SourceFieldSelectConfigOption]
     required: bool

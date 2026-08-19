@@ -365,8 +365,9 @@ class TestGoogleAdsLookbackDefault:
         assert schemas["campaign"].supports_incremental is False
         assert schemas["campaign"].default_incremental_lookback_seconds is None
         # The default must satisfy the 60-day cap the creation/update endpoints enforce, or creation
-        # would reject it.
-        assert 0 < GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS <= 5_184_000
+        # would reject it. It must also stay under 30 days: that window re-read a trailing month of
+        # the stats tables on every incremental run, multiplying both synced rows and warehouse spend.
+        assert 0 < GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS < 2_592_000
 
 
 class TestGrpcReceiveLimit:
@@ -905,6 +906,12 @@ class TestTransientGrpcErrorDetection:
                 ),
                 False,
             ),
+            # A bare UNKNOWN status carrying Google's own auth-backend hiccup message is a confirmed
+            # transient backend incident, not a rejected credential — ride it out in-process.
+            (google_api_exceptions.Unknown("Authentication backend unknown error."), True),
+            # Any other UNKNOWN-status error must not be retried blindly — the status alone is too
+            # broad a signal, so only the specific known message is treated as transient.
+            (google_api_exceptions.Unknown("Some other unrelated backend failure."), False),
             # A different gapic error must not be treated as transient.
             (google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), False),
             # Google Ads API errors carry no transient gRPC status — they route through the existing
@@ -1478,9 +1485,12 @@ class TestGoogleAdsQueryConstruction:
         assert all("2100-01-01" not in q for q in queries)
         assert response.sort_mode == "asc"
 
-    def test_first_sync_uses_open_ended_scan_not_windows(self):
-        # A first sync carries the 1970 sentinel cursor; windowing it would crawl 7 days at a time
-        # from 1970 and never catch up, so first syncs must stay a single open-ended ascending scan.
+    def test_first_sync_drains_in_windows_from_a_bounded_backfill_start(self):
+        # A first sync has no cursor. Running it as the open-ended `1970 .. 2100` scan meant one run
+        # had to extract the whole account history before anything landed durably; it never
+        # finished, so the cursor never advanced and the next run repeated the same scan — report
+        # tables that had never synced could never start. It must window like any other run,
+        # beginning a bounded backfill behind today.
         with freeze_time("2026-07-17"):
             _response, queries = self._run_source(
                 self._stats_table(),
@@ -1488,6 +1498,24 @@ class TestGoogleAdsQueryConstruction:
                 db_incremental_field_last_value=None,
                 incremental_field="segments.date",
                 incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert queries[0] == (
+            "SELECT campaign.id,segments.date FROM campaign_stats "
+            "WHERE segments.date >= '2024-07-17' AND segments.date < '2024-07-24' "
+            "ORDER BY segments.date ASC"
+        )
+        assert all("2100-01-01" not in q for q in queries)
+        assert all("1970-01-01" not in q for q in queries)
+
+    def test_full_refresh_report_table_scans_the_full_range_without_windows(self):
+        # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from
+        # the same backfill date every run and the refresh replaces the whole table with that same
+        # first slice of history. The run must stay a single open-ended scan over the full range.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=False,
             )
 
         assert queries == [
@@ -1556,9 +1584,16 @@ class TestVersionDeclaration:
         assert source.default_version == "v25"
         assert set(source.supported_versions) == {"v23", "v24", "v25"}
 
+    def test_v23_deprecated_with_sunset_date(self):
+        # v23 is sunsetting (February 2027), so it must carry both the deprecation flag and the sunset
+        # date — the in-product banner shows the date and the v23→v25 repin migration is justified by it.
+        v23_deprecation = GoogleAdsSource().get_version_deprecation("v23")
+        assert v23_deprecation is not None
+        assert v23_deprecation.sunset_at == dt.date(2027, 2, 1)
+
     def test_v24_deprecated_default_is_not(self):
-        # v24 is the version the vendor is retiring, so it must carry the deprecation flag that drives
-        # the in-product warning; the current default (v25) must never be deprecated.
+        # v24 is also deprecated but has no announced sunset date yet, so it must carry the flag with a
+        # None sunset; the current default (v25) must never be deprecated.
         source = GoogleAdsSource()
         v24_deprecation = source.get_version_deprecation("v24")
         assert v24_deprecation is not None

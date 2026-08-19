@@ -12,6 +12,7 @@ from django.test import override_settings
 
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
@@ -21,6 +22,7 @@ from requests.exceptions import ConnectionError, Timeout
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
 from products.tasks.backend.exceptions import (
     SandboxExecutionError,
+    SandboxNetworkPolicyError,
     SandboxProvisionError,
     SnapshotCreationError,
     SnapshotFileLimitExceededError,
@@ -429,7 +431,7 @@ class TestModalSandboxAgentServer:
         mock_modal_sandbox.create_connect_token.return_value = mock_credentials
 
         config = SandboxConfig(name="test-sandbox")
-        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+        with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
     @pytest.fixture(autouse=True)
@@ -766,6 +768,7 @@ class TestModalSandboxAgentServer:
 
         with (
             patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
+            patch.object(mock_sandbox, "wait_for_agent_server_ready") as wait_for_ready,
             patch.object(mock_sandbox, "_free_agent_server_port") as mock_free,
         ):
             mock_sandbox.start_agent_server(
@@ -773,10 +776,20 @@ class TestModalSandboxAgentServer:
                 task_id="task-123",
                 run_id="run-456",
                 mode="background",
+                allowed_domains=["example.com"],
             )
 
+        wait_for_ready.assert_called_once_with(["example.com"])
         mock_free.assert_not_called()
         mock_sandbox.execute.assert_not_called()
+
+    def test_wait_for_agent_server_ready_rejects_unhealthy_agentsh(self, mock_sandbox: Any):
+        with (
+            patch.object(mock_sandbox, "_wait_for_health_check", return_value=True),
+            patch.object(mock_sandbox, "_agentsh_daemon_is_healthy", return_value=False),
+        ):
+            with pytest.raises(SandboxExecutionError, match="Failed to verify agentsh network enforcement"):
+                mock_sandbox.wait_for_agent_server_ready(["example.com"])
 
     def test_start_agent_server_frees_port_before_relaunch(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
@@ -980,13 +993,14 @@ class TestModalSandboxCommandEscaping:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
-        "shallow,expected_in_command,not_expected_in_command",
+        "shallow,blobless,expected_in_command,not_expected_in_command",
         [
-            (True, "--depth 1", None),
-            (False, "--single-branch", "--depth"),
+            (True, False, "--depth 1", "--filter=blob:"),
+            (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
+            (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
         ],
     )
-    def test_clone_repository_shallow_flag(self, shallow, expected_in_command, not_expected_in_command):
+    def test_clone_repository_shallow_flag(self, shallow, blobless, expected_in_command, not_expected_in_command):
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-123"
         sandbox.config = SandboxConfig(name="test")
@@ -994,7 +1008,9 @@ class TestModalSandboxCommandEscaping:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
-                sandbox.clone_repository("PostHog/posthog", github_token="test-token", shallow=shallow)
+                sandbox.clone_repository(
+                    "PostHog/posthog", github_token="test-token", shallow=shallow, blobless=blobless
+                )
                 command = mock_execute.call_args[0][0]
 
                 assert expected_in_command in command
@@ -1161,7 +1177,7 @@ class TestModalSandboxCreateAllowlist:
         mock_sb.object_id = "sb-created"
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
-            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
             patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image", return_value=MagicMock()),
             patch(
                 "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", return_value=mock_sb
@@ -1184,6 +1200,13 @@ class TestModalSandboxCreateAllowlist:
         mock_create = self._create_with_config(config)
 
         assert "outbound_domain_allowlist" not in mock_create.call_args.kwargs
+
+    def test_create_forwards_empty_allowlist_when_explicitly_set(self):
+        config = SandboxConfig(name="t", outbound_domain_allowlist=[])
+
+        mock_create = self._create_with_config(config)
+
+        assert mock_create.call_args.kwargs["outbound_domain_allowlist"] == []
 
     def test_create_sets_vm_runtime_experimental_option(self):
         config = SandboxConfig(name="t", vm_runtime=True)
@@ -1213,7 +1236,7 @@ class TestModalSandboxCreateImageFallback:
 
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
-            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
             patch(
                 "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
                 return_value=MagicMock(name="base"),
@@ -1265,6 +1288,97 @@ class TestModalSandboxCreateImageFallback:
         assert sandbox.config.snapshot_restored is True
         assert sandbox.config.image_fallback is not None
 
+    def test_unrelated_invalid_error_preserves_vm_network_policy_on_fallback(self):
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            outbound_domain_allowlist=["example.com", "*.posthog.com"],
+            network_policy_fingerprint="policy-hash",
+        )
+        bare_custom = MagicMock(name="bare_custom")
+        overlaid_custom = MagicMock(name="overlaid_custom")
+        mock_sb = MagicMock(object_id="sb-created")
+        attempts: list[dict[str, Any]] = []
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            attempts.append(kwargs)
+            if kwargs["image"] is overlaid_custom:
+                raise ModalInvalidError("invalid image reference")
+            return mock_sb
+
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+                return_value=MagicMock(name="base"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name",
+                return_value=bare_custom,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                return_value=overlaid_custom,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create",
+                side_effect=sandbox_create,
+            ),
+            patch("products.tasks.backend.logic.services.modal_sandbox.capture_exception"),
+        ):
+            ModalSandbox.create(config)
+
+        assert len(attempts) == 3
+        assert all(attempt["experimental_options"] == {"vm_runtime": True} for attempt in attempts)
+        assert all(attempt["outbound_domain_allowlist"] == ["example.com", "*.posthog.com"] for attempt in attempts)
+
+    def test_network_policy_rejection_is_fatal_without_image_fallback(self):
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            outbound_domain_allowlist=["example.com"],
+            network_policy_fingerprint="policy-hash",
+        )
+        bare_custom = MagicMock(name="bare_custom")
+        overlaid_custom = MagicMock(name="overlaid_custom")
+        attempts: list[dict[str, Any]] = []
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            attempts.append(kwargs)
+            raise ModalInvalidError("outbound_domain_allowlist is incompatible with vm_runtime")
+
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+                return_value=MagicMock(name="base"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name",
+                return_value=bare_custom,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                return_value=overlaid_custom,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create",
+                side_effect=sandbox_create,
+            ),
+            patch("products.tasks.backend.exceptions.capture_exception"),
+        ):
+            with pytest.raises(SandboxNetworkPolicyError) as error:
+                ModalSandbox.create(config)
+
+        assert error.value.non_retryable is True
+        assert len(attempts) == 1
+        assert attempts[0]["outbound_domain_allowlist"] == ["example.com"]
+        assert attempts[0]["experimental_options"] == {"vm_runtime": True}
+
     def _create_with_probe(
         self,
         config: SandboxConfig,
@@ -1283,7 +1397,7 @@ class TestModalSandboxCreateImageFallback:
 
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
-            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
             patch(
                 "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
                 return_value=MagicMock(name="base"),
@@ -1421,7 +1535,7 @@ class TestLaunchDevStackBootstrap:
             snapshot_restored=snapshot_restored,
             **({"snapshot_kind": snapshot_kind} if snapshot_kind is not None else {}),
         )
-        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+        with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
     @pytest.mark.parametrize(
@@ -1555,14 +1669,14 @@ class TestResourceCreateKwargs:
         # Reserve the explicitly requested floor, burst up to the configured limit.
         assert kwargs == {"cpu": (2.0, 8.0), "memory": (4096, 16384)}
 
-    def test_vm_runtime_pins_memory_but_keeps_cpu_elastic(self):
+    def test_vm_runtime_uses_equal_memory_request_and_limit(self):
         config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16, burstable_resources=True, vm_runtime=True)
 
         kwargs = _resource_create_kwargs(config)
 
-        assert kwargs == {"cpu": (0.5, 4.0), "memory": 16384}
+        assert kwargs == {"cpu": (0.5, 4.0), "memory": (16384, 16384)}
 
-    def test_vm_template_pins_memory_but_keeps_cpu_elastic(self):
+    def test_vm_template_uses_equal_memory_request_and_limit(self):
         config = SandboxConfig(
             name="t",
             cpu_cores=4,
@@ -1573,7 +1687,7 @@ class TestResourceCreateKwargs:
 
         kwargs = _resource_create_kwargs(config)
 
-        assert kwargs == {"cpu": (0.5, 4.0), "memory": 16384}
+        assert kwargs == {"cpu": (0.5, 4.0), "memory": (16384, 16384)}
 
     def test_explicit_request_floor_is_clamped_to_limit(self):
         # A request floor above the configured limit is clamped down to the limit.
@@ -1599,7 +1713,7 @@ class TestModalSandboxCreateSnapshot:
         mock_modal_sandbox.poll.return_value = None  # None => still running
 
         config = SandboxConfig(name="test-sandbox")
-        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+        with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
     def test_create_snapshot_success(self, mock_sandbox: Any):

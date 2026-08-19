@@ -23,6 +23,11 @@ It is exercised locally via management commands, and it is also used by the prod
   - very short factual summary
   - optional charts (see below), when the team is opted in
     The repository used for research is tracked separately via the `repo_selection` artefact.
+- `reviewer_telemetry.py`
+  Emits the `signals_suggested_reviewers_resolved` product-analytics event whenever a report's suggested reviewers are persisted, recording which GitHub logins link to a PostHog user and which don't (unlinkable reviewers can't be routed or run autostart, but still count as "assigned" in reviewer metrics).
+  - Called after the artefact write commits (via `transaction.on_commit` where a transaction is open), never in-transaction: the research activity (`source="pipeline"`), scout report creation and reviewer edits (`"scout"` / `"scout_edit"`), custom-agent persistence (`"custom_agent"`), the app reviewers PUT (`"user_edit"`), and the artefacts POST (`"api"`).
+  - Best-effort: failures are logged and never break report generation.
+  - Delivery is at-least-once (activity retries re-fire an identical payload) and reviewer edits legitimately re-fire with the new list, so consumers read report state as the latest event per `report_id`, never by counting raw events.
 - `fixtures/analyze_report_funnel_research_output.json`
   Saved previous research output used by local `update` testing.
 - `fixtures/insight_scene_logic_mode_property_bug.json`

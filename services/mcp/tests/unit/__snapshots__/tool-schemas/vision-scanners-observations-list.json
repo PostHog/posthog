@@ -21,6 +21,14 @@
             "description": "Number of results to return per page.",
             "type": "number"
         },
+        "max_score": {
+            "description": "Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.",
+            "type": "number"
+        },
+        "min_score": {
+            "description": "Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.",
+            "type": "number"
+        },
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"

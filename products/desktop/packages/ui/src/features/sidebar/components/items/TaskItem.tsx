@@ -4,6 +4,7 @@ import { parseGithubUrl } from "@posthog/git/utils";
 import type { WorkspaceMode } from "@posthog/shared";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { TaskRunStatus } from "@posthog/shared/domain-types";
+import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { navigateToPullRequestView } from "@posthog/ui/router/navigationBridge";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DotsCircleSpinner } from "../../../../primitives/DotsCircleSpinner";
@@ -214,6 +215,8 @@ export function TaskItem({
       label={label}
       isActive={isActive}
       isSelected={isSelected}
+      // Lets a drag-selection find the row and the session it stands for.
+      {...{ [SESSION_ROW_ATTRIBUTE]: taskId }}
       isDimmed={isArchiving}
       draggable={!isArchiving}
       onDragStart={handleDragStart}

@@ -2,6 +2,7 @@ import json
 import uuid
 from collections.abc import Callable, Sequence
 from datetime import UTC, timedelta
+from functools import partial
 from typing import Any, cast
 
 from django.conf import settings
@@ -113,6 +114,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
 )
+from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksResponseSerializer,
@@ -307,26 +309,12 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"source_product": "A configuration for this source product and type already exists for this team."}
             )
 
-        if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER and instance.enabled:
-            self._trigger_session_analysis_setup()
-
         if (
             instance.source_product == SignalSourceConfig.SourceProduct.ERROR_TRACKING
             and instance.source_type == SignalSourceConfig.SourceType.ISSUE_CREATED
             and instance.enabled
         ):
             self._trigger_error_tracking_backfill()
-
-    def _trigger_session_analysis_setup(self) -> None:
-        """Upsert the per-team summarization schedule now instead of waiting for the
-        reconciler's next tick. Reconciler remains the safety net."""
-        from posthog.temporal.session_replay.summarization_sweep.schedule import a_upsert_team_schedule
-
-        try:
-            async_to_sync(a_upsert_team_schedule)(self.team_id)
-            logger.info(f"Upserted session analysis schedule for team {self.team_id}")
-        except Exception:
-            logger.exception(f"Failed to upsert session analysis schedule for team {self.team_id}")
 
     def _trigger_error_tracking_backfill(self) -> None:
         """Fire-and-forget backfill of recent error tracking issues as signals."""
@@ -367,10 +355,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if instance.enabled and not was_enabled:
-            if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-                self._trigger_session_analysis_setup()
-            else:
-                self._trigger_data_import_sync(instance)
+            self._trigger_data_import_sync(instance)
 
     # Maps source_product to ExternalDataSourceType value for data import sources
     _DATA_IMPORT_SOURCE_TYPE_MAP: dict[str, str] = {
@@ -833,10 +818,10 @@ class SignalReportViewSet(
             .values("count"),
             output_field=IntegerField(),
         )
-        # select_related("refund"): the serializer renders the reverse OneToOne inline.
+        # Both reverse one-to-one records render inline with the report.
         return (
             queryset.filter(team=self.team)
-            .select_related("refund")
+            .select_related("refund", "canvas_session")
             .annotate(
                 artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
             )
@@ -1258,8 +1243,8 @@ class SignalReportViewSet(
     def _annotate_implementation_pr_url(self, queryset):
         # Latest TaskRun output->pr_url across the tasks associated with each report, unified over
         # the task_run artefact log + legacy SignalReportTask rows (see associated_task_runs_filter).
-        # Only implementation runs carry a pr_url, so the non-empty-pr_url filter inside the facade
-        # subquery makes "any associated task" resolve to the implementation PR.
+        # The non-empty-pr_url filter inside the facade subquery is what narrows "any associated
+        # task" to the one that opened the report's PR.
         latest_impl_pr_url = tasks_facade.latest_task_run_pr_url_subquery(
             SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
         )
@@ -2286,6 +2271,18 @@ class SignalReportViewSet(
                 refund_id = str(refund.id)
                 transaction.on_commit(lambda: sync_signals_refund_credit.delay(refund_id))
 
+        # A refund suppresses the report, which is a judgement the authoring scout should hear, so it
+        # forwards on the same channel as any other dismissal. `refund.reason` rather than the
+        # `refunded` code the artefact records, because `pr_incorrect` tells a scout the PR missed
+        # what its report promised while `refunded` only says money moved. Outside the atomic block
+        # because forwarding writes rows of its own and must not be able to roll back the refund it
+        # reports; a report left RESOLVED by a merged PR is dropped by the forwarding path itself.
+        self._forward_dismissal_note(
+            reports=[report],
+            dismissal_reason=refund.reason,
+            dismissal_note=note,
+        )
+
         report_user_action(
             user,
             "signals_pr_refund_created",
@@ -2302,6 +2299,7 @@ class SignalReportViewSet(
             },
             team=self.team,
             organization=self.organization,
+            request=request,
         )
 
         return self._refund_response(refund)
@@ -3077,6 +3075,16 @@ def append_suggested_reviewers(
             content=SuggestedReviewers.model_validate(new_content),
             attribution=attribution,
         )
+        # on_commit so a rolled-back edit emits nothing, matching every other reviewer write path.
+        transaction.on_commit(
+            partial(
+                capture_suggested_reviewers_resolved,
+                team_id=team.id,
+                report_id=str(report_id),
+                github_logins=[entry["github_login"] for entry in new_content],
+                source="user_edit",
+            )
+        )
 
         # Human reviewer corrections are a routing signal (scouts query them via the
         # activity log to learn who owns an area), so log them — but only genuine
@@ -3409,7 +3417,59 @@ class SignalReportArtefactViewSet(
             content=parsed_content,
             attribution=attribution,
         )
+        if isinstance(parsed_content, SuggestedReviewers):
+            # on_commit so a rolled-back write emits nothing, matching every other reviewer write path.
+            transaction.on_commit(
+                partial(
+                    capture_suggested_reviewers_resolved,
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    github_logins=[entry.github_login for entry in parsed_content.root],
+                    source="api",
+                )
+            )
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
+
+    def _capture_canonical_reviewer_state(self, report_id: str) -> None:
+        """Re-emit reviewer telemetry from the latest surviving `suggested_reviewers` row.
+
+        Deleting or editing a reviewers artefact changes the report's canonical reviewer set
+        without going through an append path, so the "latest event per report" read would
+        otherwise keep describing the removed row. An empty login list is a valid state (the
+        deletion removed the only row).
+
+        Fully best-effort: this runs in a non-robust on_commit callback after the mutation
+        committed, so an exception here would turn an already-successful request into a 500."""
+        try:
+            latest = (
+                SignalReportArtefact.objects.filter(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                )
+                .order_by("-created_at")
+                .first()
+            )
+            logins: list[str] = []
+            if latest is not None:
+                try:
+                    parsed = json.loads(latest.content)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    parsed = []
+                if isinstance(parsed, list):
+                    logins = [
+                        str(entry.get("github_login"))
+                        for entry in parsed
+                        if isinstance(entry, dict) and entry.get("github_login")
+                    ]
+            capture_suggested_reviewers_resolved(
+                team_id=self.team.id,
+                report_id=report_id,
+                github_logins=logins,
+                source="api",
+            )
+        except Exception:
+            logger.exception("failed to re-emit canonical reviewer state", report_id=report_id)
 
     @validated_request(
         request_serializer=SignalReportArtefactLogUpdateSerializer,
@@ -3444,6 +3504,9 @@ class SignalReportArtefactViewSet(
                 {"error": f"content does not match the '{artefact.type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+            # Editing a reviewers row can change the report's canonical reviewer set in place.
+            transaction.on_commit(partial(self._capture_canonical_reviewer_state, str(artefact.report_id)))
         return Response(self._write_response_data(artefact))
 
     @extend_schema(
@@ -3461,7 +3524,13 @@ class SignalReportArtefactViewSet(
     )
     def destroy(self, request, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
+        was_reviewers = artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        report_id = str(artefact.report_id)
         artefact.delete()
+        if was_reviewers:
+            # Deleting the latest reviewers row reverts the canonical set to the previous row (or
+            # none) — re-emit so the latest event per report tracks the surviving state.
+            transaction.on_commit(partial(self._capture_canonical_reviewer_state, report_id))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(

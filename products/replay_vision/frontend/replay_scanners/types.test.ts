@@ -79,7 +79,7 @@ describe('scanner type helpers', () => {
                 [
                     'Gemini 3.5 Flash Lite · 2 credits/observation',
                     'Gemini 3 Flash · 5 credits/observation',
-                    'Gemini 3.6 Flash · 15 credits/observation',
+                    'Gemini 3.7 Flash · 15 credits/observation',
                 ],
             ],
             [

@@ -444,9 +444,11 @@ export const exportsLogic = kea<exportsLogicType>([
                                 export_context: exportData.export_context,
                             })
                         } catch (error) {
-                            // Preserve the export-limit error so the caller can show the upsell;
-                            // give everything else a friendly message for the failure toast.
-                            if ((error as { data?: APIErrorType })?.data?.attr === 'export_limit_exceeded') {
+                            // Preserve the errors the caller renders itself — the limit upsell and the
+                            // reason a recording is too long — and give everything else a friendly
+                            // message for the failure toast.
+                            const attr = (error as { data?: APIErrorType })?.data?.attr
+                            if (attr === 'export_limit_exceeded' || attr === 'export_duration_unsupported') {
                                 throw error
                             }
                             const message = error instanceof Error ? error.message : String(error)
@@ -531,6 +533,16 @@ export const exportsLogic = kea<exportsLogicType>([
                                         dataAttr: 'export-limit-reached-button',
                                     },
                                 })
+                            }
+                            // The recording is longer than the renderer can turn into one video. The
+                            // API is what decides that, so its reason is shown rather than a generic
+                            // failure: it names the limit and what to do instead.
+                            if (apiError?.data?.attr === 'export_duration_unsupported') {
+                                lemonToast.dismiss(exportToastId)
+                                lemonToast.error(
+                                    apiError?.data?.detail ||
+                                        'This recording is too long to export as one video. Export part of it instead.'
+                                )
                             }
                         }
                     })()

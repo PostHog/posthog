@@ -917,6 +917,23 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
+ * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live.
+ *
+ * This endpoint only checks the region it is running on. `"found": false` does not guarantee the token is safe. If you're not sure which region issued it, check both: https://app.posthog.com/api/revoke_leaked_key and https://eu.posthog.com/api/revoke_leaked_key.
+ * @summary Report and revoke a leaked PostHog API key or token
+ */
+export const revokeLeakedKeyCreateBodyTokenMax = 200
+
+export const RevokeLeakedKeyCreateBody = /* @__PURE__ */ zod.object({
+    token: zod
+        .string()
+        .max(revokeLeakedKeyCreateBodyTokenMax)
+        .describe(
+            'The leaked PostHog personal API key, project secret API key, or OAuth access\/refresh token to revoke.'
+        ),
+})
+
+/**
  * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
  */
 export const usersUpdateBodyFirstNameMax = 150

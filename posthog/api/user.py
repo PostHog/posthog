@@ -84,7 +84,12 @@ from posthog.event_usage import (
     report_user_verified_email,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
+from posthog.helpers.email_utils import (
+    EmailNormalizer,
+    EmailValidationHelper,
+    reject_plus_addressed_email,
+    validate_display_name,
+)
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
@@ -94,7 +99,7 @@ from posthog.middleware import (
     is_read_only_impersonation,
 )
 from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisation
-from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token
+from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_third_party_oauth_access
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -277,10 +282,10 @@ class UserSerializer(serializers.ModelSerializer):
     )
     requires_credential_review = serializers.SerializerMethodField(
         help_text=(
-            "True if the user has at least one Personal API Key or passkey and has not yet "
-            "acknowledged their existing credentials. Used to gate a one-shot review screen on "
-            "first post-provisioning login. Becomes False once the user POSTs to "
-            "`/api/users/@me/credentials_review_complete/`. Read-only."
+            "True if the user has at least one Personal API Key or passkey, or a third-party OAuth "
+            "application that can currently act as them, and has not yet acknowledged that access. "
+            "Used to gate a one-shot review screen on first post-provisioning login. Becomes False "
+            "once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only."
         ),
     )
 
@@ -380,6 +385,18 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_last_name(self, value: str) -> str:
         return validate_display_name(value)
 
+    def validate_email(self, value: str) -> str:
+        if self.instance and value.lower() == self.instance.email.lower():
+            # Unchanged — don't re-validate a legacy '+' address on an unrelated profile edit.
+            return value
+        reject_plus_addressed_email(value)
+        # Excluding the editor lets a legacy '+' account holder drop their own alias.
+        if EmailValidationHelper.user_exists_with_stripped_alias(
+            value, exclude_user_id=self.instance.pk if self.instance else None
+        ):
+            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        return value
+
     def get_has_password(self, instance: User) -> bool:
         return bool(instance.password) and instance.has_usable_password()
 
@@ -442,7 +459,13 @@ class UserSerializer(serializers.ModelSerializer):
             return False
         if PersonalAPIKey.objects.filter(user=instance).exists():
             return True
-        return WebauthnCredential.objects.filter(user=instance).exists()
+        if WebauthnCredential.objects.filter(user=instance).exists():
+            return True
+        # A provisioning partner's OAuth token is the access this screen exists to disclose, and it
+        # is the one form of it that leaves no credential on the user's own record. Without this the
+        # interstitial never fires for a partner that provisioned the account without also issuing a
+        # personal API key, which is the default (see `issues_personal_api_key`).
+        return has_live_third_party_oauth_access(instance)
 
     @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:

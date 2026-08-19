@@ -152,6 +152,7 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             defaults={
                 "organization_id": obs["team__organization_id"],
                 "team_id": obs["team_id"],
+                "scanner_id": obs["scanner_id"],
                 "observation_created_at": obs["created_at"],
                 "model": model,
                 "credits": credits,

@@ -1,5 +1,6 @@
+import uuid
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -19,7 +20,8 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
-from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.models import SignalReport, SignalSourceConfig
+from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
 
 if TYPE_CHECKING:
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
@@ -195,17 +197,26 @@ def set_default_slack_notification_channel(team_id: int, value: str | None) -> N
 # One catalog drives the list, the toggles, and the "connected" checks.
 # ---------------------------------------------------------------------------
 
-_DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
-
 
 @dataclasses.dataclass(frozen=True)
 class OnboardingSource:
-    """A signal source offered as a checkbox in the Slack onboarding flow, with current state."""
+    """A signal source shown in the Slack onboarding flow, with current state."""
 
     key: str
     label: str
     description: str
     enabled: bool
+    # False for a source that authorizes itself elsewhere: onboarding reports it instead of
+    # offering a checkbox that would have nothing to write.
+    togglable: bool = True
+
+
+def _has_emitting_replay_scanner(team_id: int) -> bool:
+    from products.replay_vision.backend.facade.api import (
+        has_signal_emitting_scanner,  # noqa: PLC0415 — keeps the Replay Vision stack off this import path
+    )
+
+    return has_signal_emitting_scanner(team_id)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -214,8 +225,10 @@ class _SourceSpec:
     label: str
     description: str
     # The SignalSourceConfig (source_product, source_type) rows ticking this source enables.
-    pairs: tuple[tuple[str, str], ...]
-    needs_ai_approval: bool = False
+    # Empty when the source authorizes itself elsewhere, which is also what makes it untickable.
+    pairs: tuple[tuple[str, str], ...] = ()
+    # Reads the on/off state of a source that has no config row to read it from.
+    enabled_check: Callable[[int], bool] | None = None
 
 
 _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
@@ -230,25 +243,29 @@ _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
         ),
     ),
     _SourceSpec(
-        "session_replay",
-        "Session replay analysis",
-        "problems real users hit",
-        (("session_replay", "session_analysis_cluster"),),
-        needs_ai_approval=True,
+        "replay_vision",
+        "Replay vision",
+        "bugs and UX problems scanners find in recordings",
+        enabled_check=_has_emitting_replay_scanner,
     ),
 )
 _SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
 
 
-def _ai_data_processing_approved(team_id: int) -> bool:
-    return bool(
-        Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
-    )
-
-
 def has_enabled_source(team_id: int) -> bool:
-    """True once the team has at least one enabled signal source — i.e. there's something to respond to."""
-    return SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).exists()
+    """True once the team has at least one enabled signal source — i.e. there's something to respond to.
+
+    Replay Vision is checked separately because it has no config row to find: each scanner's own
+    `emits_signals` flag authorizes it (see `SignalSourceConfig.is_source_enabled`)."""
+    if (
+        SignalSourceConfig.objects.filter(team_id=team_id, enabled=True)
+        # Retired: rows outlive the feature until the cleanup migration runs, and counting one marks
+        # onboarding complete on a source that emits nothing.
+        .exclude(source_product="session_replay", source_type="session_analysis_cluster")
+        .exists()
+    ):
+        return True
+    return _has_emitting_replay_scanner(team_id)
 
 
 def team_ids_with_source_product_enabled(source_product: str) -> list[int]:
@@ -281,31 +298,28 @@ def onboarding_sources(team_id: int) -> list[OnboardingSource]:
             key=spec.key,
             label=spec.label,
             description=spec.description,
-            enabled=any(pair in enabled_pairs for pair in spec.pairs),
+            enabled=(
+                spec.enabled_check(team_id) if spec.enabled_check else any(pair in enabled_pairs for pair in spec.pairs)
+            ),
+            togglable=bool(spec.pairs),
         )
         for spec in _SOURCE_CATALOG
     ]
 
 
-def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> list[str]:
+def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> None:
     """Sync the team's onboarding sources to ``selected_keys`` (tick = enable, untick = disable;
-    enabling a source sets up its SignalSourceConfig). Returns the labels of any that couldn't be
-    enabled because AI data processing isn't approved (session replay analysis)."""
+    enabling a source sets up its SignalSourceConfig)."""
     selected = set(selected_keys)
-    ai_approved = _ai_data_processing_approved(team_id)
-    blocked: list[str] = []
     for spec in _SOURCE_CATALOG:
-        want_on = spec.key in selected
-        if want_on and spec.needs_ai_approval and not ai_approved:
-            # Wanted but AI-gated: leave the source as-is. Disabling here would silently turn off a
-            # previously-approved source when the full checkbox snapshot is re-submitted.
-            blocked.append(spec.label)
+        if not spec.pairs:
+            # Authorized elsewhere (Replay Vision, per scanner), so onboarding never offered it as a
+            # checkbox and has nothing to write here.
             continue
+        want_on = spec.key in selected
         for source_product, source_type in spec.pairs:
             if want_on:
                 defaults: dict = {"enabled": True, "created_by_id": user_id}
-                if source_type == "session_analysis_cluster":
-                    defaults["config"] = {"sample_rate": _DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE}
                 obj, created = SignalSourceConfig.objects.get_or_create(
                     team_id=team_id, source_product=source_product, source_type=source_type, defaults=defaults
                 )
@@ -316,7 +330,6 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                 SignalSourceConfig.objects.filter(
                     team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
                 ).update(enabled=False)
-    return blocked
 
 
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,
@@ -331,12 +344,19 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
 # the product output rather than an arbitrary nested blob; see `scout_harness/tools/report.py`.
 _MAX_TELEMETRY_STR_LEN = 256
 
+# Keys that name a person rather than attribute a signal. A source may carry one on `extra` because
+# triage needs it (a GitHub issue's `author_login` separates a maintainer's report from a stranger's),
+# but no lifecycle event needs the identity, so the scalar passthrough drops it.
+_TELEMETRY_EXCLUDED_EXTRA_KEYS = frozenset({"author_login"})
+
 
 def _telemetry_props_from_extra(extra: dict | None) -> dict:
     if not extra:
         return {}
     props: dict = {}
     for key, value in extra.items():
+        if key in _TELEMETRY_EXCLUDED_EXTRA_KEYS:
+            continue
         if isinstance(value, str):
             props[key] = value[:_MAX_TELEMETRY_STR_LEN]
         elif isinstance(value, (bool, int, float)):
@@ -567,4 +587,56 @@ def forward_report_discussion_note(
         user_id=user_id,
         scoped_team_ids=scoped_team_ids,
         api_scopes=api_scopes,
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class SignalSourceSliceOutcomes:
+    """What one source slice's signals led to: reports they were grouped into and the PRs off those."""
+
+    signal_count: int
+    report_count: int
+    pr_count: int
+    merged_pr_count: int
+
+
+def get_outcomes_for_signal_source_slice(
+    *, team: Team, source_product: str, source_type: str, extra_equals: dict[str, str]
+) -> SignalSourceSliceOutcomes:
+    """Aggregate downstream outcomes for signals of `(source_product, source_type)` narrowed by
+    equality on `extra` keys (e.g. Replay Vision's `scanner_id`).
+
+    Reports are counted only if the row still exists for this team and is not soft-deleted; a
+    report usually aggregates signals from several sources, so these are contributions, not sole
+    causes. PR counts come from the same implementation-PR resolution the inbox uses (latest
+    PR-bearing task run per report), deduplicated by URL since reports can share a task's PR.
+    """
+    from products.signals.backend.implementation_pr import (  # noqa: PLC0415 — keeps the tasks facade off this module's import path
+        fetch_implementation_pr_state_for_reports,
+    )
+
+    stats = fetch_signal_stats_for_source_slice(
+        team, source_product=source_product, source_type=source_type, extra_equals=extra_equals
+    )
+    # CH metadata is not authoritative — keep only report ids that parse and still exist for this team.
+    candidate_ids = []
+    for report_id in stats.report_ids:
+        try:
+            candidate_ids.append(uuid.UUID(report_id))
+        except ValueError:
+            continue
+    report_ids = [
+        str(rid)
+        for rid in SignalReport.objects.filter(team=team, id__in=candidate_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .values_list("id", flat=True)
+    ]
+    prs = fetch_implementation_pr_state_for_reports(report_ids)
+    pr_urls = {pr.url for pr in prs.values()}
+    merged_pr_urls = {pr.url for pr in prs.values() if pr.merged}
+    return SignalSourceSliceOutcomes(
+        signal_count=stats.signal_count,
+        report_count=len(report_ids),
+        pr_count=len(pr_urls),
+        merged_pr_count=len(merged_pr_urls),
     )

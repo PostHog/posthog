@@ -49,20 +49,22 @@ hcl/
 `check.sh` is **offline** — it proves the HCL is internally consistent and that `golden/`/`sql/` are
 fresh, but it never contacts a cluster, so it cannot tell whether the imperative migrations in
 `posthog/clickhouse/migrations/` still produce the schema the HCL declares. That gap is how old
-migrations silently desynced the live OPS/LOGS schema from the HCL.
+migrations silently desynced the live schema from the HCL.
 
 The convergence gate closes it, in **two steps** that run inside the multinode migration smoke
 (`tools/infra-scripts/clickhouse-multinode/`, workflow `ci-clickhouse-multinode-migrations.yml`)
 **after** `manage.py migrate_clickhouse`:
 
-1. **`dump-live.sh [outdir]`** — `hclexp introspect` each managed role's live node into
+1. **`dump-live.sh [outdir]`** — `hclexp introspect` each role's live node into
    `<outdir>/<env>-<role>.hcl`, dropping unmanaged / transient objects via `exclude.hcl`. Needs the
    cluster (a `--network host` container, or `HCLEXP_BIN` locally). Also writes
    `<outdir>/hclexp-version.txt` (`hclexp -version`) recording the tool build that produced the dump —
    informational provenance, not gated by `check-live.sh`.
-2. **`check-live.sh <dumpdir>`** — for each role, `hclexp diff -format json` the committed
-   `golden/<env>/<role>.hcl` against the dump, drop the ignored operations (named_collections +
-   `exclude.hcl` globs), and require nothing left. Offline — only needs `hclexp`.
+2. **`check-live.sh <dumpdir>`** — for each role, `hclexp diff -exclude exclude.hcl -format json` the
+   committed `golden/<env>/<role>.hcl` against the dump, and require an empty operation list.
+   The exclusion is native: `hclexp` drops named_collections (`object_types`) and unmanaged /
+   transient names (`patterns`) from both sides before diffing, so `check-live.sh` filters nothing
+   itself. Offline — only needs `hclexp`.
 
 ```bash
 DUMP=$(bash posthog/clickhouse/hcl/dump-live.sh)   # step 1 -> prints the dump dir
@@ -75,13 +77,16 @@ versa). Fix the migration to match the HCL, or — if the change is intended —
 **enforced** (drift fails the smoke); export `VERIFY_LIVE_WARN=1` to make it informational while
 reconciling a new role.
 
-Each managed role is compared against its `golden/local-multi/<role>.hcl`. The local LOGS node runs a
-partial/newer schema than the cloud logs nodes, so `local logs` composes a self-contained
-`roles/logs/local` (extracted from the live node) rather than the shared cloud layers.
+Every role `manifest.hcl` composes for the gate's env is dumped and gated — for `local-multi` that is
+each node the multinode stack runs, one per published port in `dump-live.sh`'s `ROLES`, compared
+against its `golden/local-multi/<role>.hcl` (`aux` is filed as `auxiliary`, see `golden_name` in
+`lib.sh`). The local LOGS node runs a partial/newer schema than the cloud logs nodes, so
+`local-multi logs` composes a self-contained `roles/logs/local` (extracted from the live node) rather
+than the shared cloud layers.
 
 `node_roles` is **derived**: an object in `roles/shared/` appears in every node's composition →
-`node_roles` = every managed role (currently `[LOGS, OPS]`); an object under `roles/ops/` appears
-only in the ops nodes → `[OPS]`; one under `roles/logs/` → `[LOGS]`.
+`node_roles` = every role the manifest declares; an object under `roles/ops/` appears only in the ops
+nodes → `[OPS]`; one under `roles/logs/` → `[LOGS]`.
 
 Per-node `{shard}` / `{replica}` stay as ClickHouse macros, so replicas collapse to one definition.
 A cross-cluster Distributed proxy references a table on another cluster's composition; `check.sh`

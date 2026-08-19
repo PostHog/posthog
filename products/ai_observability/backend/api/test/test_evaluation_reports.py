@@ -262,8 +262,25 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_list_reports(self):
-        self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
-        self._create_report(evaluation=self._create_boolean_evaluation())
+        report_with_runs = self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
+        report_without_runs = self._create_report(evaluation=self._create_boolean_evaluation())
+        with freeze_time("2026-08-10T12:00:00Z"):
+            EvaluationReportRun.objects.create(
+                report=report_with_runs,
+                content={},
+                metadata={},
+                period_start=timezone.now() - dt.timedelta(hours=1),
+                period_end=timezone.now(),
+            )
+        with freeze_time("2026-08-11T12:00:00Z"):
+            EvaluationReportRun.objects.create(
+                report=report_with_runs,
+                content={},
+                metadata={},
+                period_start=timezone.now() - dt.timedelta(hours=1),
+                period_end=timezone.now(),
+            )
+
         response = self.client.get(self.base_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
@@ -272,6 +289,12 @@ class TestEvaluationReportApi(APIBaseTest):
         first = results[0]
         for field in ("delivery_targets", "rrule", "starts_at", "timezone_name", "report_prompt_guidance"):
             self.assertIn(field, first)
+
+        results_by_id = {result["id"]: result for result in results}
+        self.assertEqual(results_by_id[str(report_with_runs.id)]["generated_report_count"], 2)
+        self.assertEqual(results_by_id[str(report_with_runs.id)]["last_generated_at"], "2026-08-11T12:00:00Z")
+        self.assertEqual(results_by_id[str(report_without_runs.id)]["generated_report_count"], 0)
+        self.assertIsNone(results_by_id[str(report_without_runs.id)]["last_generated_at"])
 
     def test_list_filters_by_evaluation(self) -> None:
         report = self._create_report()

@@ -121,10 +121,17 @@ Sales and subscription reports also need your vendor number (App Store Connect â
 
     def get_retryable_errors(self) -> set[str]:
         # `_get` has no retry loop of its own â€” it relies on the tracked session's urllib3 adapter
-        # to retry a connection failure or read timeout. Once that budget is exhausted, Temporal
-        # retries the whole activity, so this is transient and self-recovering. The host is fixed
-        # (never user input), so matching on it doesn't risk swallowing an unrelated failure.
-        return {"HTTPSConnectionPool(host='api.appstoreconnect.apple.com'"}
+        # to retry a connection failure, read timeout, or 429/5xx response. Once that budget is
+        # exhausted, Temporal retries the whole activity, so this is transient and self-recovering.
+        # The host is fixed (never user input), so matching on it doesn't risk swallowing an
+        # unrelated failure. `requests.Response.raise_for_status` derives "Server Error"/"Client
+        # Error" prefixes from the status code alone, not the vendor's reason text, so they're
+        # stable to match on (see mailchimp/convex sources for the same pattern).
+        return {
+            "HTTPSConnectionPool(host='api.appstoreconnect.apple.com'",
+            "Server Error",
+            "429 Client Error",
+        }
 
     def get_schemas(
         self,

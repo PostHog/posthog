@@ -83,6 +83,24 @@ def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReaso
     close_implementation_pr_for_report(team_id, report_id, reason=reason)
 
 
+@shared_task(
+    name="products.signals.backend.tasks.refresh_report_canvases_for_task",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit  # SignalReport still uses RootTeamManager; this lookup intentionally spans teams.
+def refresh_report_canvases_for_task(task_id: str) -> None:
+    from asgiref.sync import async_to_sync  # noqa: PLC0415 — keeps Temporal off Celery task discovery
+
+    from products.signals.backend.temporal.report_canvas import (  # noqa: PLC0415 — keeps Temporal off Celery task discovery
+        start_report_canvas_workflow,
+    )
+
+    reports = SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_id)).values_list("team_id", "id")
+    for team_id, report_id in reports:
+        async_to_sync(start_report_canvas_workflow)(team_id=team_id, report_id=str(report_id))
+
+
 def _slack_retry_after_seconds(exc: Exception) -> int | None:
     if not isinstance(exc, SlackApiError) or not exc.response:
         return None
@@ -119,6 +137,7 @@ def deliver_scout_slack_output(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    edit_note: str | None = None,
 ) -> None:
     context = {
         "team_id": team_id,
@@ -161,6 +180,7 @@ def deliver_scout_slack_output(
                 delivery_id=delivery_id,
                 integration_id=integration_id,
                 channel=channel,
+                edit_note=edit_note,
             )
         else:
             logger.warning("signals_scout.slack_delivery_output_type_invalid", **context)
@@ -212,9 +232,13 @@ def enqueue_scout_slack_delivery(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    edit_note: str | None = None,
 ) -> None:
     """Publish after commit, capturing broker failures without affecting the completed emit."""
     try:
+        # `edit_note` rides as a kwarg only when set, so every delivery without one keeps the
+        # payload shape workers running the previous task signature still accept.
+        extra_kwargs: dict[str, str] = {"edit_note": edit_note} if edit_note is not None else {}
         deliver_scout_slack_output.delay(
             team_id,
             output_type,
@@ -223,6 +247,7 @@ def enqueue_scout_slack_delivery(
             delivery_id,
             integration_id,
             channel,
+            **extra_kwargs,
         )
     except Exception as exc:
         capture_exception(

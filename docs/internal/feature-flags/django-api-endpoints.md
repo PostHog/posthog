@@ -96,7 +96,7 @@ Key things to know:
 - `evaluation_runtime` controls whether a flag is evaluated client-side, server-side, or both
 - The `@approval_gate` decorator on updates can require approval before changes take effect
 
-**Cache invalidation**: The `refresh_flag_cache_on_updates` signal handler fires on save/delete, calling `set_feature_flags_for_team_in_cache()` via `transaction.on_commit()`.
+**Cache invalidation**: The `feature_flag_changed_flags_cache` (`flags_cache.py`) and `feature_flag_changed` (`local_evaluation.py`) signal handlers fire on save/delete, scheduling cache rebuilds via `transaction.on_commit()`.
 
 ### Related models (same file)
 

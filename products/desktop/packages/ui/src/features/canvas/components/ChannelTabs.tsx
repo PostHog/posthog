@@ -11,7 +11,7 @@ const TABS = CHANNEL_SECTIONS.map((s) => ({
   to: `/website/$channelId/${s.key}` as const,
 }));
 
-// Home / History / Artifacts tab switcher shown in the channel header bar, with
+// Channel section switcher shown in the channel header bar, with
 // a Pinned quick-access menu alongside. Pathname-driven active state (the
 // codebase's convention) rather than Link's activeProps.
 export function ChannelTabs({ channelId }: { channelId: string }) {

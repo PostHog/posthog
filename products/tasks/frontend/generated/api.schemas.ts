@@ -47,6 +47,29 @@ export interface TaskRunErrorResponseApi {
     is_pro?: boolean
 }
 
+export interface ComputeRateCardApi {
+    /** Stable identifier for this rate card. */
+    version: string
+    /** Time when this rate card became effective. */
+    effective_at: string
+    /**
+     * Time when this rate card stopped applying, or null while it remains current.
+     * @nullable
+     */
+    expires_at: string | null
+    /** USD charged per CPU core-second as an exact decimal string. */
+    cpu_core_second_usd: string
+    /** USD charged per GiB-second of memory as an exact decimal string. */
+    memory_gib_second_usd: string
+}
+
+export interface SandboxComputePricingApi {
+    /** Currently effective sandbox compute rate card, or null before pricing is published. */
+    current: ComputeRateCardApi | null
+    /** Expired sandbox compute rate cards, newest first. */
+    history: ComputeRateCardApi[]
+}
+
 export interface LoopRepositoryEntryDTOApi {
     github_integration_id: number
     full_name: string
@@ -850,6 +873,7 @@ export interface SandboxEnvironmentWriteApi {
     network_access_level?: NetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
+     * @maxItems 100
      * @items.maxLength 255
      */
     allowed_domains?: string[]
@@ -888,6 +912,7 @@ export interface PatchedSandboxEnvironmentWriteApi {
     network_access_level?: NetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
+     * @maxItems 100
      * @items.maxLength 255
      */
     allowed_domains?: string[]
@@ -931,6 +956,15 @@ export const ActivityKindEnumApi = {
 } as const
 
 /**
+ * * `desktop_canvas` - desktop_canvas
+ */
+export type TargetScopeEnumApi = (typeof TargetScopeEnumApi)[keyof typeof TargetScopeEnumApi]
+
+export const TargetScopeEnumApi = {
+    DesktopCanvas: 'desktop_canvas',
+} as const
+
+/**
  * Response shape for one task in the requester's activity feed (one row per task).
  */
 export interface TaskActivityDTOApi {
@@ -964,6 +998,15 @@ export interface TaskActivityDTOApi {
     latest_comment_scope?: string | null
     /** @nullable */
     latest_comment_item_id?: string | null
+    /** The non-task surface this activity opens, when the task backs another shared artifact.
+     *
+     * * `desktop_canvas` - desktop_canvas */
+    target_scope?: TargetScopeEnumApi | null
+    /**
+     * Identifier of the activity target. Present together with target_scope.
+     * @nullable
+     */
+    target_id?: string | null
     /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
     is_unread: boolean
 }
@@ -1016,126 +1059,6 @@ export interface TaskActivityMarkReadResponseApi {
     marked_read: number
     /** The requester's remaining unread total after the update. */
     unread_count: number
-}
-
-/**
- * Detail/create/update/run response for a task automation.
- */
-export interface TaskAutomationDTOApi {
-    id: string
-    name: string
-    prompt: string
-    /** @nullable */
-    repository: string | null
-    /** @nullable */
-    github_integration: number | null
-    cron_expression: string
-    timezone: string
-    /** @nullable */
-    template_id: string | null
-    enabled: boolean
-    /** @nullable */
-    last_run_at: string | null
-    /** @nullable */
-    last_run_status: string | null
-    last_task_id: string
-    /** @nullable */
-    last_task_run_id: string | null
-    /** @nullable */
-    last_error: string | null
-    created_at: string
-    updated_at: string
-}
-
-export interface PaginatedTaskAutomationDTOListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskAutomationDTOApi[]
-}
-
-/**
- * Request body for creating or updating a task automation.
- */
-export interface TaskAutomationWriteApi {
-    /**
-     * Display name (stored as the backing task's title).
-     * @maxLength 255
-     */
-    name: string
-    /** The automation prompt (stored as the backing task's description). */
-    prompt: string
-    /**
-     * Target repository in the format organization/repository.
-     * @maxLength 255
-     */
-    repository: string
-    /**
-     * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-     * @nullable
-     */
-    github_integration?: number | null
-    /**
-     * Standard 5-field cron expression (minute hour day month weekday).
-     * @maxLength 100
-     */
-    cron_expression: string
-    /**
-     * IANA timezone the schedule runs in.
-     * @maxLength 128
-     */
-    timezone?: string
-    /**
-     * Optional template identifier this automation was created from.
-     * @maxLength 255
-     * @nullable
-     */
-    template_id?: string | null
-    /** Whether the schedule is active; paused when false. */
-    enabled?: boolean
-}
-
-/**
- * Request body for creating or updating a task automation.
- */
-export interface PatchedTaskAutomationWriteApi {
-    /**
-     * Display name (stored as the backing task's title).
-     * @maxLength 255
-     */
-    name?: string
-    /** The automation prompt (stored as the backing task's description). */
-    prompt?: string
-    /**
-     * Target repository in the format organization/repository.
-     * @maxLength 255
-     */
-    repository?: string
-    /**
-     * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-     * @nullable
-     */
-    github_integration?: number | null
-    /**
-     * Standard 5-field cron expression (minute hour day month weekday).
-     * @maxLength 100
-     */
-    cron_expression?: string
-    /**
-     * IANA timezone the schedule runs in.
-     * @maxLength 128
-     */
-    timezone?: string
-    /**
-     * Optional template identifier this automation was created from.
-     * @maxLength 255
-     * @nullable
-     */
-    template_id?: string | null
-    /** Whether the schedule is active; paused when false. */
-    enabled?: boolean
 }
 
 /**
@@ -1243,6 +1166,11 @@ export interface PatchedChannelUpdateApi {
      * @items.maxLength 255
      */
     repositories?: string[]
+}
+
+export interface ChannelDeleteConflictApi {
+    /** Why the space cannot be deleted. */
+    detail: string
 }
 
 /**
@@ -1562,7 +1490,7 @@ export interface TaskDetailDTOApi {
      *
      * * `acp` - ACP
      * * `pi` - Pi */
-    readonly runtime: RuntimeEnumApi
+    runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
     repositories: string[]
@@ -1584,6 +1512,8 @@ export interface TaskDetailDTOApi {
     created_at?: string | null
     /** @nullable */
     updated_at?: string | null
+    /** @nullable */
+    last_activity_at?: string | null
     created_by?: TaskUserBasicInfoApi | null
     /** @nullable */
     ci_prompt: string | null
@@ -1606,7 +1536,6 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `error_tracking` - Error Tracking
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
- * * `automation` - Automation
  * * `slack` - Slack
  * * `support_queue` - Support Queue
  * * `session_summaries` - Session Summaries
@@ -1620,6 +1549,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `image_builder` - Image Builder
  * * `loop` - Loop
  * * `mcp_analytics` - MCP Analytics
+ * * `signals_chat` - Signals Chat
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -1628,7 +1558,6 @@ export const OriginProductEnumApi = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
-    Automation: 'automation',
     Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
@@ -1642,6 +1571,7 @@ export const OriginProductEnumApi = {
     ImageBuilder: 'image_builder',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
+    SignalsChat: 'signals_chat',
 } as const
 
 /**
@@ -1667,7 +1597,6 @@ export interface TaskCreateApi {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -1680,7 +1609,8 @@ export interface TaskCreateApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
-     * * `mcp_analytics` - MCP Analytics */
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1810,7 +1740,6 @@ export interface TaskWriteApi {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -1823,7 +1752,8 @@ export interface TaskWriteApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
-     * * `mcp_analytics` - MCP Analytics */
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1938,7 +1868,6 @@ export interface PatchedTaskWriteApi {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -1951,7 +1880,8 @@ export interface PatchedTaskWriteApi {
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
      * * `loop` - Loop
-     * * `mcp_analytics` - MCP Analytics */
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2734,6 +2664,15 @@ export interface TaskStagedArtifactPrepareUploadResponseApi {
 export interface TaskStagedArtifactsPrepareUploadResponseApi {
     /** Prepared staged uploads for the requested artifacts */
     artifacts: TaskStagedArtifactPrepareUploadResponseApi[]
+}
+
+export interface TaskUsageResponseApi {
+    /** Estimated model cost attributed to this task in US dollars. */
+    token_cost_usd: number
+    /** Estimated cloud compute cost attributed to this task in US dollars. */
+    compute_cost_usd: number
+    /** Estimated total cost attributed to this task in US dollars. */
+    total_cost_usd: number
 }
 
 export interface PaginatedTaskRunDetailDTOListApi {
@@ -3670,6 +3609,30 @@ export interface WizardCloudRunDTOApi {
     started_at?: string | null
 }
 
+/**
+ * One model a run may use. Reads a `ModelChoice` straight off the catalogue facade.
+ *
+ * Both enums are declared with the same choices the run-detail response uses, so clients get the
+ * generated adapter/effort types here rather than bare strings.
+ */
+export interface ModelChoiceApi {
+    /** Runtime that drives this model, such as 'claude' or 'codex'.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter: RuntimeAdapterEnumApi
+    model: string
+    /** Display name for the model, such as 'Claude Opus 4.8'. */
+    display_name: string
+    /** Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control. */
+    supported_efforts: ReasoningEffortEnumApi[]
+}
+
+export interface ModelCatalogueResponseApi {
+    /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
+    models: ModelChoiceApi[]
+}
+
 export interface PinnedTaskIdsResponseApi {
     /** Visible task IDs pinned by the requester, newest pin first. */
     task_ids: string[]
@@ -3762,6 +3725,54 @@ export interface RepositoryReadinessResponseApi {
     cacheAgeSeconds: number
     /** Scan evidence details */
     scan?: ScanEvidenceApi
+}
+
+/**
+ * * `task` - task
+ * * `pull_request` - pull_request
+ * * `artifact` - artifact
+ * * `channel` - channel
+ */
+export type TaskSearchResultKindEnumApi = (typeof TaskSearchResultKindEnumApi)[keyof typeof TaskSearchResultKindEnumApi]
+
+export const TaskSearchResultKindEnumApi = {
+    Task: 'task',
+    PullRequest: 'pull_request',
+    Artifact: 'artifact',
+    Channel: 'channel',
+} as const
+
+export interface TaskSearchResultApi {
+    /** Search document identifier. */
+    id: string
+    /** Type of matched resource.
+     *
+     * * `task` - task
+     * * `pull_request` - pull_request
+     * * `artifact` - artifact
+     * * `channel` - channel */
+    kind: TaskSearchResultKindEnumApi
+    /** Primary result label. */
+    title: string
+    /** Secondary result context. */
+    subtitle: string
+    /**
+     * Containing task identifier, when applicable.
+     * @nullable
+     */
+    task_id: string | null
+    /**
+     * Containing task run identifier, when applicable.
+     * @nullable
+     */
+    task_run_id: string | null
+    /**
+     * Containing space identifier, when applicable.
+     * @nullable
+     */
+    channel_id: string | null
+    /** Resource-specific navigation metadata. */
+    metadata: unknown
 }
 
 /**
@@ -4126,17 +4137,6 @@ export type TaskActivityListParams = {
     limit?: number
 }
 
-export type TaskAutomationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type TaskChannelsListParams = {
     /**
      * Number of results to return per page.
@@ -4178,7 +4178,7 @@ export type TaskMentionsListParams = {
 
 export type TasksListParams = {
     /**
-     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
+     * Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.
      */
     all_team_tasks?: boolean
     /**
@@ -4194,6 +4194,20 @@ export type TasksListParams = {
      * Filter tasks to a channel's feed.
      */
     channel?: string
+    /**
+     * Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.
+     *
+     * * `passing` - passing
+     * * `failing` - failing
+     * * `pending` - pending
+     * * `none` - none
+     * @minLength 1
+     */
+    ci_status?: TasksListCiStatus
+    /**
+     * Filter to tasks carrying a thread comment written by this user ID.
+     */
+    commented_by?: number
     /**
      * Filter by creator user ID
      */
@@ -4214,10 +4228,22 @@ export type TasksListParams = {
      */
     limit?: number
     /**
+     * Filter to tasks whose thread mentions this user ID.
+     */
+    mentions?: number
+    /**
      * The initial index from which to return the results.
      * @minimum 0
      */
     offset?: number
+    /**
+     * Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.
+     *
+     * * `-created_at` - -created_at
+     * * `-last_activity_at` - -last_activity_at
+     * @minLength 1
+     */
+    ordering?: TasksListOrdering
     /**
      * Filter by repository organization
      * @minLength 1
@@ -4228,6 +4254,20 @@ export type TasksListParams = {
      * @minLength 1
      */
     origin_product?: string
+    /**
+     * With true, only tasks the requesting user has pinned.
+     */
+    pinned?: boolean
+    /**
+     * Filter tasks by the state of their most recent run's pull request, as last observed from GitHub (webhooks plus the CI follow-up snapshot).
+     *
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * @minLength 1
+     */
+    pr_state?: TasksListPrState
     /**
      * Filter by repository name (can include org/repo format)
      * @minLength 1
@@ -4264,12 +4304,37 @@ export const TasksListArchived = {
     All: 'all',
 } as const
 
+export type TasksListCiStatus = (typeof TasksListCiStatus)[keyof typeof TasksListCiStatus]
+
+export const TasksListCiStatus = {
+    Passing: 'passing',
+    Failing: 'failing',
+    Pending: 'pending',
+    None: 'none',
+} as const
+
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
 
 export const TasksListInternal = {
     True: 'true',
     False: 'false',
     All: 'all',
+} as const
+
+export type TasksListOrdering = (typeof TasksListOrdering)[keyof typeof TasksListOrdering]
+
+export const TasksListOrdering = {
+    CreatedAt: '-created_at',
+    LastActivityAt: '-last_activity_at',
+} as const
+
+export type TasksListPrState = (typeof TasksListPrState)[keyof typeof TasksListPrState]
+
+export const TasksListPrState = {
+    Open: 'open',
+    Draft: 'draft',
+    Merged: 'merged',
+    Closed: 'closed',
 } as const
 
 export type TasksListStatus = (typeof TasksListStatus)[keyof typeof TasksListStatus]
@@ -4404,6 +4469,21 @@ export type TasksRepositoryReadinessRetrieveParams = {
      * @maximum 30
      */
     window_days?: number
+}
+
+export type TasksSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Text or exact identifier to search for.
+     * @minLength 1
+     * @maxLength 512
+     */
+    q: string
 }
 
 export type TasksSlackThreadContextRetrieveParams = {

@@ -192,6 +192,33 @@ describe('sourceWizardLogic', () => {
             expect(res).toEqual({ prefix: '', description: '', payload: { test_field: 'value1' } })
         })
 
+        it('returns an array default for a multiple select field', async () => {
+            const sourceWizardLogic = await import('../sourceWizardLogic')
+            const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
+                Test: {
+                    name: 'GoogleSearchConsole',
+                    iconPath: '',
+                    caption: null,
+                    fields: [
+                        {
+                            name: 'search_types',
+                            label: 'Search types',
+                            type: 'select',
+                            required: true,
+                            multiple: true,
+                            options: [
+                                { value: 'web', label: 'Web' },
+                                { value: 'image', label: 'Image' },
+                            ],
+                            defaultValue: 'web',
+                        },
+                    ],
+                },
+            })
+
+            expect(res).toEqual({ prefix: '', description: '', payload: { search_types: ['web'] } })
+        })
+
         it('returns defaults for select field with fields', async () => {
             const sourceWizardLogic = await import('../sourceWizardLogic')
             const res = sourceWizardLogic.buildKeaFormDefaultFromSourceDetails({
@@ -360,6 +387,50 @@ describe('sourceWizardLogic', () => {
                 { prefix: '', payload: {} }
             )
             expect(res.payload.test_field).toBeTruthy()
+        })
+
+        it('returns an error for a required multiple select with nothing selected', () => {
+            // An empty array is truthy, so without an array-aware check the form submits
+            // with no selection and the source syncs nothing.
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'search_types',
+                        label: 'Search types',
+                        type: 'select',
+                        required: true,
+                        multiple: true,
+                        options: [
+                            { value: 'web', label: 'Web' },
+                            { value: 'image', label: 'Image' },
+                        ],
+                        defaultValue: 'web',
+                    },
+                ],
+                { prefix: '', payload: { search_types: [] } }
+            )
+            expect(res.payload.search_types).toBeTruthy()
+        })
+
+        it('returns no errors for a required multiple select with a selection', () => {
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'search_types',
+                        label: 'Search types',
+                        type: 'select',
+                        required: true,
+                        multiple: true,
+                        options: [
+                            { value: 'web', label: 'Web' },
+                            { value: 'image', label: 'Image' },
+                        ],
+                        defaultValue: 'web',
+                    },
+                ],
+                { prefix: '', payload: { search_types: ['image'] } }
+            )
+            expect(res.payload).toEqual({})
         })
 
         it('returns no errors for an empty non-required text field', () => {
