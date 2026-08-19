@@ -97,6 +97,7 @@ interface RawJobRow {
     distinct_id: string | null
     person_id: string | null
     action_id: string | null
+    cancel_requested_at: string | Date | null
 }
 
 async function queryJob(id: string): Promise<RawJobRow> {
@@ -753,6 +754,150 @@ describe('Cyclotron V2', () => {
                 await expect(manager.createJob({ id, teamId: 1, queueName: QUEUE })).rejects.toThrow(
                     /duplicate key value/i
                 )
+            })
+        })
+
+        describe('cancelJobs', () => {
+            const FAR_FUTURE = () => new Date(Date.now() + 7 * 24 * 3600 * 1000)
+
+            async function seedParked(functionId: string, over?: Partial<CyclotronV2JobInit>): Promise<string> {
+                return await manager.createJob({
+                    teamId: 1,
+                    queueName: QUEUE,
+                    functionId,
+                    scheduled: FAR_FUTURE(),
+                    ...over,
+                })
+            }
+
+            it('jobIds mode: wakes and flags parked rows, flags running rows in place, leaves terminal rows untouched', async () => {
+                const functionId = uuidv7()
+                const parkedId = await seedParked(functionId)
+                const runningId = await seedParked(functionId)
+                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'running' WHERE id = $1`, [runningId])
+                const completedId = await seedParked(functionId)
+                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'completed' WHERE id = $1`, [completedId])
+
+                const result = await manager.cancelJobs({
+                    teamId: 1,
+                    functionId,
+                    jobIds: [parkedId, runningId, completedId, uuidv7()],
+                })
+
+                expect(result).toEqual({ marked: 2, remaining: 0, done: true })
+
+                // Parked row: flagged AND woken, so the worker terminates it promptly
+                // instead of after the remaining (potentially days-long) delay.
+                const parked = await queryJob(parkedId)
+                expect(parked.cancel_requested_at).not.toBeNull()
+                expect(new Date(parked.scheduled).getTime()).toBeLessThanOrEqual(Date.now())
+
+                // Running row: flagged only. Its wake is pulled forward by the
+                // worker's release, never by an external write racing the lock.
+                const running = await queryJob(runningId)
+                expect(running.cancel_requested_at).not.toBeNull()
+                expect(new Date(running.scheduled).getTime()).toBeGreaterThan(Date.now())
+
+                // Terminal row: untouched, so a later rerun doesn't inherit a flag.
+                const completed = await queryJob(completedId)
+                expect(completed.cancel_requested_at).toBeNull()
+            })
+
+            it('all mode: flags every in-flight row of the function across queues, and nothing beyond it', async () => {
+                const functionId = uuidv7()
+                const parkedId = await seedParked(functionId)
+                const emailQueueId = await seedParked(functionId, { queueName: 'email' })
+                const excludedQueueId = await seedParked(functionId, { queueName: 'orchestration' })
+                const otherFunctionId = await seedParked(uuidv7())
+                const otherTeamId = await seedParked(functionId, { teamId: 2 })
+
+                const result = await manager.cancelJobs({
+                    teamId: 1,
+                    functionId,
+                    all: true,
+                    excludeQueueNames: ['orchestration'],
+                })
+
+                expect(result).toEqual({ marked: 2, remaining: 0, done: true })
+                // A run's job can sit on another queue mid-step (e.g. email) - still flagged.
+                expect((await queryJob(parkedId)).cancel_requested_at).not.toBeNull()
+                expect((await queryJob(emailQueueId)).cancel_requested_at).not.toBeNull()
+                // Excluded queues are neither flagged nor counted as remaining.
+                expect((await queryJob(excludedQueueId)).cancel_requested_at).toBeNull()
+                expect((await queryJob(otherFunctionId)).cancel_requested_at).toBeNull()
+                expect((await queryJob(otherTeamId)).cancel_requested_at).toBeNull()
+            })
+
+            it('reports remaining and done=false when the chunk budget runs out, and the next call finishes', async () => {
+                const functionId = uuidv7()
+                await Promise.all(Array.from({ length: 3 }, () => seedParked(functionId)))
+                const smallChunkManager = createManager({ rescheduleChunkSize: 2, rescheduleMaxChunksPerCall: 1 })
+
+                const first = await smallChunkManager.cancelJobs({ teamId: 1, functionId, all: true })
+                expect(first).toEqual({ marked: 2, remaining: 1, done: false })
+
+                const second = await smallChunkManager.cancelJobs({ teamId: 1, functionId, all: true })
+                expect(second).toEqual({ marked: 1, remaining: 0, done: true })
+
+                await smallChunkManager.disconnect()
+            })
+
+            it('a worker releasing a flagged job wakes it immediately instead of honoring the requested delay', async () => {
+                const functionId = uuidv7()
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
+                const worker = createWorker()
+                const [job] = await dequeueOneBatch(worker)
+                expect(job.id).toBe(id)
+
+                await manager.cancelJobs({ teamId: 1, functionId, jobIds: [id] })
+                await job.reschedule({ scheduledAt: FAR_FUTURE() })
+
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(new Date(row.scheduled).getTime()).toBeLessThanOrEqual(Date.now())
+            })
+
+            it('dequeued jobs expose cancelRequestedAt so consumers can terminate instead of executing', async () => {
+                const functionId = uuidv7()
+                const id = await manager.createJob({
+                    teamId: 1,
+                    queueName: QUEUE,
+                    functionId,
+                    scheduled: FAR_FUTURE(),
+                })
+                await manager.cancelJobs({ teamId: 1, functionId, jobIds: [id] })
+
+                const worker = createWorker()
+                const [job] = await dequeueOneBatch(worker)
+                expect(job.id).toBe(id)
+                expect(job.cancelRequestedAt).not.toBeNull()
+            })
+
+            it('overwriteExisting re-enqueue clears the flag so a rerun does not instantly self-cancel', async () => {
+                const functionId = uuidv7()
+                const id = await seedParked(functionId)
+                await manager.cancelJobs({ teamId: 1, functionId, jobIds: [id] })
+                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'canceled' WHERE id = $1`, [id])
+
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE, functionId, overwriteExisting: true })
+
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(row.cancel_requested_at).toBeNull()
+            })
+
+            it.each([
+                ['no selector', {}],
+                ['two selectors', { jobIds: [uuidv7()], all: true }],
+            ])('rejects a call with %s instead of guessing scope', async (_name, selector) => {
+                await expect(manager.cancelJobs({ teamId: 1, functionId: uuidv7(), ...selector })).rejects.toThrow(
+                    /exactly one selector/
+                )
+            })
+
+            it('empty jobIds is a no-op', async () => {
+                const result = await manager.cancelJobs({ teamId: 1, functionId: uuidv7(), jobIds: [] })
+                expect(result).toEqual({ marked: 0, remaining: 0, done: true })
             })
         })
     })

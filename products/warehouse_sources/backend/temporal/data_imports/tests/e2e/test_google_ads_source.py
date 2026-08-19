@@ -543,7 +543,7 @@ class TestGoogleAdsSourceValidation:
 
         assert is_valid is False
         assert error is not None
-        assert "is not accessible" in error
+        assert "linked under that manager" in error
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
@@ -563,7 +563,7 @@ class TestGoogleAdsSourceValidation:
 
         assert is_valid is False
         assert error is not None
-        assert "is not accessible" in error
+        assert "linked under that manager" in error
 
 
 class TestGoogleAdsClientStaleConnection:

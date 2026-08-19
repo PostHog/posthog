@@ -96,7 +96,8 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     scope_object = "hog_flow"
     # Custom actions must declare their write status so TeamAndOrgViewSetMixin's AccessControlPermission
-    # checks hog_flow:write on the mutating endpoints; the default 'suppressions' list stays a read.
+    # checks hog_flow:write on the mutating endpoints. `suppressions` is scoped by its own
+    # `required_scopes` instead, since it needs person:read on top of the workflow scope.
     scope_object_write_actions = ["add_suppression", "remove_suppression"]
     serializer_class = _FallbackSerializer
 
@@ -108,7 +109,12 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={200: PaginatedMessageSuppressionSerializer},
         summary="List suppressed email addresses for the team",
     )
-    @action(detail=False, methods=["get"])
+    # The rows carry recipient email addresses and their SMTP diagnostics, so reading them is
+    # person-data access on top of workflow read — same rationale as the `assets` and
+    # `user_blast_radius` actions on HogFlowViewSet. Without `person:read` a workflow-only token
+    # could enumerate who a team emails, and probe whether a given address is known by paging for
+    # it. The UI uses session auth, which skips scope checks, so the suppression list is unaffected.
+    @action(detail=False, methods=["get"], required_scopes=["hog_flow:read", "person:read"])
     def suppressions(self, request: Request, **kwargs: Any) -> Response:
         """List suppressed recipients for the team, most recently updated first."""
         # Resource-level check: `AccessControlPermission` only guarantees the caller has some

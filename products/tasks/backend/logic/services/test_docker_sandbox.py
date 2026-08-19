@@ -144,6 +144,8 @@ class TestDockerSandboxUnit:
         for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
             (tmp_path / file_name).touch()
         (tmp_path / "patches").mkdir()
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "rimraf.mjs").touch()
         for package_name in ("agent", "harness", "shared", "git", "enricher"):
             package_path = tmp_path / "packages" / package_name
             package_path.mkdir(parents=True)
@@ -159,6 +161,8 @@ class TestDockerSandboxUnit:
             monorepo_path.mkdir(exist_ok=True)
             (monorepo_path / file_name).touch()
         (monorepo_path / "patches").mkdir()
+        (monorepo_path / "scripts").mkdir()
+        (monorepo_path / "scripts" / "rimraf.mjs").touch()
         for package_name in ("agent", "harness", "shared", "git", "enricher"):
             package_path = monorepo_path / "packages" / package_name
             package_path.mkdir(parents=True)
@@ -173,6 +177,7 @@ class TestDockerSandboxUnit:
 
         workspace_path = context_path / "local-workspace"
         assert (workspace_path / "pnpm-workspace.yaml").is_file()
+        assert (workspace_path / "scripts" / "rimraf.mjs").is_file()
         assert (workspace_path / "packages" / "harness" / "package.json").is_file()
         command = run.call_args.args[0]
         assert command[0:2] == ["docker", "build"]

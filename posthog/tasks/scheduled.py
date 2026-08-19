@@ -14,7 +14,6 @@ from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_toke
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
 from posthog.tasks.email import (
     EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
-    send_error_tracking_weekly_digest,
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
 )
@@ -95,6 +94,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flags_cache_entries,
     sync_cross_region_flags_task,
 )
+from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
@@ -119,12 +119,14 @@ from products.tasks.backend.facade.tasks import (
     refresh_stale_sandbox_custom_images_task,
     sweep_loop_task_retention_task,
 )
+from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
 )
 from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
+from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -245,6 +247,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="team metadata expiry tracking cleanup",
     )
 
+    # SES tenant reputation reconciliation - daily at 6:30 AM UTC. EventBridge events are the
+    # real-time path; this sweep catches missed deliveries. Sequential SES API calls per team
+    # with an SES email integration, so kept daily to stay well inside SES API rate limits.
+    sender.add_periodic_task(
+        crontab(hour="6", minute="30"),
+        reconcile_ses_tenant_states.s(),
+        name="ses tenant reputation reconciliation",
+    )
+
     # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :00
     sender.add_periodic_task(
         crontab(hour="*", minute="5"),
@@ -305,10 +316,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # agent-server release), at most once per new digest.
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="*/10"),
+        crontab(minute="*/2"),
         refresh_dev_stack_image_task.s(),
         name="refresh prebaked dev-stack VM image on base change",
-        expires_seconds=10 * 60,
+        expires_seconds=2 * 60,
     )
 
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
@@ -549,13 +560,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="send HogFunctions daily digest",
     )
 
-    # Send Error Tracking weekly digest at 8:30 AM UTC on Monday
-    sender.add_periodic_task(
-        crontab(hour="8", minute="30", day_of_week="mon"),
-        send_error_tracking_weekly_digest.s(),
-        name="send Error Tracking weekly digest",
-    )
-
     # Send materialized view failure digest daily at morning local time per region
     cloud_deployment = (settings.CLOUD_DEPLOYMENT or "").upper()
     if cloud_deployment == "EU":
@@ -577,6 +581,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="15"),
         send_external_data_failure_digest_catchup.s(),
         name="send external data failure digest catch-up",
+    )
+
+    # Backstop for the write-time teardown dispatch: Running import jobs whose schema
+    # stopped syncing (disabled or deleted) get the same teardown on the next tick.
+    sender.add_periodic_task(
+        crontab(hour="*", minute="25"),
+        sweep_stopped_schema_syncs.s(),
+        name="sweep stopped schema syncs",
     )
 
     # Background net for tables created while nobody visits the warehouse status page. Each
@@ -697,6 +709,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         process_due_reminders.s(),
         name="process due reminders",
+    )
+
+    # Poll PandaDoc for legal documents we still think are unsigned and archive
+    # any signed PDFs that missed their webhook — the safety net that recovers
+    # dropped completion webhooks and the current signed-but-stuck backlog.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/15"),
+        reconcile_pending_legal_documents.s(),
+        name="reconcile pending legal documents",
     )
 
     # Reconcile pulse briefs stranded in GENERATING by an externally-terminated workflow.

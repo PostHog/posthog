@@ -202,7 +202,7 @@ const accountRelationshipDefinitionsRetrieve = (): ToolBase<
 
 const AccountsCreateSchema = AccountsCreateBody.extend({
     properties: AccountsCreateBody.shape['properties'].describe(
-        'Typed account properties. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All fields are optional.'
+        'Typed account properties. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. `email_domains` (company email domains, e.g. ["acme.com"]) and `known_emails` (individual addresses, for contacts on personal domains) match synced touchpoints such as calendar meetings to this account. All fields are optional.'
     ),
     tags: AccountsCreateBody.shape['tags'].describe(
         'Tag names to attach to the account. Tags are created on demand if they do not already exist for the team.'
@@ -229,6 +229,9 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
         }
         if (params.slack_summary_cadence !== undefined) {
             body['slack_summary_cadence'] = params.slack_summary_cadence
+        }
+        if (params.churned_at !== undefined) {
+            body['churned_at'] = params.churned_at
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
@@ -301,6 +304,9 @@ const accountsDestroy = (): ToolBase<typeof AccountsDestroySchema, unknown> => (
 })
 
 const AccountsListSchema = AccountsListQueryParams.extend({
+    include_churned: AccountsListQueryParams.shape['include_churned'].describe(
+        'Include churned accounts. Churned accounts are hidden by default.'
+    ),
     tags: AccountsListQueryParams.shape['tags'].describe(
         'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.'
     ),
@@ -316,6 +322,7 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
             query: {
                 all_roles_unassigned: params.all_roles_unassigned,
+                include_churned: params.include_churned,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -415,7 +422,7 @@ const AccountsPartialUpdateSchema = AccountsPartialUpdateParams.omit({ project_i
     .extend(AccountsPartialUpdateBody.shape)
     .extend({
         properties: AccountsPartialUpdateBody.shape['properties'].describe(
-            'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems). To assign users (CSM, account executive, ...), use `accounts-relationships-create` instead.'
+            'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems), plus `email_domains` (company email domains, e.g. ["acme.com"]) and `known_emails` (individual addresses, for contacts on personal domains) which match synced touchpoints such as calendar meetings to this account. To assign users (CSM, account executive, ...), use `accounts-relationships-create` instead.'
         ),
         tags: AccountsPartialUpdateBody.shape['tags'].describe(
             'Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a delta. Tags are created on demand if they do not already exist for the team.'
@@ -442,6 +449,9 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
         }
         if (params.slack_summary_cadence !== undefined) {
             body['slack_summary_cadence'] = params.slack_summary_cadence
+        }
+        if (params.churned_at !== undefined) {
+            body['churned_at'] = params.churned_at
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',

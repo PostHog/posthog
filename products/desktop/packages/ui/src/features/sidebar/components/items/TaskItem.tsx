@@ -1,8 +1,10 @@
 import { Archive, GitPullRequest, PushPin } from "@phosphor-icons/react";
+import type { RunMode } from "@posthog/core/sidebar/buildSidebarData";
 import { parseGithubUrl } from "@posthog/git/utils";
 import type { WorkspaceMode } from "@posthog/shared";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { TaskRunStatus } from "@posthog/shared/domain-types";
+import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { navigateToPullRequestView } from "@posthog/ui/router/navigationBridge";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DotsCircleSpinner } from "../../../../primitives/DotsCircleSpinner";
@@ -45,6 +47,7 @@ interface TaskItemProps {
   isSuspended?: boolean;
   needsPermission?: boolean;
   taskRunStatus?: TaskRunStatus;
+  runMode?: RunMode;
   originProduct?: string;
   slackThreadUrl?: string;
   prState?: SidebarPrState;
@@ -117,6 +120,7 @@ export function TaskItem({
   isPinned = false,
   needsPermission = false,
   taskRunStatus,
+  runMode,
   originProduct,
   slackThreadUrl,
   prState,
@@ -143,6 +147,7 @@ export function TaskItem({
       isSuspended={isSuspended}
       needsPermission={needsPermission}
       taskRunStatus={taskRunStatus}
+      runMode={runMode}
       originProduct={originProduct}
       slackThreadUrl={slackThreadUrl}
       prState={prState}
@@ -210,6 +215,8 @@ export function TaskItem({
       label={label}
       isActive={isActive}
       isSelected={isSelected}
+      // Lets a drag-selection find the row and the session it stands for.
+      {...{ [SESSION_ROW_ATTRIBUTE]: taskId }}
       isDimmed={isArchiving}
       draggable={!isArchiving}
       onDragStart={handleDragStart}

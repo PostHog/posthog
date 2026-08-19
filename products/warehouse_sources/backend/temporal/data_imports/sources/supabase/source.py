@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _HOST_UNREACHABLE_ERROR,
+    PostgresSource,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SourceField = (
@@ -67,6 +70,21 @@ _SUPABASE_DIRECT_HOST_IPV4_HINT = (
     "(aws-0-<region>.pooler.supabase.com) with username postgres.<project-ref>."
 )
 
+# Supabase Realtime stores messages in daily partitions of its internal `realtime.messages` table
+# named `realtime.messages_YYYY_MM_DD`, and its retention job drops the old partitions. A sync that
+# targets one of these dated partitions fails with `relation "realtime.messages_..." does not exist`
+# once that day is dropped. Match the stable partition-name prefix (never the volatile date). The
+# inherited generic `"does not exist"` already classifies this non-retryable; this entry only adds an
+# actionable message, so it must precede the generic key in `get_non_retryable_errors` (first match
+# wins) with a non-None value.
+_SUPABASE_REALTIME_PARTITION_ERROR = "realtime.messages_"
+_SUPABASE_REALTIME_PARTITION_MESSAGE = (
+    "Supabase creates a new realtime.messages partition each day and drops old ones automatically, "
+    "so the dated partition this sync read no longer exists. These partitions are temporary and "
+    "aren't meant to be synced. Remove this table from the source's selected tables, then re-enable "
+    "the sync."
+)
+
 
 @SourceRegistry.register
 class SupabaseSource(PostgresSource):
@@ -76,6 +94,12 @@ class SupabaseSource(PostgresSource):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SUPABASE
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            _SUPABASE_REALTIME_PARTITION_ERROR: _SUPABASE_REALTIME_PARTITION_MESSAGE,
+            **super().get_non_retryable_errors(),
+        }
 
     @staticmethod
     def _adjust_field(field: _SourceField) -> _SourceField:
@@ -126,10 +150,12 @@ class SupabaseSource(PostgresSource):
 
         # The direct host (IPv6-only by default) is the only host that supports logical
         # replication, so CDC users need it. We let the real connection attempt decide
-        # reachability — it succeeds when the IPv4 add-on is enabled — and only swap in a
-        # clearer message when it fails, since the generic Postgres error is opaque.
+        # reachability — it succeeds when the IPv4 add-on is enabled. Only the unreachable
+        # failure is the IPv4 case, so swap in Supabase-specific pooler guidance there; other
+        # failures (bad password, missing database, SSL) already have clear messages, and
+        # blaming them on IPv4 would misdirect the user.
         is_direct_host = bool(_SUPABASE_DIRECT_HOST_RE.match((config.host or "").strip()))
         success, error = super().validate_credentials(config, team_id, schema_name=schema_name)
-        if not success and is_direct_host:
+        if not success and is_direct_host and error == _HOST_UNREACHABLE_ERROR:
             return False, _SUPABASE_DIRECT_HOST_IPV4_HINT
         return success, error

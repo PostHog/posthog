@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { onboardingLogic } from 'scenes/onboarding/legacy/onboardingLogic'
 import { OnboardingStep } from 'scenes/onboarding/legacy/OnboardingStep'
 import { type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
+import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -25,7 +26,11 @@ function MCPAnalyticsInstallStep(): JSX.Element {
     }, [onboardingState, completeOnboarding])
 
     return (
-        <OnboardingStep title="Install" stepKey={OnboardingStepKey.INSTALL} continueText="Go to dashboard">
+        <OnboardingStep
+            title={`Install ${availableOnboardingProducts[ProductKey.MCP_ANALYTICS].name}`}
+            stepKey={OnboardingStepKey.INSTALL}
+            continueText="Go to dashboard"
+        >
             <div className="mt-6">
                 <MCPAnalyticsInstallHero />
             </div>

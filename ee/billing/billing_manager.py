@@ -9,6 +9,8 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db.models import F
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 import jwt
 import requests
@@ -28,7 +30,7 @@ from posthog.models.team.event_retention import (
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
-from ee.billing.billing_types import BillingProvider, BillingStatus
+from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -38,6 +40,11 @@ logger = structlog.get_logger(__name__)
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signature"
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
+BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
+
+# Marks tokens minted by the billing alerts evaluation job; billing recognizes this claim
+# on its read-only billing status path for tokens without a user role.
+BILLING_ALERTS_EVALUATION_SERVICE_ACTION = "billing_alerts_evaluation"
 
 
 class BillingAPIErrorCodes(Enum):
@@ -61,6 +68,19 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
             return True
 
     return False
+
+
+def _free_trial_active(customer: CustomerInfo) -> bool:
+    free_trial_until = customer.get("free_trial_until")
+    if not free_trial_until:
+        return False
+    expires = parse_datetime(free_trial_until) if isinstance(free_trial_until, str) else free_trial_until
+    if expires is None:
+        return False
+    # An offset-less timestamp parses naive, and comparing naive to aware raises TypeError.
+    if timezone.is_naive(expires):
+        expires = expires.replace(tzinfo=UTC)
+    return expires > timezone.now()
 
 
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
@@ -490,6 +510,10 @@ class BillingManager:
                 ai_credits=usage_summary.get("ai_credits", {}),
                 signals_credits=usage_summary.get("signals_credits", {}),
                 posthog_code_credits=usage_summary.get("posthog_code_credits", {}),
+                posthog_code_token_credits=usage_summary.get("posthog_code_token_credits", {}),
+                sandbox_compute_credits=usage_summary.get("sandbox_compute_credits", {}),
+                sandbox_compute_cpu_millicore_seconds=usage_summary.get("sandbox_compute_cpu_millicore_seconds", {}),
+                sandbox_compute_memory_mib_seconds=usage_summary.get("sandbox_compute_memory_mib_seconds", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
                 workflow_push=usage_summary.get("workflow_push", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
@@ -530,6 +554,17 @@ class BillingManager:
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
             org_modified = True
+
+        # A missing key (partial or error-path response) must not reset a known value to unknown.
+        if "has_active_subscription" in data:
+            has_active_subscription = data.get("has_active_subscription")
+            # Trials run without a Stripe subscription, so a trialing org would otherwise read
+            # as free tier and get metered; count an active trial as paid until it expires.
+            if has_active_subscription is False and _free_trial_active(data):
+                has_active_subscription = True
+            if has_active_subscription != organization.has_active_subscription:
+                organization.has_active_subscription = has_active_subscription
+                org_modified = True
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
@@ -796,6 +831,20 @@ class BillingManager:
         handle_billing_service_error(res)
         return res.json()
 
+    def get_billing_status_for_alerts(self, organization: Organization) -> dict[str, Any]:
+        """Read billing status for billing alert evaluation.
+
+        Evaluation runs as a backend job without an acting user, so the token carries the
+        billing alerts service_action claim instead of a user role claim.
+        """
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers=self.get_auth_headers(organization, service_action=BILLING_ALERTS_EVALUATION_SERVICE_ACTION),
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
+        handle_billing_service_error(res)
+        return res.json()
+
     def get_usage_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
         return self._request_with_post_fallback(organization, "/api/v2/usage/", params)
 
@@ -816,7 +865,12 @@ class BillingManager:
         url = f"{BILLING_SERVICE_URL}{path}"
         headers = self.get_auth_headers(organization)
 
-        res = requests.get(url, headers=headers, params=self._to_query_params(params))
+        res = requests.get(
+            url,
+            headers=headers,
+            params=self._to_query_params(params),
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
 
         if res.status_code in (414, 431):
             logger.info(
@@ -825,7 +879,12 @@ class BillingManager:
                 status_code=res.status_code,
                 organization_id=str(organization.id),
             )
-            res = requests.post(url, headers=headers, json=self._to_post_body(params))
+            res = requests.post(
+                url,
+                headers=headers,
+                json=self._to_post_body(params),
+                timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+            )
 
         handle_billing_service_error(res)
         return res.json()

@@ -27,6 +27,9 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     emit_signals_enabled_for,
     person_property_sync_enabled_for,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
+    retry_on_operational_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
@@ -138,6 +141,33 @@ def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
     }
 
 
+@retry_on_operational_error
+def _create_job(
+    *,
+    team_id: int,
+    source_id: uuid.UUID,
+    schema_id: uuid.UUID,
+    pipeline_version: str,
+    billable: bool,
+    schema_snapshot: dict[str, Any],
+) -> ExternalDataJob:
+    # A deadlock aborts the INSERT without creating a row, so retrying from scratch is safe. This
+    # activity has no Temporal-level retry (see external_data_job.py), because a retry after job
+    # creation succeeds would create a duplicate job — retrying just the INSERT avoids that.
+    return ExternalDataJob.objects.create(
+        team_id=team_id,
+        pipeline_id=source_id,
+        schema_id=schema_id,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+        workflow_id=activity.info().workflow_id,
+        workflow_run_id=activity.info().workflow_run_id,
+        pipeline_version=pipeline_version,
+        billable=billable,
+        schema_snapshot=schema_snapshot,
+    )
+
+
 # TODO: remove dependency
 
 
@@ -212,14 +242,10 @@ def create_external_data_job_model_activity(
             pipeline_version = ExternalDataJob.PipelineVersion.V3
             _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
-        job = ExternalDataJob.objects.create(
+        job = _create_job(
             team_id=inputs.team_id,
-            pipeline_id=inputs.source_id,
+            source_id=inputs.source_id,
             schema_id=inputs.schema_id,
-            status=ExternalDataJob.Status.RUNNING,
-            rows_synced=0,
-            workflow_id=activity.info().workflow_id,
-            workflow_run_id=activity.info().workflow_run_id,
             pipeline_version=pipeline_version,
             billable=inputs.billable,
             schema_snapshot=_build_schema_snapshot(schema),

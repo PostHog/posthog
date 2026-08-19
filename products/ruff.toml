@@ -16,6 +16,10 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "**/scripts/**" = ["ANN"]
 "**/stats/**" = ["ANN"]
 
+# CLI; prints its report (T201).
+"data_catalog/scripts/offline_governance_experiment.py" = ["T201"]
+"logs/backend/pattern_replay.py" = ["T201"]
+
 # Temporarily exempted — too many violations to fix in one pass.
 # Run: ruff check products/<name>/backend --select ANN --statistics
 # to check remaining count before removing the exemption.

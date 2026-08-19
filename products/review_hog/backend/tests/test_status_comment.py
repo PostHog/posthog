@@ -14,6 +14,7 @@ from products.review_hog.backend.reviewer.models.issue_validation import IssueVa
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
 from products.review_hog.backend.reviewer.status_comment import (
+    FinalizeStatusCommentInput,
     ensure_status_comment,
     fail_status_comment,
     finalize_status_comment,
@@ -22,6 +23,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     render_in_progress_body,
     status_marker,
 )
+from products.review_hog.backend.temporal.activities import _fail_run
 
 _MODULE = "products.review_hog.backend.reviewer.status_comment"
 _REQUEST = f"{_MODULE}.github_api_request"
@@ -346,11 +348,13 @@ class TestFinalizeStatusComment(BaseTest):
             persist_verdict(team_id=self.team.id, report_id=report_id, issue=issue, validation=validation, run_index=1)
 
         finalize_status_comment(
-            self.team.id,
-            report_id,
-            run_index=1,
-            urgency_threshold=IssuePriority.SHOULD_FIX.value,
-            review_url="https://g/review",
+            FinalizeStatusCommentInput(
+                team_id=self.team.id,
+                report_id=report_id,
+                run_index=1,
+                urgency_threshold=IssuePriority.SHOULD_FIX.value,
+                review_url="https://g/review",
+            )
         )
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
@@ -377,3 +381,16 @@ class TestFinalizeStatusComment(BaseTest):
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
         body = mock_request.call_args.kwargs["json"]["body"]
         assert "couldn't finish this review" in body
+
+
+class TestFailRun(BaseTest):
+    def test_returns_the_report_to_rest_even_without_a_status_comment(self) -> None:
+        # Publishing runs defer finalize's idle write to the publish stage, so the failure path must
+        # restore rest itself or a dead run reads as in-progress in the UI until the staleness
+        # cutoff. A report with no status comment (nothing to edit on GitHub) must still go idle.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.ACTIVE
+
+        _fail_run(self.team.id, report_id)
+
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE

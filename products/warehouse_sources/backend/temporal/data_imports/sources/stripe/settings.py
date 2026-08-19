@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME,
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME,
     ENTITLEMENTS_FEATURE_RESOURCE_NAME,
     EVENT_RESOURCE_NAME,
+    HISTORY_EVENT_ID_COLUMN,
     INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
@@ -66,6 +68,7 @@ ENDPOINTS = (
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     COUPON_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
@@ -132,6 +135,17 @@ INCREMENTAL_ENDPOINTS = (
 # Endpoints that have no API list path — populated only via webhooks.
 WEBHOOK_ONLY_ENDPOINTS = (DISCOUNT_RESOURCE_NAME,)
 
+# Endpoints restricted to the webhook sync method in the UI, but which — unlike
+# WEBHOOK_ONLY_ENDPOINTS — still seed from an API sweep on the initial sync. Used for history
+# tables: any other sync method would truncate the table on each run and destroy the captured
+# history (a detached payment method never comes back from `customers.payment_methods.list`).
+WEBHOOK_SYNC_ONLY_ENDPOINTS = (CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,)
+
+# Endpoints that stay disabled until the user explicitly enables them. The history table repeats
+# the per-customer payment-methods sweep on its initial sync, so it must not be force-enabled by
+# one-shot setup or auto-sync of newly discovered schemas.
+DEFAULT_OFF_ENDPOINTS = (CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,)
+
 # Stripe objects that carry no timestamp at all, so there is nothing stable to partition on.
 # `stripe_source` leaves partitioning off for these instead of falling back to `created`, which the
 # Delta partitioner would KeyError on.
@@ -144,9 +158,12 @@ NON_PARTITIONED_ENDPOINTS = (
 
 # Endpoints keyed by something other than `id`. Stripe's credit balance summary is a per-customer
 # view rather than a stored object, so it has no id of its own — the credit grant it was fetched for
-# is what makes each row unique.
+# is what makes each row unique. The payment-method history table stores one row per observation
+# (webhook event or seed-sweep snapshot), so its key is the observation id, not the payment method
+# id — keying on `id` would collapse a payment method's history to a single row.
 PRIMARY_KEYS: dict[str, list[str]] = {
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME: ["credit_grant"],
+    CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME: [HISTORY_EVENT_ID_COLUMN],
 }
 DEFAULT_PRIMARY_KEYS = ["id"]
 

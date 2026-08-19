@@ -36,20 +36,42 @@ def _mrkdwn_safe_url(url: str) -> str:
     return url.replace("<", "%3C").replace(">", "%3E").replace("|", "%7C")
 
 
+SLACK_SECTION_TEXT_LIMIT = 3000
+
+
+def _quote_mrkdwn(body: str) -> str:
+    """Prefix every line so multi-line bodies render fully inside the quote, not just line one."""
+    return "> " + body.replace("\n", "\n> ")
+
+
 def _discussion_card_blocks(*, body_mrkdwn: str, author_name: str, item_url: str, item_label: str) -> list[dict]:
-    """A Block Kit card for the thread root: 'New comment on <link> from <author>', the comment
-    body, and an 'Open in PostHog' button. Replies stay plain text since they're threaded under it.
+    """A Block Kit card for the thread root: 'New comment on <link>' with the PostHog logo, the
+    quoted comment body, an 'Open in PostHog' button, and a reply-to-sync hint. Replies stay plain
+    text since they're threaded under it.
     """
+    heading = f"New comment on <{_mrkdwn_safe_url(item_url)}|{escape_slack_mrkdwn(item_label)}> in PostHog:\n\n"
+    quoted_body = _quote_mrkdwn(body_mrkdwn or "_(no text)_")
+    # The heading and body share one section, so the body's budget is whatever the heading leaves
+    # of Slack's per-section text limit. Truncated content is still reachable via the button.
+    body_budget = SLACK_SECTION_TEXT_LIMIT - len(heading)
+    if len(quoted_body) > body_budget:
+        quoted_body = quoted_body[: body_budget - 1] + "…"
     return [
         {
             "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f":speech_balloon: New comment on <{_mrkdwn_safe_url(item_url)}|{escape_slack_mrkdwn(item_label)}>",
-            },
+            "text": {"type": "mrkdwn", "text": heading + quoted_body},
         },
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"From *{escape_slack_mrkdwn(author_name)}*"}]},
-        {"type": "section", "text": {"type": "mrkdwn", "text": body_mrkdwn or "_(no text)_"}},
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "image",
+                    "image_url": "https://us.posthog.com/static/icons/android-chrome-192x192.png",
+                    "alt_text": "PostHog",
+                },
+                {"type": "mrkdwn", "text": "Replies to this thread will sync to PostHog"},
+            ],
+        },
         {
             "type": "actions",
             "elements": [

@@ -1,4 +1,41 @@
-import { getAiSubscriptionGate, getNextDeliveryDate } from './utils'
+import {
+    getAiSubscriptionGate,
+    getNextDeliveryDate,
+    selectedDaysToDayPickerLabel,
+    shouldShowDayPicker,
+    toggleSelectedDay,
+} from './utils'
+
+describe('day picker values', () => {
+    it.each([
+        ['daily', 1, true],
+        ['daily', 2, false],
+        ['weekly', 1, true],
+        ['weekly', 2, true],
+        ['monthly', 1, false],
+        ['yearly', 1, false],
+    ] as const)('%s interval %s shows day picker: %s', (frequency, interval, expected) => {
+        expect(shouldShowDayPicker(frequency, interval)).toBe(expected)
+    })
+
+    it.each([
+        [[], 'Select at least one day'],
+        [['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], 'on Monday to Sunday'],
+        [['monday', 'tuesday', 'wednesday', 'thursday', 'friday'], 'on weekdays'],
+        [['saturday', 'sunday'], 'on weekends'],
+        [['wednesday'], 'on Wednesday'],
+        [['monday', 'wednesday'], 'on 2 days'],
+    ] as const)('summarizes %s as %s', (selectedDays, expected) => {
+        expect(selectedDaysToDayPickerLabel([...selectedDays])).toBe(expected)
+    })
+
+    it.each([
+        ['adds another day', ['wednesday'], 'tuesday', ['tuesday', 'wednesday']],
+        ['removes a selected day', ['tuesday', 'wednesday'], 'tuesday', ['wednesday']],
+    ] as const)('%s without replacing the other selections', (_label, selectedDays, day, expected) => {
+        expect(toggleSelectedDay([...selectedDays], day)).toEqual(expected)
+    })
+})
 
 describe('getNextDeliveryDate', () => {
     beforeEach(() => {

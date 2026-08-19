@@ -8,12 +8,21 @@ import openai
 import posthoganalytics
 from posthoganalytics.ai.openai import OpenAI
 
+from posthog.dataclasses import frozen
+
 
 @cache
 def _get_openai_client() -> Optional[OpenAI]:
     if not os.getenv("OPENAI_API_KEY"):
         return None
     return OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL)
+
+
+@frozen
+class OpenAICompletion:
+    content: str
+    prompt_tokens: int
+    completion_tokens: int
 
 
 def hit_openai(
@@ -23,7 +32,7 @@ def hit_openai(
     posthog_groups: Optional[dict[str, Any]] = None,
     timeout: float | None = None,
     response_format: dict[str, Any] | None = None,
-) -> tuple[str, int, int]:
+) -> OpenAICompletion:
     openai_client = _get_openai_client()
     if not openai_client:
         raise ValueError("OPENAI_API_KEY environment variable not set")
@@ -51,4 +60,4 @@ def hit_openai(
     prompt_tokens, completion_tokens = 0, 0
     if result.usage:
         prompt_tokens, completion_tokens = result.usage.prompt_tokens, result.usage.completion_tokens
-    return content, prompt_tokens, completion_tokens
+    return OpenAICompletion(content=content, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)

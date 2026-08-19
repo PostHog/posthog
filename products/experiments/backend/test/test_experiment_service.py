@@ -11,6 +11,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.db.models import F
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -39,6 +40,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import (
     ExperimentService,
+    ExperimentVersionConflict,
     _deprecated_fields_in_request,
     _deprecated_parameters_keys_in_request,
     _merge_metric_arrays,
@@ -794,6 +796,19 @@ class TestExperimentService(APIBaseTest):
                 {"exposure_config": {"kind": "ActionsNode"}},
                 "Invalid exposure_criteria.exposure_config (kind='ActionsNode')",
             ),
+            (
+                "activation_config_not_a_dict",
+                {"activation_config": "purchase"},
+                "exposure_criteria.activation_config must be an object, got str",
+            ),
+            (
+                "activation_config_with_custom_exposure",
+                {
+                    "exposure_config": {"event": "$pageview", "properties": []},
+                    "activation_config": {"event": "purchase", "properties": []},
+                },
+                "exposure_criteria.activation_config requires the default exposure event",
+            ),
         ]
     )
     def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
@@ -831,6 +846,35 @@ class TestExperimentService(APIBaseTest):
             (
                 "event_payload_without_explicit_kind",
                 {"exposure_config": {"event": "$pageview", "properties": []}},
+            ),
+            (
+                "activation_payload",
+                {"activation_config": {"event": "purchase", "properties": []}},
+            ),
+            (
+                "explicit_null_configs",
+                {"exposure_config": None, "activation_config": None},
+            ),
+            (
+                "null_activation_with_custom_exposure",
+                {
+                    "exposure_config": {"event": "$pageview", "properties": []},
+                    "activation_config": None,
+                },
+            ),
+            (
+                "activation_with_default_exposure_config",
+                {
+                    "exposure_config": {"event": "$feature_flag_called", "properties": []},
+                    "activation_config": {"event": "purchase", "properties": []},
+                },
+            ),
+            (
+                "activation_with_pinned_exposure_event",
+                {
+                    "exposure_config": {"event": "$experiment_exposure", "properties": []},
+                    "activation_config": {"event": "purchase", "properties": []},
+                },
             ),
         ]
     )
@@ -2037,6 +2081,81 @@ class TestExperimentService(APIBaseTest):
         second_link = experiment.experimenttosavedmetric_set.first()
         assert second_link is not None
         assert second_link.saved_metric_id == sm2.id
+
+    @contextmanager
+    def _concurrent_write_in_lock_window(self, experiment_id: int, **twin_update: Any):
+        """Commit a concurrent write inside update_experiment's race window: after the
+        unlocked concurrency resolution but before the row-locked version re-check, by
+        hooking the flag sync that runs between them."""
+        real_sync = ExperimentService._sync_feature_flag_on_update
+
+        def twin_write_then_sync(service: ExperimentService, *args: Any, **kwargs: Any) -> None:
+            Experiment.objects.filter(pk=experiment_id).update(version=F("version") + 1, **twin_update)
+            return real_sync(service, *args, **kwargs)
+
+        with patch.object(
+            ExperimentService, "_sync_feature_flag_on_update", autospec=True, side_effect=twin_write_then_sync
+        ):
+            yield
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_duplicate_update_racing_the_lock_window_succeeds_as_noop(self, mock_report_user_action):
+        experiment = self._create_draft_experiment(flag_key="lock-window-noop")
+        service = self._service()
+        version = experiment.version or 0
+
+        with self._concurrent_write_in_lock_window(experiment.pk, description="the same edit"):
+            result = service.update_experiment(
+                experiment,
+                {"description": "the same edit", "version": version},
+                serializer_context=service._build_serializer_context(),
+            )
+
+        assert result.version == version + 1
+        stored = Experiment.objects.get(pk=experiment.pk)
+        assert stored.description == "the same edit"
+        # Only the twin's bump: a second bump for the same logical change would re-stale
+        # every other open tab.
+        assert stored.version == version + 1
+        concurrency_events = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment update concurrency"
+        ]
+        assert [call.args[2]["resolution"] for call in concurrency_events] == ["noop"]
+        assert concurrency_events[0].args[2]["versions_behind"] == 1
+
+    def test_conflicting_update_racing_the_lock_window_still_conflicts(self):
+        experiment = self._create_draft_experiment(flag_key="lock-window-conflict")
+        service = self._service()
+        version = experiment.version or 0
+
+        with self._concurrent_write_in_lock_window(experiment.pk, description="their edit"):
+            with self.assertRaises(ExperimentVersionConflict) as ctx:
+                service.update_experiment(experiment, {"description": "my edit", "version": version})
+
+        assert ctx.exception.conflicting_fields == []
+        stored = Experiment.objects.get(pk=experiment.pk)
+        assert stored.description == "their edit"
+        assert stored.version == version + 1
+
+    def test_duplicate_metrics_update_racing_the_lock_window_ignores_fingerprint_churn(self):
+        experiment = self._create_draft_experiment(flag_key="lock-window-fingerprint")
+        service = self._service()
+        version = experiment.version or 0
+        stored_metric = (experiment.metrics or [])[0]
+        resubmitted = {key: value for key, value in stored_metric.items() if key != "fingerprint"}
+
+        with self._concurrent_write_in_lock_window(
+            experiment.pk, metrics=[{**stored_metric, "fingerprint": "recomputed-by-the-twin"}]
+        ):
+            result = service.update_experiment(
+                experiment, {"metrics": [resubmitted], "version": version}, allow_unknown_events=True
+            )
+
+        assert result.version == version + 1
+        stored = Experiment.objects.get(pk=experiment.pk)
+        assert stored.version == version + 1
+        # The short-circuit skipped the save: the twin's row (fingerprint included) is intact.
+        assert (stored.metrics or [])[0]["fingerprint"] == "recomputed-by-the-twin"
 
     def _updated_events(self, mock_report_user_action):
         return [c for c in mock_report_user_action.call_args_list if c.args[1] == "experiment updated"]
@@ -3669,6 +3788,12 @@ class TestExperimentService(APIBaseTest):
         assert frozen.is_running is True
         assert frozen.is_exposure_frozen is True
 
+        # The freeze shows up in the experiment's History tab, not only under the flag's scope.
+        log = ActivityLog.objects.get(scope="Experiment", item_id=str(experiment.pk), activity="exposure_frozen")
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "Freeze Exposure"
+
     def test_freeze_exposure_multi_group_flag(self):
         experiment = self._create_running_experiment(name="Freeze Multi", feature_flag_key="freeze-multi-flag")
         flag = experiment.feature_flag
@@ -4186,6 +4311,12 @@ class TestExperimentService(APIBaseTest):
         # The snapshot cohort is soft-deleted, not left as clutter.
         cohort.refresh_from_db()
         assert cohort.deleted is True
+
+        # The unfreeze shows up in the experiment's History tab, not only under the flag's scope.
+        log = ActivityLog.objects.get(scope="Experiment", item_id=str(experiment.pk), activity="exposure_unfrozen")
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "Unfreeze Test"
 
     def test_unfreeze_exposure_keeps_user_edits_made_while_frozen(self) -> None:
         experiment = self._create_running_experiment(name="Unfreeze Edits", feature_flag_key="unfreeze-edits-flag")
@@ -5162,6 +5293,30 @@ class TestExperimentService(APIBaseTest):
 
         assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
 
+    @parameterized.expand(
+        [
+            ("ascending", "conclusion", ["Won", "Lost", "No conclusion"]),
+            ("descending", "-conclusion", ["No conclusion", "Lost", "Won"]),
+        ]
+    )
+    def test_filter_experiments_queryset_orders_by_conclusion(
+        self, _: str, order: str, expected_order: list[str]
+    ) -> None:
+        service = self._service()
+        service.create_experiment(name="Won", feature_flag_key="order-conclusion-won")
+        service.create_experiment(name="Lost", feature_flag_key="order-conclusion-lost")
+        service.create_experiment(name="No conclusion", feature_flag_key="order-conclusion-none")
+        Experiment.objects.filter(team=self.team, name="Won").update(conclusion="won")
+        Experiment.objects.filter(team=self.team, name="Lost").update(conclusion="lost")
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+
+        assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
+
     def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
             self._service().filter_experiments_queryset(
@@ -6053,6 +6208,52 @@ class TestExperimentService(APIBaseTest):
         )
         assert experiment.metrics is not None and len(experiment.metrics) == 1
 
+    def test_update_with_deleted_action_still_referenced_succeeds(self):
+        action = Action.objects.create(team=self.team, name="soon deleted action")
+        stale = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": action.id},
+        }
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Stale Action Resend",
+            feature_flag_key="stale-action-resend-flag",
+            metrics=[stale],
+        )
+        action.deleted = True
+        action.save()
+
+        updated = service.update_experiment(experiment, {"metrics": [stale], "metrics_secondary": []})
+
+        assert updated.metrics is not None and len(updated.metrics) == 1
+
+    def test_update_rejects_new_unknown_action_alongside_resent_stale_one(self):
+        action = Action.objects.create(team=self.team, name="another soon deleted action")
+        stale = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": action.id},
+        }
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Unknown Alongside Stale Action",
+            feature_flag_key="unknown-alongside-stale-action-flag",
+            metrics=[stale],
+        )
+        action.deleted = True
+        action.save()
+        fresh = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": 999999},
+        }
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"metrics": [stale, fresh]})
+
+        assert "999999" in str(ctx.exception.detail)
+
     def test_funnel_metric_with_empty_series_raises(self):
         # The experiment exposure event is prepended as step_0 at query time, so an
         # empty series would produce a degenerate single-step funnel with no conversion event.
@@ -6537,6 +6738,53 @@ class TestExperimentService(APIBaseTest):
     # ------------------------------------------------------------------
     # Event/action validation on update_experiment
     # ------------------------------------------------------------------
+
+    def test_update_keeps_metric_whose_event_was_never_ingested(self):
+        service = self._service()
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "not_yet_deployed"},
+        }
+        experiment = service.create_experiment(
+            name="Move Stale Event",
+            feature_flag_key="move-stale-event-flag",
+            allow_unknown_events=True,
+            metrics=[metric],
+        )
+
+        # Moving the metric to the other section resends both arrays without the
+        # opt-in flag. The event is already on the experiment, so it must not be
+        # re-validated: a stale name would otherwise block every metric edit.
+        updated = service.update_experiment(experiment, {"metrics": [], "metrics_secondary": [metric]})
+
+        assert updated.metrics == []
+        assert updated.metrics_secondary is not None and len(updated.metrics_secondary) == 1
+        assert updated.metrics_secondary[0]["source"]["event"] == "not_yet_deployed"
+
+    def test_update_rejects_new_unknown_event_alongside_resent_stale_one(self):
+        service = self._service()
+        stale = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "not_yet_deployed"},
+        }
+        experiment = service.create_experiment(
+            name="Add Unknown Alongside Stale",
+            feature_flag_key="add-unknown-alongside-stale-flag",
+            allow_unknown_events=True,
+            metrics=[stale],
+        )
+        fresh = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "also_not_deployed"},
+        }
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"metrics": [stale, fresh]})
+
+        assert "also_not_deployed" in str(ctx.exception.detail)
 
     def test_update_experiment_with_unknown_event_raises(self):
         EventDefinition.objects.create(team=self.team, name="$pageview")
@@ -7086,6 +7334,40 @@ class TestScalarConcurrencyResolution(SimpleTestCase):
                 {"parameters": {"variant_notes": {"control": "theirs"}}},
                 {"parameters": {"variant_notes": {"control": "mine"}}},
                 ["parameters"],
+            ),
+            (
+                # The calculator auto-save rewrites the recommended_* estimates on every results
+                # load, so a stale tab's echo of older estimates is machine churn, not a user edit.
+                "running_time_estimate_churn_is_not_a_conflict",
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 12}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 9}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 30}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 12}},
+                [],
+            ),
+            (
+                "running_time_config_edit_survives_estimate_churn",
+                {"running_time_calculation": {"minimum_detectable_effect": 10, "recommended_running_time": 9}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 9}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5, "recommended_running_time": 30}},
+                {"running_time_calculation": {"minimum_detectable_effect": 10, "recommended_running_time": 9}},
+                [],
+            ),
+            (
+                "running_time_config_double_edit_still_conflicts",
+                {"running_time_calculation": {"minimum_detectable_effect": 10}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5}},
+                {"running_time_calculation": {"minimum_detectable_effect": 20, "recommended_running_time": 30}},
+                {"running_time_calculation": {"minimum_detectable_effect": 10}},
+                ["running_time_calculation"],
+            ),
+            (
+                "running_time_null_base_vs_machine_only_current_is_not_a_conflict",
+                {"running_time_calculation": {"minimum_detectable_effect": 5}},
+                {"running_time_calculation": None},
+                {"running_time_calculation": {"recommended_running_time": 30, "recommended_sample_size": 100}},
+                {"running_time_calculation": {"minimum_detectable_effect": 5}},
+                [],
             ),
         ]
     )

@@ -27,6 +27,12 @@ import {
   readMcpToolDescriptor,
   readPrUrls,
 } from "@posthog/shared";
+import {
+  buildPosthogPropertiesHeaderLines,
+  buildPosthogPropertiesHeaderRecord,
+  buildPosthogScopedPropertyHeaderLines,
+  buildPosthogScopedPropertyHeaderRecord,
+} from "@posthog/shared/posthog-property-headers";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -91,14 +97,8 @@ import type {
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { AsyncMutex } from "../utils/async-mutex";
-import {
-  buildGatewayPropertiesHeader,
-  buildGatewayPropertiesHeaderRecord,
-  buildGatewayPropertyHeaderRecord,
-  buildGatewayPropertyHeaders,
-  resolveGatewayProduct,
-  resolveGatewayTarget,
-} from "../utils/gateway";
+import { withTimeout } from "../utils/common";
+import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
@@ -129,6 +129,8 @@ const agentErrorClassificationSchema = z.enum([
   "upstream_provider_failure",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
+
+const INITIAL_TASK_RUN_REFRESH_TIMEOUT_MS = 5_000;
 
 export const UPSTREAM_PROVIDER_FAILURE_MESSAGE =
   "The upstream AI provider failed to process the request. Please retry the task in a few minutes.";
@@ -318,6 +320,19 @@ function isManualCompactPrompt(prompt: ContentBlock[]): boolean {
   return /^\/compact(?:\s|$)/.test(promptBlocksToText(prompt).trimStart());
 }
 
+/** True when the agent implements `/clear` and honours the conversation-cleared boundary. */
+function extractConversationClearCapability(result: unknown): boolean {
+  return (
+    (
+      result as {
+        agentCapabilities?: {
+          _meta?: { posthog?: { conversationClear?: unknown } };
+        };
+      }
+    )?.agentCapabilities?._meta?.posthog?.conversationClear === true
+  );
+}
+
 function extractSteeringCapability(result: unknown): string | undefined {
   const steering = (
     result as {
@@ -345,6 +360,43 @@ function getTaskRunStateString(
 
   const value = (state as Record<string, unknown>)[key];
   return typeof value === "string" ? value : null;
+}
+
+/** Which delivery routes a Slack run has, as resolved by the backend from flags and Slack scopes. */
+type SlackArtifactDelivery = "none" | "message" | "canvas_file";
+
+const SLACK_ARTIFACT_DELIVERY_MODES: SlackArtifactDelivery[] = [
+  "none",
+  "message",
+  "canvas_file",
+];
+
+/**
+ * An unset key means the backend told us nothing — any non-Slack run, or a Slack run that
+ * predates this. Emit no constraints rather than guessing: the agent must never be offered a
+ * route delivery would reject, nor told it has none while it actually does.
+ */
+function readSlackArtifactDelivery(
+  taskRun: TaskRun | null,
+): SlackArtifactDelivery | null {
+  const mode = getTaskRunStateString(taskRun, "slack_artifact_delivery");
+  return SLACK_ARTIFACT_DELIVERY_MODES.find((known) => known === mode) ?? null;
+}
+
+/**
+ * Charts ride on their own key rather than a delivery mode: they need only the rollout
+ * flag, while canvas and file delivery also needs Slack scopes that are still in review,
+ * so a workspace can have charts and nothing else. Absent or non-boolean means a backend
+ * that predates charts, which is the same as off.
+ */
+function readSlackChartDelivery(taskRun: TaskRun | null): boolean {
+  const state = taskRun?.state;
+
+  if (!state || typeof state !== "object") {
+    return false;
+  }
+
+  return (state as Record<string, unknown>).slack_chart_delivery === true;
 }
 
 // Prompt block we hand the agent when the user attached files but we could not
@@ -380,6 +432,8 @@ export class AgentServer {
   private suppressAdapterTurnComplete = false;
   private runUsage = new RunUsageAccumulator();
   private detectedPrUrl: string | null = null;
+  private slackArtifactDelivery: SlackArtifactDelivery | null = null;
+  private slackChartDelivery = false;
   private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
@@ -389,11 +443,13 @@ export class AgentServer {
   private resumeState: ResumeState | null = null;
   private nativeResume: { sessionId: string; warm: boolean } | null = null;
   private oversizedResumeRetried = false;
-  // Prewarmed runs boot before the user's first message exists, so the boot-time
-  // --autoPublish flag can't carry the user's choice; it is resolved from run
-  // state when the first message arrives (see resolveWarmAutoPublishUpgrade).
+  // Prewarmed runs boot before the user's first message exists, so boot-time
+  // CLI flags can't carry the user's choice. Those settings are read from the
+  // run's state when the first message arrives (see resolveActivationSettings).
   private prewarmedRun = false;
-  private warmAutoPublishResolved = false;
+  private prewarmedStartupTurnPending = false;
+  private autoPublishStateResolved = false;
+  private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
   private installedSkillBundleInfo = new Map<string, InstalledSkillBundle>();
   private installingSkillBundles = new Map<string, Promise<void>>();
@@ -410,6 +466,7 @@ export class AgentServer {
   private pendingCompactContinuationMessageIds = new Set<string>();
   private inFlightMessageDeliveries = new Map<string, Promise<unknown>>();
   private activeOwnedTurnCount = 0;
+  private activeStartupTurnCount = 0;
   // Normal follow-ups own turns in arrival order. Explicit steering bypasses
   // this tail so it can still reach the active adapter turn immediately.
   private nonSteerDeliveryTail: Promise<void> = Promise.resolve();
@@ -595,9 +652,10 @@ export class AgentServer {
     // veto, not silent auto-approval.
     return (
       mode === "default" ||
-      mode === "auto" ||
       mode === "read-only" ||
-      mode === "plan"
+      mode === "plan" ||
+      // codex relays every approval, so relaying "auto" prompts for what it runs unattended.
+      (mode === "auto" && this.getRuntimeAdapter() !== "codex")
     );
   }
 
@@ -1146,9 +1204,12 @@ export class AgentServer {
             `Processing user message (detectedPrUrl=${this.detectedPrUrl ?? "none"}): ${promptPreview.substring(0, 100)}...`,
           );
 
+          // Apply activation-time settings before the warmed agent sees its
+          // first prompt. The sandbox and session can be prepared with one
+          // effort while the final composer selection uses another.
           // Resolve before buildDetectedPrContext so a warm auto-publish upgrade
           // also flips the detected-PR context to its push variant.
-          const autoPublishUpgrade = await this.resolveWarmAutoPublishUpgrade();
+          const autoPublishUpgrade = await this.resolveActivationSettings();
           const hostContext = [
             ...(autoPublishUpgrade ? [autoPublishUpgrade] : []),
             ...(this.detectedPrUrl
@@ -1163,7 +1224,10 @@ export class AgentServer {
           };
 
           if (params.steer === true) {
-            if (this.activeOwnedTurnCount > 0) {
+            if (
+              this.activeOwnedTurnCount > 0 &&
+              this.activeStartupTurnCount === 0
+            ) {
               const result = await commandSession.clientConnection.prompt({
                 sessionId: commandSession.acpSessionId,
                 prompt,
@@ -1213,7 +1277,7 @@ export class AgentServer {
                 this.pendingCompactContinuationMessageIds.delete(messageId);
               }
             } else {
-              result = await this.runOwnedTurn(() => {
+              const runPrompt = () => {
                 const promptResult = commandSession.clientConnection.prompt({
                   sessionId: commandSession.acpSessionId,
                   prompt,
@@ -1225,7 +1289,13 @@ export class AgentServer {
                   throw new Error("Agent connection did not accept the prompt");
                 }
                 return promptResult;
-              });
+              };
+              if (this.prewarmedStartupTurnPending) {
+                this.prewarmedStartupTurnPending = false;
+                result = await this.runStartupTurn(runPrompt);
+              } else {
+                result = await this.runOwnedTurn(runPrompt);
+              }
 
               if (result.stopReason === "end_turn" && manualCompactPrompt) {
                 commitDelivery();
@@ -1544,7 +1614,9 @@ export class AgentServer {
     this.nativeResume = null;
     this.preSessionEvents = [];
     this.prewarmedRun = false;
-    this.warmAutoPublishResolved = false;
+    this.prewarmedStartupTurnPending = false;
+    this.autoPublishStateResolved = false;
+    this.warmReasoningEffortResolved = false;
 
     this.logger.debug("Initializing session", {
       runId: payload.run_id,
@@ -1582,6 +1654,7 @@ export class AgentServer {
     this.prewarmedRun =
       (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
       true;
+    this.prewarmedStartupTurnPending = this.prewarmedRun;
 
     const gatewayEnv = this.configureEnvironment({
       isInternal: preTask?.internal === true,
@@ -1600,6 +1673,7 @@ export class AgentServer {
       void fetchGatewayModels({
         gatewayUrl: gatewayEnv.anthropicBaseUrl,
         authToken: gatewayEnv.anthropicAuthToken,
+        projectId: Number(gatewayEnv.posthogProjectId) || undefined,
       }).catch(() => {});
     }
 
@@ -1612,6 +1686,11 @@ export class AgentServer {
       preTaskRun,
       "slack_thread_url",
     );
+
+    // Unconditional for the same reason as detectedPrUrl: a re-init on this
+    // instance must not keep the previous run's delivery capability.
+    this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
+    this.slackChartDelivery = readSlackChartDelivery(preTaskRun);
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -1726,11 +1805,13 @@ export class AgentServer {
       clientCapabilities: {},
     });
     const steering = extractSteeringCapability(initializeResult);
+    const conversationClear =
+      extractConversationClearCapability(initializeResult);
 
     const runState = preTaskRun?.state as Record<string, unknown> | undefined;
     // Preserve native Codex modes for cloud runs so they behave the same as
     // local sessions. Claude keeps the historical auto-approved default when
-    // PostHog Code has not explicitly selected a mode.
+    // PostHog Desktop has not explicitly selected a mode.
     const initialPermissionMode: PermissionMode =
       typeof runState?.initial_permission_mode === "string"
         ? (runState.initial_permission_mode as PermissionMode)
@@ -1924,6 +2005,8 @@ export class AgentServer {
         taskId: payload.task_id,
         agentVersion: this.config.version ?? packageJson.version,
         ...(steering ? { steering } : {}),
+        // Absent on older agents, which is exactly what the host gates on.
+        ...(conversationClear ? { conversationClear } : {}),
       },
     };
     this.broadcastEvent({
@@ -1992,6 +2075,15 @@ export class AgentServer {
       return await operation();
     } finally {
       this.activeOwnedTurnCount -= 1;
+    }
+  }
+
+  private async runStartupTurn<T>(operation: () => Promise<T>): Promise<T> {
+    this.activeStartupTurnCount += 1;
+    try {
+      return await this.runOwnedTurn(operation);
+    } finally {
+      this.activeStartupTurnCount -= 1;
     }
   }
 
@@ -2086,6 +2178,8 @@ export class AgentServer {
       isUpstreamFailure &&
       phase === "followup" &&
       this.getEffectiveMode(payload) === "interactive";
+    const expectedIdleTransportClosure =
+      recoverable && /^ACP connection closed$/i.test(message.trim());
 
     this.logger.error(`send_${phase}_task_message_failed`, {
       classification,
@@ -2093,7 +2187,9 @@ export class AgentServer {
       recoverable,
     });
 
-    this.broadcastTurnFailure(classification, displayMessage);
+    if (!expectedIdleTransportClosure) {
+      this.broadcastTurnFailure(classification, displayMessage);
+    }
 
     if (recoverable) {
       this.broadcastTurnComplete("error_recoverable");
@@ -2140,21 +2236,19 @@ export class AgentServer {
   ): Promise<void> {
     if (!this.session) return;
 
-    // Fetch TaskRun early — needed for both resume detection and initial prompt
     let taskRun = prefetchedRun ?? null;
-    if (!taskRun) {
-      try {
-        taskRun = await this.posthogAPI.getTaskRun(
-          payload.task_id,
-          payload.run_id,
-        );
-      } catch (error) {
-        this.logger.debug("Failed to fetch task run", {
-          taskId: payload.task_id,
-          runId: payload.run_id,
-          error,
-        });
-      }
+    try {
+      const refresh = await withTimeout(
+        this.posthogAPI.getTaskRun(payload.task_id, payload.run_id),
+        INITIAL_TASK_RUN_REFRESH_TIMEOUT_MS,
+      );
+      if (refresh.result === "success") taskRun = refresh.value;
+    } catch (error) {
+      this.logger.debug("Failed to refresh task run before initial message", {
+        taskId: payload.task_id,
+        runId: payload.run_id,
+        error,
+      });
     }
 
     if (this.nativeResume) {
@@ -2224,7 +2318,7 @@ export class AgentServer {
         throw new Error("Agent session is missing its ACP session ID");
       }
 
-      const result = await this.runOwnedTurn(() =>
+      const result = await this.runStartupTurn(() =>
         this.promptWithUpstreamRetry({
           sessionId: acpSessionId,
           prompt: initialPrompt,
@@ -2265,6 +2359,7 @@ export class AgentServer {
   ): Promise<void> {
     if (!this.session || !this.resumeState) return;
     const resumeState = this.resumeState;
+    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
     await this.runResumeTurn(payload, taskRun, "Resume message", async () => {
       const conversationSummary = formatConversationForResume(
@@ -2328,6 +2423,7 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<void> {
     if (!this.session) return;
+    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
     await this.runResumeTurn(
       payload,
@@ -2363,6 +2459,22 @@ export class AgentServer {
       },
       { retryOnOversizedPrompt: true },
     );
+  }
+
+  private async refreshTaskRunForResume(
+    payload: JwtPayload,
+    fallback: TaskRun | null,
+  ): Promise<TaskRun | null> {
+    try {
+      return await this.posthogAPI.getTaskRun(payload.task_id, payload.run_id);
+    } catch (error) {
+      this.logger.debug("Failed to refresh task run before resume", {
+        taskId: payload.task_id,
+        runId: payload.run_id,
+        error,
+      });
+      return fallback;
+    }
   }
 
   /**
@@ -2444,7 +2556,7 @@ export class AgentServer {
         throw new Error("Agent session is missing its ACP session ID");
       }
 
-      const result = await this.runOwnedTurn(() =>
+      const result = await this.runStartupTurn(() =>
         this.promptWithUpstreamRetry({
           sessionId: acpSessionId,
           prompt: builtPrompt.prompt,
@@ -3404,7 +3516,7 @@ export class AgentServer {
   /**
    * Automated, PostHog-branded origins: the Slack app and the Self-driving
    * inbox. These both auto-publish by default and attribute their PRs to
-   * "PostHog" rather than the PostHog Code desktop app.
+   * "PostHog" rather than the PostHog Desktop app.
    */
   private isAutomatedOrigin(): boolean {
     const origin = this.getCloudInteractionOrigin();
@@ -3424,28 +3536,23 @@ export class AgentServer {
     );
   }
 
-  /**
-   * A prewarmed run boots before the user's first message exists, so the
-   * --autoPublish flag can't carry the user's choice; the backend persists it
-   * into the run's state at warm activation instead. Nothing has been sent to
-   * the agent until that first message arrives, so resolving it here still
-   * governs the whole conversation: flip the config (so later consumers like
-   * buildDetectedPrContext see it) and return the auto-publish cloud
-   * instructions to inject into the first prompt as an override.
-   */
-  private async resolveWarmAutoPublishUpgrade(): Promise<string | null> {
-    if (!this.prewarmedRun || this.warmAutoPublishResolved || !this.session) {
+  /** Apply settings from run state before the first turn when launch config is incomplete. */
+  private async resolveActivationSettings(): Promise<string | null> {
+    if (!this.session) {
       return null;
     }
-    if (
-      this.config.autoPublish === true ||
-      this.config.createPr === false ||
-      this.isAutomatedOrigin()
-    ) {
-      // The boot decision already publishes (or never may) — nothing to upgrade.
-      this.warmAutoPublishResolved = true;
+
+    const shouldResolveReasoning =
+      this.prewarmedRun && !this.warmReasoningEffortResolved;
+    const shouldResolveAutoPublish =
+      !this.autoPublishStateResolved &&
+      this.config.autoPublish !== true &&
+      this.config.createPr !== false &&
+      !this.isAutomatedOrigin();
+    if (!shouldResolveReasoning && !shouldResolveAutoPublish) {
       return null;
     }
+
     let state: Record<string, unknown> | undefined;
     try {
       const run = await this.posthogAPI.getTaskRun(
@@ -3454,18 +3561,76 @@ export class AgentServer {
       );
       state = run?.state as Record<string, unknown> | undefined;
     } catch (error) {
-      // Leave unresolved so the next message retries; stay review-first for now.
-      this.logger.debug("Failed to fetch run state for auto-publish upgrade", {
-        error,
-      });
+      // Keep the settings unresolved so a later message retries. A transient
+      // control-plane failure must not prevent the first prompt from running.
+      this.logger.debug("Failed to fetch activation settings", { error });
       return null;
     }
-    this.warmAutoPublishResolved = true;
+
+    if (shouldResolveReasoning) {
+      await this.resolveWarmReasoningEffort(state);
+    }
+    return this.resolveAutoPublishFromState(state);
+  }
+
+  private async resolveWarmReasoningEffort(
+    state: Record<string, unknown> | undefined,
+  ): Promise<void> {
+    if (this.warmReasoningEffortResolved || !this.session) {
+      return;
+    }
+
+    const reasoningEffort = state?.reasoning_effort;
+    if (typeof reasoningEffort === "string" && reasoningEffort.length > 0) {
+      try {
+        await this.session.clientConnection.setSessionConfigOption({
+          sessionId: this.session.acpSessionId,
+          configId: "effort",
+          value: reasoningEffort,
+        });
+      } catch (error) {
+        // Keep this unresolved so a later message retries, but continue with
+        // the effort used to start the warm session for the current prompt.
+        this.logger.warn("Failed to apply warm activation reasoning effort", {
+          error,
+          reasoningEffort,
+        });
+        return;
+      }
+      this.config.reasoningEffort =
+        reasoningEffort as AgentServerConfig["reasoningEffort"];
+      this.logger.debug("Applied warm activation reasoning effort", {
+        reasoningEffort,
+      });
+    }
+    this.warmReasoningEffortResolved = true;
+  }
+
+  /**
+   * The backend persists auto-publish in run state. Recover it when an older or
+   * incomplete launch path omits the CLI flag, before the agent sees its first prompt.
+   */
+  private resolveAutoPublishFromState(
+    state: Record<string, unknown> | undefined,
+  ): string | null {
+    if (this.autoPublishStateResolved) {
+      return null;
+    }
+    if (
+      this.config.autoPublish === true ||
+      this.config.createPr === false ||
+      this.isAutomatedOrigin()
+    ) {
+      // The boot decision already publishes (or never may) — nothing to upgrade.
+      this.autoPublishStateResolved = true;
+      return null;
+    }
+    this.autoPublishStateResolved = true;
     if (state?.auto_publish !== true) {
       return null;
     }
     this.config.autoPublish = true;
-    this.logger.debug("Warm run upgraded to auto-publish from run state");
+    this.logger.debug("Run upgraded to auto-publish from run state");
     return [
       "IMPORTANT — OVERRIDE PREVIOUS INSTRUCTIONS ABOUT CREATING BRANCHES/PRs.",
       "The user has auto-publish enabled for this run. The review-first cloud task instructions in your system prompt are replaced by the following:",
@@ -3545,6 +3710,91 @@ export class AgentServer {
     );
   }
 
+  /**
+   * How this run may hand a deliverable to the Slack thread it is answering in.
+   *
+   * The offer has to match what delivery will actually accept: naming an adapter the
+   * workspace cannot use gets the request rejected server-side after the agent has already
+   * promised the user a canvas or a spreadsheet. The backend resolves that capability from
+   * the workspace's feature flags and Slack scopes when the task starts and hands it to us
+   * on the run state, so the wording lives here and the gating stays there.
+   */
+  private buildSlackDeliveryInstructions(): string {
+    if (this.slackArtifactDelivery === null) {
+      return "";
+    }
+
+    if (this.slackArtifactDelivery === "none") {
+      return `
+## Delivering to Slack
+- You do not have artifact delivery in this workspace: you cannot create or share artifacts (files, canvases, documents) from this run, so do not attempt to. Deliver results as plain text in your reply.
+- Do not attach, upload, link to, or expose run artifacts or local working files, including /tmp/workspace paths.`;
+    }
+
+    const endpoint = `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/`;
+    const preamble = `
+## Delivering to Slack
+- Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
+- Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
+- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, checkpoints, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
+
+    // Charts attach to both modes: they post as an image block referencing a PostHog-hosted
+    // url, so they work wherever the workspace can post at all.
+    const chartBullets = this.slackChartDelivery
+      ? `
+- When an analytics answer is naturally visual (a trend over time, funnel, breakdown comparison, retention curve), deliver a chart image by default alongside the summary. Do not wait for the user to say "chart". Skip the image only when the result is a single number, a short list, or the user asked for raw data.
+- To show a chart in Slack (a saved insight or an ad-hoc analytics query result), make a single call: POST to \`${endpoint}chart/\` with \`$POSTHOG_PERSONAL_API_KEY\` and body \`{"name": "<chart title>", "query": <query JSON, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}>}\`, or \`{"name": "<chart title>", "insight_id": <numeric insight id>}\` for a saved insight. It renders the chart server-side and registers it for Slack delivery in one step, blocking until done (typically a few seconds).
+- The chart renders directly under your answer text with its name as the title, so do not restate the title or announce the chart ("Here's a chart of…"). Spend your answer text on the takeaway instead: the trend, inflection points, spikes, or drops a reader should notice, with numbers where they matter. Each chart is delivered with an "Open in PostHog" button, so do not paste the response \`url\` into your answer unless the user explicitly asks for a link. Do not download, view, or re-upload the image yourself.
+- Report a chart failure rather than retrying blindly: a 400 carries the reason in \`error\`, or in \`detail\` when the request body itself was rejected, and a 429 means the project's chart render limit is saturated, so answer without the chart.
+- SQL results cannot be charted yet, because the chart endpoint rejects SQL queries. Chart with an insight query (e.g. TrendsQuery) when the question can be expressed as one; otherwise summarize the SQL result in your answer text.`
+      : "";
+
+    if (this.slackArtifactDelivery === "message") {
+      const chartException = this.slackChartDelivery
+        ? " Chart images are the one exception: deliver them through the dedicated chart endpoint below, never through the generic living-artifacts endpoint."
+        : "";
+      const unsupportedDeliverable = this.slackChartDelivery
+        ? "- If a deliverable cannot be expressed as a Slack message or a chart image (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead."
+        : "- If a deliverable cannot be expressed as a Slack message (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead.";
+      return `${preamble}
+- You do not have canvas or file delivery in this workspace: do not use the \`slack_canvas\` or \`slack_file\` adapters, and do not promise a canvas, uploaded spreadsheet, or downloadable file.${chartException}
+- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\` using adapter \`slack_message\`. To update a prior deliverable, GET the returned artifact id or POST new \`content\` to \`${endpoint}<artifact_id>/edit/\`.${chartBullets}
+${unsupportedDeliverable}`;
+    }
+
+    return `${preamble}
+- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\`; choose adapter \`slack_canvas\`, \`slack_message\`, \`slack_file\`, or \`document_connector\`. Use \`adapter=slack_file\` with \`content_base64\` for binary deliverables such as .xlsx/.pdf/.docx, or \`source_artifact_id\` / \`source_storage_path\` for a file you already uploaded as a \`type=output\` run artifact.
+- To update a prior deliverable, GET the returned artifact id or POST new \`content\`, \`content_base64\`, or source artifact fields to \`${endpoint}<artifact_id>/edit/\`.${chartBullets}
+- Do not paste living-artifact Slack file links or permalinks into your final Slack answer unless the user explicitly asks for the URL. The Slack relay attaches pending file artifacts to your final answer automatically, so mention the artifact by name only if useful.
+- If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
+  }
+
+  /**
+   * What to do when a cloud run has no way to reach the user's code.
+   *
+   * Repository access on a cloud run comes from the user's own GitHub connection in
+   * PostHog, so a run can legitimately start without one — nothing is checked out and
+   * there are no credentials to push with. The Slack mention path used to refuse those
+   * mentions outright, which walled off every question that only looked like it needed
+   * code; it now starts the run and leaves the judgement here, where the request itself
+   * is visible. The settings link is built from this run's own host and project so it
+   * lands the user in the right region rather than a hardcoded one.
+   *
+   * Appended to every cloud branch on purpose: a checkout is not proof of access. A
+   * public repository clones with no token at all, so a run can hold the code and still
+   * have no way to push it.
+   */
+  private buildSourceControlAccessInstructions(): string {
+    const settingsUrl = `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/settings/user-personal-integrations`;
+    return `
+## When you cannot reach the code
+You may have no repository checked out, or no credentials to push and open a pull request with.
+- Answer the part of the request that does not need the code first — questions about PostHog, their data, or their configuration are all still answerable.
+- If the request turns out not to need a code change at all, just answer it and say nothing about GitHub.
+- Only if it genuinely needs a code change, say so plainly and link them to ${settingsUrl} to connect GitHub, then ask them to come back to you.
+- Do not work around it: no guessing at file contents you cannot read, and no starting a change you have no way to deliver.`;
+  }
+
   private buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -3586,7 +3836,7 @@ Commits MUST be signed. \`git commit\` and \`git push\` are blocked in this envi
 To commit: stage your changes with \`git add\`, then call the \`git_signed_commit\` tool (full
 name \`${SIGNED_COMMIT_QUALIFIED_TOOL_NAME}\`) with a \`message\` (and optional \`body\`/\`paths\`).
 It creates a GitHub-signed ("Verified") commit on the branch and keeps your local checkout in
-sync. To start a new branch, pass \`branch\` (prefixed with \`posthog-code/\`) — the tool creates
+sync. To start a new branch, pass \`branch\` (prefixed with \`posthog/\`) — the tool creates
 it on the remote for you.
 
 ## Updating from the base branch
@@ -3624,7 +3874,7 @@ hard reset is the safe one here — your work is held in the stash.
 Do NOT add "Co-Authored-By" trailers or "Generated with [Claude Code]" lines to your
 commit messages. The \`git_signed_commit\` tool automatically appends the only trailers
 we want:
-  Generated-By: PostHog Code
+  Generated-By: PostHog Desktop
   Task-Id: ${taskId}`;
 
     const prLinkInstructions = `
@@ -3645,15 +3895,18 @@ Optimize for the fewest shell round trips.
 ## Delivering non-code files (artifacts)
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
+    // Closes out every branch below, so a new section is added once rather than five times.
+    const commonInstructions = `${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
+
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
     const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
     // Slack- and inbox-originated PRs are attributed to PostHog, not the
-    // PostHog Code desktop app — they come from the Slack app / Self-driving
+    // PostHog Desktop app — they come from the Slack app / Self-driving
     // inbox, which users know as "PostHog".
     const createdWith = this.isAutomatedOrigin()
       ? "Created with [PostHog](https://posthog.com?ref=pr)"
-      : "Created with [PostHog Code](https://posthog.com/code?ref=pr)";
+      : "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
     const prFooter = slackThreadUrl
       ? `*${createdWith} from a [Slack thread](${slackThreadUrl})*`
       : inboxReportUrl
@@ -3679,7 +3932,7 @@ Do the requested work, but stop with local changes ready for review.
 Important:
 - Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks.
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
       }
 
@@ -3700,7 +3953,7 @@ After completing the requested changes:
 Important:
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
 - Do NOT push fixes for review comments without replying to and resolving each related thread.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
     }
 
@@ -3754,7 +4007,7 @@ ${repositoryInstructions}${publishInstructions}
 
 Important:
 - Prefer using MCP tools to answer questions with real data over giving generic advice.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
     }
 
@@ -3768,13 +4021,13 @@ Do the requested work, but stop with local changes ready for review.
 
 Important:
 - Do NOT create a branch, commit, push, or open a pull request unless the user explicitly asks.
-- If the user explicitly asks you to open a pull request: pick a new branch name prefixed with \`posthog-code/\`, stage your changes with \`git add\`, and call the \`git_signed_commit\` tool with \`branch\` set to that name and a clear \`message\` (do NOT use \`git commit\`/\`git push\` — they are blocked). Before opening the PR, check the repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links. Keep the description brief overall — summarize only the most important changes.
+- If the user explicitly asks you to open a pull request: pick a new branch name prefixed with \`posthog/\`, stage your changes with \`git add\`, and call the \`git_signed_commit\` tool with \`branch\` set to that name and a clear \`message\` (do NOT use \`git commit\`/\`git push\` — they are blocked). Before opening the PR, check the repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links. Keep the description brief overall — summarize only the most important changes.
 ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
 - Always create the PR as a draft.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
     }
 
@@ -3786,7 +4039,7 @@ ${repositoryWorkspaceInstructions}
 If the work you are being asked to do already has an open pull request — for example, the inbox report you fetched links an implementation PR (its \`implementation_pr_url\`), or this same thread already produced a PR that you are now being asked to revise — do NOT open a second PR. Check that PR out with \`gh pr checkout <url>\`, continue on its branch, and commit your changes to it with the \`git_signed_commit\` tool (if the branch is behind its base, call \`git_signed_merge\` first). A PR is only the one to continue if it is for this same request; if the thread merely mentions an unrelated or older PR, ignore it. Only open a new, separate PR when the change is genuinely distinct from the existing one.
 
 Otherwise, after completing the requested changes:
-1. Pick a new branch name prefixed with \`posthog-code/\` (e.g. \`posthog-code/fix-login-redirect\`)
+1. Pick a new branch name prefixed with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`)
 2. Stage your changes with \`git add\`, then call the \`git_signed_commit\` tool with \`branch\` set to that name and a clear \`message\` (do NOT use \`git commit\`/\`git push\` — they are blocked). The tool creates the branch on the remote and a signed commit on it.
 3. Before opening the PR, prepare the body:
    - Keep the PR description brief overall. Summarize only the most important changes — do NOT enumerate every change you made. A few sentences or bullets is plenty.
@@ -3804,7 +4057,7 @@ ${prFooter}
 
 Important:
 - Always create the PR as a draft. Do not ask for confirmation.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
   }
 
@@ -4000,17 +4253,23 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
         ai_product: aiProduct,
         team_id: projectId,
       };
-      customHeaders = buildGatewayPropertiesHeader(properties);
-      openaiCustomHeaders = buildGatewayPropertiesHeaderRecord(properties);
+      customHeaders = buildPosthogPropertiesHeaderLines(properties);
+      openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
     } else {
-      customHeaders = buildGatewayPropertyHeaders(gatewayProperties);
+      customHeaders = buildPosthogScopedPropertyHeaderLines(
+        gatewayProperties,
+        projectId,
+      );
       // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
       // blob keys, so the session id would be silently dropped there.
-      openaiCustomHeaders = buildGatewayPropertyHeaderRecord({
-        ...gatewayProperties,
-        team_id: projectId,
-        $ai_session_id: taskId,
-      });
+      openaiCustomHeaders = buildPosthogScopedPropertyHeaderRecord(
+        {
+          ...gatewayProperties,
+          team_id: projectId,
+          $ai_session_id: taskId,
+        },
+        projectId,
+      );
     }
 
     // Server-level constants that don't vary per task — safe to keep in
@@ -4151,7 +4410,7 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
 
         // Tools on relayed MCP servers execute on the user's machine with
         // their local privileges: always ask, regardless of permission mode
-        // (docs/cloud-mcp-relay.md). Without a reachable client, deny rather
+        // (docs/CLOUD-MCP-RELAY.md). Without a reachable client, deny rather
         // than auto-approve.
         {
           // Read the MCP server through the adapter-neutral `_meta.posthog`

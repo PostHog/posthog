@@ -20,7 +20,6 @@ from prometheus_client import Counter
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
-from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
 from posthog.models import Organization, PersonalAPIKey, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import (
@@ -140,38 +139,61 @@ def _determine_login_method(request, was_impersonated):
     return login_method
 
 
+def log_login_activity(
+    user,
+    request: HttpRequest,
+    *,
+    login_method: str,
+    reauth: bool,
+    was_impersonated: bool = False,
+    log_user=None,
+    item_id: str | None = None,
+) -> None:
+    """Write the `logged_in` audit entry.
+
+    Also called directly for an SSO step-up re-auth, which keeps its session and so never fires
+    `user_logged_in` (see `posthog.api.authentication.social_reauth`).
+    """
+    organization_id = user.current_organization_id
+
+    if organization_id is None:
+        logger.info("Skipping login activity log - user has no organization", user_id=user.id)
+        return
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=None,
+        user=log_user or user,
+        item_id=item_id or str(user.id),
+        scope="User",
+        activity="logged_in",
+        detail=Detail(
+            name=user.email,
+            changes=[],
+            context=UserLoginContext(
+                login_method=login_method,
+                ip_address=get_ip_address(request),
+                user_agent=get_short_user_agent(request),
+                reauth=reauth,
+            ),
+        ),
+        was_impersonated=was_impersonated,
+    )
+
+
 @receiver(user_logged_in)
 def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # noqa: ARG001
     try:
         was_impersonated, log_user, item_id, _ = _detect_impersonation_for_login(user, request)
-        ip_address = get_ip_address(request)
-        user_agent = get_short_user_agent(request)
-        reauth = request.session.get("reauth") == "true"
 
-        organization_id = user.current_organization_id
-
-        if organization_id is None:
-            logger.info("Skipping login activity log - user has no organization", user_id=user.id)
-            return
-
-        log_activity(
-            organization_id=organization_id,
-            team_id=None,
-            user=log_user,
-            item_id=item_id,
-            scope="User",
-            activity="logged_in",
-            detail=Detail(
-                name=user.email,
-                changes=[],
-                context=UserLoginContext(
-                    login_method=_determine_login_method(request, was_impersonated),
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                    reauth=reauth,
-                ),
-            ),
+        log_login_activity(
+            user,
+            request,
+            login_method=_determine_login_method(request, was_impersonated),
+            reauth=request.session.get("reauth") == "true",
             was_impersonated=was_impersonated,
+            log_user=log_user,
+            item_id=item_id,
         )
     except Exception as e:
         logger.exception("Failed to log user login activity", user_id=user.id, error=e)
@@ -629,15 +651,15 @@ def handle_tagged_item_change(
     if not tagged_item or not tagged_item.tag:
         return
 
-    related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(tagged_item)
+    related_object = get_tagged_item_related_object_info(tagged_item)
 
     context = TaggedItemContext(
         tag_name=tagged_item.tag.name,
         tag_id=str(tagged_item.tag.id),
         team_id=tagged_item.tag.team_id,
-        related_object_type=related_object_type,
-        related_object_id=related_object_id,
-        related_object_name=related_object_name,
+        related_object_type=related_object.type,
+        related_object_id=related_object.id,
+        related_object_name=related_object.name,
     )
 
     team = tagged_item.tag.team
@@ -664,19 +686,19 @@ def handle_tagged_item_change(
 
     # Mirror the tag change onto the related object's own activity stream
     # (e.g. so a tag added to a Ticket shows up on that ticket's timeline).
-    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object_type or "")
-    if related_logger and related_object_id:
+    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object.type or "")
+    if related_logger and related_object.id:
         tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
         log_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
             was_impersonated=was_impersonated,
-            item_id=related_object_id,
+            item_id=related_object.id,
             scope=related_logger.scope,
             activity="updated",
             detail=Detail(
-                name=related_logger.resolve_name(tagged_item, related_object_name),
+                name=related_logger.resolve_name(tagged_item, related_object.name),
                 changes=[
                     Change(
                         type=related_logger.scope,
@@ -909,6 +931,11 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
     # Cache device info on signup to skip login notification for this device
     if user.last_login is None:
+        # Deferred: importing posthog.geoip loads the MaxMind DB into memory at import time,
+        # which lands on the django.setup() path via this app's ready() and blows the startup
+        # import budget. Keep it at call time so only the signup path pays for it.
+        from posthog.geoip import get_geoip_properties  # noqa: PLC0415
+
         short_user_agent = get_short_user_agent(request)
         ip_address = get_ip_address(request)
         country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")

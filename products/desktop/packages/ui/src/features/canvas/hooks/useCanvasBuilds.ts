@@ -21,7 +21,7 @@ const GENERATING_POLL_MS = 4_000;
  */
 export function useCanvasBuilds(
   dashboardId: string | undefined,
-  options?: { enabled?: boolean; generating?: boolean },
+  options?: { enabled?: boolean; generating?: boolean; versionId?: string },
 ): {
   lifecycle: CanvasBuildLifecycle | undefined;
   isLoading: boolean;
@@ -33,7 +33,7 @@ export function useCanvasBuilds(
   const generating = options?.generating ?? false;
   const { data, isLoading, dataUpdatedAt } = useQuery(
     trpc.dashboards.builds.queryOptions(
-      { id: dashboardId ?? "" },
+      { id: dashboardId ?? "", versionId: options?.versionId },
       {
         enabled: !!dashboardId && (options?.enabled ?? true),
         staleTime: ACTIVE_POLL_MS,

@@ -27,12 +27,14 @@ from products.tasks.backend.facade.run_config import (
     PUBLIC_REASONING_EFFORTS,
     RuntimeAdapter,
     get_default_model_for_runtime_adapter,
+    get_model_access_error,
     get_models_for_runtime_adapter,
     get_reasoning_effort_error,
 )
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES,
     TASK_RUN_SKILL_SOURCE_CHOICES,
+    request_distinct_id,
 )
 
 
@@ -236,6 +238,12 @@ def _validate_payload_conditions(raw: Any) -> list[dict[str, Any]]:
         if not isinstance(values, list) or not values or not all(isinstance(item, str) for item in values):
             raise serializers.ValidationError(
                 {"filters": f"Payload condition '{path}' needs `equals`: a string or a non-empty list of strings."}
+            )
+        # A blank value can't equal any real payload leaf, so the condition would save and then
+        # never fire — the same silent dead end as a list-index path above.
+        if any(not item.strip() for item in values):
+            raise serializers.ValidationError(
+                {"filters": f"Payload condition '{path}' has a blank `equals` value, which would never match."}
             )
         if len(values) > MAX_PAYLOAD_CONDITION_VALUES or any(len(item) > MAX_PAYLOAD_STRING_LENGTH for item in values):
             raise serializers.ValidationError(
@@ -540,6 +548,10 @@ class LoopWriteSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"model": f"'{model}' is not a supported model for runtime_adapter '{runtime_adapter}'."}
                 )
+
+        model_access_error = get_model_access_error(model, distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError({"model": model_access_error})
 
         reasoning_effort = attrs.get("reasoning_effort")
         if runtime_adapter is not None and reasoning_effort is not None:

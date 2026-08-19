@@ -44,7 +44,6 @@ import {
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
@@ -150,6 +149,16 @@ const batchesInFlight = new Gauge({
     help: 'Number of accepted batches currently being processed by the ingestion API (concurrent batches)',
 })
 
+// Companion to `batchesInFlight`, and the one to autoscale on: batch sizes vary
+// several-fold with consumer batching and routing, so a batch count says little
+// about how much work a pod is holding. Events in flight is invariant to how the
+// consumer slices a batch, which keeps a scaling target stable across dispatcher
+// tuning changes.
+const eventsInFlight = new Gauge({
+    name: 'ingestion_api_events_in_flight',
+    help: 'Number of events in accepted batches currently being processed by the ingestion API',
+})
+
 /**
  * Ingestion API server that exposes the ingestion pipeline as an HTTP endpoint.
  *
@@ -248,6 +257,7 @@ export class IngestionApiServer implements NodeServer {
 
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+            personMergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
         })
         const personRepository = buildPersonRepository(
             personhogClient,
@@ -399,8 +409,7 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
                 PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
                 PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
-                PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: this.config.PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST,
-                PERSONLESS_WRITES_DISABLED_TEAMS: this.config.PERSONLESS_WRITES_DISABLED_TEAMS,
+                PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
@@ -418,7 +427,6 @@ export class IngestionApiServer implements NodeServer {
             personsStore,
             groupStore,
             hogTransformer: this.hogTransformer,
-            aiSubpipelineFactory: createAiEventSubpipeline,
             eventFilterManager: eventFilterManagerStarted.value,
             eventIngestionRestrictionManager,
             // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
@@ -473,9 +481,10 @@ export class IngestionApiServer implements NodeServer {
 
         const startTime = Date.now()
 
-        // Tracks whether this batch was accepted, so the `finally` only
-        // decrements the in-flight gauge for batches that incremented it.
-        let inFlight = false
+        // Event count of this batch once accepted, or null while it is not.
+        // Holding the count (rather than a bool) makes the `finally` decrement
+        // exactly what was incremented, even if `messages` is out of scope.
+        let inFlight: number | null = null
 
         try {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
@@ -519,7 +528,8 @@ export class IngestionApiServer implements NodeServer {
             // Batch accepted into the pipeline — it now occupies a concurrent
             // slot until processing completes below.
             batchesInFlight.inc()
-            inFlight = true
+            eventsInFlight.inc(messages.length)
+            inFlight = messages.length
 
             // The pipeline handles its own side effects (scheduling them on
             // the promise scheduler), so draining results is all that's left
@@ -557,8 +567,9 @@ export class IngestionApiServer implements NodeServer {
             }
             res.status(500).json({ batch_id, status: 'error', accepted: 0, error: error.message })
         } finally {
-            if (inFlight) {
+            if (inFlight !== null) {
                 batchesInFlight.dec()
+                eventsInFlight.dec(inFlight)
             }
         }
     }

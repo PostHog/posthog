@@ -110,7 +110,8 @@ UPDATE_SKILL_DESCRIPTION = """Publish a new version of an existing skill. Any fi
 # Other writable fields
 - `description`, `license`, `compatibility`, `allowed_tools`, `metadata`.
 - `file_edits`: per-file find/replace patches. Each entry targets one existing file by `path` with its own `edits`
-  list. Files not mentioned are carried forward unchanged. Cannot add, remove, or rename files."""
+  list. Files not mentioned are carried forward unchanged. Cannot add, remove, or rename files.
+- `version_description`: a short note on what changed and why — it is shown in the skill's version history."""
 
 
 ARCHIVE_SKILL_DESCRIPTION = """Archive every active version of a skill by name. This hides the skill from default lists and cannot be
@@ -193,6 +194,10 @@ class UpdateSkillArgs(BaseModel):
             "Per-file find/replace edits. Each entry: {path, edits: [{old, new}, ...]}. "
             "Files not mentioned are carried forward unchanged. Cannot add, remove, or rename files."
         ),
+    )
+    version_description: str | None = Field(
+        default=None,
+        description="Optional note (max 400 chars) on what changed and why. Shown in the skill's version history.",
     )
 
 
@@ -429,6 +434,7 @@ class UpdateLLMSkillTool(MaxTool):
         allowed_tools: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         file_edits: list[dict[str, Any]] | None = None,
+        version_description: str | None = None,
     ) -> tuple[str, None]:
         if body is not None and edits is not None:
             raise MaxToolFatalError("Pass either `body` or `edits`, not both.")
@@ -448,6 +454,7 @@ class UpdateLLMSkillTool(MaxTool):
                 files=None,
                 file_edits=file_edits,
                 base_version=base_version,
+                version_description=(version_description or "").strip() or None,
             )
         except (
             LLMSkillNotFoundError,

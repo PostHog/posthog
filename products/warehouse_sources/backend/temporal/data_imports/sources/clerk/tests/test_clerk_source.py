@@ -53,11 +53,21 @@ class TestClerkSource:
             "401 Client Error: Unauthorized for url: https://api.clerk.com/v1/users?limit=100",
             # `saml_connections` endpoint, SAML/Enterprise SSO not available on the account's plan.
             "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/saml_connections?limit=100",
+            # `api_keys` endpoint, which Clerk rejects without a subject param on the list request.
+            "400 Client Error: Bad Request for url: https://api.clerk.com/v1/api_keys?limit=100",
         ],
     )
     def test_non_retryable_errors_matches_observed_error_message(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
+
+    def test_non_retryable_errors_does_not_match_400_on_other_clerk_endpoints(self):
+        # A 400 from a different endpoint is a genuinely bad request worth investigating, not the
+        # known api_keys limitation — the match must stay scoped to `api_keys`.
+        other_endpoint_error = "400 Client Error: Bad Request for url: https://api.clerk.com/v1/users?limit=100"
+
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_endpoint_error for key in non_retryable_errors)
 
     @pytest.mark.parametrize(
         "other_vendor_error",

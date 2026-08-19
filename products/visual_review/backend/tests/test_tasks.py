@@ -93,13 +93,15 @@ class TestProcessRunDiffs:
 
     def test_metrics_event_uses_run_id_as_uuid(self, repo, mocker):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="metrics-uuid",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="metrics-uuid",
-            branch="main",
-            pr_number=None,
-            snapshots=[],
         )
         capture = mocker.Mock()
 
@@ -418,13 +420,15 @@ class TestCountProcessedDiffs(VisualReviewTeamScopedTestMixin, BaseTest):
     def test_from_persisted_state(self, _name: str, snapshot_fields: dict[str, object], expected: int) -> None:
         repo = api.create_repo(team_id=self.team.id, repo_external_id=99999, repo_full_name="org/test")
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha=f"count-{_name}",
+                branch=f"count-{_name}",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier=_name, content_hash=f"hash-{_name}")],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha=f"count-{_name}",
-            branch=f"count-{_name}",
-            pr_number=None,
-            snapshots=[{"identifier": _name, "content_hash": f"hash-{_name}"}],
         )
         RunSnapshot.objects.filter(run=run).update(**snapshot_fields)
 

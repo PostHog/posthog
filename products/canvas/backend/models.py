@@ -81,6 +81,16 @@ class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
     task_run_id = models.UUIDField(null=True, blank=True)
     prompt = models.TextField(null=True, blank=True)
 
+    # Snapshot of the project's declared capabilities manifest, denormalized
+    # from the stored source so capability changes can be diffed and audited
+    # without reading object storage. Null for versions that predate it.
+    capabilities = models.JSONField(null=True, blank=True)
+
+    # True while the version is a staged draft: stored and built like any other
+    # version, but never the canvas head, so its build can't go live. Promoting
+    # clears the flag; after that the version is indistinguishable from a publish.
+    draft = models.BooleanField(default=False)
+
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
     )
@@ -148,5 +158,46 @@ class CanvasBuild(TeamScopedRootMixin, UUIDModel):
                 fields=["finished_at"],
                 condition=Q(pinned=False, artifact_object_prefix__isnull=False),
                 name="canvas_build_retention",
+            ),
+        ]
+
+
+class CanvasState(TeamScopedRootMixin, UUIDModel):
+    """One key of a canvas's runtime key-value store (the ``ph.state`` verb).
+
+    ``user`` rows belong to one viewer; ``shared`` rows to the canvas itself.
+    Values are application data written from viewer sessions — never secrets —
+    and bounded at write time (value size, keys per scope), which keeps every
+    access a point lookup and table growth capped by canvas count.
+    """
+
+    SCOPE_USER = "user"
+    SCOPE_SHARED = "shared"
+    SCOPES = [SCOPE_USER, SCOPE_SHARED]
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="state_entries")
+    scope = models.CharField(max_length=8)
+    # The owning viewer for user-scoped rows; always null for shared rows.
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True, blank=True, db_constraint=False)
+    key = models.CharField(max_length=200)
+    value = models.JSONField()
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_canvas_state"
+        constraints = [
+            # Postgres treats NULLs as distinct, so shared rows (user NULL) get
+            # their own uniqueness arm instead of one four-column constraint.
+            models.UniqueConstraint(
+                fields=["canvas", "scope", "user", "key"],
+                condition=Q(user__isnull=False),
+                name="canvas_state_user_key",
+            ),
+            models.UniqueConstraint(
+                fields=["canvas", "scope", "key"],
+                condition=Q(user__isnull=True),
+                name="canvas_state_shared_key",
             ),
         ]

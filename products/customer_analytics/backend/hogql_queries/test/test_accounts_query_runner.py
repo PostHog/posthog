@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import AccountsQuery, AccountsQueryResponse
+from posthog.schema import AccountsQuery, AccountsQueryResponse, HogQLQueryModifiers
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -624,3 +624,69 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
         self.assertRaises(UserAccessControlError, runner.validate_query_runner_access, self.user)
+
+    def test_multiple_aggregating_joins_preserve_left_join_defaults(self):
+        # Selecting tags + notebooks + a custom property together merges the sibling
+        # federated joins into one UNION ALL join; an account with none of them must
+        # keep the LEFT JOIN defaults (0 notebooks, [] tags, empty property) through
+        # the merged re-aggregation.
+        tag = Tag.objects.create(name="billing", team=self.team)
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        full = create_account(team_id=self.team.id, name="Full")
+        full.tagged_items.create(tag=tag)
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+        ResourceNotebook.objects.create(account=full, notebook=notebook)
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=full, definition=definition, value_str="enterprise"
+        )
+        empty = create_account(team_id=self.team.id, name="Empty")
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(
+                select=[
+                    "id",
+                    "accounts.tags.names AS tag_names",
+                    "accounts.notebooks.count AS notebook_count",
+                    f"accounts.custom_properties.values.`{definition.id}` AS plan",
+                ]
+            ),
+            team=self.team,
+            user=self.user,
+            modifiers=HogQLQueryModifiers(mergeFederatedAggregateJoins=True),
+        )
+        response = runner.calculate()
+        rows = {str(row[runner.columns.index("id")]): row for row in response.results}
+        tags_idx = runner.columns.index("tag_names")
+        count_idx = runner.columns.index("notebook_count")
+        plan_idx = runner.columns.index("plan")
+
+        self.assertEqual(rows[str(full.id)][tags_idx], ["billing"])
+        self.assertEqual(rows[str(full.id)][count_idx], 1)
+        self.assertEqual(rows[str(full.id)][plan_idx], "enterprise")
+        self.assertEqual(rows[str(empty.id)][tags_idx], [])
+        self.assertEqual(rows[str(empty.id)][count_idx], 0)
+        self.assertFalse(rows[str(empty.id)][plan_idx])
+
+    def test_join_merge_requires_modifier(self):
+        # The merge transform must stay behind the modifier: without it the printed
+        # SQL keeps the original per-join shape. The modifier-on run guards against
+        # the query silently becoming ineligible for the merge.
+        from posthog.hogql.query import HogQLQueryExecutor
+
+        query = AccountsQuery(
+            select=["id", "accounts.tags.names AS tag_names", "accounts.notebooks.count AS notebook_count"]
+        )
+
+        def generate_sql(modifiers: HogQLQueryModifiers | None) -> str:
+            runner = AccountsQueryRunner(query=query, team=self.team, user=self.user, modifiers=modifiers)
+            sql, _context = HogQLQueryExecutor(
+                query=runner.to_query(),
+                team=self.team,
+                query_type="AccountsQuery",
+                user=self.user,
+                modifiers=runner.modifiers,
+            ).generate_clickhouse_sql()
+            return sql
+
+        self.assertNotIn("__merged_aggregates", generate_sql(None))
+        self.assertIn("__merged_aggregates", generate_sql(HogQLQueryModifiers(mergeFederatedAggregateJoins=True)))

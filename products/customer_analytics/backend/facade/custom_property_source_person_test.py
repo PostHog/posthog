@@ -12,8 +12,10 @@ from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_custom_property_definition
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
@@ -251,11 +253,34 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         # Column descriptions leak warehouse metadata to a caller without warehouse-source access.
         assert denied.column_descriptions == {}
 
+        # The binding a link would be built from names a warehouse source the caller can't see.
+        assert denied.external_data_source is None and denied.table_name is None
+
         allowed = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=True))
         assert allowed is not None
         assert allowed.sync_frequency_interval_seconds == timedelta(hours=6).total_seconds()
         assert allowed.last_sync_error == "boom: internal warehouse detail" and allowed.consecutive_failures == 3
         assert allowed.column_descriptions == {"plan": "internal warehouse column note"}
+        assert allowed.external_data_source == self.schema.source_id
+        # No table row yet, so the schema name is the best label available.
+        assert allowed.table_name == "users"
+
+    def test_source_view_names_the_bound_table_as_hogql_queries_it(self):
+        credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=self.team)
+        self.schema.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="stripe_users",
+            format="Parquet",
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+        )
+        self.schema.save(update_fields=["table"])
+        source = self._create(user_access_control=self._uac(allowed=True))
+
+        view = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=True))
+
+        assert view is not None
+        assert view.table_name == "stripe.users"
 
     def test_list_sync_runs_requires_warehouse_source_viewer(self):
         source = self._create(user_access_control=self._uac(allowed=True))

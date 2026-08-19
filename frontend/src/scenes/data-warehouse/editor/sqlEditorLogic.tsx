@@ -75,12 +75,14 @@ import {
     DataModelingNode,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
+    DataWarehouseSavedQueryIncremental,
+    DataWarehouseSavedQueryIncrementalCheck,
     ExportContext,
     ExternalDataSource,
     QueryBasedInsightModel,
 } from '~/types'
 
-import { validateMetricName } from 'products/data_catalog/frontend/common'
+import { validateMetricDescription, validateMetricName } from 'products/data_catalog/frontend/common'
 import {
     dataCatalogMetricsCreate,
     dataCatalogMetricsPartialUpdate,
@@ -107,6 +109,7 @@ import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
+import { IncrementalConfigFields } from './IncrementalConfigFields'
 import { findInnermostSelectAtOffset, findQueryAtCursor, type QueryRange, splitQueries } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
@@ -136,7 +139,8 @@ export interface SqlEditorLogicProps {
 // Monaco renders inline decorations per-line, so we can't get a single rectangular
 // border from a className. Instead, we maintain an absolutely-positioned `div`
 // inside the editor's overlay layer and recompute its bounding box from the pixel
-// positions of the range's start/end on each line.
+// positions of the range's start/end on each line. Runs on every scroll frame, so it
+// stays off the DOM wherever the geometry can be derived from layout math instead.
 export function renderQueryOutline(
     editorInstance: editor.IStandaloneCodeEditor,
     node: HTMLElement,
@@ -148,11 +152,6 @@ export function renderQueryOutline(
         return
     }
 
-    let minLeft = Infinity
-    let maxRight = -Infinity
-    let minTop = Infinity
-    let maxBottom = -Infinity
-
     // The cached range can outlive the document it was computed against: a paste or edit
     // that removes lines shrinks the model, but this render path runs on scroll/layout
     // without re-clamping. Passing an out-of-range line to `getLineMaxColumn` throws
@@ -160,8 +159,34 @@ export function renderQueryOutline(
     const lineCount = model.getLineCount()
     const startLine = Math.max(1, Math.min(range.startLineNumber, lineCount))
     const endLine = Math.max(1, Math.min(range.endLineNumber, lineCount))
+    const startColumn = Math.min(range.startColumn, model.getLineMaxColumn(startLine))
 
-    for (let line = startLine; line <= endLine; line++) {
+    // Vertical extent is pure layout math and monotonic in line number, so the range's own
+    // first/last line always bound it — no per-line scan, and no DOM reads. `getBottomForLineNumber`
+    // measures past the end of the wrapped line, which is exactly what a wrapped range needs.
+    const scrollTop = editorInstance.getScrollTop()
+    const minTop = editorInstance.getTopForPosition(startLine, startColumn) - scrollTop
+    const maxBottom = editorInstance.getBottomForLineNumber(endLine) - scrollTop
+
+    // Horizontal extent has to come from `getScrolledVisiblePosition`, which is expensive:
+    // each call forces a synchronous Monaco view render and reads client rects. Only scan
+    // lines that are actually rendered — for off-screen lines Monaco returns a placeholder
+    // pinned to the gutter edge anyway, so clamping here is more accurate, not less.
+    // Folding can yield several ranges; we only need the outer bounds, and don't assume ordering.
+    const visibleRanges = editorInstance.getVisibleRanges?.() ?? []
+    let loopStart = startLine
+    let loopEnd = endLine
+    if (visibleRanges.length) {
+        const firstVisibleLine = Math.min(...visibleRanges.map((r) => r.startLineNumber))
+        const lastVisibleLine = Math.max(...visibleRanges.map((r) => r.endLineNumber))
+        loopStart = Math.max(startLine, firstVisibleLine)
+        loopEnd = Math.min(endLine, lastVisibleLine)
+    }
+
+    let minLeft = Infinity
+    let maxRight = -Infinity
+
+    for (let line = loopStart; line <= loopEnd; line++) {
         const lineMaxColumn = model.getLineMaxColumn(line)
         const leftCol = Math.min(line === startLine ? range.startColumn : 1, lineMaxColumn)
         const rightCol = line === endLine ? Math.min(range.endColumn, lineMaxColumn) : lineMaxColumn
@@ -179,24 +204,10 @@ export function renderQueryOutline(
         if (endVis.left > maxRight) {
             maxRight = endVis.left
         }
-        if (startVis.top < minTop) {
-            minTop = startVis.top
-        }
-        // With wordWrap on, a single model line can span multiple visual rows: `endVis`
-        // sits on a later row than `startVis`. Take the max bottom of both so the outline
-        // covers the wrapped tail. Width on wrapped lines is still approximate — the
-        // mid-rows could extend past either anchor — but the bottom must be correct or
-        // wrapped queries get clipped vertically.
-        const startBottom = startVis.top + startVis.height
-        const endBottom = endVis.top + endVis.height
-        if (startBottom > maxBottom) {
-            maxBottom = startBottom
-        }
-        if (endBottom > maxBottom) {
-            maxBottom = endBottom
-        }
     }
 
+    // No rendered line intersects the range — it's scrolled fully out of view, so there's
+    // nothing to frame.
     if (minLeft === Infinity) {
         node.style.display = 'none'
         return
@@ -220,6 +231,12 @@ function clearQueryOutlineOverlay(
     cache.scrollDisposable = null
     cache.layoutDisposable?.dispose()
     cache.layoutDisposable = null
+
+    if (cache.outlineRafId != null) {
+        cancelAnimationFrame(cache.outlineRafId)
+        cache.outlineRafId = null
+    }
+    cache.scheduleOutlineRender = null
 
     if (cache.queryOutlineWidget) {
         try {
@@ -609,12 +626,18 @@ export interface sqlEditorLogicActions {
     loadDataWarehouseSavedQueryFolders: () => any // dataWarehouseViewsLogic
     materializeDataWarehouseSavedQuery: (
         viewId: string,
-        syncFrequency?: import('~/types').DataModelingSyncInterval | undefined
+        syncFrequency?: import('~/types').DataModelingSyncInterval | undefined,
+        incremental?: DataWarehouseSavedQueryIncremental | undefined
     ) => {
+        incremental: DataWarehouseSavedQueryIncremental | undefined
         syncFrequency: import('~/types').DataModelingSyncInterval | undefined
         viewId: string
     } // dataWarehouseViewsLogic
-    runDataWarehouseSavedQuery: (viewId: string) => {
+    runDataWarehouseSavedQuery: (
+        viewId: string,
+        fullRefresh?: boolean | undefined
+    ) => {
+        fullRefresh: boolean | undefined
         viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
@@ -676,10 +699,12 @@ export interface sqlEditorLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // databaseTableListLogic
     resetConnectionScope: () => {
         value: true
@@ -719,8 +744,10 @@ export interface sqlEditorLogicActions {
     } // draftsLogic
     fixErrors: (
         query: string,
-        error?: string | undefined
+        error?: string | undefined,
+        connectionId?: string | undefined
     ) => {
+        connectionId: string | undefined
         error: string | undefined
         query: string
     } // fixSQLErrorsLogic
@@ -735,12 +762,14 @@ export interface sqlEditorLogicActions {
         response: Response,
         payload?:
             | {
+                  connectionId: string | undefined
                   error: string | undefined
                   query: string
               }
             | undefined
     ) => {
         payload?: {
+            connectionId: string | undefined
             error: string | undefined
             query: string
         }
@@ -927,11 +956,13 @@ export interface sqlEditorLogicActions {
         dagId?: string,
         folderId?: string | null,
         isTest?: any,
-        queryOverride?: string
+        queryOverride?: string,
+        incremental?: DataWarehouseSavedQueryIncremental
     ) => {
         dagId: string | undefined
         folderId: string | null | undefined
         fromDraft: string | undefined
+        incremental: DataWarehouseSavedQueryIncremental | undefined
         isTest: any
         materializeAfterSave: any
         name: string
@@ -1155,6 +1186,20 @@ function releaseConnectionScope(tabId: string, scopedConnectionId: string | null
     return scopedConnectionId !== null && ![...connectionScopeOwners.values()].includes(scopedConnectionId)
 }
 
+// With the lazy schema flag on, the editor first loads only table names and metadata; the schema
+// tree hydrates each table's columns on expansion.
+function schemaLoadOptions(
+    featureFlags: FeatureFlagsSet,
+    force = false
+): { force?: boolean; shallow?: boolean } | undefined {
+    const shallow = !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_LAZY_SCHEMA]
+    if (!shallow) {
+        // With the flag off, emit exactly the payloads this logic emitted before lazy loading.
+        return force ? { force } : undefined
+    }
+    return { force, shallow }
+}
+
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
@@ -1251,7 +1296,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             dagId?: string,
             folderId?: string | null,
             isTest = false,
-            queryOverride?: string
+            queryOverride?: string,
+            incremental?: DataWarehouseSavedQueryIncremental
         ) => ({
             name,
             materializeAfterSave,
@@ -1260,6 +1306,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             folderId,
             isTest,
             queryOverride,
+            incremental,
         }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string, queryOverride?: string) => ({
@@ -1431,17 +1478,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             // Reposition the overlay on scroll and layout/resize. These don't change the
             // range, only its pixel coordinates, so we skip the SQL parsing path entirely.
+            // Monaco fires scroll events per wheel tick, several per frame, and repositioning
+            // reads editor geometry — so coalesce to one render per frame.
+            cache.scheduleOutlineRender = (): void => {
+                if (cache.outlineRafId != null) {
+                    return
+                }
+                cache.outlineRafId = requestAnimationFrame(() => {
+                    cache.outlineRafId = null
+                    if (cache.queryOutlineRange) {
+                        renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
+                    }
+                })
+            }
             cache.scrollDisposable?.dispose()
             cache.scrollDisposable = editorInstance.onDidScrollChange(() => {
-                if (cache.queryOutlineRange) {
-                    renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
-                }
+                cache.scheduleOutlineRender?.()
             })
             cache.layoutDisposable?.dispose()
             cache.layoutDisposable = editorInstance.onDidLayoutChange(() => {
-                if (cache.queryOutlineRange) {
-                    renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
-                }
+                cache.scheduleOutlineRender?.()
             })
         }
     }),
@@ -2082,6 +2138,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     current: candidates.queries[candidates.initialIndex],
                 }
 
+                // Checked once as the dialog opens rather than on every keystroke: it only depends
+                // on the SQL being saved, which cannot change while the dialog is up. A failure
+                // leaves the incremental fields hidden, so the view saves as a normal full refresh.
+                let incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null = null
+                if (values.featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]) {
+                    try {
+                        incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
+                            query: selectedRef.current ?? values.queryInput ?? '',
+                        })
+                    } catch {
+                        incrementalCheck = null
+                    }
+                }
+
                 const folderOptions: { value: string | null; label: string }[] = [
                     { value: null, label: 'No folder' },
                     ...values.dataWarehouseSavedQueryFolders.map((folder) => ({
@@ -2123,6 +2193,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         folderId: null,
                         isTest: false,
                         materializeAfterSave,
+                        incrementalEnabled: false,
+                        incrementalKey: incrementalCheck?.key_candidates[0] ?? null,
+                        incrementalUniqueKey: [],
+                        incrementalLookbackSeconds: 0,
                         dagId: multiDagEnabled
                             ? (values.dags.find((d) => d.id === values.selectedDagId)?.id ?? values.dags[0]?.id ?? null)
                             : undefined,
@@ -2226,17 +2300,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 )}
                                 <LemonField name="materializeAfterSave" className="mt-2">
                                     {({ value, onChange }) => (
-                                        <div className="flex items-center gap-2">
-                                            <LemonCheckbox
-                                                checked={value}
-                                                onChange={onChange}
-                                                data-attr="sql-editor-input-save-view-materialize"
-                                                label="Materialize this view"
-                                            />
-                                            <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
-                                                <span className="text-muted cursor-pointer">&#9432;</span>
-                                            </Tooltip>
-                                        </div>
+                                        <>
+                                            <div className="flex items-center gap-2">
+                                                <LemonCheckbox
+                                                    checked={value}
+                                                    onChange={onChange}
+                                                    data-attr="sql-editor-input-save-view-materialize"
+                                                    label="Materialize this view"
+                                                />
+                                                <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
+                                                    <span className="text-muted cursor-pointer">&#9432;</span>
+                                                </Tooltip>
+                                            </div>
+                                            {value && <IncrementalConfigFields check={incrementalCheck} />}
+                                        </>
                                     )}
                                 </LemonField>
                                 <SaveTargetCycler
@@ -2250,6 +2327,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     errors: {
                         viewName: validateSavedQueryName,
                         dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
+                        incrementalKey: (key, { incrementalEnabled, materializeAfterSave: materialize }) =>
+                            incrementalEnabled && materialize && !key ? 'Select the incremental column' : undefined,
+                        incrementalUniqueKey: (uniqueKey, { incrementalEnabled, materializeAfterSave: materialize }) =>
+                            incrementalEnabled && materialize && !uniqueKey?.length
+                                ? 'Select at least one unique key column'
+                                : undefined,
                     },
                     onSubmit: async ({
                         viewName,
@@ -2257,7 +2340,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         folderId,
                         isTest,
                         materializeAfterSave: shouldMaterialize,
+                        incrementalEnabled,
+                        incrementalKey,
+                        incrementalUniqueKey,
+                        incrementalLookbackSeconds,
                     }) => {
+                        const incremental =
+                            shouldMaterialize && incrementalEnabled && incrementalKey && incrementalUniqueKey?.length
+                                ? {
+                                      enabled: true,
+                                      incremental_key: incrementalKey,
+                                      unique_key: incrementalUniqueKey,
+                                      lookback_seconds: incrementalLookbackSeconds ?? 0,
+                                  }
+                                : undefined
                         await asyncActions.saveAsViewSubmit(
                             viewName,
                             shouldMaterialize ?? false,
@@ -2265,7 +2361,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             dagId,
                             folderId,
                             isTest ?? false,
-                            selectedRef.current
+                            selectedRef.current,
+                            incremental
                         )
                         if (multiDagEnabled && dagId) {
                             dataModelingLogic.actions.setSelectedDagId(dagId)
@@ -2282,6 +2379,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 folderId,
                 isTest = false,
                 queryOverride,
+                incremental,
             }) => {
                 const biEditorState = getActiveBIEditorState()
                 const query: HogQLQuery = values.sourceQuery.source
@@ -2318,6 +2416,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ...(folderId ? { folder_id: folderId } : {}),
                         ...(dagId ? { dag_id: dagId } : {}),
                         ...(isTest ? { is_test: true } : {}),
+                        ...(incremental ? { incremental } : {}),
                     })
                     captureBIEditorQuerySaved(biEditorState, 'view', 'create')
 
@@ -2591,7 +2690,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ),
                     errors: {
                         name: (name) => validateMetricName(name?.trim() || ''),
-                        description: (description) => (!description?.trim() ? 'Add a description' : undefined),
+                        description: (description) =>
+                            !description?.trim() ? 'Add a description' : validateMetricDescription(description.trim()),
                     },
                     onSubmit: async ({ name, description }) =>
                         actions.saveAsMetricSubmit(name.trim(), description.trim(), selectedRef.current),
@@ -3020,7 +3120,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             cache.lastSelectedConnectionId = selectedConnectionId
             claimConnectionScope(props.tabId, selectedConnectionId)
             actions.setConnection(selectedConnectionId ?? null)
-            actions.loadDatabase()
+            actions.loadDatabase(schemaLoadOptions(values.featureFlags))
             if (selectedConnectionId) {
                 // Capability data must load wherever a connection is in play — including
                 // surfaces that never render the connection selector.
@@ -3288,7 +3388,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ) {
                 if (shouldSyncDatabaseConnection && !values.databaseLoading) {
                     actions.setConnection(expectedDatabaseConnectionId)
-                    actions.loadDatabase()
+                    actions.loadDatabase(schemaLoadOptions(values.featureFlags))
                 }
                 return
             }
@@ -3630,7 +3730,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             if (connectionIdFromHash === undefined && shouldSyncDatabaseConnection && !values.databaseLoading) {
                 actions.setConnection(expectedDatabaseConnectionId)
-                actions.loadDatabase()
+                actions.loadDatabase(schemaLoadOptions(values.featureFlags))
             }
         },
     })),
@@ -3760,8 +3860,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 )
             }
 
-            // Single query — outline the innermost subquery at the cursor (which collapses
-            // to the whole SELECT when there is no nested subquery).
+            // Single query — outline the innermost subquery at the cursor. A flat query with no
+            // nested SELECT around the cursor gets no outline at all: `findInnermostSelectAtOffset`
+            // needs at least two enclosing SELECTs and returns null otherwise.
             if (queries.length <= 1) {
                 const singleQuery = queries.length === 1 ? queries[0] : null
                 // Offset must be the statement's start in the full text, not 0 — otherwise leading
@@ -3838,7 +3939,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // stuck true (a load that never settled), the plain guard would skip the reload and the
             // editor would sit on "Loading..." forever. On remount we still need data, so force a
             // fresh request to bypass any hung in-flight load.
-            actions.loadDatabase(values.databaseLoading ? { force: true } : undefined)
+            actions.loadDatabase(schemaLoadOptions(values.featureFlags, values.databaseLoading))
         }
     }),
     beforeUnmount(({ actions, values, cache, props }) => {

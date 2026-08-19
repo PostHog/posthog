@@ -15,15 +15,14 @@
 # `shared` = all envs of that role and `prod` = both prod envs (e.g. the OPS metrics
 # suite is prod-only but env-identical).
 #
-# Both managed roles (OPS, LOGS) are modeled for all three cloud envs (dev, prod-us,
-# prod-eu); OPS additionally has `local`. OPS carries the env differences; LOGS carries
-# the shared managed subset (env-identical, but verified per env for fidelity).
+# OPS and LOGS are modeled for all three cloud envs (dev, prod-us, prod-eu). OPS carries
+# the env differences; LOGS carries the shared managed subset (env-identical, but verified
+# per env for fidelity). The satellite roles are modeled where a node of that role exists
+# to model: every role the multinode stack runs has a `local-multi` env block, and the
+# convergence gate (dump-live.sh + check-live.sh) dumps and gates all of them.
 #
-# SCOPE: the pilot is OPS + LOGS. The other roles (data/endpoints/aux/ai_events/sessions)
-# also host the shared query_log_archive path + custom_metrics, but are intentionally
-# left out for now, so node_roles for shared objects derives to [OPS, LOGS] rather than
-# every role. To bring a role under management, add its env block and regenerate the
-# golden from a host of that role (codegen/README has the extraction).
+# SCOPE: to bring a further role or env under management, add its env block and regenerate
+# the golden from a host of that role (codegen/README has the extraction).
 
 role "ops" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local"] }
@@ -102,7 +101,7 @@ role "batch_exports" {
 # columns per env that are added out-of-band and churn constantly, so their goldens
 # live in PostHog/posthog-cloud-infra (clickhouse/hcl/), not the OSS gate.
 role "data" {
-  env "local-multi" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/sessions_data", "roles/coshared/ai_events_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/data/local"] }
+  env "local-multi" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/sessions_data", "roles/coshared/ai_events_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/data/shared", "roles/data/local"] }
 }
 
 # role "endpoints" {

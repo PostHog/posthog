@@ -25,9 +25,10 @@ tools:
             destructive: false
             idempotent: true
         title: Get available activity log filter options.
-        description: >
-            Get the available filter options for activity logs — scopes, activity types, and users that have logged
-            activity. Useful for building filter UIs or understanding what kinds of activity are tracked.
+        description:
+            Get the valid filter values for activity logs — the scopes, activity types, and users that actually have
+            logged activity in this project. Call this before advanced-activity-logs-list when you need to filter and
+            don't know the exact scope or activity strings to pass; skip it when you already know them.
         feature_entitlement: audit_logs
         url_prefix: /activity
     advanced-activity-logs-list:
@@ -270,8 +271,11 @@ tools:
             destructive: false
             idempotent: true
         title: Get comment counts.
-        description: |
-            Get the count of comments, optionally filtered by scope and item_id.
+        description:
+            Count comments, optionally narrowed to one resource by scope (e.g. Dashboard, Insight, FeatureFlag) and
+            item_id. Use when you only need the number — for example to check whether a resource has any discussion
+            before digging in. To read the comments themselves use comments-list; for a full reply chain use
+            comment-thread.
     comment-get:
         operation: comments_retrieve
         enabled: true
@@ -481,6 +485,9 @@ tools:
     personal-api-keys-list:
         operation: personal_api_keys_list
         enabled: false
+    remove-blocked-members-and-enforce-verified-domains-create:
+        operation: remove_blocked_members_and_enforce_verified_domains_create
+        enabled: false
     request-ai-access-create:
         operation: request_ai_access_create
         enabled: false
@@ -541,6 +548,9 @@ tools:
         enabled: false
     roles-update:
         operation: roles_update
+        enabled: false
+    teams-data-freshness-retrieve:
+        operation: teams_data_freshness_retrieve
         enabled: false
     user-home-settings-get:
         operation: user_home_settings_retrieve

@@ -127,18 +127,18 @@ class TestSlackImageIngest(SimpleTestCase):
         if permalink:
             files[0]["permalink"] = permalink
         attachments = extract_slack_files(files, fake_team, fake_client)
-        images, file_attachments = split_slack_attachments(attachments)
+        split = split_slack_attachments(attachments)
 
         mock_save.assert_not_called()
         # Nothing is re-hosted, so nothing can be inlined
-        assert images == []
+        assert split.images == []
         if expects_link:
             # Rendered as a link instead of vanishing from the ticket
-            assert file_attachments == [
+            assert split.files == [
                 {"url": permalink, "name": "test.jpg", "mimetype": "image/jpeg", "unavailable": True}
             ]
         else:
-            assert file_attachments == []
+            assert split.files == []
 
     @parameterized.expand(
         [
@@ -214,12 +214,12 @@ class TestSlackImageIngest(SimpleTestCase):
             }
         ]
         attachments = extract_slack_files(files, fake_team, fake_client)
-        images, file_attachments = split_slack_attachments(attachments)
+        split = split_slack_attachments(attachments)
 
-        assert images == []
-        assert len(file_attachments) == 1
-        assert file_attachments[0]["mimetype"] == "application/pdf"
-        assert file_attachments[0]["name"] == "invoice.pdf"
+        assert split.images == []
+        assert len(split.files) == 1
+        assert split.files[0]["mimetype"] == "application/pdf"
+        assert split.files[0]["name"] == "invoice.pdf"
         # Non-image bytes are stored without image validation
         assert mock_save.call_args.kwargs["validate_images"] is False
 

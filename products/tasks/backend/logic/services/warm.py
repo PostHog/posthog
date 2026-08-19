@@ -25,6 +25,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.tasks.backend.logic.services.compute_quota import organization_deactivated
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.utils import parse_run_state
@@ -81,7 +82,7 @@ class SandboxWarmer:
 
     ORIGIN_PRODUCT_CAPS: dict[str, WarmPoolCaps] = {
         Task.OriginProduct.POSTHOG_AI: WarmPoolCaps(per_user=2, per_org=10),
-        Task.OriginProduct.USER_CREATED: WarmPoolCaps(per_user=2, per_org=50),
+        Task.OriginProduct.USER_CREATED: WarmPoolCaps(per_user=10, per_org=100),
     }
     _DEFAULT_CAPS: WarmPoolCaps = WarmPoolCaps(per_user=2, per_org=10)
 
@@ -98,6 +99,8 @@ class SandboxWarmer:
         """
         if origin_product not in cls.ORIGIN_PRODUCT_QUOTA:
             raise PermissionDenied(f"Warming is not enabled for origin product '{origin_product}'.")
+        if organization_deactivated(team.id):
+            raise PermissionDenied("Your organization has been deactivated.")
         checker = cls.ORIGIN_PRODUCT_QUOTA[origin_product]
         if checker is not None:
             checker(team, user)

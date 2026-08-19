@@ -246,6 +246,19 @@ def progress_payload(
         if judged >= len(current_pairs):
             return {"review_stage": "finalizing", "done": judged, "total": len(current_pairs)}
         return {"review_stage": "validating", "done": judged, "total": len(current_pairs)}
+    # The publish window: on publishing runs finalize defers the idle write to the publish stage,
+    # so the report is still ACTIVE with `run_count` already bumped and no in-flight findings, and
+    # the branches below would misread the finished turn's working state as "deduplicating".
+    # Scoped to the not-yet-published head so a resolution run's ACTIVE window (published head)
+    # keeps its current label; relabeling that window properly is its own change. Trade-off: an
+    # unpublished same-head re-run reads "finalizing" until dedup persists its first findings,
+    # a brief stretch because such a turn resumes its chunk and perspective state.
+    if (
+        report.completed_head_sha
+        and report.completed_head_sha == report.head_sha
+        and report.published_head_sha != report.head_sha
+    ):
+        return {"review_stage": "finalizing", "done": None, "total": None}
     if turn.chunk_count is not None:
         done = turn.perspective_reads or 0
         # The selector runs between chunking and the fan-out; its persisted plan is the stage marker.

@@ -13,7 +13,7 @@ use tonic::transport::Channel;
 use tonic::{Code, Status};
 use tower::{Service, ServiceExt};
 
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{current_client_name, SEMANTIC_REFUSAL_METADATA_KEY};
 use personhog_common::partitioning::partition_for_person;
 
 use super::stash::{StashDecision, StashTable};
@@ -317,20 +317,31 @@ impl LeaderBackend {
             .send_frame(channel, forward_path, method, partition, headers, frame)
             .await
         {
-            // Every leader use of FailedPrecondition is a routing-race
-            // rejection ("fenced for handoff", "partition not owned") —
-            // never a semantic client error — so it classifies as a
+            // A bare FailedPrecondition is a routing-race rejection
+            // ("fenced for handoff", "partition not owned", a person
+            // fence that clears in healer time) — it classifies as a
             // bounce rather than an outcome. Almost all are refusals at
             // admission, where nothing was attempted; the exception is a
             // window fenced with its own commit outcome unknown, whose
             // record may already be in the changelog. That case is not
             // counted as a possible replay: admission refusals are the
             // ordinary traffic of every handoff, so counting the class
-            // would swamp the signal it exists to carry.
-            Ok((response, _call_ms))
+            // would swamp the signal it exists to carry. The one carve-out
+            // is a semantic refusal (the leader's fail-closed verification
+            // rejections, marked by metadata): that is a final answer
+            // about the request, and bouncing it would exhaust into a
+            // retriable UNAVAILABLE the caller loops on forever.
+            Ok((response, call_ms))
                 if grpc_status_code(&response) == Some(Code::FailedPrecondition as i32) =>
             {
-                ForwardDecision::Bounced(BounceReason::Fenced)
+                if response
+                    .headers()
+                    .contains_key(SEMANTIC_REFUSAL_METADATA_KEY)
+                {
+                    ForwardDecision::Delivered { response, call_ms }
+                } else {
+                    ForwardDecision::Bounced(BounceReason::Fenced)
+                }
             }
             Ok((response, call_ms)) => ForwardDecision::Delivered { response, call_ms },
             Err(_status) => ForwardDecision::Bounced(BounceReason::Transport),

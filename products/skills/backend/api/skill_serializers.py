@@ -291,6 +291,7 @@ PUBLISH_CONTENT_FIELDS = (
     "metadata",
     "files",
     "file_edits",
+    "version_description",
 )
 
 
@@ -367,9 +368,18 @@ class LLMSkillPublishSerializer(serializers.Serializer):
         "Required when publishing content changes; optional for an owner-only update (when omitted, "
         "owners are replaced without a concurrency check).",
     )
+    version_description = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        help_text="Optional note describing what changed in this version. Shown in the version history.",
+    )
 
     def validate_body(self, value: str) -> str:
         return validate_skill_body_size(value)
+
+    def validate_version_description(self, value: str) -> str | None:
+        return value.strip() or None
 
     def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
         if len(value) == 0:
@@ -468,6 +478,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "files",
             "outline",
             "version",
+            "version_description",
             "created_by",
             "created_at",
             "updated_at",
@@ -485,6 +496,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "body_total_length",
             "body_next_offset",
             "version",
+            "version_description",
             "created_by",
             "created_at",
             "updated_at",
@@ -505,6 +517,9 @@ class LLMSkillSerializer(serializers.ModelSerializer):
                 "help_text": "Environment requirements (intended product, system packages, network access, etc.)."
             },
             "metadata": {"help_text": "Arbitrary key-value metadata."},
+            "version_description": {
+                "help_text": "Optional note describing what changed in this version. Set when the version is published."
+            },
         }
 
     def get_is_latest(self, instance: LLMSkill) -> bool:
@@ -688,6 +703,7 @@ class LLMSkillVersionSummarySerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "version",
+            "version_description",
             "created_by",
             "created_at",
             "is_latest",

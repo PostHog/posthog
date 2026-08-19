@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from products.visual_review.backend import logic
 from products.visual_review.backend.db import WRITER_DB
+from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -131,17 +132,19 @@ class TestRunOperations:
 
     def test_create_run_basic(self, repo):
         run, uploads = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123def456",
+                branch="main",
+                pr_number=42,
+                snapshots=[
+                    SnapshotManifestItem(identifier="Button-primary", content_hash="hash1"),
+                    SnapshotManifestItem(identifier="Button-secondary", content_hash="hash2"),
+                ],
+                baseline_hashes={},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123def456",
-            branch="main",
-            pr_number=42,
-            snapshots=[
-                {"identifier": "Button-primary", "content_hash": "hash1"},
-                {"identifier": "Button-secondary", "content_hash": "hash2"},
-            ],
-            baseline_hashes={},
         )
 
         assert run.repo_id == repo.id
@@ -159,17 +162,19 @@ class TestRunOperations:
         logic.get_or_create_artifact(repo_id=repo.id, content_hash="existing", storage_path="p/existing")
 
         run, uploads = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.PLAYWRIGHT,
+                commit_sha="abc",
+                branch="feat",
+                pr_number=None,
+                snapshots=[
+                    SnapshotManifestItem(identifier="snap1", content_hash="existing"),
+                    SnapshotManifestItem(identifier="snap2", content_hash="new"),
+                ],
+                baseline_hashes={},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.PLAYWRIGHT,
-            commit_sha="abc",
-            branch="feat",
-            pr_number=None,
-            snapshots=[
-                {"identifier": "snap1", "content_hash": "existing"},
-                {"identifier": "snap2", "content_hash": "new"},
-            ],
-            baseline_hashes={},
         )
 
         # Only "new" needs upload, "existing" already has artifact
@@ -182,14 +187,16 @@ class TestRunOperations:
         )
 
         run, _uploads = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+                baseline_hashes={"Button": "baseline_hash"},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[{"identifier": "Button", "content_hash": "new_hash"}],
-            baseline_hashes={"Button": "baseline_hash"},
         )
 
         # Classification happens at complete_run time, not create_run time
@@ -211,21 +218,23 @@ class TestRunOperations:
         )
 
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[
+                    SnapshotManifestItem(identifier="unchanged", content_hash="same_hash"),
+                    SnapshotManifestItem(identifier="new", content_hash="brand_new"),
+                    SnapshotManifestItem(identifier="changed", content_hash="different"),
+                ],
+                baseline_hashes={
+                    "unchanged": "same_hash",
+                    "changed": "old_hash",
+                },
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[
-                {"identifier": "unchanged", "content_hash": "same_hash"},
-                {"identifier": "new", "content_hash": "brand_new"},
-                {"identifier": "changed", "content_hash": "different"},
-            ],
-            baseline_hashes={
-                "unchanged": "same_hash",
-                "changed": "old_hash",
-            },
         )
 
         # Classification happens at complete_run time
@@ -243,13 +252,15 @@ class TestRunOperations:
 
     def test_create_run_empty(self, repo):
         run, uploads = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[],
         )
 
         assert run.total_snapshots == 0
@@ -261,13 +272,15 @@ class TestRunOperations:
 
     def test_add_snapshots_to_run(self, repo):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[],
         )
         assert run.total_snapshots == 0
 
@@ -296,13 +309,15 @@ class TestRunOperations:
 
     def test_add_snapshots_idempotent(self, repo):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[],
         )
 
         for _ in range(2):
@@ -316,13 +331,15 @@ class TestRunOperations:
 
     def test_add_snapshots_rejects_non_pending(self, repo):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[],
         )
         logic.finish_processing(run.id)
 
@@ -335,13 +352,15 @@ class TestRunOperations:
 
     def test_complete_run_detects_removals(self, repo, mocker):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="kept", content_hash="h1")],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
         )
 
         # Mock baseline to include an identifier not in the run
@@ -358,14 +377,16 @@ class TestRunOperations:
 
     def test_complete_run_partial_skips_removals_off_default_branch(self, repo, mocker):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="feature-x",
+                pr_number=7,
+                snapshots=[SnapshotManifestItem(identifier="kept", content_hash="h1")],
+                is_partial=True,
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="feature-x",
-            pr_number=7,
-            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
-            is_partial=True,
         )
 
         mocker.patch(
@@ -381,14 +402,16 @@ class TestRunOperations:
 
     def test_complete_run_partial_ignored_on_default_branch(self, repo, mocker):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="master",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="kept", content_hash="h1")],
+                is_partial=True,
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="master",
-            pr_number=None,
-            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
-            is_partial=True,
         )
 
         mocker.patch(
@@ -410,13 +433,15 @@ class TestRunOperations:
     def test_complete_run_passes_commit_sha_to_baseline_resolution(self, repo, mocker):
         """complete_run passes run.commit_sha so default-branch baselines are pinned."""
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="deadbeef123",
+                branch="master",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="A", content_hash="h1")],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="deadbeef123",
-            branch="master",
-            pr_number=None,
-            snapshots=[{"identifier": "A", "content_hash": "h1"}],
         )
 
         mock_resolve = mocker.patch(
@@ -430,27 +455,31 @@ class TestRunOperations:
 
     def test_create_run_with_purpose(self, repo):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+                purpose="observe",
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[],
-            purpose="observe",
         )
         assert run.purpose == "observe"
 
     def test_approve_rejects_observe_runs(self, repo):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="btn", content_hash="h1")],
+                purpose="observe",
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[{"identifier": "btn", "content_hash": "h1"}],
-            purpose="observe",
         )
         logic.finish_processing(run.id)
 
@@ -459,14 +488,16 @@ class TestRunOperations:
 
     def test_get_run(self, repo):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+                baseline_hashes={},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[],
-            baseline_hashes={},
         )
 
         retrieved = logic.get_run(run.id)
@@ -481,14 +512,16 @@ class TestRunOperations:
 
     def test_mark_run_processing(self, repo):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+                baseline_hashes={},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[],
-            baseline_hashes={},
         )
 
         updated = logic.mark_run_processing(run.id)
@@ -497,17 +530,19 @@ class TestRunOperations:
 
     def test_finish_processing_success(self, repo, mocker):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[
+                    SnapshotManifestItem(identifier="changed1", content_hash="h1"),
+                    SnapshotManifestItem(identifier="new1", content_hash="h2"),
+                ],
+                baseline_hashes={"changed1": "old"},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[
-                {"identifier": "changed1", "content_hash": "h1"},
-                {"identifier": "new1", "content_hash": "h2"},
-            ],
-            baseline_hashes={"changed1": "old"},
         )
 
         # Classification happens at complete_run time
@@ -530,14 +565,16 @@ class TestRunOperations:
 
     def test_finish_processing_with_error(self, repo):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+                baseline_hashes={},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[],
-            baseline_hashes={},
         )
 
         updated = logic.finish_processing(run.id, error_message="Something failed")
@@ -547,14 +584,16 @@ class TestRunOperations:
 
     def test_update_run_counts_reads_and_writes_through_requested_db(self, repo, mocker):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[],
+                baseline_hashes={},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[],
-            baseline_hashes={},
         )
 
         snapshot_queryset = mocker.Mock()
@@ -591,14 +630,16 @@ class TestApproveRun:
             repo_id=repo.id, content_hash="new_hash", storage_path="p/new"
         )
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+                baseline_hashes={"Button": "old_hash"},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[{"identifier": "Button", "content_hash": "new_hash"}],
-            baseline_hashes={"Button": "old_hash"},
         )
 
         # Classification happens at complete_run time
@@ -629,14 +670,19 @@ class TestApproveRun:
         logic.get_or_create_artifact(repo_id=repo.id, content_hash="ha", storage_path="p/a")
         logic.get_or_create_artifact(repo_id=repo.id, content_hash="hb", storage_path="p/b")
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[
+                    SnapshotManifestItem(identifier="A", content_hash="ha"),
+                    SnapshotManifestItem(identifier="B", content_hash="hb"),
+                ],
+                baseline_hashes={"A": "olda", "B": "oldb"},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[{"identifier": "A", "content_hash": "ha"}, {"identifier": "B", "content_hash": "hb"}],
-            baseline_hashes={"A": "olda", "B": "oldb"},
         )
         mocker.patch(
             "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
@@ -718,14 +764,16 @@ class TestApproveSnapshots:
     def test_approve_single_snapshot_db_only(self, repo, user, mocker):
         logic.get_or_create_artifact(repo_id=repo.id, content_hash="new_hash", storage_path="p/new")
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
+                baseline_hashes={"Button": "old_hash"},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[{"identifier": "Button", "content_hash": "new_hash"}],
-            baseline_hashes={"Button": "old_hash"},
         )
         mocker.patch(
             "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
@@ -762,14 +810,16 @@ class TestToleratedHashes:
     ):
         logic.get_or_create_artifact(repo_id=repo.id, content_hash=current_hash, storage_path=f"p/{current_hash}")
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier=identifier, content_hash=current_hash)],
+                baseline_hashes={identifier: baseline_hash},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[{"identifier": identifier, "content_hash": current_hash}],
-            baseline_hashes={identifier: baseline_hash},
         )
         mocker.patch(
             "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
@@ -798,14 +848,16 @@ class TestToleratedHashes:
     def test_mark_unchanged_snapshot_rejected(self, repo, user, mocker):
         logic.get_or_create_artifact(repo_id=repo.id, content_hash="same", storage_path="p/same")
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="same")],
+                baseline_hashes={"Button": "same"},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[{"identifier": "Button", "content_hash": "same"}],
-            baseline_hashes={"Button": "same"},
         )
         mocker.patch(
             "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
@@ -903,18 +955,20 @@ class TestGetRunSnapshots:
 
     def test_get_run_snapshots(self, repo):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=None,
+                snapshots=[
+                    SnapshotManifestItem(identifier="A-component", content_hash="h1"),
+                    SnapshotManifestItem(identifier="B-component", content_hash="h2"),
+                    SnapshotManifestItem(identifier="C-component", content_hash="h3"),
+                ],
+                baseline_hashes={},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=None,
-            snapshots=[
-                {"identifier": "A-component", "content_hash": "h1"},
-                {"identifier": "B-component", "content_hash": "h2"},
-                {"identifier": "C-component", "content_hash": "h3"},
-            ],
-            baseline_hashes={},
         )
 
         snapshots = logic.get_run_snapshots(run.id)
@@ -939,14 +993,16 @@ class TestCommitStatusChecks:
 
     def test_create_run_posts_pending_status(self, github_repo, mock_github_api):
         run, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                pr_number=1,
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="h1")],
+                baseline_hashes={},
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="main",
-            pr_number=1,
-            snapshots=[{"identifier": "snap", "content_hash": "h1"}],
-            baseline_hashes={},
         )
 
         assert len(mock_github_api.status_checks) == 1
@@ -957,14 +1013,16 @@ class TestCommitStatusChecks:
 
     def test_complete_run_posts_success_when_no_changes(self, github_repo, mock_github_api, mocker):
         run, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                pr_number=1,
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="same")],
+                baseline_hashes={"snap": "same"},
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="main",
-            pr_number=1,
-            snapshots=[{"identifier": "snap", "content_hash": "same"}],
-            baseline_hashes={"snap": "same"},
         )
 
         mocker.patch(
@@ -981,15 +1039,17 @@ class TestCommitStatusChecks:
 
     def test_complete_run_partial_annotates_posted_status(self, github_repo, mock_github_api, mocker):
         run, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="feature-x",
+                pr_number=7,
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="same")],
+                baseline_hashes={"snap": "same"},
+                is_partial=True,
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="feature-x",
-            pr_number=7,
-            snapshots=[{"identifier": "snap", "content_hash": "same"}],
-            baseline_hashes={"snap": "same"},
-            is_partial=True,
         )
 
         mocker.patch(
@@ -1015,17 +1075,19 @@ class TestCommitStatusChecks:
         github_repo.save(update_fields=["enable_pr_comments"])
 
         run, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                pr_number=1,
+                snapshots=[
+                    SnapshotManifestItem(identifier="changed", content_hash="new_h"),
+                    SnapshotManifestItem(identifier="added", content_hash="brand_new"),
+                ],
+                baseline_hashes={"changed": "old_h"},
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="main",
-            pr_number=1,
-            snapshots=[
-                {"identifier": "changed", "content_hash": "new_h"},
-                {"identifier": "added", "content_hash": "brand_new"},
-            ],
-            baseline_hashes={"changed": "old_h"},
         )
 
         mocker.patch(
@@ -1055,26 +1117,30 @@ class TestCommitStatusChecks:
         github_repo.save(update_fields=["enable_pr_comments"])
 
         run1, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc111",
+                branch="main",
+                pr_number=1,
+                snapshots=[SnapshotManifestItem(identifier="changed", content_hash="new_h")],
+                baseline_hashes={"changed": "old_h"},
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc111",
-            branch="main",
-            pr_number=1,
-            snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
-            baseline_hashes={"changed": "old_h"},
         )
         logic.finish_processing(run1.id)
 
         run2, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc222",
+                branch="main",
+                pr_number=1,
+                snapshots=[SnapshotManifestItem(identifier="changed", content_hash="newer_h")],
+                baseline_hashes={"changed": "old_h"},
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc222",
-            branch="main",
-            pr_number=1,
-            snapshots=[{"identifier": "changed", "content_hash": "newer_h"}],
-            baseline_hashes={"changed": "old_h"},
         )
         logic.finish_processing(run2.id)
 
@@ -1089,14 +1155,16 @@ class TestCommitStatusChecks:
         github_repo.save(update_fields=["enable_pr_comments"])
 
         run, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                pr_number=1,
+                snapshots=[SnapshotManifestItem(identifier="changed", content_hash="new_h")],
+                baseline_hashes={"changed": "old_h"},
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="main",
-            pr_number=1,
-            snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
-            baseline_hashes={"changed": "old_h"},
         )
 
         logic.finish_processing(run.id)
@@ -1107,10 +1175,28 @@ class TestCommitStatusChecks:
     @pytest.mark.parametrize(
         "enable_pr_comments, pr_number, snapshots, baseline_hashes, purpose",
         [
-            (False, 1, [{"identifier": "changed", "content_hash": "new_h"}], {"changed": "old_h"}, "review"),
-            (True, None, [{"identifier": "changed", "content_hash": "new_h"}], {"changed": "old_h"}, "review"),
-            (True, 1, [{"identifier": "snap", "content_hash": "same"}], {"snap": "same"}, "review"),
-            (True, 1, [{"identifier": "changed", "content_hash": "new_h"}], {"changed": "old_h"}, "observe"),
+            (
+                False,
+                1,
+                [SnapshotManifestItem(identifier="changed", content_hash="new_h")],
+                {"changed": "old_h"},
+                "review",
+            ),
+            (
+                True,
+                None,
+                [SnapshotManifestItem(identifier="changed", content_hash="new_h")],
+                {"changed": "old_h"},
+                "review",
+            ),
+            (True, 1, [SnapshotManifestItem(identifier="snap", content_hash="same")], {"snap": "same"}, "review"),
+            (
+                True,
+                1,
+                [SnapshotManifestItem(identifier="changed", content_hash="new_h")],
+                {"changed": "old_h"},
+                "observe",
+            ),
         ],
         ids=["toggle_off", "no_pr", "no_changes", "observe_purpose"],
     )
@@ -1128,15 +1214,17 @@ class TestCommitStatusChecks:
         )
 
         run, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                pr_number=pr_number,
+                snapshots=snapshots,
+                baseline_hashes=baseline_hashes,
+                purpose=purpose,
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="main",
-            pr_number=pr_number,
-            snapshots=snapshots,
-            baseline_hashes=baseline_hashes,
-            purpose=purpose,
         )
 
         logic.complete_run(run.id)
@@ -1145,14 +1233,16 @@ class TestCommitStatusChecks:
 
     def test_complete_run_posts_error_on_failure(self, github_repo, mock_github_api):
         run, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                pr_number=1,
+                snapshots=[],
+                baseline_hashes={},
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="main",
-            pr_number=1,
-            snapshots=[],
-            baseline_hashes={},
         )
 
         logic.finish_processing(run.id, error_message="Diff processing failed")
@@ -1169,18 +1259,20 @@ class TestCommitStatusChecks:
         github_repo.save(update_fields=["enable_pr_comments"])
 
         run, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="master",
+                pr_number=None,
+                snapshots=[
+                    SnapshotManifestItem(identifier="changed", content_hash="new_h"),
+                    SnapshotManifestItem(identifier="added", content_hash="brand_new"),
+                ],
+                baseline_hashes={"changed": "old_h"},
+                purpose="observe",
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="master",
-            pr_number=None,
-            snapshots=[
-                {"identifier": "changed", "content_hash": "new_h"},
-                {"identifier": "added", "content_hash": "brand_new"},
-            ],
-            baseline_hashes={"changed": "old_h"},
-            purpose="observe",
         )
 
         mocker.patch(
@@ -1203,15 +1295,17 @@ class TestCommitStatusChecks:
 
     def test_observe_run_without_changes_posts_green_tracking_status(self, github_repo, mock_github_api, mocker):
         run, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="master",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="same")],
+                baseline_hashes={"snap": "same"},
+                purpose="observe",
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="master",
-            pr_number=None,
-            snapshots=[{"identifier": "snap", "content_hash": "same"}],
-            baseline_hashes={"snap": "same"},
-            purpose="observe",
         )
 
         mocker.patch(
@@ -1228,14 +1322,16 @@ class TestCommitStatusChecks:
     def test_approve_run_posts_success(self, github_repo, mock_github_api, user):
         logic.get_or_create_artifact(repo_id=github_repo.id, content_hash="new_h", storage_path="p/new")
         run, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="new_h")],
+                baseline_hashes={"snap": "old_h"},
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="main",
-            pr_number=None,
-            snapshots=[{"identifier": "snap", "content_hash": "new_h"}],
-            baseline_hashes={"snap": "old_h"},
         )
         logic.finish_processing(run.id)
 
@@ -1250,14 +1346,16 @@ class TestCommitStatusChecks:
         # otherwise re-running CI would re-detect the change. Only finalize (which commits) greens it.
         logic.get_or_create_artifact(repo_id=github_repo.id, content_hash="new_h", storage_path="p/new")
         run, _ = logic.create_run(
-            repo_id=github_repo.id,
+            CreateRunInput(
+                repo_id=github_repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="new_h")],
+                baseline_hashes={"snap": "old_h"},
+            ),
             team_id=github_repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="main",
-            pr_number=None,
-            snapshots=[{"identifier": "snap", "content_hash": "new_h"}],
-            baseline_hashes={"snap": "old_h"},
         )
         mocker.patch(
             "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
@@ -1282,14 +1380,16 @@ class TestCommitStatusChecks:
 
         # No mock_github_api/mock_github_integration — should not raise
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                pr_number=1,
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="h1")],
+                baseline_hashes={},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="main",
-            pr_number=1,
-            snapshots=[{"identifier": "snap", "content_hash": "h1"}],
-            baseline_hashes={},
         )
 
         logic.finish_processing(run.id)
@@ -1303,14 +1403,16 @@ class TestCommitStatusChecks:
         )
 
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                pr_number=1,
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="h1")],
+                baseline_hashes={},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc123",
-            branch="main",
-            pr_number=1,
-            snapshots=[{"identifier": "snap", "content_hash": "h1"}],
-            baseline_hashes={},
         )
 
         logic.finish_processing(run.id)
@@ -1328,14 +1430,16 @@ class TestRunSupersession:
 
     def _create_run(self, repo, *, branch="feat/x", run_type=RunType.STORYBOOK, commit_sha="abc"):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=run_type,
+                commit_sha=commit_sha,
+                branch=branch,
+                pr_number=1,
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash=commit_sha)],
+                baseline_hashes={},
+            ),
             team_id=repo.team_id,
-            run_type=run_type,
-            commit_sha=commit_sha,
-            branch=branch,
-            pr_number=1,
-            snapshots=[{"identifier": "snap", "content_hash": commit_sha}],
-            baseline_hashes={},
         )
         logic.finish_processing(run.id)
         run.refresh_from_db()
@@ -1436,14 +1540,16 @@ class TestRunSupersession:
 
     def test_clean_run_superseded_but_stays_clean(self, repo, team, mocker):
         clean_run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="clean",
+                branch="feat/x",
+                pr_number=1,
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="same")],
+                baseline_hashes={"snap": "same"},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="clean",
-            branch="feat/x",
-            pr_number=1,
-            snapshots=[{"identifier": "snap", "content_hash": "same"}],
-            baseline_hashes={"snap": "same"},
         )
 
         # Classification happens at complete_run time
@@ -1488,15 +1594,17 @@ class TestQuarantineStamping:
         identifiers_and_hashes: list of (identifier, content_hash)
         baseline: dict of identifier -> baseline_hash (for _resolve_baselines mock)
         """
-        snapshots = [{"identifier": ident, "content_hash": h} for ident, h in identifiers_and_hashes]
+        snapshots = [SnapshotManifestItem(identifier=ident, content_hash=h) for ident, h in identifiers_and_hashes]
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="main",
+                pr_number=1,
+                snapshots=snapshots,
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=1,
-            snapshots=snapshots,
         )
 
         mocker.patch(
@@ -1691,16 +1799,18 @@ class TestRecomputeRun:
         return logic.create_repo(team_id=team.id, repo_external_id=77777, repo_full_name="org/test-repo")
 
     def _create_completed_run(self, repo, mocker, identifiers_and_hashes, baseline=None, metadata=None):
-        snapshots = [{"identifier": ident, "content_hash": h} for ident, h in identifiers_and_hashes]
+        snapshots = [SnapshotManifestItem(identifier=ident, content_hash=h) for ident, h in identifiers_and_hashes]
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="my-branch",
+                pr_number=1,
+                snapshots=snapshots,
+                metadata=metadata or {},
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="my-branch",
-            pr_number=1,
-            snapshots=snapshots,
-            metadata=metadata or {},
         )
         mocker.patch(
             "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
@@ -1760,13 +1870,10 @@ class TestRecomputeRun:
 
     def test_recompute_run_rejects_non_completed_run(self, repo, team, mocker):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id, run_type=RunType.STORYBOOK, commit_sha="abc", branch="main", pr_number=1, snapshots=[]
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-            pr_number=1,
-            snapshots=[],
         )
 
         with pytest.raises(ValueError, match="Can only recompute completed runs"):
@@ -1850,14 +1957,16 @@ class TestRerunGithubJob:
         if workflow_run_id is not None:
             metadata["github_run_id"] = workflow_run_id
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha=commit_sha,
+                branch="feature",
+                pr_number=1,
+                snapshots=[],
+                metadata=metadata,
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha=commit_sha,
-            branch="feature",
-            pr_number=1,
-            snapshots=[],
-            metadata=metadata,
         )
         return run
 
@@ -2171,16 +2280,18 @@ class TestMergeBaseBaselineHealing:
         logic.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
         logic.get_or_create_artifact(repo_id=repo.id, content_hash="h2", storage_path="p/h2")
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="my-branch",
+                pr_number=1,
+                snapshots=[
+                    SnapshotManifestItem(identifier="existing", content_hash="h1"),
+                    SnapshotManifestItem(identifier="healed", content_hash="h2"),
+                ],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="my-branch",
-            pr_number=1,
-            snapshots=[
-                {"identifier": "existing", "content_hash": "h1"},
-                {"identifier": "healed", "content_hash": "h2"},
-            ],
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
@@ -2227,17 +2338,19 @@ class TestMergeBaseBaselineHealing:
 
         # Commit A's run only has the 3 original stories
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="commit_a_sha",
+                branch="master",
+                pr_number=None,
+                snapshots=[
+                    SnapshotManifestItem(identifier="story1", content_hash="h1"),
+                    SnapshotManifestItem(identifier="story2", content_hash="h2"),
+                    SnapshotManifestItem(identifier="story3", content_hash="h3"),
+                ],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="commit_a_sha",
-            branch="master",
-            pr_number=None,
-            snapshots=[
-                {"identifier": "story1", "content_hash": "h1"},
-                {"identifier": "story2", "content_hash": "h2"},
-                {"identifier": "story3", "content_hash": "h3"},
-            ],
         )
 
         logic.complete_run(run.id)
@@ -2256,13 +2369,15 @@ class TestMergeBaseBaselineHealing:
         logic.get_or_create_artifact(repo_id=repo.id, content_hash="master_hash", storage_path="p/master")
         logic.get_or_create_artifact(repo_id=repo.id, content_hash="branch_hash", storage_path="p/branch")
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc",
+                branch="my-branch",
+                pr_number=1,
+                snapshots=[SnapshotManifestItem(identifier="flaky", content_hash="branch_hash")],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="my-branch",
-            pr_number=1,
-            snapshots=[{"identifier": "flaky", "content_hash": "branch_hash"}],
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         logic.complete_run(run.id)
@@ -2504,13 +2619,15 @@ class TestVerifyUploadsAndCreateArtifacts:
         server_hash = hash_image(png)
 
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="sha",
+                branch="main",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="Card", content_hash=server_hash)],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="sha",
-            branch="main",
-            pr_number=None,
-            snapshots=[{"identifier": "Card", "content_hash": server_hash}],
         )
 
         mocker.patch(
@@ -2533,21 +2650,25 @@ class TestVerifyUploadsAndCreateArtifacts:
 
         def create_run_with_images(count: int, color_offset: int) -> tuple[Run, dict[str, bytes]]:
             images: dict[str, bytes] = {}
-            snapshots: list[dict[str, str]] = []
+            snapshots: list[SnapshotManifestItem] = []
             for index in range(count):
                 png = self._png((color_offset + index, 20, 30, 255))
                 content_hash = hash_image(png)
                 images[content_hash] = png
-                snapshots.append({"identifier": f"Card-{color_offset}-{index}", "content_hash": content_hash})
+                snapshots.append(
+                    SnapshotManifestItem(identifier=f"Card-{color_offset}-{index}", content_hash=content_hash)
+                )
 
             run, _ = logic.create_run(
-                repo_id=repo.id,
+                CreateRunInput(
+                    repo_id=repo.id,
+                    run_type=RunType.STORYBOOK,
+                    commit_sha=f"sha-{count}-{color_offset}",
+                    branch="main",
+                    pr_number=None,
+                    snapshots=snapshots,
+                ),
                 team_id=repo.team_id,
-                run_type=RunType.STORYBOOK,
-                commit_sha=f"sha-{count}-{color_offset}",
-                branch="main",
-                pr_number=None,
-                snapshots=snapshots,
             )
             return run, images
 
@@ -2570,20 +2691,22 @@ class TestVerifyUploadsAndCreateArtifacts:
         from products.visual_review.backend.hashing import hash_image
 
         mocker.patch.object(logic, "ARTIFACT_HASH_BATCH_SIZE", 2)
-        snapshots: list[dict[str, str]] = []
+        snapshots: list[SnapshotManifestItem] = []
         for index, color in enumerate([(10, 20, 30, 255), (40, 50, 60, 255), (70, 80, 90, 255)]):
             content_hash = hash_image(self._png(color))
             logic.get_or_create_artifact(repo.id, content_hash, f"visual_review/{content_hash}")
-            snapshots.append({"identifier": f"Card-{index}", "content_hash": content_hash})
+            snapshots.append(SnapshotManifestItem(identifier=f"Card-{index}", content_hash=content_hash))
 
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="sha-retry",
+                branch="main",
+                pr_number=None,
+                snapshots=snapshots,
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="sha-retry",
-            branch="main",
-            pr_number=None,
-            snapshots=snapshots,
         )
 
         assert logic.verify_uploads_and_create_artifacts(run.id) == 0
@@ -2601,16 +2724,18 @@ class TestVerifyUploadsAndCreateArtifacts:
         bad_claim = "f" * 64  # nothing hashes to this
 
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="sha",
+                branch="main",
+                pr_number=None,
+                snapshots=[
+                    SnapshotManifestItem(identifier="Good", content_hash=good_hash),
+                    SnapshotManifestItem(identifier="Bad", content_hash=bad_claim),
+                ],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="sha",
-            branch="main",
-            pr_number=None,
-            snapshots=[
-                {"identifier": "Good", "content_hash": good_hash},
-                {"identifier": "Bad", "content_hash": bad_claim},
-            ],
         )
 
         def _read(self, content_hash):
@@ -2626,13 +2751,15 @@ class TestVerifyUploadsAndCreateArtifacts:
 
     def test_corrupt_png_raises_hash_integrity_error(self, repo, mocker):
         run, _ = logic.create_run(
-            repo_id=repo.id,
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="sha",
+                branch="main",
+                pr_number=None,
+                snapshots=[SnapshotManifestItem(identifier="Card", content_hash="a" * 64)],
+            ),
             team_id=repo.team_id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="sha",
-            branch="main",
-            pr_number=None,
-            snapshots=[{"identifier": "Card", "content_hash": "a" * 64}],
         )
 
         mocker.patch(

@@ -81,7 +81,7 @@ function SessionReplayWidgetTileStory({
 }
 
 const meta: Meta<typeof SessionReplayWidgetTileStory> = {
-    title: 'Dashboards/Dashboard Widgets/Widget types/Session replay/Recent recordings',
+    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Session replay/Recent recordings',
     component: SessionReplayWidgetTileStory,
     parameters: {
         layout: 'padded',

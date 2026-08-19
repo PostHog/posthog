@@ -95,6 +95,11 @@ For error tracking it's the `count` vs `distinct_users` ratio; for CSP it's reac
 Your new scout needs its own.
 Name it explicitly near the top of the body so every run anchors on it.
 
+A second design rule binds any **metric-shaped scout** — one that scores, ranks, or reports a named, reusable measure, whether a business measure (MRR, churn risk, usage revenue, activation) or operational telemetry it computes every run to monitor or report (cost per run, failure or error rates, latency, throughput).
+When the project's metrics catalog is enabled, it may hold a governed definition of that measure in `system.information_schema.metrics`, and the harness tells every run to prefer it — so write the body to cooperate rather than compete: have the run check the catalog for an approved, non-drifted metric before its own derivation, and run a match through `data-catalog-metric-run`.
+Where a governed metric exists, reference it by name in any `references/queries.md` you ship, and label every hand-written derivation there a noncanonical fallback — an unlabeled "validated query" outranks the harness's catalog-first rule at run time, which is exactly how a scout ends up re-deriving a number the team already governs.
+Freshness, availability, and schema checks are exempt: they stay schema-first, with no catalog detour.
+
 ## Run posture (config)
 
 A scout's schedule and emit behavior live on its `SignalScoutConfig`, separate from the skill body.
@@ -116,7 +121,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Set **`full`** for a scout whose skill needs to read arbitrary external sites, e.g. documentation, papers on arxiv.org, or a vendor status page.
   Applies from the scout's next run, and changes are activity-logged.
 - `auto_pause_exempt` — defaults to `false`.
-  A scout whose reports nobody acts on is warned and then paused automatically (`pause_reason=ignored`) — every run costs a sandbox agent, so a scout producing output no human consumes shouldn't keep running forever. A scout that is merely quiet is only flagged (`pause_reason=no_output`, a warning that never advances to a pause), since a watch scout's silence can be its job.
+  A scout whose reports nobody engages with (no open, rating, or action — the cloud web inbox records reads; other clients don't yet) is warned and then paused automatically (`pause_reason=ignored`) — every run costs a sandbox agent, so a scout producing output no human consumes shouldn't keep running forever. A scout that is merely quiet is only flagged (`pause_reason=no_output`, a warning that never advances to a pause), since a watch scout's silence can be its job.
   `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout, and marks it exempt so the sweep never overrules a person twice.
   Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
@@ -130,6 +135,8 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   The channel also requires `emit`: a dry-run scout has nowhere to record to, so `scout-record-output` fails closed for it.
   Reach for this when the scout's job is a recurring **measurement** (judge each sampled report good/bad/unsure with a reason, score accounts, classify sessions) rather than surfacing anomalies; keep enums small and add a free-text reason field so the series is breakdown-friendly _and_ auditable.
   The skill body should say what to sample, how to judge, and what `subject` to stamp on each record; the schema owns the record shape.
+  Because the records are ordinary events, anything that consumes events can **act** on one — a workflow or CDP destination triggered on `$scout_structured_output`, filtered to your `skill_name` and an `output_<key>` value, turns a measuring scout into the front half of an automation (route the verdict to a channel, a task, a CRM) with no human in between.
+  The measurement pattern in [`references/scout-patterns.md`](references/scout-patterns.md) covers the shape end to end: the rubric, why the unremarkable verdicts have to be recorded too, and what changes once a grade is a routing decision.
 
 ## Steering with notes (no authoring needed)
 

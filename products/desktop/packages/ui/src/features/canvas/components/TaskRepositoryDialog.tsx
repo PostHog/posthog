@@ -152,7 +152,7 @@ export function TaskRepositoryDialog({
           </Button>
           <Button
             variant="primary"
-            disabled={cloud ? draftRepositories.length === 0 : !draftFolder}
+            disabled={!cloud && !draftFolder}
             onClick={() => {
               onApply({
                 repositories: draftRepositories,

@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.gr
     TOKEN_AUTH,
     GrafanaAuth,
     GrafanaResumeConfig,
+    GrafanaRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source import GrafanaSource
@@ -81,6 +82,16 @@ class TestGrafanaSource:
     )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
+
+    @pytest.mark.parametrize("status_code", [429, 503])
+    def test_retryable_status_error_matches_retryable_pattern(self, status_code):
+        # `fetch()` in grafana.py raises this after its own tenacity retries are exhausted; it
+        # must stay classified as retryable rather than paging on every remaining Temporal attempt.
+        patterns = self.source.get_retryable_errors()
+        error = GrafanaRetryableError(
+            f"Grafana API error (retryable): status={status_code}, url=https://yourstack.grafana.net/api/annotations"
+        )
+        assert any(pattern in str(error) for pattern in patterns)
 
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

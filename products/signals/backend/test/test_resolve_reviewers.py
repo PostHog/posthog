@@ -200,7 +200,8 @@ class TestRecencyScoring:
 
     def test_crowded_area_nominates_nobody_but_still_decays_blame(self):
         weights = Counter({"old-timer": 10})
-        # The blame author is past the window, so only the crowded area keeps the stranger out.
+        # The blame author is past the window, so only the crowded area keeps the stranger out —
+        # even with the crowd fallback allowed, since a blame candidate exists.
         activity = {
             "old-timer": _area_contributor(
                 days_since_last_commit=ACTIVITY_WINDOW_DAYS + 5, is_likely_owner_of_area=False
@@ -208,10 +209,29 @@ class TestRecencyScoring:
             "prolific-stranger": _area_contributor(days_since_last_commit=1, is_likely_owner_of_area=False),
         }
 
-        scores = _score_candidates(weights, activity)
+        scores = _score_candidates(weights, activity, allow_crowd_fallback=True)
 
         assert set(scores) == {"old-timer"}
         assert scores["old-timer"] < 10.0
+
+    @pytest.mark.parametrize(
+        ("allow_crowd_fallback", "expected_logins"),
+        [(True, {"crowd-regular", "crowd-passerby"}), (False, set())],
+    )
+    def test_crowd_fallback_fires_only_on_the_reviewer_path(self, allow_crowd_fallback, expected_logins):
+        # No blame candidate at all and no focused area: the pipeline reviewer path must
+        # propose the crowd's contributors rather than nobody, while the agent re-ranking
+        # path must keep returning nothing so the agent's own judgment wins.
+        activity = {
+            "crowd-regular": _area_contributor(days_since_last_commit=1, is_likely_owner_of_area=False),
+            "crowd-passerby": _area_contributor(
+                days_since_last_commit=5, commit_count=2, is_likely_owner_of_area=False
+            ),
+        }
+
+        scores = _score_candidates(Counter(), activity, allow_crowd_fallback=allow_crowd_fallback)
+
+        assert set(scores) == expected_logins
 
     def test_half_stale_bystander_does_not_beat_stale_blame(self):
         weights = Counter({"long-gone": 1})
@@ -343,6 +363,17 @@ class TestRankAssigneeCandidates:
 
         assert [candidate.login for candidate in ranked] == ["first-pick", "second-pick"]
 
+    def test_no_candidates_and_crowded_area_returns_nothing(self, team):
+        # The agent path must not inherit the reviewer path's crowd fallback: when the agent
+        # deliberately proposed nobody and only a crowded area is cached, an empty result
+        # lets the caller keep the agent's judgment.
+        _seed_area(team, "products/signals", [(f"dev-{i}", 3, 1) for i in range(MAX_CONTRIBUTORS_FOR_OWNERSHIP + 1)])
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            ranked = rank_assignee_candidates(team.id, "acme/app", [], ["products/signals/backend/models.py"])
+
+        assert ranked == []
+
 
 @pytest.mark.django_db
 class TestResolveSuggestedReviewersEndToEnd:
@@ -443,6 +474,54 @@ class TestResolveSuggestedReviewersEndToEnd:
 
         assert [r.login for r in reviewers] == ["active-author"]
         assert reviewers[0].commits[0].sha == "d" * 7
+
+    def test_bot_only_blame_in_crowded_area_still_proposes_contributors(self, team):
+        # The production regression this guards: every finding commit is bot-authored, and the
+        # only cached activity level is too crowded to imply ownership (a monorepo norm), so
+        # the resolver used to return nobody and the report went unrouted.
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return GitHubCommitAuthor(
+                    login="release-bot",
+                    name="Release Bot",
+                    commit_url=f"https://github.com/acme/app/commit/{sha}",
+                    file_paths=("products/signals/backend/models.py",),
+                    is_bot=True,
+                )
+
+        activity = {
+            "products/signals": [
+                ContributorActivity(
+                    login=f"dev-{i}",
+                    name=f"Dev {i}",
+                    commit_count=MAX_CONTRIBUTORS_FOR_OWNERSHIP + 1 - i,
+                    last_commit_at=timezone.now() - timedelta(days=1),
+                    last_commit_sha="c" * 7,
+                    last_commit_url="https://github.com/acme/app/commit/ccccccc",
+                )
+                for i in range(MAX_CONTRIBUTORS_FOR_OWNERSHIP + 1)
+            ]
+        }
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value=activity,
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            reviewers = resolve_suggested_reviewers(team.id, "acme/app", {"d" * 7: "introduced the bug"})
+
+        # Ties on score break by commit count, so the crowd's most active contributors surface.
+        assert [r.login for r in reviewers] == ["dev-0", "dev-1", "dev-2"]
+        assert "Recently active in `products/signals`" in reviewers[0].commits[0].reason
 
     def test_stale_cached_blame_author_does_not_suppress_fresh_owner(self, team):
         class FakeGitHub:

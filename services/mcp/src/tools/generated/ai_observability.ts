@@ -2613,6 +2613,12 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         name: 'query-llm-traces-list',
         schema: AssistantTracesQuery,
         kind: 'TracesQuery',
+        urlPrefix: '/ai-observability/traces',
     }),
-    'query-llm-trace': createQueryWrapper({ name: 'query-llm-trace', schema: AssistantTraceQuery, kind: 'TraceQuery' }),
+    'query-llm-trace': createQueryWrapper({
+        name: 'query-llm-trace',
+        schema: AssistantTraceQuery,
+        kind: 'TraceQuery',
+        urlPrefix: '/ai-observability/traces/{traceId}',
+    }),
 }

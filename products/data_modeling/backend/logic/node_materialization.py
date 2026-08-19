@@ -1,12 +1,11 @@
 import asyncio
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
 
 from django.conf import settings
 
 import structlog
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
@@ -34,7 +33,7 @@ def start_node_materialization(node: Node, *, is_v2: bool) -> None:
             node_id=str(node.id),
         )
         workflow_name = "data-modeling-materialize-view"
-        workflow_id = f"materialize-view-{node.id}-{uuid4()}"
+        workflow_id = f"materialize-view-{node.id}"
     else:
         inputs = RunWorkflowInputs(
             team_id=node.team_id,
@@ -53,6 +52,8 @@ def start_node_materialization(node: Node, *, is_v2: bool) -> None:
             asdict(inputs),
             id=workflow_id,
             task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=10),
                 maximum_interval=timedelta(seconds=60),

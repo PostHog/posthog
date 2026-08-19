@@ -9,7 +9,6 @@ import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 
-import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 import { exceptionCardLogic } from './exceptionCardLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
@@ -59,9 +58,7 @@ export function ExceptionCard({
     return (
         <BindLogic logic={exceptionCardLogic} props={cardLogicProps}>
             <BindLogic logic={errorPropertiesLogic} props={eventProps}>
-                <BindLogic logic={releasePreviewLogic} props={eventProps}>
-                    <ExceptionCardContent timestamp={event?.timestamp} {...contentProps} />
-                </BindLogic>
+                <ExceptionCardContent timestamp={event?.timestamp} {...contentProps} />
             </BindLogic>
         </BindLogic>
     )

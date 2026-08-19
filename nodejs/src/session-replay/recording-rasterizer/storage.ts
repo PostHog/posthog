@@ -6,6 +6,7 @@ import * as fs from 'fs'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 
 import { config } from './config'
+import { resolveEgressProxyUrl } from './egress-proxy'
 import { RasterizationError } from './errors'
 import { createLogger } from './logger'
 
@@ -31,26 +32,9 @@ function undecodableResponse(err: unknown): { status?: number; body: string } | 
 
 let s3Client: S3Client | null = null
 
-function resolveProxyUrl(): string | null {
-    const upstream =
-        process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
-    if (!upstream) {
-        return null
-    }
-    const killed = ['false', '0', 'no', 'off'].includes((process.env.RASTERIZER_USE_PROXY ?? '').trim().toLowerCase())
-    if (killed) {
-        log.warn(
-            { RASTERIZER_USE_PROXY: process.env.RASTERIZER_USE_PROXY },
-            'RASTERIZER_USE_PROXY disables egress proxy — s3 will dial direct'
-        )
-        return null
-    }
-    return upstream
-}
-
 function getS3Client(): S3Client {
     if (!s3Client) {
-        const proxyUrl = resolveProxyUrl()
+        const proxyUrl = resolveEgressProxyUrl()
         const requestHandler = proxyUrl ? { httpsAgent: new HttpsProxyAgent(proxyUrl) } : undefined
         s3Client = new S3Client({
             region: config.s3Region,
@@ -105,7 +89,18 @@ export async function uploadToS3(
     } catch (err) {
         const undecodable = undecodableResponse(err)
         if (!undecodable) {
-            throw err
+            // Raw SDK errors would surface as UNKNOWN in the error metrics and as untyped
+            // ApplicationFailures to the workflow. Always retryable: a 403 can be a transient
+            // credential-refresh race, and a wasted retry is cheaper than discarding a finished
+            // render over a misclassified permanent failure.
+            const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
+            log.warn({ bucket, key, status, err: (err as Error)?.message }, 'S3 upload failed')
+            throw new RasterizationError(
+                `S3 upload failed${status ? ` (status ${status})` : ''}: ${(err as Error)?.message ?? String(err)}`,
+                true,
+                'S3_UPLOAD_FAILED',
+                err
+            )
         }
         // Bucket, key and the raw body stay in this log line. The thrown message reaches team users as
         // ReplayObservation.error_reason, and the body is whatever an upstream proxy or gateway chose to

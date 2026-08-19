@@ -9,8 +9,8 @@ size limits, feature gates) need DB or request state and stay in
 Every check takes a filters dict that already passed `FeatureFlagFiltersSerializer` — types
 are trusted, operators are canonical (aliases applied), payload values are JSON-encoded
 strings — and returns violations instead of raising, so the `audit_flag_filters` management
-command can report all of them per flag. `validate_cross_field_or_raise` is the fail-fast
-wrapper for the write path (wired in a later phase).
+command can report all of them per flag. The write path collects the same violations, then
+reports or raises depending on the enforcement switch.
 """
 
 import re
@@ -18,8 +18,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from rest_framework import serializers
-from rest_framework.exceptions import ErrorDetail
 from rest_framework.settings import api_settings
 
 from posthog.hogql.property import parse_semver
@@ -298,15 +296,6 @@ def check_groups_non_empty_for_create(filters: Mapping[str, Any]) -> list[Violat
 
 def collect_cross_field_violations(filters: Mapping[str, Any]) -> list[Violation]:
     return [violation for check in CROSS_FIELD_CHECKS for violation in check(filters)]
-
-
-def validate_cross_field_or_raise(filters: Mapping[str, Any]) -> None:
-    """Fail-fast wrapper over the same collectors, for the write path."""
-    violations = collect_cross_field_violations(filters)
-    if violations:
-        raise serializers.ValidationError(
-            [ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id) for violation in violations]
-        )
 
 
 _LIST_INDEX_RE = re.compile(r"\[\d+\]")

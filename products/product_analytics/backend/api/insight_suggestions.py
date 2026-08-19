@@ -248,13 +248,13 @@ def get_insight_analysis(
             {"role": "user", "content": prompt},
         ]
 
-        content, _, _ = hit_openai(
+        completion = hit_openai(
             messages,
             f"team/{team.id}/analysis",
             posthog_properties=billable_ai_properties(team.id, "insight-ai-analysis"),
             posthog_groups=groups(),
         )
-        return content
+        return completion.content
 
     except Exception:
         logger.exception("ai_analysis_failed")
@@ -298,7 +298,7 @@ def get_ai_suggestions(
             {"role": "user", "content": prompt},
         ]
 
-        content, _, _ = hit_openai(
+        completion = hit_openai(
             messages,
             f"team/{team.id}/suggestions",
             posthog_properties=billable_ai_properties(team.id, "insight-ai-suggestions"),
@@ -306,7 +306,7 @@ def get_ai_suggestions(
         )
 
         # Parse JSON from content
-        cleaned_content = content.strip()
+        cleaned_content = completion.content.strip()
         if cleaned_content.startswith("```json"):
             cleaned_content = cleaned_content[7:]
         if cleaned_content.startswith("```"):

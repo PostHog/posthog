@@ -43,30 +43,43 @@ impl PgStore {
             ALLOWED_TABLES
         );
 
+        // Most columns take the record's value outright — the record is the
+        // leader's authoritative snapshot and the version guard orders
+        // records — but three merge against the existing row instead. The
+        // meta columns coalesce because changelog records carry no meta
+        // (the leader does not maintain those columns; ingestion's direct
+        // writer does), so assignment would erase real values. last_seen_at
+        // takes GREATEST — which ignores NULL — because records may predate
+        // the field, and the column's invariant is that it only advances.
         let upsert_sql = format!(
             "INSERT INTO {table} (
                 id, team_id, uuid, properties, properties_last_updated_at,
                 properties_last_operation, created_at, version, is_identified,
-                last_seen_at
+                last_seen_at, is_deleted
             )
             SELECT id, team_id, uuid, properties::jsonb,
                    properties_last_updated_at::jsonb, properties_last_operation::jsonb,
-                   created_at, version, is_identified, last_seen_at
+                   created_at, version, is_identified, last_seen_at, is_deleted
             FROM UNNEST(
                 $1::bigint[], $2::int[], $3::uuid[],
                 $4::text[], $5::text[], $6::text[],
-                $7::timestamptz[], $8::bigint[], $9::bool[], $10::timestamptz[]
+                $7::timestamptz[], $8::bigint[], $9::bool[], $10::timestamptz[],
+                $11::bool[]
             ) AS u(id, team_id, uuid, properties, properties_last_updated_at,
-                   properties_last_operation, created_at, version, is_identified, last_seen_at)
+                   properties_last_operation, created_at, version, is_identified, last_seen_at,
+                   is_deleted)
             ON CONFLICT (team_id, id) DO UPDATE SET
                 uuid = EXCLUDED.uuid,
                 properties = EXCLUDED.properties,
-                properties_last_updated_at = EXCLUDED.properties_last_updated_at,
-                properties_last_operation = EXCLUDED.properties_last_operation,
+                properties_last_updated_at =
+                    COALESCE(EXCLUDED.properties_last_updated_at, {table}.properties_last_updated_at),
+                properties_last_operation =
+                    COALESCE(EXCLUDED.properties_last_operation, {table}.properties_last_operation),
                 created_at = EXCLUDED.created_at,
                 version = EXCLUDED.version,
                 is_identified = EXCLUDED.is_identified,
-                last_seen_at = EXCLUDED.last_seen_at
+                last_seen_at = GREATEST(EXCLUDED.last_seen_at, {table}.last_seen_at),
+                is_deleted = EXCLUDED.is_deleted
             WHERE EXCLUDED.version > COALESCE({table}.version, -1)",
             table = table_name
         );
@@ -86,9 +99,16 @@ impl PgStore {
 /// must halt on. Nothing is ever dropped or substituted here — a silent
 /// repair would diverge PG from the cache and changelog.
 fn prepare_chunk(persons: &[Person]) -> Result<PreparedArrays<'_>, WriteError> {
-    let cap = persons.len();
-    let mut arrays = PreparedArrays::with_capacity(cap);
-    for person in persons {
+    // Bind order is lock order: the upsert acquires row locks in unnest
+    // order, so binding in conflict-key order gives every flush one global
+    // lock direction. Concurrent multi-row writers on overlapping persons
+    // (the delete saga's unmap, another flush) sort the same way, and
+    // sorted-vs-sorted acquisition cannot deadlock. Only the bind order
+    // changes — batch composition and ack accounting are untouched.
+    let mut sorted: Vec<&Person> = persons.iter().collect();
+    sorted.sort_unstable_by_key(|p| (p.team_id, p.id));
+    let mut arrays = PreparedArrays::with_capacity(sorted.len());
+    for person in sorted {
         push_person(&mut arrays, person)?;
     }
     Ok(arrays)
@@ -123,13 +143,13 @@ fn push_person<'a>(arrays: &mut PreparedArrays<'a>, p: &'a Person) -> Result<(),
         .map_err(|e| unbindable("properties_last_updated_at", e))?;
     let properties_last_operation = bytes_to_optional_json_str(&p.properties_last_operation)
         .map_err(|e| unbindable("properties_last_operation", e))?;
-    let created_at = epoch_secs_to_datetime(p.created_at)
+    let created_at = epoch_ms_to_datetime(p.created_at)
         .ok_or_else(|| unbindable("created_at", format!("epoch {} out of range", p.created_at)))?;
     let last_seen_at = match p.last_seen_at {
         None => None,
-        Some(secs) => Some(
-            epoch_secs_to_datetime(secs)
-                .ok_or_else(|| unbindable("last_seen_at", format!("epoch {secs} out of range")))?,
+        Some(ms) => Some(
+            epoch_ms_to_datetime(ms)
+                .ok_or_else(|| unbindable("last_seen_at", format!("epoch {ms} out of range")))?,
         ),
     };
 
@@ -144,6 +164,7 @@ fn push_person<'a>(arrays: &mut PreparedArrays<'a>, p: &'a Person) -> Result<(),
         Some(p.version),
         p.is_identified,
         last_seen_at,
+        p.is_deleted,
     );
     Ok(())
 }
@@ -170,6 +191,7 @@ async fn run_upsert(
         .bind(&arrays.versions)
         .bind(&arrays.is_identified)
         .bind(&arrays.last_seen_at)
+        .bind(&arrays.is_deleted)
         .execute(pool)
         .await
     {
@@ -197,10 +219,13 @@ async fn run_upsert(
 
 fn classify_error(e: &sqlx::Error) -> WriteErrorKind {
     match e {
-        sqlx::Error::Io(_)
-        | sqlx::Error::PoolTimedOut
-        | sqlx::Error::PoolClosed
-        | sqlx::Error::WorkerCrashed => WriteErrorKind::Transient,
+        // Waiting on our own pool is backpressure, not database failure —
+        // classified apart so the writer retries without escalating.
+        sqlx::Error::PoolTimedOut => WriteErrorKind::Saturation,
+
+        sqlx::Error::Io(_) | sqlx::Error::PoolClosed | sqlx::Error::WorkerCrashed => {
+            WriteErrorKind::Transient
+        }
 
         sqlx::Error::Database(db_err) => {
             if let Some(code) = db_err.code() {
@@ -244,6 +269,7 @@ struct PreparedArrays<'a> {
     versions: Vec<Option<i64>>,
     is_identified: Vec<bool>,
     last_seen_at: Vec<Option<DateTime<Utc>>>,
+    is_deleted: Vec<bool>,
 }
 
 impl<'a> PreparedArrays<'a> {
@@ -259,6 +285,7 @@ impl<'a> PreparedArrays<'a> {
             versions: Vec::with_capacity(cap),
             is_identified: Vec::with_capacity(cap),
             last_seen_at: Vec::with_capacity(cap),
+            is_deleted: Vec::with_capacity(cap),
         }
     }
 
@@ -275,6 +302,7 @@ impl<'a> PreparedArrays<'a> {
         version: Option<i64>,
         is_identified: bool,
         last_seen_at: Option<DateTime<Utc>>,
+        is_deleted: bool,
     ) {
         self.ids.push(id);
         self.team_ids.push(team_id);
@@ -288,6 +316,7 @@ impl<'a> PreparedArrays<'a> {
         self.versions.push(version);
         self.is_identified.push(is_identified);
         self.last_seen_at.push(last_seen_at);
+        self.is_deleted.push(is_deleted);
     }
 }
 
@@ -312,8 +341,8 @@ fn bytes_to_optional_json_str(bytes: &[u8]) -> Result<Option<&str>, String> {
         .map_err(|e| format!("non-UTF-8 JSON bytes: {e}"))
 }
 
-fn epoch_secs_to_datetime(epoch_secs: i64) -> Option<DateTime<Utc>> {
-    Utc.timestamp_opt(epoch_secs, 0).single()
+fn epoch_ms_to_datetime(epoch_ms: i64) -> Option<DateTime<Utc>> {
+    Utc.timestamp_millis_opt(epoch_ms).single()
 }
 
 #[cfg(test)]
@@ -321,10 +350,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classify_pool_timeout_as_transient() {
+    fn classify_pool_timeout_as_saturation() {
         assert!(matches!(
             classify_error(&sqlx::Error::PoolTimedOut),
-            WriteErrorKind::Transient
+            WriteErrorKind::Saturation
         ));
     }
 
@@ -365,10 +394,10 @@ mod tests {
     }
 
     #[test]
-    fn epoch_secs_conversion() {
-        let dt = epoch_secs_to_datetime(1700000000).unwrap();
-        assert_eq!(dt.timestamp(), 1700000000);
-        assert!(epoch_secs_to_datetime(i64::MAX).is_none());
+    fn epoch_ms_conversion() {
+        let dt = epoch_ms_to_datetime(1700000000000).unwrap();
+        assert_eq!(dt.timestamp_millis(), 1700000000000);
+        assert!(epoch_ms_to_datetime(i64::MAX).is_none());
     }
 
     #[tokio::test]
@@ -393,6 +422,22 @@ mod tests {
             version: 1,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn prepare_chunk_binds_in_conflict_key_order() {
+        // Bind order is the upsert's lock order; a batch bound in buffer
+        // order deadlocks against concurrent sorted writers on overlapping
+        // rows.
+        let persons = [
+            person_with(5, 2),
+            person_with(3, 1),
+            person_with(4, 2),
+            person_with(1, 1),
+        ];
+        let arrays = prepare_chunk(&persons).expect("chunk prepares");
+        assert_eq!(arrays.team_ids, vec![1, 1, 2, 2]);
+        assert_eq!(arrays.ids, vec![1, 3, 4, 5]);
     }
 
     #[test]

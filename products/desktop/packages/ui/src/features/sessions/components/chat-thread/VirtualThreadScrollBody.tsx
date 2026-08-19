@@ -311,9 +311,10 @@ export function VirtualThreadScrollBody({
   onUserInteract?: () => void;
   /**
    * Navigation layer, rendered as a sibling of the scroller so it can be handed this body's jump
-   * implementation — the engine's `scrollToMessage` only reaches mounted rows.
+   * implementation, because the engine's `scrollToMessage` only reaches mounted rows. The jump
+   * reports whether the target resolved, so a caller can retry rather than fail silently.
    */
-  renderNav?: (jumpToMessage: (id: string) => void) => ReactNode;
+  renderNav?: (jumpToMessage: (id: string) => boolean) => ReactNode;
   /** Where the non-virtualized body left off, read once when this body takes over mid-session. */
   resumeRef: RefObject<ThreadScrollResume>;
 }) {
@@ -368,7 +369,9 @@ export function VirtualThreadScrollBody({
   const jumpToMessage = useCallback(
     (id: string) => {
       const index = rowIndexRef.current.get(id);
-      if (index != null) settleToIndex(index);
+      if (index == null) return false;
+      settleToIndex(index);
+      return true;
     },
     [settleToIndex],
   );

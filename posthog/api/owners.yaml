@@ -4,7 +4,7 @@ rules:
     - match: '/cohort.py'
       owners: team-feature-flags
     - match: '/comments.py'
-      owners: team-platform-features
+      owners: conversations
     - match: '/documentation.py'
       owners: team-devex
     - match: ['/element.py', '/event.py', '/event_definition.py']

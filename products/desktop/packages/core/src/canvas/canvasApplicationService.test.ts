@@ -53,7 +53,6 @@ function input(
     dashboardId: "dash-1",
     name: "Signups",
     instruction: "build a signups chart",
-    isEdit: false,
     channelId: "chan-1",
     channelName: "growth",
     cloudRegion: "us",
@@ -159,28 +158,6 @@ describe("CanvasApplicationService", () => {
 
     await service.generateCanvas(input({ name: "Signups" }), gateway);
 
-    expect(generateCanvasName).not.toHaveBeenCalled();
-    expect(gateway.renameCanvas).not.toHaveBeenCalled();
-  });
-
-  it("creates directly without listing stored canvases when no target is given", async () => {
-    const { service, createTask, generateCanvasName } = makeDeps();
-    const gateway = makeGateway();
-
-    const result = await service.generateCanvas(
-      input({ dashboardId: undefined, name: undefined }),
-      gateway,
-    );
-
-    expect(result).toEqual({ ok: true, taskId: "task-1" });
-    const [taskInput] = createTask.mock.calls[0];
-    expect(taskInput.content).not.toContain("`canvas-list`");
-    expect(taskInput.content).toContain("`canvas-create`");
-    expect(taskInput.content).not.toContain("canvas id:");
-    expect(taskInput.taskDescription).toBe("Generate a canvas in #growth");
-    // The task still files into the channel, but no canvas record is touched.
-    expect(gateway.fileTask).toHaveBeenCalledWith("chan-1", "task-1");
-    expect(gateway.setGenerationTask).not.toHaveBeenCalled();
     expect(generateCanvasName).not.toHaveBeenCalled();
     expect(gateway.renameCanvas).not.toHaveBeenCalled();
   });

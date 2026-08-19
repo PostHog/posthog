@@ -77,7 +77,7 @@ describe("DashboardsService.list", () => {
 describe("DashboardsService.getBuilds", () => {
   it("normalizes the lifecycle payload", async () => {
     const { api } = fakeApi({
-      "canvases/c1/builds/": {
+      "canvases/c1/builds/?version_id=v1": {
         published_build_id: "b1",
         current_version_id: "v1",
         builds: [
@@ -97,7 +97,7 @@ describe("DashboardsService.getBuilds", () => {
     });
     const service = new DashboardsService(api);
 
-    const lifecycle = await service.getBuilds("c1");
+    const lifecycle = await service.getBuilds({ id: "c1", versionId: "v1" });
 
     expect(lifecycle.publishedBuildId).toBe("b1");
     expect(lifecycle.currentVersionId).toBe("v1");

@@ -33,7 +33,12 @@ vi.mock("@posthog/ui/features/browser-tabs/TaskTabIcon", () => ({
   TaskTabIcon: () => <span />,
 }));
 
-import { TaskCard, TaskFeedRow } from "./ChannelFeedView";
+import {
+  ExpandablePrompt,
+  mergeFeedEntries,
+  stripContextBlocks,
+  TaskCard,
+} from "./ChannelFeedView";
 
 const task = {
   id: "task-1",
@@ -79,7 +84,7 @@ function mockLayout(charsPerLine: number) {
   );
 }
 
-describe("TaskFeedRow", () => {
+describe("ChannelFeedView", () => {
   it("reports when its task is opened", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
@@ -99,12 +104,12 @@ describe("TaskFeedRow", () => {
     const user = userEvent.setup();
     const { container } = render(
       <Theme>
-        <TaskFeedRow task={task} />
+        <ExpandablePrompt lines={2}>{task.description}</ExpandablePrompt>
       </Theme>,
     );
 
     const prompt = container.querySelector(
-      "[data-slot=thread-item-body]",
+      "[data-slot=expandable-prompt]",
     ) as HTMLElement;
     // The visible text is the non-measure child (the measure copy is aria-hidden).
     const visible = Array.from(prompt.children).find(
@@ -127,10 +132,43 @@ describe("TaskFeedRow", () => {
     mockLayout(1000);
     render(
       <Theme>
-        <TaskFeedRow task={task} />
+        <ExpandablePrompt lines={2}>{task.description}</ExpandablePrompt>
       </Theme>,
     );
 
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  // Guards against injected context wrappers (Slack thread history, channel
+  // CONTEXT.md) leaking verbatim into the card's prompt snippet.
+  it("strips injected context blocks from prompts", () => {
+    const description =
+      '<slack_thread_context>\nThread started by someone.\n</slack_thread_context>\n\nfix the flaky test in <channel_context channel="web">context body</channel_context> ci';
+
+    expect(stripContextBlocks(description)).toBe("fix the flaky test in  ci");
+  });
+
+  // Guards the feed's direction (newest first, not chat-style oldest first)
+  // and the tie-break that keeps a same-timestamp announcement directly under
+  // the task card it describes.
+  it("merges entries newest-first with announcements under their card", () => {
+    const older = {
+      ...task,
+      id: "task-old",
+      created_at: "2026-07-16T12:00:00.000Z",
+    };
+    const announcement = {
+      id: "system-1",
+      createdAt: task.created_at,
+      text: "Building CONTEXT.md",
+    };
+
+    const entries = mergeFeedEntries([older, task], [announcement]);
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "task-1",
+      "system-1",
+      "task-old",
+    ]);
   });
 });

@@ -9,6 +9,10 @@ import type {
   SessionConfigSelectOption,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
+import type {
+  CreateResourceCommentRequest,
+  ResourceComment,
+} from "@posthog/api-client/posthog-client";
 import {
   type AcpMessage,
   type Adapter,
@@ -49,6 +53,8 @@ import {
   isTerminalStatus,
   type Task,
 } from "@posthog/shared/domain-types";
+import type { CommentTarget } from "../comments/anchors";
+import type { AgentSessionNotification } from "../notification/agentSessionNotifications";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
@@ -122,6 +128,33 @@ const AUTH_RESTORE_MAX_RETRY_WAITS = 6;
 const MAX_SUPERSEDED_RUN_IDS = 100;
 const MAX_RESPONDED_PERMISSION_REQUEST_IDS = 500;
 /**
+ * A transport that ends a subscription with no error can be resubscribed, but
+ * one that does so on every attempt must not be retried forever. The counter
+ * resets as soon as an event arrives, so a healthy resubscribe costs nothing.
+ */
+const MAX_HOST_ENDED_RESUBSCRIBES = 3;
+/**
+ * A local turn that delivers nothing to this renderer for this long is logged
+ * once, with whether the run is still subscribed, so a transcript that stops
+ * updating can be told apart from an agent that is quietly working.
+ */
+const LOCAL_SILENCE_WARN_AFTER_MS = 60_000;
+const LOCAL_SILENCE_CHECK_INTERVAL_MS = 30_000;
+
+/** Short label for a log line: `session/update:agent_message_chunk`, `response`. */
+function describeAcpMethod(acpMsg: AcpMessage): string {
+  const msg = acpMsg.message as {
+    method?: unknown;
+    params?: { update?: { sessionUpdate?: unknown } };
+    error?: unknown;
+  };
+  if (typeof msg.method !== "string") {
+    return msg.error ? "error-response" : "response";
+  }
+  const update = msg.params?.update?.sessionUpdate;
+  return typeof update === "string" ? `${msg.method}:${update}` : msg.method;
+}
+/**
  * Streamed events are buffered and flushed on this cadence so a burst of tokens
  * coalesces into one processing pass (and roughly one render) instead of one
  * per event. Electron IPC delivers each event as its own task, so a microtask
@@ -129,6 +162,24 @@ const MAX_RESPONDED_PERMISSION_REQUEST_IDS = 500;
  * imperceptible for streamed text.
  */
 const SESSION_EVENT_FLUSH_MS = 16;
+/**
+ * Steering an adapter that can't fold a message into a running turn leaves only
+ * one way in: interrupt it. Cancelling the instant the user hits send cuts off
+ * whatever sentence was streaming, so wait for the agent's output to go quiet
+ * this long first. Several flush ticks of silence, not a pause between tokens.
+ */
+const STEER_INTERRUPT_QUIET_MS = 250;
+/**
+ * Ceiling on that wait, so an agent that streams without pausing still gets
+ * interrupted instead of holding the user's message indefinitely.
+ */
+const STEER_INTERRUPT_MAX_WAIT_MS = 1_500;
+
+/** The turn a steer was aimed at, so the interrupt cannot land on a later one. */
+interface SteeredTurn {
+  taskRunId: string;
+  promptId: number | null;
+}
 /**
  * A backgrounded session's transcript is freed this long after it stops being
  * viewed, and reloaded from disk on return. Only disconnected (idle, no live
@@ -158,7 +209,11 @@ type TrpcQuery = { query: (input?: any) => Promise<any> };
 type TrpcSubscription = {
   subscribe: (
     input: any,
-    handlers: { onData: (data: any) => void; onError?: (err: unknown) => void },
+    handlers: {
+      onData: (data: any) => void;
+      onError?: (err: unknown) => void;
+      onComplete?: () => void;
+    },
   ) => { unsubscribe: () => void };
 };
 
@@ -304,6 +359,14 @@ export interface SessionServiceHelpers {
   combineQueuedCloudPrompts: (...args: any[]) => any;
   getCloudPromptTransport: (...args: any[]) => any;
   resolveLocalSkillCommandPrompt?: (prompt: string) => Promise<string | null>;
+  uploadRunOutput: (
+    client: CloudArtifactClient,
+    taskId: string,
+    runId: string,
+    name: string,
+    content: string,
+    contentType?: string,
+  ) => Promise<string>;
   uploadRunAttachments: (
     client: CloudArtifactClient,
     taskId: string,
@@ -335,8 +398,7 @@ export interface SessionServiceDeps {
   };
   track: (event: string, props?: Record<string, unknown>) => void;
   buildPermissionToolMetadata: (...args: any[]) => any;
-  notifyPermissionRequest: (...args: any[]) => any;
-  notifyPromptComplete: (...args: any[]) => any;
+  notifyAgentSession: (notification: AgentSessionNotification) => void;
   enqueueSpeech: (request: {
     text: string;
     taskTitle: string;
@@ -382,6 +444,11 @@ export interface SessionServiceDeps {
 
 type AuthClient = NonNullable<
   Awaited<ReturnType<SessionServiceDeps["getAuthenticatedClient"]>>
+>;
+
+type NotifiableAgentSession = Pick<
+  AgentSession,
+  "taskTitle" | "taskId" | "promptStartedAt" | "isTaskAuthor"
 >;
 
 interface AuthCredentials {
@@ -1270,6 +1337,25 @@ function discardExactHydratedEvents(
   return liveTurn.events.filter((_event, index) => keep[index]);
 }
 
+/**
+ * Whether the event is the agent emitting text — what a user watches arrive
+ * token by token. Tool calls, progress and status updates are not: nothing is
+ * mid-sentence, so there is nothing to wait out before interrupting.
+ */
+function isAgentTextStreamEvent(event: AcpMessage): boolean {
+  const message = event.message;
+  if (!isJsonRpcNotification(message) || message.method !== "session/update") {
+    return false;
+  }
+  const sessionUpdate = (
+    message.params as { update?: { sessionUpdate?: string } } | undefined
+  )?.update?.sessionUpdate;
+  return (
+    sessionUpdate === "agent_message_chunk" ||
+    sessionUpdate === "agent_thought_chunk"
+  );
+}
+
 function agentMessageUpdateKind(
   event: AcpMessage,
 ): "final" | "chunk" | "ignored" | undefined {
@@ -1546,7 +1632,7 @@ export class SessionService {
   private static readonly TASK_CREATION_IN_FLIGHT_TTL_MS = 10 * 60 * 1000;
   private activityHeartbeats = new Map<
     string,
-    ReturnType<typeof setInterval>
+    { timer: ReturnType<typeof setInterval>; holders: number }
   >();
   private localRepoPaths = new Map<string, string>();
   private localRecoveryAttempts = new Map<string, Promise<boolean>>();
@@ -1586,6 +1672,18 @@ export class SessionService {
       permission?: { unsubscribe: () => void };
     }
   >();
+  /** Resubscribes since the run's last received event, per taskRunId. */
+  private hostEndedResubscribes = new Map<string, number>();
+  /** When each local run last delivered a session event to this renderer. */
+  private lastSessionEventAt = new Map<string, number>();
+  /** Per-run tallies of what this renderer received and failed to apply. */
+  private sessionEventStats = new Map<
+    string,
+    { received: number; failed: number; lastMethod: string }
+  >();
+  /** Runs already logged for their current stretch of silence. */
+  private silenceLogged = new Set<string>();
+  private silenceCheckHandle: ReturnType<typeof setInterval> | null = null;
   /** Active cloud task watchers, keyed by taskId */
   private cloudTaskWatchers = new Map<string, CloudTaskWatcher>();
   private cloudLogGapReconciler: CloudLogGapReconciler;
@@ -2573,8 +2671,22 @@ export class SessionService {
    * within a taskRunId is preserved; taskRunIds are independent. */
   private pendingSessionEvents = new Map<string, AcpMessage[]>();
   private sessionEventFlushHandle: ReturnType<typeof setTimeout> | null = null;
+  /** When each run last streamed agent text. Read by the steer fallback so its
+   *  interrupt lands between sentences rather than mid-token. Recorded on
+   *  arrival, not on flush, so the buffering delay doesn't read as silence. */
+  private lastAgentTextAt = new Map<string, number>();
 
   private enqueueSessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
+    this.hostEndedResubscribes.delete(taskRunId);
+    this.lastSessionEventAt.set(taskRunId, Date.now());
+    this.silenceLogged.delete(taskRunId);
+    this.ensureSilenceCheck();
+    const stats = this.statsFor(taskRunId);
+    stats.received += 1;
+    stats.lastMethod = describeAcpMethod(acpMsg);
+    if (isAgentTextStreamEvent(acpMsg)) {
+      this.lastAgentTextAt.set(taskRunId, Date.now());
+    }
     const buffered = this.pendingSessionEvents.get(taskRunId);
     if (buffered) {
       buffered.push(acpMsg);
@@ -2595,7 +2707,7 @@ export class SessionService {
     this.pendingSessionEvents = new Map();
     for (const [taskRunId, events] of batches) {
       for (const acpMsg of events) {
-        this.handleSessionEvent(taskRunId, acpMsg);
+        this.applySessionEvent(taskRunId, acpMsg);
       }
     }
   }
@@ -2607,7 +2719,88 @@ export class SessionService {
     if (!events) return;
     this.pendingSessionEvents.delete(taskRunId);
     for (const acpMsg of events) {
+      this.applySessionEvent(taskRunId, acpMsg);
+    }
+  }
+
+  /**
+   * One event that throws must not take the rest of its batch (and every other
+   * run's batch in the same flush) down with it: that leaves the transcript
+   * frozen with nothing in the log. Log it, count it, keep going.
+   */
+  private applySessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
+    try {
       this.handleSessionEvent(taskRunId, acpMsg);
+    } catch (error) {
+      const stats = this.statsFor(taskRunId);
+      stats.failed += 1;
+      if (stats.failed === 1 || stats.failed % 100 === 0) {
+        this.d.log.error("Session event handling failed", {
+          taskRunId,
+          method: describeAcpMethod(acpMsg),
+          failed: stats.failed,
+          received: stats.received,
+          error,
+        });
+      }
+    }
+  }
+
+  private statsFor(taskRunId: string): {
+    received: number;
+    failed: number;
+    lastMethod: string;
+  } {
+    let stats = this.sessionEventStats.get(taskRunId);
+    if (!stats) {
+      stats = { received: 0, failed: 0, lastMethod: "" };
+      this.sessionEventStats.set(taskRunId, stats);
+    }
+    return stats;
+  }
+
+  private ensureSilenceCheck(): void {
+    if (this.silenceCheckHandle !== null) return;
+    this.silenceCheckHandle = setInterval(
+      () => this.checkLocalSessionSilence(),
+      LOCAL_SILENCE_CHECK_INTERVAL_MS,
+    );
+  }
+
+  private checkLocalSessionSilence(): void {
+    const now = Date.now();
+    let anyPending = false;
+    for (const session of Object.values(this.d.store.getSessions())) {
+      if (session.isCloud || !session.isPromptPending) continue;
+      if (session.status !== "connected") continue;
+      anyPending = true;
+      const { taskRunId } = session;
+      if (this.silenceLogged.has(taskRunId)) continue;
+      const lastSignalAt = Math.max(
+        this.lastSessionEventAt.get(taskRunId) ?? 0,
+        session.promptStartedAt ?? 0,
+      );
+      if (lastSignalAt === 0) continue;
+      const silentForMs = now - lastSignalAt;
+      if (silentForMs < LOCAL_SILENCE_WARN_AFTER_MS) continue;
+      this.silenceLogged.add(taskRunId);
+      const stats = this.sessionEventStats.get(taskRunId);
+      this.d.log.warn("Local session silent while a prompt is pending", {
+        taskRunId,
+        taskId: session.taskId,
+        silentForMs,
+        subscribed: this.subscriptions.has(taskRunId),
+        bufferedEvents: this.pendingSessionEvents.get(taskRunId)?.length ?? 0,
+        eventCount: session.events.length,
+        received: stats?.received ?? 0,
+        failed: stats?.failed ?? 0,
+        lastMethod: stats?.lastMethod ?? null,
+        online: this.d.getIsOnline(),
+      });
+    }
+    if (!anyPending && this.silenceCheckHandle !== null) {
+      clearInterval(this.silenceCheckHandle);
+      this.silenceCheckHandle = null;
     }
   }
 
@@ -2739,6 +2932,7 @@ export class SessionService {
             "Lost connection to the agent. Please retry or start a new session.",
           );
         },
+        onComplete: () => this.resubscribeIfHostEnded(taskRunId, "event"),
       },
     );
 
@@ -2755,6 +2949,8 @@ export class SessionService {
               error: err,
             });
           },
+          onComplete: () =>
+            this.resubscribeIfHostEnded(taskRunId, "permission"),
         },
       );
 
@@ -2764,16 +2960,54 @@ export class SessionService {
     });
   }
 
+  /**
+   * A subscription completing without an error means the host tore down the
+   * transport rather than the agent finishing: the renderer would otherwise
+   * keep showing a "connected" session that never receives another event.
+   * Our own teardown removes the entry from `subscriptions` before
+   * unsubscribing, so the completion it triggers finds nothing to redo.
+   */
+  private resubscribeIfHostEnded(
+    taskRunId: string,
+    which: "event" | "permission",
+  ): void {
+    const current = this.subscriptions.get(taskRunId);
+    if (!current) return;
+    this.subscriptions.delete(taskRunId);
+    current.event.unsubscribe();
+    current.permission?.unsubscribe();
+
+    const attempts = (this.hostEndedResubscribes.get(taskRunId) ?? 0) + 1;
+    if (attempts > MAX_HOST_ENDED_RESUBSCRIBES) {
+      this.d.log.error(
+        "Session subscription keeps ending without an error, giving up",
+        { taskRunId, which, attempts },
+      );
+      return;
+    }
+    this.hostEndedResubscribes.set(taskRunId, attempts);
+    this.d.log.warn(
+      "Session subscription ended without an error, resubscribing",
+      { taskRunId, which, attempts },
+    );
+    this.subscribeToChannel(taskRunId);
+  }
+
   private unsubscribeFromChannel(taskRunId: string): void {
     // Apply anything still buffered before we stop listening, so a closing
     // channel doesn't drop its final events.
     this.flushSessionEventsForTask(taskRunId);
     const subscription = this.subscriptions.get(taskRunId);
+    this.subscriptions.delete(taskRunId);
     subscription?.event.unsubscribe();
     subscription?.permission?.unsubscribe();
-    this.subscriptions.delete(taskRunId);
+    this.hostEndedResubscribes.delete(taskRunId);
+    this.lastSessionEventAt.delete(taskRunId);
+    this.sessionEventStats.delete(taskRunId);
+    this.silenceLogged.delete(taskRunId);
     this.liveTurnContent.delete(taskRunId);
     this.agentSpokeAt.delete(taskRunId);
+    this.lastAgentTextAt.delete(taskRunId);
     // Drop any speak calls still mid-stream for this run (never reached a
     // terminal status, so they were never enqueued or deleted above).
     this.speakCalls.delete(taskRunId);
@@ -2805,6 +3039,14 @@ export class SessionService {
       this.sessionEventFlushHandle = null;
     }
     this.pendingSessionEvents.clear();
+    this.hostEndedResubscribes.clear();
+    this.lastSessionEventAt.clear();
+    this.sessionEventStats.clear();
+    this.silenceLogged.clear();
+    if (this.silenceCheckHandle !== null) {
+      clearInterval(this.silenceCheckHandle);
+      this.silenceCheckHandle = null;
+    }
     for (const timer of this.eventEvictionTimers.values()) clearTimeout(timer);
     this.eventEvictionTimers.clear();
     this.evictedRunIds.clear();
@@ -2850,6 +3092,7 @@ export class SessionService {
     if (!tally) return;
     this.liveTurnContent.delete(taskRunId);
     const session = this.d.store.getSessions()[taskRunId];
+    const stats = this.sessionEventStats.get(taskRunId);
     const payload = {
       taskRunId,
       taskId: session?.taskId,
@@ -2858,11 +3101,14 @@ export class SessionService {
       agentTextChunks: tally.agentTextChunks,
       agentOutputEvents: tally.agentOutputEvents,
       durationMs: Math.max(0, endedAtTs - tally.startedAtTs),
+      eventCount: session?.events.length ?? 0,
+      received: stats?.received ?? 0,
+      failed: stats?.failed ?? 0,
     };
     if (tally.agentTextChunks === 0 && tally.agentOutputEvents === 0) {
       this.d.log.warn("Turn completed with no agent output", payload);
     } else {
-      this.d.log.debug("Turn completed", payload);
+      this.d.log.info("Turn completed", payload);
     }
   }
 
@@ -2970,15 +3216,12 @@ export class SessionService {
               stopReason === "end_turn" &&
               session.messageQueue.length === 0
             ) {
-              if (session.isTaskAuthor !== false) {
-                this.d.notifyPromptComplete(
-                  session.taskTitle,
-                  stopReason,
-                  session.taskId,
-                  turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
-                );
-                this.speakDeterministic(taskRunId, session, "done");
-              }
+              this.notifyTurnCompleted(
+                taskRunId,
+                session,
+                stopReason,
+                turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
+              );
             }
             this.d.taskViewedApi.markActivity(session.taskId);
             this.finalizeTurnContent(taskRunId, "turn_complete", acpMsg.ts);
@@ -3002,7 +3245,11 @@ export class SessionService {
         const session = this.d.store.getSessions()[taskRunId];
         const params = (
           msg as {
-            params?: { agentVersion?: unknown; steering?: unknown };
+            params?: {
+              agentVersion?: unknown;
+              steering?: unknown;
+              conversationClear?: unknown;
+            };
           }
         ).params;
         const agentVersion =
@@ -3018,6 +3265,10 @@ export class SessionService {
           session?.steering !== params.steering
         ) {
           updates.steering = params.steering;
+        }
+        const conversationClear = params?.conversationClear === true;
+        if (Boolean(session?.conversationClear) !== conversationClear) {
+          updates.conversationClear = conversationClear;
         }
         if (session?.isCloud && session.status !== "connected") {
           updates.status = "connected";
@@ -3057,34 +3308,48 @@ export class SessionService {
     }
   }
 
-  /**
-   * Deterministic backstop for the two moments the user must not miss. Fired
-   * from the turn-complete and permission events (which happen every time),
-   * unless the agent already narrated that same moment this turn via the speak
-   * tool — in which case its expressive line stands. Routes through the same
-   * speech channel (focus + settings gating + serialized queue).
-   */
-  private speakDeterministic(
+  private notifyTurnCompleted(
     taskRunId: string,
-    session: {
-      taskTitle: string;
-      taskId: string;
-      promptStartedAt: number | null;
-    },
-    kind: "done" | "needs_input",
+    session: NotifiableAgentSession,
+    stopReason: string,
+    durationMs?: number,
   ): void {
-    const turnStart = session.promptStartedAt ?? 0;
-    const spokeAt = this.agentSpokeAt.get(taskRunId)?.[kind] ?? 0;
-    if (turnStart > 0 && spokeAt >= turnStart) return; // agent already voiced it
-    // Deterministic backstop stays plain — no "Hey <name>," greeting.
-    this.d.enqueueSpeech({
-      text: kind === "done" ? "finished" : "needs your input",
+    this.d.notifyAgentSession({
+      kind: "turn_completed",
       taskTitle: session.taskTitle,
       taskId: session.taskId,
-      kind,
-      source: "backstop",
-      addressByName: false,
+      stopReason,
+      durationMs,
+      isTaskAuthor: session.isTaskAuthor,
+      agentSpoke: this.agentSpokeSinceTurnStarted(taskRunId, session, "done"),
     });
+  }
+
+  private notifyNeedsInput(
+    taskRunId: string,
+    session: NotifiableAgentSession,
+  ): void {
+    this.d.notifyAgentSession({
+      kind: "needs_input",
+      taskTitle: session.taskTitle,
+      taskId: session.taskId,
+      isTaskAuthor: session.isTaskAuthor,
+      agentSpoke: this.agentSpokeSinceTurnStarted(
+        taskRunId,
+        session,
+        "needs_input",
+      ),
+    });
+  }
+
+  private agentSpokeSinceTurnStarted(
+    taskRunId: string,
+    session: Pick<AgentSession, "promptStartedAt">,
+    kind: "done" | "needs_input",
+  ): boolean {
+    const turnStart = session.promptStartedAt ?? 0;
+    const spokeAt = this.agentSpokeAt.get(taskRunId)?.[kind] ?? 0;
+    return turnStart > 0 && spokeAt >= turnStart;
   }
 
   private handleSessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
@@ -3142,20 +3407,13 @@ export class SessionService {
           : this.drainQueuedMessages(taskRunId, session);
 
       // Only notify when nothing is sendable - queued messages start a new turn
-      if (
-        stopReason &&
-        !hasSendableMessages &&
-        session.isTaskAuthor !== false
-      ) {
-        this.d.notifyPromptComplete(
-          session.taskTitle,
+      if (stopReason && !hasSendableMessages) {
+        this.notifyTurnCompleted(
+          taskRunId,
+          session,
           stopReason,
-          session.taskId,
           turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
         );
-        if (stopReason === "end_turn") {
-          this.speakDeterministic(taskRunId, session, "done");
-        }
       }
 
       this.d.taskViewedApi.markActivity(session.taskId);
@@ -3392,10 +3650,7 @@ export class SessionService {
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
     this.d.taskViewedApi.markActivity(session.taskId);
-    if (session.isTaskAuthor !== false) {
-      this.d.notifyPermissionRequest(session.taskTitle, session.taskId);
-      this.speakDeterministic(taskRunId, session, "needs_input");
-    }
+    this.notifyNeedsInput(taskRunId, session);
   }
 
   private handleCloudPermissionRequest(
@@ -3452,10 +3707,7 @@ export class SessionService {
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
     this.d.taskViewedApi.markActivity(session.taskId);
-    if (session.isTaskAuthor !== false) {
-      this.d.notifyPermissionRequest(session.taskTitle, session.taskId);
-      this.speakDeterministic(taskRunId, session, "needs_input");
-    }
+    this.notifyNeedsInput(taskRunId, session);
   }
 
   private surfacePersistedPendingPermissions(
@@ -3546,23 +3798,43 @@ export class SessionService {
     // Steer: the user sent a message mid-turn and asked to fold it into the
     // running turn rather than queue it. Adapters that negotiated
     // `steering: "native"` (Claude, codex) inject at the next tool boundary;
-    // unknown local adapters cancel and resend. Cloud sessions only enter this
-    // path after the sandbox advertises native steering; compaction still queues.
+    // unknown local adapters cancel and resend. Cloud runs negotiate steering
+    // in the task workflow, so always forward the user's intent and let that
+    // authoritative layer choose the compatible signal. Compaction still queues.
     if (options?.steer && session.isPromptPending && !session.isCompacting) {
+      if (session.isCloud && session.status === "connected") {
+        return this.sendCloudPrompt(session, prompt, {
+          skipQueueGuard: true,
+          steer: true,
+        });
+      }
       if (sessionSupportsNativeSteer(session)) {
-        if (session.isCloud) {
-          if (session.status === "connected") {
-            return this.sendCloudPrompt(session, prompt, {
-              skipQueueGuard: true,
-              steer: true,
-            });
-          }
-        } else {
+        if (!session.isCloud) {
           return this.sendSteerPrompt(session, prompt);
         }
       }
       if (!session.isCloud) {
-        await this.cancelPrompt(taskId);
+        // Nothing folds the message into the running turn here, so the turn has
+        // to end for it to land. Let the output in flight finish first —
+        // cancelling on the keystroke truncates the sentence being read.
+        const steeredTurn: SteeredTurn = {
+          taskRunId: session.taskRunId,
+          promptId: session.currentPromptId ?? null,
+        };
+        await this.waitForAgentTextToSettle(taskId, steeredTurn);
+        // Only the turn the user steered against may be interrupted. If it
+        // ended while we waited, a queued message can already have started the
+        // next one, and cancelling that would cut off a message the user never
+        // steered. Falling through queues this message behind it instead.
+        //
+        // A snapshot is enough even though the cancel is async: it is
+        // dispatched in this same synchronous step, while a replacement turn
+        // can only be dispatched once a later event flush reports this one
+        // ended. Ordered transport then puts `session/cancel` at the agent
+        // first, so a cancel can never overtake the turn that replaces this.
+        if (this.isSteeredTurnStillRunning(taskId, steeredTurn)) {
+          await this.cancelPrompt(taskId);
+        }
         const refreshed = this.d.store.getSessionByTaskId(taskId);
         if (refreshed) {
           session = refreshed;
@@ -3652,6 +3924,52 @@ export class SessionService {
     return this.sendLocalPrompt(session, blocks, promptText, {
       optimisticApplied: true,
     });
+  }
+
+  /**
+   * Whether the turn a steer was aimed at is still the one running. `taskId`
+   * outlives any single turn, so it cannot answer this on its own: a turn that
+   * ends lets a queued message start a new one under the same task, and
+   * `currentPromptId` is what tells the two apart.
+   */
+  private isSteeredTurnStillRunning(
+    taskId: string,
+    turn: SteeredTurn,
+  ): boolean {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    return (
+      session?.isPromptPending === true &&
+      session.taskRunId === turn.taskRunId &&
+      (session.currentPromptId ?? null) === turn.promptId
+    );
+  }
+
+  /**
+   * Resolve once the agent's streamed text has been quiet for
+   * {@link STEER_INTERRUPT_QUIET_MS}, the steered turn has stopped running, or
+   * {@link STEER_INTERRUPT_MAX_WAIT_MS} has elapsed. Returns straight away when
+   * nothing is streaming — the common case, since a steer usually arrives while
+   * the agent is inside a tool call rather than mid-sentence.
+   */
+  private async waitForAgentTextToSettle(
+    taskId: string,
+    turn: SteeredTurn,
+  ): Promise<void> {
+    const deadline = Date.now() + STEER_INTERRUPT_MAX_WAIT_MS;
+    for (;;) {
+      if (!this.isSteeredTurnStillRunning(taskId, turn)) return;
+      // A run that has never streamed text is quiet by definition, whatever the
+      // clock reads.
+      const quietFor =
+        Date.now() -
+        (this.lastAgentTextAt.get(turn.taskRunId) ?? Number.NEGATIVE_INFINITY);
+      const wait = Math.min(
+        STEER_INTERRUPT_QUIET_MS - quietFor,
+        deadline - Date.now(),
+      );
+      if (wait <= 0) return;
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
   }
 
   /**
@@ -3753,6 +4071,8 @@ export class SessionService {
       promptStartedAt: Date.now(),
       pausedDurationMs: 0,
     });
+    this.silenceLogged.delete(taskRunId);
+    this.ensureSilenceCheck();
 
     const skillButtonId = this.d.h.extractSkillButtonId(blocks);
     if (skillButtonId) {
@@ -5606,7 +5926,7 @@ export class SessionService {
    */
   /**
    * Register this client as the relay executor for a run's desktop-only MCP
-   * servers (docs/cloud-mcp-relay.md). Called by the creation saga — only the
+   * servers (docs/CLOUD-MCP-RELAY.md). Called by the creation saga — only the
    * creating client may execute relay requests.
    */
   async designateRelayedMcpServers(
@@ -5927,7 +6247,19 @@ export class SessionService {
         taskRunId,
         normalizedUpdate,
       );
-      this.handleCloudTaskUpdate(taskRunId, normalizedUpdate);
+      try {
+        this.handleCloudTaskUpdate(taskRunId, normalizedUpdate);
+      } catch (error) {
+        // Same reasoning as applySessionEvent: one bad update must not end
+        // the stream silently. The subscription stays up for the next one.
+        this.d.log.error("Cloud task update handling failed", {
+          taskId,
+          taskRunId,
+          kind: update.kind,
+          error,
+        });
+        return;
+      }
       if (
         (update.kind === "status" ||
           update.kind === "snapshot" ||
@@ -5975,6 +6307,15 @@ export class SessionService {
         },
         onError: (err: unknown) =>
           this.d.log.error("Cloud task subscription error", { taskId, err }),
+        onComplete: () => {
+          if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
+            return;
+          }
+          this.d.log.warn(
+            "Cloud task subscription ended without an error, updates stop until the task is reopened",
+            { taskId, runId },
+          );
+        },
       },
     );
 
@@ -6327,7 +6668,7 @@ export class SessionService {
         type: "user_message",
         content: seedContent,
         timestamp: Date.now(),
-        ...(isResumeRun ? { pinToTop: false } : {}),
+        pinToTop: !isResumeRun,
       });
     }
     if (hasCurrentRunUserPrompt || isTerminalRun) {
@@ -6466,8 +6807,8 @@ export class SessionService {
     const watcher = this.cloudTaskWatchers.get(taskId);
     if (!watcher) return;
 
-    watcher.subscription.unsubscribe();
     this.cloudTaskWatchers.delete(taskId);
+    watcher.subscription.unsubscribe();
     this.cloudLogGapReconciler.forgetDeficiency(watcher.runId);
   }
 
@@ -6873,6 +7214,14 @@ export class SessionService {
     this.d.store.updateSession(session.taskRunId, { taskTitle });
   }
 
+  /**
+   * One heartbeat per run, held by however many surfaces are watching it. The
+   * count is what makes that safe: several components mount the same run at
+   * once (the transcript, the logs, the session panel), and an unheld beat
+   * would let whichever unmounts first stop the run's activity signal for the
+   * others, leaving the server free to idle-reclaim an agent someone is
+   * watching.
+   */
   public startActivityHeartbeat(taskRunId: string): () => void {
     const record = () => {
       this.d.trpc.agent.recordActivity.mutate({ taskRunId }).catch(() => {});
@@ -6881,13 +7230,23 @@ export class SessionService {
     record();
     const existing = this.activityHeartbeats.get(taskRunId);
     if (existing) {
-      clearInterval(existing);
+      existing.holders += 1;
+    } else {
+      this.activityHeartbeats.set(taskRunId, {
+        timer: setInterval(record, ACTIVITY_HEARTBEAT_INTERVAL_MS),
+        holders: 1,
+      });
     }
-    const heartbeat = setInterval(record, ACTIVITY_HEARTBEAT_INTERVAL_MS);
-    this.activityHeartbeats.set(taskRunId, heartbeat);
 
+    let released = false;
     return () => {
-      clearInterval(heartbeat);
+      if (released) return;
+      released = true;
+      const entry = this.activityHeartbeats.get(taskRunId);
+      if (!entry) return;
+      entry.holders -= 1;
+      if (entry.holders > 0) return;
+      clearInterval(entry.timer);
       this.activityHeartbeats.delete(taskRunId);
     };
   }
@@ -7495,18 +7854,124 @@ export class SessionService {
     }
   }
 
+  async getResourceComments(
+    target: CommentTarget,
+    taskId: string,
+  ): Promise<ResourceComment[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") return [];
+    return authStatus.auth.client.getResourceComments(
+      target.scope,
+      target.itemId,
+      taskId,
+    );
+  }
+
+  /**
+   * Comments for several resources at once, for surfaces that centralize threads
+   * across a task's artifacts and canvases. Returns one flat list — every row
+   * already carries `scope` and `item_id`, so callers group without bookkeeping.
+   * Fanning out here (rather than in a hook) keeps the multi-source read in a
+   * service and lets the caller hold a single query.
+   */
+  async getResourceCommentsForTargets(
+    targets: CommentTarget[],
+    taskId: string,
+  ): Promise<ResourceComment[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready" || targets.length === 0) return [];
+    const client = authStatus.auth.client;
+    const pages: ResourceComment[][] = Array.from(
+      { length: targets.length },
+      () => [],
+    );
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < targets.length) {
+        const index = nextIndex++;
+        const target = targets[index];
+        try {
+          pages[index] = await client.getResourceComments(
+            target.scope,
+            target.itemId,
+            taskId,
+          );
+        } catch {
+          pages[index] = [];
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(4, targets.length) }, worker),
+    );
+    return pages.flat();
+  }
+
+  async createResourceComment(
+    request: CreateResourceCommentRequest,
+  ): Promise<ResourceComment> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Sign in to comment");
+    }
+    return authStatus.auth.client.createResourceComment(request);
+  }
+
   async getCloudRunArtifacts(
     taskId: string,
     runId: string,
   ): Promise<TaskRunArtifact[]> {
     const authStatus = await this.getAuthCredentialsStatus();
-    if (authStatus.kind !== "ready") return [];
+    if (authStatus.kind !== "ready") {
+      throw new Error("Not signed in to PostHog");
+    }
 
     return this.getCloudAttachmentManifest(
       authStatus.auth.client,
       `${authStatus.auth.apiHost}:${authStatus.auth.projectId}`,
       taskId,
       runId,
+    );
+  }
+
+  async uploadCloudRunArtifactVersion(
+    taskId: string,
+    runId: string,
+    name: string,
+    content: string,
+    contentType?: string,
+  ): Promise<string> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Not signed in to PostHog");
+    }
+
+    return this.d.h.uploadRunOutput(
+      authStatus.auth.client,
+      taskId,
+      runId,
+      name,
+      content,
+      contentType,
+    );
+  }
+
+  async setCloudRunArtifactsDismissed(
+    taskId: string,
+    runId: string,
+    artifactIds: string[],
+    dismissed: boolean,
+  ): Promise<TaskRunArtifact[]> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Not signed in to PostHog");
+    }
+
+    return authStatus.auth.client.setTaskRunArtifactsDismissed(
+      taskId,
+      runId,
+      artifactIds,
+      dismissed,
     );
   }
 

@@ -26,7 +26,6 @@ import {
     createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
     createSkipCookielessRateLimitToOverflowStep,
-    createValidateAiEventTokensStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
@@ -42,14 +41,13 @@ import { createNormalizeEventStep } from '~/ingestion/common/steps/event-process
 import { createNormalizeProcessPersonFlagStep } from '~/ingestion/common/steps/event-processing/normalize-process-person-flag-step'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
-import { createSplitAiEventsStep } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/event-processing/strip-person-update-properties-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
-import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogRegistry, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
 
+import { AI_EVENT_TYPES } from './ai-event-types'
 import { BlobStore } from './blob-offload/blob-store'
 import { AiEventOutput, EVENTS_OUTPUT, EventOutput } from './outputs'
 import {
@@ -58,8 +56,10 @@ import {
     createUploadAiBlobStep,
     extractAiBlobsFanOut,
     mergeAiBlobPointersFanIn,
-} from './pipelines/steps/offload-ai-blobs-step'
-import { createProcessAiEventStep } from './pipelines/steps/process-ai-event-step'
+} from './steps/offload-ai-blobs-step'
+import { createProcessAiEventStep } from './steps/process-ai-event-step'
+import { createSplitAiEventsStep } from './steps/split-ai-events-step'
+import { createValidateAiEventTokensStep } from './steps/validate-ai-event-tokens'
 
 export interface AiIngestionPipelineConfig {
     outputs: IngestionOutputs<
@@ -95,8 +95,7 @@ interface AiIngestionPipelineContext {
 }
 
 /**
- * Standalone AI ingestion pipeline. Mirrors the AI branch of the analytics
- * joined pipeline, but:
+ * Standalone AI ingestion pipeline. Compared to the analytics pipeline:
  *  - only AI events flow through (everything else is DLQ'd by the allow step),
  *  - person and group data are read-only (fetched, never written), like error
  *    tracking — so there are no person/group batch stores or per-distinct-id
@@ -104,9 +103,9 @@ interface AiIngestionPipelineContext {
  *  - overflow uses the dedicated `'ai'` keyspace (wired at service construction),
  *    so AI overflow can never affect analytics.
  *
- * AI events are still double-written to both the events output and the
- * ai_events output (via the split step), keeping it a drop-in for the analytics
- * AI branch once capture-side routing switches over.
+ * AI events are double-written to both the events output and the ai_events
+ * output (via the split step), so they appear on the shared events table as
+ * well as the dedicated ai_events table.
  */
 export function createAiIngestionPipeline<
     TInput extends AiIngestionPipelineInput,

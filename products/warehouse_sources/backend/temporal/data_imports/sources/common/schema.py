@@ -29,8 +29,10 @@ class SourceSchema:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     row_count: int | None = None
     supports_webhooks: bool = False
-    # True for resources with no API list endpoint that can only be populated via webhooks
-    # (e.g. Stripe `Discount`). The UI should hide non-webhook sync methods for these.
+    # True for resources whose only valid sync method is webhooks: either no API list endpoint
+    # exists at all (e.g. Stripe `Discount`), or a non-webhook sync would destroy captured data
+    # (e.g. Stripe `CustomerPaymentMethodHistory`, which seeds once from an API sweep and then
+    # appends webhook events). The UI should hide non-webhook sync methods for these.
     webhook_only: bool = False
     supports_cdc: bool = False
     # Postgres-only: set by the Postgres source for heap tables / matviews (PG13+); all
@@ -99,7 +101,9 @@ def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
     return settings
 
 
-def build_default_schemas(source_schemas: list[SourceSchema]) -> list[dict]:
+def build_default_schemas(
+    source_schemas: list[SourceSchema], permission_errors: Mapping[str, str | None] | None = None
+) -> list[dict]:
     """Build a default ``schemas`` payload for one-shot source creation.
 
     Enables every discovered table the source marks as default-on, with each table's sync
@@ -110,10 +114,15 @@ def build_default_schemas(source_schemas: list[SourceSchema]) -> list[dict]:
     ``should_sync_default=False`` also start disabled: sources use it for tables whose sync
     needs grants beyond what source creation validated, and the schema picker already honors
     it, so one-shot setup must not force-enable what the picker would leave off.
+
+    ``permission_errors`` maps table name to the reason its credentials can't read it (the same
+    per-table probe the schema picker renders). A table with a reason starts disabled however it
+    is otherwise defaulted: enabling it would queue a sync that can only ever 403.
     """
+    denied = {name for name, reason in (permission_errors or {}).items() if reason}
     schemas: list[dict] = []
     for source_schema in source_schemas:
-        if source_schema.webhook_only or not source_schema.should_sync_default:
+        if source_schema.webhook_only or not source_schema.should_sync_default or source_schema.name in denied:
             schemas.append({"name": source_schema.name, "should_sync": False})
             continue
 

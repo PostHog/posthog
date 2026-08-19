@@ -18,6 +18,8 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     Priority,
     PriorityAssessment,
+    SuggestedReviewerEntry,
+    SuggestedReviewers,
     TaskRunArtefact,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
@@ -1194,6 +1196,33 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         report_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert report_response.status_code == status.HTTP_200_OK
         assert report_response.json()["priority"] == "P3"
+
+    def test_delete_latest_reviewers_artefact_re_emits_surviving_state(self):
+        # A deleted reviewers row reverts the canonical set to the previous row; without a fresh
+        # event, latest-per-report telemetry keeps describing the deleted list forever.
+        report = self._create_report()
+        for login in ("first-reviewer", "second-reviewer"):
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login)]),
+                attribution=ArtefactAttribution.system(),
+            )
+        latest = SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        ).order_by("-created_at")[0]
+
+        with (
+            patch("products.signals.backend.views.capture_suggested_reviewers_resolved") as mock_capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.delete(self._detail_url(str(report.id), str(latest.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert mock_capture.call_count == 1
+        kwargs = mock_capture.call_args.kwargs
+        assert kwargs["github_logins"] == ["first-reviewer"]
+        assert kwargs["source"] == "api"
 
     def test_delete_other_team_returns_404(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")

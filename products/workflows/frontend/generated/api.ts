@@ -35,6 +35,8 @@ import type {
     HogFlowsMetricsTotalsRetrieveParams,
     HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
+    HogInvocationCancelRequestApi,
+    HogInvocationCancelResponseApi,
     HogInvocationRerunRequestApi,
     HogInvocationRerunResponseApi,
     HogInvocationResultApi,
@@ -542,6 +544,32 @@ export const hogFlowsInvocationsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowInvocationApi),
+    })
+}
+
+export const getHogFlowsInvocationsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/invocations/cancel/`
+}
+
+/**
+ * Cancel in-flight invocations of this workflow, by id or all at once.
+ *
+ * Cancellation is asynchronous: runs are flagged here, then terminated by
+ * the workflow workers, promptly for parked runs (delays and waits) and at
+ * the next step boundary for runs mid-execution. Steps that already
+ * executed are not undone. Canceled runs can be re-run later via `rerun`.
+ */
+export const hogFlowsInvocationsCancelCreate = async (
+    projectId: string,
+    id: string,
+    hogInvocationCancelRequestApi?: HogInvocationCancelRequestApi,
+    options?: RequestInit
+): Promise<HogInvocationCancelResponseApi> => {
+    return apiMutator<HogInvocationCancelResponseApi>(getHogFlowsInvocationsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogInvocationCancelRequestApi),
     })
 }
 

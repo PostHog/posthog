@@ -178,15 +178,16 @@ pub enum DataType {
     ExceptionErrorTracking,
     SnapshotMain,
     /// Dedicated `$ai_*` lane, mirroring v1's `Destination::AiEvents`. Only
-    /// produced when the deployment's `AiRouting` policy diverts the batch
-    /// token; the kafka sink maps it to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`. Like heatmaps and
-    /// exceptions, AI events never overflow and never reroute historical.
+    /// produced on deployments whose capture mode routes AI events (see
+    /// `CaptureMode::routes_ai_events`); the kafka sink maps it to
+    /// `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`. Like heatmaps and exceptions, AI events never
+    /// reroute historical.
     AiEvents,
 }
 
 /// Event names diverted to the dedicated AI lane. Must stay in sync with the
-/// ingestion AI subpipeline's allowlist (`AI_EVENT_TYPES` in
-/// `nodejs/src/ingestion/common/subpipelines/ai-event-types.ts`), which DLQs
+/// AI lane's allowlist (`AI_EVENT_TYPES` in
+/// `nodejs/src/ingestion/pipelines/ai/ai-event-types.ts`), which DLQs
 /// anything it receives that isn't on the list. Matching on the `$ai_` prefix
 /// instead would divert prefixed-but-unlisted names (e.g. `$ai_call`) into the
 /// AI topic only for the ingestion pipeline to DLQ them.
@@ -216,12 +217,11 @@ impl DataType {
     /// `apply_restrictions` so the analytics → exception → heatmap →
     /// ingestion-warning split stays in one place.
     ///
-    /// `route_ai_events` reflects the per-batch `AiRouting` decision,
+    /// `route_ai_events` reflects the deployment's `CaptureMode::routes_ai_events`,
     /// mirroring v1's `destination_for_event_name`: when set, AI events (per
     /// [`is_ai_event`]) divert to `AiEvents`, winning over historical (in v1
     /// the historical reroute only applies to the analytics-main destination).
-    /// When unset the mapping is a strict no-op relative to the pre-AI-lane
-    /// behavior.
+    /// When unset the mapping keeps AI events on the main/historical lanes.
     ///
     /// `SnapshotMain` is not produced here — replay events arrive on a
     /// separate endpoint and never flow through analytics processing.

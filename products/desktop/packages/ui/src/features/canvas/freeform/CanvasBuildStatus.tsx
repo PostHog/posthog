@@ -7,6 +7,7 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import {
+  type CanvasBuildLifecycle,
   currentHeadBuildFailure,
   latestFinishedCanvasBuild,
 } from "@posthog/core/canvas/canvasBuildSchemas";
@@ -20,7 +21,6 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import type { CanvasDiagnostic } from "@posthog/shared";
-import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -57,9 +57,11 @@ function topErrors(diagnostics: CanvasDiagnostic[]): string[] {
 // diagnostics, mirroring the runtime-error self-repair affordance.
 export function CanvasBuildStatus({
   dashboardId,
+  lifecycle,
   onAskAgentToFix,
 }: {
   dashboardId: string;
+  lifecycle: CanvasBuildLifecycle | undefined;
   onAskAgentToFix?: (prompt: string) => void;
 }) {
   const trpc = useHostTRPC();
@@ -76,8 +78,6 @@ export function CanvasBuildStatus({
         }),
     }),
   );
-  const { lifecycle } = useCanvasBuilds(dashboardId);
-
   const active = lifecycle?.builds.find(
     (build) =>
       build.buildStatus === "queued" || build.buildStatus === "building",

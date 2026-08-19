@@ -145,6 +145,16 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
             return self.client.patch(url, body, HTTP_X_POSTHOG_CLIENT="mcp")
         return self.client.patch(url, body)
 
+    def test_html_only_email_saves_with_design_wrapping_the_html(self):
+        flow_id = self._create_flow(with_design=False)
+
+        value = _stored_email_value(HogFlow.objects.get(id=flow_id))
+
+        assert value["html"] == "<p>Hello</p>"
+        contents = value["design"]["body"]["rows"][0]["columns"][0]["contents"]
+        assert contents[0]["type"] == "html"
+        assert contents[0]["values"]["html"] == "<p>Hello</p>"
+
     @patch(RENDER_PATH, return_value=RENDERED_HTML)
     def test_design_op_updates_block_and_rerenders_html(self, mock_render):
         flow_id = self._create_flow()
@@ -215,6 +225,13 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
     @patch(RENDER_PATH, return_value=RENDERED_HTML)
     def test_operations_without_design_rejected(self, _mock_render):
         flow_id = self._create_flow(with_design=False)
+        # New saves auto-wrap html into a design; strip it to simulate a row saved before that,
+        # which design operations must still reject rather than partially apply.
+        flow = HogFlow.objects.get(id=flow_id)
+        for flow_action in flow.actions:
+            if flow_action["id"] == "email_1":
+                flow_action["config"]["inputs"]["email"]["value"].pop("design", None)
+        flow.save(update_fields=["actions"])
         response = self._patch_email(
             flow_id,
             {"operations": [{"op": "update_content", "id": "text_1", "patch": {"values": {"text": "x"}}}]},
@@ -493,7 +510,9 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         assert response.status_code == 201, response.json()
         stored = _stored_email_value(HogFlow.objects.get(pk=response.json()["id"]))
         assert stored["subject"] == "Caller subject"
-        assert "design" not in stored
+        # The stored design wraps the caller's html - the library template's design must not leak in
+        contents = stored["design"]["body"]["rows"][0]["columns"][0]["contents"]
+        assert contents[0]["values"]["html"] == "<p>Caller html</p>"
 
     def test_unresolvable_template_uuid_is_rejected_on_strict_save(self):
         deleted = self._create_library_template(deleted=True)

@@ -1,4 +1,5 @@
 import re
+import datetime
 from typing import Optional, cast
 
 from django.core.cache import cache
@@ -84,11 +85,15 @@ class GoogleAdsSource(
     supported_versions = ("v23", "v24", "v25")
     default_version = "v25"
     api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
-    # Google sunsets each major ~12 months after release; v24 (released 2026-04-22) is projected
-    # for ~May 2027 but has no firm date on the sunset page yet, so `sunset_at` stays None until
-    # Google publishes one. Existing v24 pins stay on v24 until then — Google still serves it, and
-    # the repin belongs in the PR that records the real sunset date.
-    deprecated_versions = (VersionDeprecation(version="v24", sunset_at=None),)
+    # Google sunsets each major ~12 months after release. v23 (released 2026-01-28) is scheduled to
+    # sunset in February 2027; Google has announced the month but not the exact day, so pin the
+    # conservative first-of-month — the deprecation banner and the v23→v25 repin migration key off it.
+    # v24 (released 2026-04-22) is projected for ~May 2027 with no firm date on the sunset page yet,
+    # so its `sunset_at` stays None until Google publishes one and existing v24 pins stay on v24.
+    deprecated_versions = (
+        VersionDeprecation(version="v23", sunset_at=datetime.date(2027, 2, 1)),
+        VersionDeprecation(version="v24", sunset_at=None),
+    )
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -417,7 +422,9 @@ class GoogleAdsSource(
             if "CUSTOMER_NOT_FOUND" in error_message or "USER_PERMISSION_DENIED" in error_message:
                 return (
                     False,
-                    f"Customer ID {config.customer_id} is not accessible. Please verify your customer ID and manager account settings.",
+                    f"Customer ID {config.customer_id} isn't accessible through the connected manager "
+                    "(MCC) account. Check that the customer ID is correct, that the manager customer ID "
+                    "you entered is right, and that this account is linked under that manager, then try again.",
                 )
             raise
 

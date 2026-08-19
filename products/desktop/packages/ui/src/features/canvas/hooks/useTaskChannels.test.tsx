@@ -58,7 +58,10 @@ describe("useTaskChannels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(result.current.channels.map((c) => c.id)).toEqual(["1", "p1"]);
-    expect(result.current.personalChannel).toBe(personal);
+    expect(result.current.personalChannel).toEqual({
+      ...personal,
+      name: "personal",
+    });
   });
 
   it("reports loading (and no personal channel) until the list lands", () => {

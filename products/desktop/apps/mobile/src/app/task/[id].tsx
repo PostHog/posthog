@@ -42,6 +42,7 @@ import { FloatingTaskHeader } from "@/features/tasks/components/FloatingTaskHead
 import { PrDiffStatsBadge } from "@/features/tasks/components/PrDiffStatsBadge";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { StopRunButton } from "@/features/tasks/components/StopRunButton";
+import { TaskArtifacts } from "@/features/tasks/components/TaskArtifacts";
 import { TaskSessionView } from "@/features/tasks/components/TaskSessionView";
 import { buildCloudPromptBlocks } from "@/features/tasks/composer/attachments/buildCloudPrompt";
 import type { PendingAttachment } from "@/features/tasks/composer/attachments/types";
@@ -837,7 +838,6 @@ export default function TaskDetailScreen() {
         <TaskSessionView
           events={session?.events ?? []}
           taskId={taskId}
-          runId={task?.latest_run?.id}
           pendingPermissions={session?.pendingPermissions}
           isConnecting={isConnecting}
           isThinking={isThinking}
@@ -929,6 +929,13 @@ export default function TaskDetailScreen() {
             messagingMode={messagingMode}
             queuedCount={queuedCount}
             onToggleMessagingMode={toggleMessagingMode}
+            artifactsSlot={
+              <TaskArtifacts
+                taskId={taskId}
+                runId={task?.latest_run?.id}
+                enabled={!retrying && !!session?.terminalStatus}
+              />
+            }
           />
         </Animated.View>
       </Animated.View>

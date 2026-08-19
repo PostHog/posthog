@@ -1,3 +1,4 @@
+import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import {
   REPORT_MODEL_RESOLVER,
   type ReportModelResolver,
@@ -23,21 +24,10 @@ import { isPlaceholderCanvasName } from "./canvasNaming";
 import { buildCanvasGenerationPrompt } from "./generationPrompt";
 
 export interface GenerateCanvasInput {
-  /**
-   * The canvas being generated or edited, when the surface already knows it.
-   * Channel-composer runs omit it: the agent resolves the target itself
-   * (building on a matching existing canvas, or creating a named one), so no
-   * canvas-side effects run here.
-   */
-  dashboardId?: string;
-  /** The target's title; set whenever dashboardId is. */
-  name?: string;
+  dashboardId: string;
+  name: string;
   templateId?: string;
   instruction: string;
-  /** True when the canvas already has published source (an edit, not a first build). */
-  isEdit: boolean;
-  /** First builds only: point the agent at the known-good starter scaffold. */
-  useStarter?: boolean;
   /** Backend channel (task channel UUID) that owns the canvas and the task. */
   channelId: string;
   channelName: string;
@@ -146,15 +136,12 @@ export class CanvasApplicationService {
           dashboardId: input.dashboardId,
           name: input.name,
           channelName: input.channelName,
-          channelId: input.channelId,
           templateId: input.templateId,
           instruction: input.instruction,
-          isEdit: input.isEdit,
-          useStarter: input.useStarter,
         }),
         taskDescription: input.name
           ? `Generate canvas "${input.name}"`
-          : `Generate a canvas in #${input.channelName}`,
+          : `Generate a canvas in ${channelDisplayReference(input.channelName)}`,
         // Unattended generation: run in auto mode so it doesn't stall on
         // edit-approval prompts.
         executionMode: "auto" as const,
@@ -181,35 +168,24 @@ export class CanvasApplicationService {
       this.log.warn("Failed to file canvas generation task", { error });
     });
 
-    // Canvas-side effects only apply when the surface pre-resolved a target;
-    // target-less runs leave them to the agent, which resolves or creates the
-    // canvas itself.
     const dashboardId = input.dashboardId;
-    if (dashboardId) {
-      // The generation-task write is awaited so a caller that navigates to the
-      // canvas right after generate() lands on the generating view, not the
-      // empty hero.
-      await gateway.setGenerationTask(dashboardId, task.id).catch((error) => {
-        this.log.warn("Failed to record canvas generation task", { error });
-      });
+    await gateway.setGenerationTask(dashboardId, task.id).catch((error) => {
+      this.log.warn("Failed to record canvas generation task", { error });
+    });
 
-      // Auto-name a still-unnamed canvas from its generation prompt, using the
-      // same helper model that names tasks. Best-effort: a failure (or a user
-      // who already named the canvas) leaves the existing title untouched.
-      if (input.name && isPlaceholderCanvasName(input.name)) {
-        void this.titleGenerator
-          .generateCanvasName(input.instruction)
-          .then(async (generated) => {
-            const title = generated?.trim();
-            if (title) {
-              await gateway.renameCanvas(dashboardId, title);
-              gateway.onAutoNamed?.(task.id, title);
-            }
-          })
-          .catch((error) => {
-            this.log.warn("Failed to auto-name canvas", { error });
-          });
-      }
+    if (isPlaceholderCanvasName(input.name)) {
+      void this.titleGenerator
+        .generateCanvasName(input.instruction)
+        .then(async (generated) => {
+          const title = generated?.trim();
+          if (title) {
+            await gateway.renameCanvas(dashboardId, title);
+            gateway.onAutoNamed?.(task.id, title);
+          }
+        })
+        .catch((error) => {
+          this.log.warn("Failed to auto-name canvas", { error });
+        });
     }
 
     return { ok: true, taskId: task.id };

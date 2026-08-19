@@ -39,7 +39,6 @@ Hosts:
 - `apps/code`: Electron desktop host.
 - `apps/web`: web host and portability smoke test.
 - `apps/mobile`: React Native host.
-- `apps/cli`: thin shell over `@posthog/cli`.
 
 ## Rules
 
@@ -119,6 +118,7 @@ For each new file or meaningful change:
 - Bespoke clients that wrap `trpcClient.x` one-to-one.
 - `*Port`, `*_PORT`, or `ports.ts` naming.
 - Business logic in `apps/<host>`.
+- New ad-hoc broad in-app announcement or promo surfaces (flag-gated promo cards, dismissible banners, one-time modals). Broad announcements are remotely controlled via the `posthog-desktop-announcements` flag payload — see [docs/ANNOUNCEMENTS.md](./docs/ANNOUNCEMENTS.md).
 
 ## Host Boundary
 
@@ -208,6 +208,7 @@ await boot(container);
 ## Commands
 
 - `pnpm install`: install dependencies.
+- `pnpm bootstrap:cloud-task`: link dependencies from the prebaked pnpm store without running unrelated app install hooks, then build the packages required before scoped typechecks in cloud tasks.
 - `pnpm dev`: run agent watch and desktop app.
 - `pnpm build`: build all packages.
 - `pnpm typecheck`: typecheck all packages.
@@ -292,7 +293,7 @@ Pulling in a Radix package is not the fallback.
 - Empty/placeholder/loading screens (canvas and elsewhere) are a `@posthog/quill` `<Empty>` (`EmptyHeader` → `EmptyMedia variant="icon"` → `EmptyTitle` → `EmptyDescription`, then `EmptyContent` for CTAs). Don't hand-roll the centered Flex + dashed icon box. CTAs are quill `Button`s: primary action `variant="primary"`, secondary `variant="outline"`, `size="default"`. For a link CTA use `render={<Link … />}` (Base UI), not `asChild`.
 - Abort controllers before awaiting cleanup that depends on them.
 
-See [docs/conventions.md](./docs/conventions.md).
+See [docs/CONVENTIONS.md](./docs/CONVENTIONS.md).
 
 ## Agent Integration
 
@@ -320,13 +321,14 @@ See [docs/conventions.md](./docs/conventions.md).
 - After touching `@posthog/platform`, rebuild or typecheck its `dist/`.
 - After touching `packages/core`, run `biome lint packages/core` and verify zero `noRestrictedImports`.
 
-See [docs/testing.md](./docs/testing.md).
+See [docs/TESTING.md](./docs/TESTING.md).
 
 ## Reference
 
-- [docs/architecture.md](./docs/architecture.md)
-- [docs/conventions.md](./docs/conventions.md)
-- [docs/testing.md](./docs/testing.md)
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+- [docs/CONVENTIONS.md](./docs/CONVENTIONS.md)
+- [docs/TESTING.md](./docs/TESTING.md)
+- [docs/ANNOUNCEMENTS.md](./docs/ANNOUNCEMENTS.md)
 - [docs/DEEP-LINKS.md](./docs/DEEP-LINKS.md)
 - [docs/LOCAL-DEVELOPMENT.md](./docs/LOCAL-DEVELOPMENT.md)
 - [docs/UPDATES.md](./docs/UPDATES.md)

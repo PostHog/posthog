@@ -12,7 +12,7 @@ from posthog.egress.github.transport import github_request, raise_if_github_rate
 from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase
-from posthog.models.integration import invalidate_github_repository_caches_for_installation
+from posthog.models.integration import github_account_type, invalidate_github_repository_caches_for_installation
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
@@ -539,7 +539,7 @@ def user_github_integration_from_installation(
     }
 
     if create_only:
-        integration, _created = UserIntegration.objects.get_or_create(
+        integration, created = UserIntegration.objects.get_or_create(
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
             integration_id=installation.installation_id,
@@ -549,7 +549,7 @@ def user_github_integration_from_installation(
             },
         )
     else:
-        integration, _created = UserIntegration.objects.update_or_create(
+        integration, created = UserIntegration.objects.update_or_create(
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
             integration_id=installation.installation_id,
@@ -559,7 +559,39 @@ def user_github_integration_from_installation(
             },
         )
         invalidate_github_repository_caches_for_installation(installation.installation_id)
+
+    if created:
+        _report_personal_integration_created(user, config, auto_created=create_only)
+
     return integration
+
+
+def _report_personal_integration_created(user: "User", config: dict[str, Any], *, auto_created: bool) -> None:
+    """Personal integrations live in their own table and never pass through the team integration
+    path, so ``integration created`` cannot see them. They get their own event rather than a scope
+    property on the team one, because saved insights already count ``integration created`` unfiltered
+    and would silently start including personal links.
+    """
+    from posthog.event_usage import report_user_action  # noqa: PLC0415 — posthog.event_usage imports posthog.models
+
+    owner_type = (config.get("account") or {}).get("type")
+    try:
+        report_user_action(
+            user,
+            "personal integration created",
+            {
+                "integration_kind": "github",
+                "repo_owner_type": owner_type,
+                "account_type": github_account_type(owner_type),
+                # True when the row rode along with a team App install rather than the user
+                # deliberately linking their account under Personal integrations.
+                "auto_created": auto_created,
+            },
+        )
+    except Exception:
+        # The row is already committed. Raising here would report a link that actually succeeded as
+        # a failure, and on the team install path it would take the team connect down with it.
+        logger.exception("user_github_integration: failed to report personal integration created")
 
 
 def refresh_user_github_installation_access(

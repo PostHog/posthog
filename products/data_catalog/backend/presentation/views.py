@@ -1,7 +1,7 @@
 """DRF views for data_catalog.
 
 Thin: validate via the serializer, call the facade, serialize the result. Domain invariants
-(name reservation, upsert, validation, drift, approval) live in the logic layer behind the facade.
+(name uniqueness, upsert, rename, validation, drift, approval) live in the logic layer behind the facade.
 """
 
 from typing import cast
@@ -12,7 +12,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action as drf_action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -44,7 +44,7 @@ _STRUCTURED_QUERY_KINDS = {*INSIGHT_DEFINITION_KINDS, *NODE_DEFINITION_KINDS}
 
 
 class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/)."""
+    """CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/)."""
 
     scope_object = "data_catalog"
     lookup_field = "name"
@@ -126,9 +126,6 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(metric, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         fields = dict(serializer.validated_data)
-        if "name" in fields and fields["name"] != metric.name:
-            raise ValidationError({"name": "Metric name is write-once and cannot be changed."})
-        fields.pop("name", None)
         metric = api.update_metric(metric, team=self.team, user=cast(User, request.user), request=request, **fields)
         return Response(self.get_serializer(metric).data)
 

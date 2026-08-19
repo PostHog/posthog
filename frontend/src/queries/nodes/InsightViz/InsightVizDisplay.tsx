@@ -40,7 +40,6 @@ import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable
 import { FunnelTimeToConvertTable } from 'scenes/insights/views/Funnels/FunnelTimeToConvertTable'
 import { FunnelTrendsTable } from 'scenes/insights/views/Funnels/FunnelTrendsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
-import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
@@ -59,6 +58,8 @@ import {
     InsightType,
     PropertyMathType,
 } from '~/types'
+
+import { Journeys } from 'products/product_analytics/frontend/insights/journeys/Journeys'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -142,8 +143,7 @@ export function InsightVizDisplay({
     inSharedMode?: boolean
     editMode?: boolean
 }): JSX.Element | null {
-    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2, isInDashboardContext } =
-        useValues(insightLogic)
+    const { insightProps, canEditInsight, isInDashboardContext } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -157,6 +157,7 @@ export function InsightVizDisplay({
         supportsDisplay,
         samplingFactor,
         insightDataLoading,
+        hasRenderableResults,
         erroredQueryId,
         timedOutQueryId,
         vizSpecificOptions,
@@ -171,15 +172,18 @@ export function InsightVizDisplay({
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
-    const { funnelsFilter, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
+    const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
 
-    const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
+    const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
+            if (hasRenderableResults) {
+                return null
+            }
             return (
                 <InsightLoadingState
                     queryId={queryId}
@@ -381,7 +385,9 @@ export function InsightVizDisplay({
                     />
                 )
             case InsightType.PATHS:
-                return isUsingPathsV2 ? <PathsV2 /> : <Paths />
+                return <Paths />
+            case InsightType.JOURNEYS:
+                return <Journeys showPersonsModal={!inSharedMode} />
             case InsightType.WEB_ANALYTICS:
                 return <WebAnalyticsInsight context={context} editMode={editMode} />
             default:
@@ -398,7 +404,6 @@ export function InsightVizDisplay({
             hasFunnelResults &&
             !disableTable
         ) {
-            const funnelVizType = funnelsFilter?.funnelVizType
             const funnelTable =
                 funnelVizType === FunnelVizType.TimeToConvert ? (
                     <FunnelTimeToConvertTable />
@@ -525,7 +530,7 @@ export function InsightVizDisplay({
                                     </div>
 
                                     <div className="flex items-center gap-2">
-                                        {isPaths && isUsingPathsV1 && <PathCanvasLabel />}
+                                        {isPaths && <PathCanvasLabel />}
                                         {isFunnels && <FunnelCanvasLabel />}
                                     </div>
                                 </div>

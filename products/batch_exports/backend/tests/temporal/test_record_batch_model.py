@@ -1,10 +1,14 @@
+import datetime as dt
+
 import pytest
 
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.credentials import AWSKeyPair
+from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.hogql_source import UnsupportedHogQLQueryError
 from products.batch_exports.backend.service import BatchExportModel
@@ -13,6 +17,8 @@ from products.batch_exports.backend.temporal.record_batch_model import (
     SessionsRecordBatchModel,
     resolve_batch_exports_model,
 )
+from products.batch_exports.backend.temporal.sql.sessions import SESSIONS_LOOKBACK_DAYS
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events, truncate_sessions
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -28,10 +34,48 @@ class TestSessionsRecordBatchModel:
             left=ast.Field(chain=["sessions", "team_id"]),
             right=ast.Constant(value=ateam.id),
         )
+        # the $end_timestamp lower bound is what lets hogql prune raw_sessions partitions,
+        # shifted back to still catch sessions ingested up to SESSIONS_MAX_LATENESS late
+        lateness_filter = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["$end_timestamp"]),
+            right=ast.Constant(value=data_interval_start - SESSIONS_LOOKBACK_DAYS),
+        )
 
         assert hogql_query.where is not None
         assert isinstance(hogql_query.where, ast.And)
         assert team_id_filter in hogql_query.where.exprs
+        assert lateness_filter in hogql_query.where.exprs
+
+    async def test_get_hogql_query_for_backfill(self, ateam, data_interval_start, data_interval_end):
+        """Backfill runs select sessions by event time ($end_timestamp), not by the
+        _inserted_at watermark, so sessions ingested beyond SESSIONS_MAX_LATENESS can
+        still be exported by backfilling their $end_timestamp range."""
+        model = SessionsRecordBatchModel(team_id=ateam.id, is_backfill=True)
+        hogql_query = model.get_hogql_query(data_interval_start, data_interval_end)
+
+        lower_bound = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["$end_timestamp"]),
+            right=ast.Constant(value=data_interval_start),
+        )
+        upper_bound = ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
+            left=ast.Field(chain=["$end_timestamp"]),
+            right=ast.Constant(value=data_interval_end),
+        )
+
+        assert hogql_query.where is not None
+        assert isinstance(hogql_query.where, ast.And)
+        assert lower_bound in hogql_query.where.exprs
+        assert upper_bound in hogql_query.where.exprs
+        # no _inserted_at bounds: backfill selection is purely by event time
+        assert not any(
+            isinstance(expr, ast.CompareOperation)
+            and isinstance(expr.left, ast.Field)
+            and expr.left.chain == ["_inserted_at"]
+            for expr in hogql_query.where.exprs
+        )
 
     async def test_as_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
         model = SessionsRecordBatchModel(
@@ -46,6 +90,11 @@ class TestSessionsRecordBatchModel:
             in printed_query
         )
         assert f"less(_inserted_at, toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" in printed_query
+        # the $end_timestamp lower bound is shifted back by lookback days
+        assert (
+            f"toDateTime64('{data_interval_start - SESSIONS_LOOKBACK_DAYS:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
+            in printed_query
+        )
 
         # check that we have a date range set on the inner query using the session ID
         assert (
@@ -118,6 +167,11 @@ class TestSessionsRecordBatchModel:
             in printed_query
         )
         assert f"less(_inserted_at, toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" in printed_query
+        # the $end_timestamp lower bound is shifted back by the lateness horizon
+        assert (
+            f"toDateTime64('{data_interval_start - SESSIONS_LOOKBACK_DAYS:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
+            in printed_query
+        )
 
         # check that we have a date range set on the inner query using the session ID
         assert (
@@ -157,6 +211,119 @@ class TestSessionsRecordBatchModel:
             in printed_query
         )
         assert "PARTITION BY rand() %% 5" in printed_query
+
+
+class TestSessionsRecordBatchModelSelection:
+    """Run the sessions model query against ClickHouse to verify which intervals select a session."""
+
+    @pytest.fixture(autouse=True)
+    async def truncate_tables(self, clickhouse_client):
+        await truncate_events(clickhouse_client)
+        await truncate_sessions(clickhouse_client)
+
+    async def _generate_session(
+        self,
+        clickhouse_client,
+        team_id: int,
+        event_time: dt.datetime,
+        inserted_at: dt.datetime,
+    ) -> str:
+        session_id = str(uuid7(unix_ms_time=int(event_time.timestamp() * 1000)))
+        await generate_test_events_in_clickhouse(
+            client=clickhouse_client,
+            team_id=team_id,
+            start_time=event_time,
+            end_time=event_time + dt.timedelta(minutes=2),
+            count=1,
+            count_outside_range=0,
+            count_other_team=0,
+            inserted_at=inserted_at,
+            table="sharded_events",
+            event_name="test-event",
+            properties={"$session_id": session_id},
+            insert_sessions=True,
+        )
+        return session_id
+
+    async def _select_session_ids(
+        self,
+        clickhouse_client,
+        model: SessionsRecordBatchModel,
+        interval_start: dt.datetime,
+        interval_end: dt.datetime,
+    ) -> list[str]:
+        printed_query, parameters = await model._print_query(interval_start, interval_end, output_format="JSONEachRow")
+        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=parameters)
+        return [row["session_id"] for row in rows]
+
+    async def test_selects_late_session_by_interval_covering_its_ingestion(self, clickhouse_client, ateam):
+        """A session whose events are ingested late (within SESSIONS_LOOKBACK_DAYS) is selected
+        by the interval covering its ingestion time, not the one covering its event timestamps."""
+        event_time = dt.datetime(2021, 1, 18, 12, 0, 0, tzinfo=dt.UTC)
+        ingested_at = dt.datetime(2021, 1, 20, 6, 30, 0, tzinfo=dt.UTC)
+        session_id = await self._generate_session(clickhouse_client, ateam.pk, event_time, ingested_at)
+        model = SessionsRecordBatchModel(team_id=ateam.pk)
+
+        selected_by_event_interval = await self._select_session_ids(
+            clickhouse_client,
+            model,
+            dt.datetime(2021, 1, 18, 12, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 18, 13, 0, 0, tzinfo=dt.UTC),
+        )
+        selected_by_ingestion_interval = await self._select_session_ids(
+            clickhouse_client,
+            model,
+            dt.datetime(2021, 1, 20, 6, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 20, 7, 0, 0, tzinfo=dt.UTC),
+        )
+
+        assert selected_by_event_interval == []
+        assert selected_by_ingestion_interval == [session_id]
+
+    async def test_session_ingested_beyond_lateness_horizon_requires_backfill(self, clickhouse_client, ateam):
+        """A session ingested more than SESSIONS_LOOKBACK_DAYS after it ended is skipped by
+        incremental runs (the prunable $end_timestamp bound excludes it), but a backfill of
+        its event-time range picks it up."""
+        event_time = dt.datetime(2021, 1, 10, 12, 0, 0, tzinfo=dt.UTC)
+        ingested_at = dt.datetime(2021, 1, 20, 6, 30, 0, tzinfo=dt.UTC)
+        session_id = await self._generate_session(clickhouse_client, ateam.pk, event_time, ingested_at)
+
+        incremental_model = SessionsRecordBatchModel(team_id=ateam.pk)
+        selected_by_ingestion_interval = await self._select_session_ids(
+            clickhouse_client,
+            incremental_model,
+            dt.datetime(2021, 1, 20, 6, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 20, 7, 0, 0, tzinfo=dt.UTC),
+        )
+
+        backfill_model = SessionsRecordBatchModel(team_id=ateam.pk, is_backfill=True)
+        selected_by_backfill_of_event_range = await self._select_session_ids(
+            clickhouse_client,
+            backfill_model,
+            dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 11, 0, 0, 0, tzinfo=dt.UTC),
+        )
+
+        assert selected_by_ingestion_interval == []
+        assert selected_by_backfill_of_event_range == [session_id]
+
+    async def test_sessions_without_max_inserted_at_fall_back_to_end_timestamp(self, clickhouse_client, ateam):
+        """Sessions from before raw_sessions had max_inserted_at carry the epoch value; the
+        watermark falls back to $end_timestamp, so they are still selected by their event-time
+        interval."""
+        event_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
+        epoch = dt.datetime(1970, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+        session_id = await self._generate_session(clickhouse_client, ateam.pk, event_time, epoch)
+        model = SessionsRecordBatchModel(team_id=ateam.pk)
+
+        selected = await self._select_session_ids(
+            clickhouse_client,
+            model,
+            dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 15, 11, 0, 0, tzinfo=dt.UTC),
+        )
+
+        assert selected == [session_id]
 
 
 class TestHogQLQueryRecordBatchModel:

@@ -41,6 +41,7 @@ path = "ee"
 depends_on = [
     "products.cohorts",
     "posthog",
+    "products.access_control",
     "products.actions",
     "products.alerts",
     "products.cdp",
@@ -57,6 +58,7 @@ depends_on = [
     "products.ai_observability",
     "products.mcp_store",
     "products.notebooks",
+    "products.notifications",
     "products.posthog_ai",
     "products.product_analytics",
     "products.replay",
@@ -81,6 +83,7 @@ depends_on = [
     "products.analytics_platform",
     "products.approvals",
     "products.batch_exports",
+    "products.billing_alerts",
     "products.business_knowledge",
     "products.canvas",
     "products.cdp",
@@ -89,6 +92,7 @@ depends_on = [
     "products.dashboards",
     "products.data_catalog",
     "products.data_modeling",
+    "products.data_quality",
     "products.data_warehouse",
     "products.demo",
     "products.early_access_features",
@@ -234,6 +238,7 @@ depends_on = [
     "products.mcp_analytics",
     "products.notifications",
     "products.product_analytics",
+    "products.conversations",
     "products.surveys",
 ]
 layer = "modules"
@@ -328,6 +333,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
+    "products.data_quality",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
     "products.warehouse_sources_queue",
@@ -422,10 +428,12 @@ depends_on = [
     "products.cohorts",
     "ee",
     "posthog",
+    "products.alerts",
     "products.approvals",
     "products.dashboards",
     "products.early_access_features",
     "products.experiments",
+    "products.exports",
     "products.product_analytics",
     "products.product_tours",
     "products.surveys",
@@ -481,9 +489,20 @@ path = "products.logs"
 depends_on = [
     "posthog",
     "products.alerts",
+    "products.apm",
     "products.cdp",
     "products.exports",
     "products.signals",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.billing_alerts"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.alerts",
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -649,7 +668,9 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.cohorts",
+    "products.experiments",
     "products.exports",
+    "products.notifications",
     "products.signals",
     "products.tasks",
 ]
@@ -689,12 +710,18 @@ depends_on = [
     "products.cdp",
     "products.conversations",
     "products.dashboards",
+    # Facade-only (enforced by data_catalog's [[interfaces]] block): the scout harness gates
+    # its catalog-first prompt rule on the data catalog flag.
+    "products.data_catalog",
     "products.data_warehouse",
     "products.error_tracking",
     "products.experiments",
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    # Facade-only: Replay Vision authorizes signal emission per scanner rather than through a
+    # SignalSourceConfig row, so onboarding has to ask it whether any scanner is emitting.
+    "products.replay_vision",
     "products.skills",
     "products.surveys",
     "products.tasks",
@@ -803,6 +830,8 @@ depends_on = [
     "posthog",
     # Sandbox provisioning (via the tasks facade) and the Channel FK canvases file into.
     "products.tasks",
+    # The annotations.create action verb (via the annotations facade).
+    "products.annotations",
 ]
 layer = "modules"
 
@@ -830,6 +859,16 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.comment_access.*",
+]
+from = [
+    "products.canvas",
+]
+
+# The shared activity log delegates personal-canvas visibility to this narrow,
+# product-owned boundary, mirroring how loops do it for tasks.
+[[interfaces]]
+expose = [
+    "backend\\.activity_visibility.*",
 ]
 from = [
     "products.canvas",
@@ -915,6 +954,18 @@ expose = [
 ]
 from = [
     "products.experiments",
+]
+
+# Billing alerts registers product-owned workflows and a schedule with the shared billing worker.
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.schedule\\.create_schedule_due_billing_alert_checks_schedule",
+]
+from = [
+    "products.billing_alerts",
 ]
 
 # Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
@@ -1238,6 +1289,15 @@ path = "products.apm"
 depends_on = ["posthog"]
 layer = "modules"
 
+[[modules]]
+path = "products.data_quality"
+depends_on = [
+    "posthog",
+    "products.data_modeling",
+    "products.warehouse_sources",
+]
+layer = "modules"
+
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
@@ -1245,4 +1305,14 @@ expose = [
 ]
 from = [
     "products.apm",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.serializers.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.data_quality",
 ]

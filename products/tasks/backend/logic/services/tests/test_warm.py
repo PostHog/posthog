@@ -12,6 +12,13 @@ WARM = "products.tasks.backend.logic.services.warm"
 _CAPS = SandboxWarmer.ORIGIN_PRODUCT_CAPS[Task.OriginProduct.POSTHOG_AI]
 
 
+def test_code_cloud_warm_pool_caps():
+    caps = SandboxWarmer.ORIGIN_PRODUCT_CAPS[Task.OriginProduct.USER_CREATED]
+
+    assert caps.per_user == 10
+    assert caps.per_org == 100
+
+
 class TestSandboxWarmerWarm(APIBaseTest):
     def _task(self, *, origin=Task.OriginProduct.POSTHOG_AI, created_by=None) -> Task:
         return Task.objects.create(
@@ -111,6 +118,16 @@ class TestSandboxWarmerWarm(APIBaseTest):
 
         assert task.runs.count() == 0
         m_workflow.assert_not_called()
+
+    def test_deactivated_organization_creates_no_run(self):
+        self.organization.is_active = False
+        self.organization.save()
+        task = self._task()
+
+        with self.assertRaises(PermissionDenied):
+            SandboxWarmer(task, user=self.user).warm()
+
+        assert task.runs.count() == 0
 
     def test_unregistered_origin_product_is_rejected(self):
         # Fail-closed: only origin products with a registered quota gate may warm.

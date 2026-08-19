@@ -29,6 +29,7 @@ export interface RawJobRow {
     distinct_id: string | null
     person_id: string | null
     action_id: string | null
+    cancel_requested_at: string | null
     lock_id: string
 }
 
@@ -176,7 +177,9 @@ async function updateSelfInTx(
         `last_transition = NOW()`,
         `transition_count = transition_count + 1`,
         `janitor_touch_count = 0`,
-        `scheduled = $3`,
+        // A cancel requested while this worker held the job must not sleep the full
+        // next delay before it's observed, so it wakes immediately instead.
+        `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
     ]
     const params: any[] = [jobId, lockId, scheduled]
     if (disposition.state !== undefined) {
@@ -324,6 +327,7 @@ export class CyclotronV2Worker {
                 cyclotron_jobs.distinct_id,
                 cyclotron_jobs.person_id,
                 cyclotron_jobs.action_id,
+                cyclotron_jobs.cancel_requested_at,
                 cyclotron_jobs.lock_id`,
             [this.config.queueName, limit, lockId]
         )
@@ -385,6 +389,7 @@ export class CyclotronV2Worker {
                 cyclotron_jobs.distinct_id,
                 cyclotron_jobs.person_id,
                 cyclotron_jobs.action_id,
+                cyclotron_jobs.cancel_requested_at,
                 cyclotron_jobs.lock_id`,
             [this.config.queueName, limit, lockId]
         )
@@ -421,6 +426,9 @@ export class CyclotronV2Worker {
             distinctId: row.distinct_id,
             personId: row.person_id,
             actionId: row.action_id,
+            cancelRequestedAt: row.cancel_requested_at
+                ? DateTime.fromISO(row.cancel_requested_at, { zone: 'utc' })
+                : null,
 
             async ack(): Promise<void> {
                 releaseGuard('ack')
@@ -462,7 +470,10 @@ export class CyclotronV2Worker {
                     // (e.g. wait_until_condition polls) don't accrue touches for
                     // their whole life and get mistaken for poison pills.
                     `janitor_touch_count = 0`,
-                    `scheduled = $3`,
+                    // A cancel requested while this worker held the job must not
+                    // sleep the full next delay before it's observed, so it
+                    // wakes immediately instead.
+                    `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
                 ]
                 const params: any[] = [row.id, lockId, scheduled]
 

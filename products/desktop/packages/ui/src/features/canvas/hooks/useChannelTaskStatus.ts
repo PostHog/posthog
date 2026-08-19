@@ -30,7 +30,7 @@ export function useChannelTaskStatus(
   const task = item.task ?? undefined;
   const taskData = useChannelTaskData(task);
   const workspace = useWorkspace(task?.id);
-  const { prState, hasDiff } = useTaskPrStatus({
+  const { prState, hasDiff, prUrl } = useTaskPrStatus({
     // An empty id is the hook's own "nothing to look up", so this asks for no
     // query rather than one it throws away.
     id: options?.withPrStatus === false ? "" : (task?.id ?? ""),
@@ -49,12 +49,14 @@ export function useChannelTaskStatus(
     isSuspended: taskData.isSuspended,
     needsPermission: taskData.needsPermission,
     taskRunStatus: taskData.taskRunStatus,
+    runMode: taskData.runMode,
     originProduct: taskData.originProduct,
     slackThreadUrl: taskData.slackThreadUrl,
     prState,
     hasDiff,
     // The url is the early signal: a cloud run writes it the moment it opens the
-    // PR, long before (or without ever) resolving the PR's state.
-    prUrl: taskData.cloudPrUrl,
+    // PR, long before (or without ever) resolving the PR's state. A local run
+    // has no cloud url, so the one the host cached against the task stands in.
+    prUrl: taskData.cloudPrUrl ?? prUrl,
   };
 }
