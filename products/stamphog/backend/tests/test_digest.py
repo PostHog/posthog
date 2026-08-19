@@ -458,6 +458,10 @@ def _slack_stub(post_error: str, join_error: str | None, joined: list[str]) -> M
 
     def join(channel: str) -> dict[str, Any]:
         if join_error:
+            # already_in_channel means somebody else already put the app in there, so the retried
+            # post has to succeed — the stub records the membership before raising.
+            if join_error == "already_in_channel":
+                joined.append(channel)
             raise SlackApiError(join_error, {"ok": False, "error": join_error})
         joined.append(channel)
         return {"ok": True}
@@ -471,19 +475,26 @@ def _slack_stub(post_error: str, join_error: str | None, joined: list[str]) -> M
     "post_error,join_error,expected_error,joined",
     [
         ("not_in_channel", None, None, ["C1"]),
+        ("not_in_channel", "already_in_channel", None, ["C1"]),
         ("not_in_channel", "missing_scope", DigestSlackError, []),
         ("channel_not_found", None, SlackApiError, []),
     ],
-    ids=["joins_then_posts", "refused_join_names_the_invite", "other_slack_errors_propagate"],
+    ids=[
+        "joins_then_posts",
+        "already_in_channel_counts_as_joined",
+        "refused_join_names_the_reason_and_the_invite",
+        "other_slack_errors_propagate",
+    ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_post_digest_joins_a_channel_the_app_was_never_invited_to(
     team, post_error: str, join_error: str | None, expected_error: type[Exception] | None, joined: list[str]
 ) -> None:
     # An auto-provisioned channel is matched off the workspace list, so the app is not a member of it
-    # and the first post comes back not_in_channel. Joining is what makes that post land. A refused
-    # join (the install lacks channels:join) has to name the invite, because a raw Slack error code
-    # tells the person reading the run nothing about what to do.
+    # and the first post comes back not_in_channel. Joining is what makes that post land, and a
+    # concurrent worker joining first (already_in_channel) must not fail a digest whose retry would
+    # have gone through. A genuine refusal names Slack's reason and the invite, because neither is
+    # derivable from an error code by the person reading the run.
     integration = Integration.objects.create(
         team_id=team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
     )
@@ -518,5 +529,6 @@ def test_post_digest_joins_a_channel_the_app_was_never_invited_to(
                 post_digest(team.id, channel, summary)
             if expected_error is DigestSlackError:
                 assert "/invite @PostHog" in str(caught.value)
+                assert join_error in str(caught.value)
 
     assert actually_joined == joined
