@@ -2088,7 +2088,6 @@ export interface SessionRecordingType {
     expiry_time?: string
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
-    has_summary?: boolean
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
     /** False when the recording was included in list results via a direct link despite not matching the filters. */
@@ -2378,6 +2377,7 @@ export interface BillingType {
     projected_total_amount_usd_with_limit?: string
     projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
+    usage_summary?: Record<string, { usage?: number | null; limit?: number | null; todays_usage?: number | null }>
 
     custom_limits_usd?: {
         [key: string]: number | null
@@ -5523,6 +5523,7 @@ export const INTEGRATION_KINDS = [
     'aws-s3',
     's3-compatible',
     'snowflake',
+    'youtube-analytics',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5766,6 +5767,7 @@ export const API_SCOPE_OBJECTS = [
     'batch_export',
     'batch_import',
     'batch_import_support',
+    'billing',
     'business_knowledge',
     'canvas',
     'clickhouse_test_cluster_perf',
@@ -5929,6 +5931,29 @@ export type AccessControlUpdateType = Pick<AccessControlType, 'access_level' | '
     resource?: AccessControlType['resource']
 }
 
+/** Which rule supplied an inherited access level — mirrors `ResolvedAccess.source` on the backend. */
+export type InheritedAccessSource =
+    | 'object'
+    | 'parent_object'
+    | 'resource'
+    | 'parent_resource'
+    | 'system_default'
+    | 'org_admin'
+    | 'creator'
+    | 'org_membership'
+
+/** What an object falls back to while it carries no override of its own, with the rule that
+ * decided it, resolved by the same walker that enforces access. */
+export type InheritedAccessType = {
+    access_level: AccessControlLevel
+    source: InheritedAccessSource
+    source_subject: 'member' | 'role' | 'default' | null
+    source_resource: APIScopeObject
+    source_resource_id: string | null
+    /** Human name of the parent object the level comes through (e.g. a table's source type). */
+    source_display_name: string | null
+}
+
 export type AccessControlResponseType = {
     access_controls: AccessControlType[]
     available_access_levels: AccessControlLevel[]
@@ -5936,22 +5961,20 @@ export type AccessControlResponseType = {
     default_access_level: AccessControlLevel
     minimum_access_level?: AccessControlLevel
     user_can_edit_access_levels: boolean
-    /** Resource whose project-wide rules apply while the object carries no override of its own. */
-    inherited_resource?: APIScopeObject | null
-    /** The level that applies while the object carries no override: the project-wide rule for
-     * `inherited_resource`, or its built-in default when no rule is set. */
-    inherited_access_level?: AccessControlLevel | null
+    /** The level and rule that apply while the object carries no override of its own; null when
+     * nothing sits above the object (e.g. a project). */
+    inherited_access?: InheritedAccessType | null
 }
 
-export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'
-
 export interface EffectiveAccessControlEntry {
+    /** The subject's own stored rule, if any — what the settings UI edits. */
     access_level: AccessControlLevel | null
+    /** What the subject actually gets, as enforced. */
     effective_access_level: AccessControlLevel | null
-    inherited_access_level: AccessControlLevel | null
-    inherited_access_level_reason: InheritedAccessLevelReason | null
-    /** What applies when no rule exists anywhere. Only returned by the defaults endpoint. */
-    system_default_access_level?: AccessControlLevel
+    /** What the subject would get if their own rule were removed, with the rule that decides
+     * it — resolved by the same walker that enforces access. Null only when nothing sits above
+     * the object's own default (a project's default). */
+    inherited_access: Omit<InheritedAccessType, 'source_display_name'> | null
     minimum: AccessControlLevel
     maximum: AccessControlLevel
 }

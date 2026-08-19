@@ -602,7 +602,7 @@ class TestPostImportTrigger:
             # Any start failure (e.g. no Temporal env vars on the load deployment) must
             # not fail the load; it is logged and captured.
             ("start_failure_is_captured", RuntimeError("no temporal"), True),
-            # An id collision means a prior delivery already started this job's run.
+            # An id collision means a register is already in flight for this schema.
             ("already_started_is_benign", WorkflowAlreadyStartedError("wf-id", "wf-type"), False),
         ]
     )

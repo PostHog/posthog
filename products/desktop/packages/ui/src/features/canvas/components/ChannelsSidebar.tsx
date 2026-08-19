@@ -1,6 +1,9 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
 import { cn, Separator } from "@posthog/quill";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  PROJECT_BLUEBIRD_FLAG,
+  REPORT_CANVAS_INBOX_FLAG,
+} from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
@@ -11,6 +14,8 @@ import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/
 import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
+import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
+import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
   consumeKeepListForNextRoute,
@@ -57,10 +62,19 @@ import { useDeferredValue, useEffect, useRef } from "react";
 function ChannelPanes({
   channelId,
   showList,
+  sidebarVisible,
 }: {
   channelId: string | null;
   showList: boolean;
+  sidebarVisible: boolean;
 }) {
+  // Mark the channel seen only while a reader can see its pane: this pane is
+  // the one showing (not the list) and the sidebar is on screen. A collapsed
+  // sidebar keeps both panes mounted, so without the visibility gate a mention
+  // landing behind it would clear the unread emphasis nobody saw.
+  const visibleChannelId =
+    !showList && sidebarVisible ? (channelId ?? undefined) : undefined;
+  useMarkChannelSeen(visibleChannelId);
   const panesRef = useRef<HTMLDivElement | null>(null);
   useChannelPaneSwipe(panesRef, {
     // With no channel to slide to, the list is all there is — leave the gesture
@@ -98,6 +112,11 @@ function ChannelPanes({
   );
 }
 export function ChannelsSidebar() {
+  const reportCanvasesEnabled = useFeatureFlag(
+    REPORT_CANVAS_INBOX_FLAG,
+    import.meta.env.DEV,
+  );
+  useReportSpace(reportCanvasesEnabled);
   const width = useChannelsSidebarStore((state) => state.width);
   const setWidth = useChannelsSidebarStore((state) => state.setWidth);
   const isResizing = useChannelsSidebarStore((state) => state.isResizing);
@@ -246,7 +265,11 @@ export function ChannelsSidebar() {
                 <ProjectSwitcher />
               </div>
               <ChannelNav />
-              <ChannelPanes channelId={currentChannelId} showList={showList} />
+              <ChannelPanes
+                channelId={currentChannelId}
+                showList={showList}
+                sidebarVisible={open || peek}
+              />
             </>
           ) : bodyChannelsWorld ? (
             <>

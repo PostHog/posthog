@@ -281,7 +281,14 @@ def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | 
     status = integration.overall_status
     source_type = integration.source_type
     ds = integration.data_source
-    volume = integration.attribution.events_unmatched_likely_yours_last_7d if integration.attribution else 0
+    attribution = integration.attribution
+    # Both counters: `events_only` is set when either one is non-zero, so reading just the
+    # likely-yours side reports "0 events" as the reason to connect a platform whose
+    # utm_source matched exactly. They never overlap — a utm_source either matches an alias
+    # or is only fuzzy-suggested — so the sum is every event carrying this platform's source.
+    volume = (
+        attribution.events_matched_last_7d + attribution.events_unmatched_likely_yours_last_7d if attribution else 0
+    )
 
     if status == "events_only":
         # Traffic arrives but no spend data, so cost, ROAS and CAC are all unavailable.

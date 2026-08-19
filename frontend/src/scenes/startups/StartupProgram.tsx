@@ -100,7 +100,7 @@ export function StartupProgram(): JSX.Element {
                     {currentStartupProgramLabel === StartupProgramLabel.YC && (
                         <p>
                             Your credits will renew automatically{' '}
-                            <span className="font-semibold">every year, forever.</span>
+                            <span className="font-semibold">every year, forever</span>, until you hit $25M in funding.
                         </p>
                     )}
                     <p>If you have any questions, please contact our support team.</p>
@@ -183,7 +183,8 @@ export function StartupProgram(): JSX.Element {
                             </h1>
                             <p className="text-sm sm:text-base text-muted">
                                 Get $50,000 in credits <span className="font-semibold">every. year. forever.</span>{' '}
-                                (plus extras you'll actually use) to help you get to product-market fit.
+                                (plus extras you'll actually use) to help you get to product-market fit. You'll keep
+                                getting them until you hit $25M in funding.
                             </p>
                         </div>
                     </div>
@@ -309,8 +310,9 @@ export function StartupProgram(): JSX.Element {
                             <div className="text-xs text-muted space-y-1">
                                 <div className="flex gap-1">
                                     <span className="text-xxs align-super">1</span>
-                                    Credits renew automatically each year. If you've previously been in the program and
-                                    your credits expired, you can reapply and continue getting $50,000 annually.
+                                    Credits renew automatically each year until you hit $25M in funding. If you've
+                                    previously been in the program and your credits expired, you can reapply and
+                                    continue getting $50,000 annually.
                                 </div>
                                 <div className="flex gap-1">
                                     <span className="text-xxs align-super">2</span>
@@ -333,7 +335,8 @@ export function StartupProgram(): JSX.Element {
                             {currentStartupProgramLabel === StartupProgramLabel.YC ? (
                                 <p>
                                     Your credits will renew automatically{' '}
-                                    <span className="font-semibold">every year, forever.</span>
+                                    <span className="font-semibold">every year, forever</span>, until you hit $25M in
+                                    funding.
                                 </p>
                             ) : (
                                 <p>

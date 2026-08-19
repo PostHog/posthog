@@ -156,7 +156,7 @@ from products.product_analytics.backend.api.insight import (
     InsightBasicSerializer,
     InsightSerializer,
     InsightViewSet,
-    _get_insight_type,
+    get_insight_type,
 )
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -429,14 +429,23 @@ DEFAULT_REORDER_TILE_WIDTH = 6
 DEFAULT_REORDER_TILE_HEIGHT = 5
 
 
-def _existing_sm_size(tile: DashboardTile, default_w: int, default_h: int) -> tuple[int, int]:
+@frozen
+class TileSize:
+    width: int
+    height: int
+
+
+DEFAULT_REORDER_TILE_SIZE = TileSize(width=DEFAULT_REORDER_TILE_WIDTH, height=DEFAULT_REORDER_TILE_HEIGHT)
+
+
+def _existing_sm_size(tile: DashboardTile, defaults: TileSize) -> TileSize:
     sm = (tile.layouts or {}).get("sm") if isinstance(tile.layouts, dict) else None
     if not isinstance(sm, dict):
-        return default_w, default_h
+        return defaults
     w, h = sm.get("w"), sm.get("h")
-    return (
-        w if isinstance(w, int) and w > 0 else default_w,
-        h if isinstance(h, int) and h > 0 else default_h,
+    return TileSize(
+        width=w if isinstance(w, int) and w > 0 else defaults.width,
+        height=h if isinstance(h, int) and h > 0 else defaults.height,
     )
 
 
@@ -474,9 +483,9 @@ def _apply_reorder_layout(
     xs_y = 0
     for tile_id in tile_order:
         tile = tile_map[tile_id]
-        existing_w, existing_h = _existing_sm_size(tile, DEFAULT_REORDER_TILE_WIDTH, DEFAULT_REORDER_TILE_HEIGHT)
-        w = max(1, min(existing_w, DASHBOARD_GRID_COLUMN_COUNT))
-        h = max(1, existing_h)
+        size = _existing_sm_size(tile, DEFAULT_REORDER_TILE_SIZE)
+        w = max(1, min(size.width, DASHBOARD_GRID_COLUMN_COUNT))
+        h = max(1, size.height)
 
         # x=0 is the baseline candidate; scan the remaining start positions for a lower segment top,
         # keeping the leftmost on ties (the loop only updates on a strictly lower top).
@@ -1320,7 +1329,7 @@ def _report_dashboard_tile_removed(
     request: Request | None = None,
 ) -> None:
     tile_type, widget_type = _tile_type_and_widget_type(tile)
-    insight_type = _get_insight_type(tile.insight) if tile.insight is not None else None
+    insight_type = get_insight_type(tile.insight) if tile.insight is not None else None
     properties: dict[str, Any] = {
         "tile_type": tile_type,
         "insight_type": insight_type,
@@ -3576,8 +3585,8 @@ class DashboardsViewSet(
                     resource_type="dashboard",
                     resource_id=str(dashboard.pk),
                     # Query params mirror SUBSCRIPTION_PREFILL_PARAMS in
-                    # products/subscriptions/frontend/components/Subscriptions/utils.tsx, which
-                    # consumes them to prefill the new-subscription form.
+                    # products/subscriptions/frontend/components/Subscriptions/subscriptionNudge.ts,
+                    # which consumes them to prefill the new-subscription form.
                     source_url=f"/dashboard/{dashboard.pk}/subscriptions/new?prefill=nudge&via=notification",
                 )
             )

@@ -13,9 +13,9 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.schema_enums import IntervalType
 
 from ..facade import api
+from ..facade.api import MAX_DESCRIPTION_LENGTH
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
-from ..logic.validation import MAX_DESCRIPTION_LENGTH
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)

@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { LemonDialog } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -174,6 +176,8 @@ function createMockEditor(): any {
         setModel: jest.fn(),
         focus: jest.fn(),
         getModel: () => null,
+        getSelection: () => null,
+        getPosition: () => null,
     }
 }
 
@@ -1063,6 +1067,92 @@ describe('sqlEditorLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['createTab']).toMatchValues({ editingMetricName: null })
             expect(retrieveMock).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('Save as metric', () => {
+        const PREFILL = {
+            name: 'monthly_active_users',
+            display_name: 'Monthly active users',
+            description: 'Unique users seen in the last 30 days',
+            unit: 'users',
+        }
+
+        function mountEditor(): void {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+        }
+
+        it('picks up a prefill written by urls.sqlEditor', async () => {
+            mountEditor()
+
+            router.actions.push(urls.sqlEditor({ source: 'metric', metricPrefill: PREFILL }))
+
+            await expectLogic(logic).toDispatchActions(['setMetricPrefill']).toMatchValues({ metricPrefill: PREFILL })
+        })
+
+        it.each([
+            ['a bare string', 'monthly_active_users'],
+            ['an array', ['monthly_active_users']],
+            ['keys the dialog does not accept', { definition: 'SELECT 1', owner: 'me' }],
+            ['non-string values', { name: 42, description: true }],
+        ])('leaves an existing prefill untouched when the param is %s', async (_case, metricPrefill) => {
+            mountEditor()
+            logic.actions.setMetricPrefill(PREFILL)
+
+            router.actions.push(urls.sqlEditor(), { source: 'metric', metric_prefill: metricPrefill })
+
+            await expectLogic(logic).toDispatchActions(['createTab']).toMatchValues({ metricPrefill: PREFILL })
+        })
+
+        it('seeds the dialog with the prefill', async () => {
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            mountEditor()
+            logic.actions.setMetricPrefill(PREFILL)
+
+            logic.actions.saveAsMetric()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toEqual(PREFILL)
+            openForm.mockRestore()
+        })
+
+        it.each([
+            [
+                'posts the optional fields when they are filled in',
+                PREFILL,
+                { display_name: 'Monthly active users', unit: 'users' },
+            ],
+            [
+                'omits the optional fields when they are blank',
+                { ...PREFILL, display_name: '', unit: '' },
+                { display_name: undefined, unit: undefined },
+            ],
+        ])('%s', async (_case, fields, expectedOptionalFields) => {
+            let createBody: Record<string, any> | undefined
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/data_catalog/metrics/': async ({ request }) => {
+                        createBody = (await request.json()) as Record<string, any>
+                        return [200, { name: fields.name }]
+                    },
+                },
+            })
+            mountEditor()
+            logic.actions.setMetricPrefill(PREFILL)
+            logic.actions.setQueryInput('SELECT count() FROM events')
+
+            logic.actions.saveAsMetricSubmit(fields)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createBody).toMatchObject({ name: fields.name, description: fields.description })
+            expect(createBody?.display_name).toEqual(expectedOptionalFields.display_name)
+            expect(createBody?.unit).toEqual(expectedOptionalFields.unit)
+            expect(logic.values.metricPrefill).toBeNull()
         })
     })
 
@@ -2106,6 +2196,7 @@ describe('sqlEditorLogic', () => {
                                 source_type: 'Postgres',
                                 access_method: 'direct',
                                 supports_hogql: true,
+                                is_builtin_managed_warehouse: false,
                             },
                         ],
                     ],
@@ -2175,6 +2266,7 @@ describe('sqlEditorLogic', () => {
                                 source_type: 'Postgres',
                                 access_method: 'direct',
                                 supports_hogql: true,
+                                is_builtin_managed_warehouse: false,
                             },
                         ],
                     ],
@@ -2224,6 +2316,7 @@ describe('sqlEditorLogic', () => {
                                 source_type: 'MSSQL',
                                 access_method: 'direct',
                                 supports_hogql: false,
+                                is_builtin_managed_warehouse: false,
                             },
                         ],
                     ],

@@ -3,6 +3,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+from llm_gateway.baseten import BASETEN_MODELS
+from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
+from llm_gateway.inference_routing import is_inference_routed_model
+from llm_gateway.modal import is_modal_served_model
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     BEDROCK_MODELS,
@@ -15,6 +19,7 @@ from llm_gateway.products.config import (
     POSTHOG_CODE_US_APP_ID,
     PRODUCT_ALIASES,
     PRODUCTS,
+    SIGNALS_DEV_APP_ID,
     TWIG_EU_APP_ID,
     TWIG_US_APP_ID,
     WIZARD_EU_APP_ID,
@@ -80,6 +85,16 @@ class TestCheckProductAccess:
                 "personal_api_key",
                 None,
                 "deepseek-ai/deepseek-v4-flash-0731",
+                True,
+                None,
+            ),
+            ("llm_gateway", "personal_api_key", None, "zai-org/glm-5.3", False, "not allowed"),
+            ("review_hog", "personal_api_key", None, "zai-org/glm-5.3", True, None),
+            (
+                "posthog_code",
+                "oauth_access_token",
+                POSTHOG_CODE_US_APP_ID,
+                "zai-org/glm-5.3",
                 True,
                 None,
             ),
@@ -210,10 +225,16 @@ class TestCheckProductAccess:
         assert allowed is True
         assert error is None
 
-    def test_slack_app_rejects_deepseek_despite_shared_allowlist(self):
-        allowed, error = check_product_access(
-            "slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "deepseek-ai/deepseek-v4-flash-0731"
-        )
+    @pytest.mark.parametrize("model", ["deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3"])
+    def test_slack_app_rejects_restricted_models_despite_shared_allowlist(self, model: str):
+        allowed, error = check_product_access("slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
+
+    @pytest.mark.parametrize("model", [" deepseek-ai/deepseek-v4-flash-0731 ", " zai-org/glm-5.3 "])
+    def test_whitespace_cannot_bypass_restricted_model_products(self, model: str):
+        allowed, error = check_product_access("llm_gateway", "personal_api_key", None, model)
         assert allowed is False
         assert error is not None
         assert "not allowed" in error
@@ -681,15 +702,57 @@ class TestModelAccessFlag:
             ("  moonshotai/kimi-k3  ", "moonshotai/kimi-k3"),
             ("deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
             ("DeepSeek-AI/DeepSeek-V4-Flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
+            ("zai-org/glm-5.3", "zai-org/glm-5.3"),
+            ("ZAI-Org/GLM-5.3", "zai-org/glm-5.3"),
         ],
     )
     def test_gated_model_requires_its_own_flag(self, model: str, gated: str):
         # each model resolves to its own dedicated access flag, not a shared one
         assert get_required_model_flag(model) == MODEL_ACCESS_FLAGS[gated]
 
-    def test_kimi_and_deepseek_use_distinct_flags(self):
-        assert MODEL_ACCESS_FLAGS["moonshotai/kimi-k3"] != MODEL_ACCESS_FLAGS["deepseek-ai/deepseek-v4-flash-0731"]
+    def test_every_gated_model_has_its_own_flag(self):
+        flags = list(MODEL_ACCESS_FLAGS.values())
+        assert len(flags) == len(set(flags))
 
     @pytest.mark.parametrize("model", [None, "", "gpt-5.2", "claude-opus-5", "@cf/zai-org/glm-5.2"])
     def test_ungated_models_need_no_flag(self, model: str | None):
         assert get_required_model_flag(model) is None
+
+    def test_suffixed_gated_model_ids_reach_no_backend(self):
+        # Product allowlists prefix-match while the access-flag gate matches exactly, so a
+        # suffixed id (e.g. zai-org/glm-5.3x) can pass the allowlist without a flag
+        # evaluation. Routing exactness is the backstop that keeps such ids unserved; this
+        # pins that invariant for every gated model. Literal vocabulary so a new gated
+        # model is added here consciously.
+        assert set(MODEL_ACCESS_FLAGS) == {
+            "moonshotai/kimi-k3",
+            "deepseek-ai/deepseek-v4-flash-0731",
+            "zai-org/glm-5.3",
+        }
+        for gated_model in MODEL_ACCESS_FLAGS:
+            suffixed = f"{gated_model}x"
+            assert not is_inference_routed_model(suffixed)
+            assert suffixed not in BASETEN_MODELS
+            assert not is_modal_served_model(suffixed)
+            assert suffixed not in CLOUDFLARE_ALLOWED_MODELS
+
+
+class TestSignalsApplicationIsolation:
+    @pytest.mark.parametrize(
+        ("product", "expected_allowed"),
+        [
+            ("signals", True),
+            ("posthog_code", False),
+            ("background_agents", False),
+            ("slack_app", False),
+        ],
+    )
+    @patch("llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False))
+    def test_signals_app_reaches_only_the_signals_product(
+        self, mock_get_settings: MagicMock, product: str, expected_allowed: bool
+    ):
+        # The point of the separate application: a Signals run's token must not be spendable as
+        # posthog_code (which bills the customer) or as background_agents (a looser budget), both
+        # of which it could reach while Signals shared the Desktop app.
+        allowed, _ = check_product_access(product, "oauth_access_token", SIGNALS_DEV_APP_ID, None)
+        assert allowed is expected_allowed

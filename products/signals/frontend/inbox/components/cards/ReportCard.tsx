@@ -23,9 +23,8 @@ import {
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
-import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
+import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
-    hasKnownSourceProduct,
     knownSourceProductEntries,
     SourceProductIconRow,
     sourceProductsTooltipTitle,
@@ -123,7 +122,6 @@ export function ReportCard({
     const prNumber = prUrlParts?.number ?? null
     const repoSlug = prUrlParts?.repoSlug ?? null
 
-    const hasSource = hasKnownSourceProduct(report.source_products)
     const isReady = report.status === 'ready'
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
@@ -151,19 +149,6 @@ export function ReportCard({
             ? dismissalReasonLabel(report.dismissal_reason)
             : null
 
-    // Permanent billing marker (Refunded / Free) — shown on both PR cards and plain reports.
-    const showBillingBadge = isRefunded || !!report.billing_exempt_reason
-
-    // PR cards show repo · source; reports show source · status · actionability.
-    const showMeta = hasPr
-        ? repoSlug != null || hasSource || showBillingBadge
-        : hasSource ||
-          !isReady ||
-          report.actionability != null ||
-          report.is_suggested_reviewer === true ||
-          !!dismissalLabel ||
-          showBillingBadge
-
     const cardBodyClassName = 'flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline'
     const cardBody = (
         <>
@@ -174,11 +159,11 @@ export function ReportCard({
             )}
 
             <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-                {/* Pad clear of the absolute PR badge on mobile, where the title spans the full card width. */}
+                {/* Keep the title clear of the PR badge, which is positioned within the content column. */}
                 <div
                     className={clsx(
                         'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
-                        hasPr && 'pr-14 @lg:pr-0'
+                        hasPr && 'pr-14'
                     )}
                 >
                     {conventionalTitle && (
@@ -209,35 +194,26 @@ export function ReportCard({
                     </p>
                 ) : null}
 
-                {showMeta ? (
-                    <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-2.5 text-xs text-tertiary leading-none select-none">
-                        {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
-                        <InboxCardSourceMeta
-                            sourceProducts={report.source_products}
-                            scoutSkillName={report.scout_name}
-                        />
-                        {!hasPr && (!isReady || !report.actionability) && (
-                            <SignalReportStatusBadge status={report.status} />
-                        )}
-                        {!hasPr && report.actionability && (
-                            <SignalReportActionabilityBadge actionability={report.actionability} />
-                        )}
-                        {dismissalLabel && (
-                            <Tooltip title={report.dismissal_note || undefined}>
-                                <LemonTag size="small" icon={<IconArchive />}>
-                                    {dismissalLabel}
-                                </LemonTag>
-                            </Tooltip>
-                        )}
-                        <SignalReportBillingBadge report={report} />
-                    </div>
-                ) : null}
-
-                {/* In flow on mobile (the card stacks); pinned to the card's bottom-right corner on desktop. */}
-                <div className="mt-0.5 @lg:absolute @lg:right-4 @lg:bottom-3 @lg:z-10 @lg:mt-0">
+                <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none">
+                    {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
+                    <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
+                    {!hasPr && !isStatusRedundantWithActionability(report.status, report.actionability) && (
+                        <SignalReportStatusBadge status={report.status} />
+                    )}
+                    {!hasPr && report.actionability && (
+                        <SignalReportActionabilityBadge actionability={report.actionability} />
+                    )}
+                    {dismissalLabel && (
+                        <Tooltip title={report.dismissal_note || undefined}>
+                            <LemonTag size="small" icon={<IconArchive />}>
+                                {dismissalLabel}
+                            </LemonTag>
+                        </Tooltip>
+                    )}
+                    <SignalReportBillingBadge report={report} />
                     <TZLabel
                         time={report.updated_at ?? report.created_at}
-                        className="text-xs text-tertiary tabular-nums"
+                        className="ml-auto shrink-0 text-xs text-tertiary tabular-nums"
                         title="Last updated"
                     />
                 </div>
@@ -246,26 +222,28 @@ export function ReportCard({
     )
 
     return (
-        <div className={clsx('relative', inboxCardRowClassName(attached, { dashed: !hasPr }))}>
-            {hasPr && prNumber != null ? (
-                <div className="absolute right-4 top-3 z-10">
-                    <PrBadge
-                        prNumber={prNumber}
-                        // No link in preview mode: the sample PR url is fabricated, and a link would
-                        // stay keyboard-focusable inside the otherwise non-routable card.
-                        prUrl={preview ? null : prUrl}
-                        state={derivePrState(report.status, report.implementation_pr_merged === true)}
-                    />
-                </div>
-            ) : null}
+        <div className={inboxCardRowClassName(attached, { dashed: !hasPr })}>
+            <div className="relative flex min-w-0 flex-1">
+                {hasPr && prNumber != null ? (
+                    <div className="absolute right-0 top-0 z-10">
+                        <PrBadge
+                            prNumber={prNumber}
+                            // No link in preview mode: the sample PR url is fabricated, and a link would
+                            // stay keyboard-focusable inside the otherwise non-routable card.
+                            prUrl={preview ? null : prUrl}
+                            state={derivePrState(report.status, report.implementation_pr_merged === true)}
+                        />
+                    </div>
+                ) : null}
 
-            {preview ? (
-                <div className={cardBodyClassName}>{cardBody}</div>
-            ) : (
-                <Link to={detailUrl} className={cardBodyClassName}>
-                    {cardBody}
-                </Link>
-            )}
+                {preview ? (
+                    <div className={cardBodyClassName}>{cardBody}</div>
+                ) : (
+                    <Link to={detailUrl} className={cardBodyClassName}>
+                        {cardBody}
+                    </Link>
+                )}
+            </div>
 
             {/* Refund deliberately isn't offered at the card level – it lives in the report detail
                 pane, where the consequences are in view. Resolved reports are terminal and a refunded

@@ -4,7 +4,7 @@ import { logger } from '~/common/utils/logger'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { FetchCandidate, MAX_HOPS, parseCollectedUrlsRecord } from './collected-urls-record'
-import { CRAWL_HISTORY_TTL_SECONDS, CrawlHistoryStore, crawlHistoryKey } from './crawl-history'
+import { CrawlHistoryStore, crawlHistoryKey } from './crawl-history'
 import { FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
 import { FrontierPublisher } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics, ImageFetchTeamMetrics, UrlDropReason } from './metrics'
@@ -14,6 +14,8 @@ export interface UrlFetchConsumerOptions {
     /** The lane drops a URL older than this, so a backlog sheds work instead of fetching stale URLs. */
     maxAgeMs: number
     dedupMaxRefs: number
+    /** TTL on each crawl history entry, which is both the recrawl interval and the ledger's Redis footprint. */
+    seenTtlSeconds: number
     /** While true, no request leaves this process. Everything else still runs, including the crawl history write. */
     dryRun: boolean
 }
@@ -42,6 +44,16 @@ export class UrlFetchConsumer {
         if (!Number.isFinite(options.maxAgeMs) || options.maxAgeMs <= 0) {
             throw new Error(
                 `SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS must be a positive number, got ${options.maxAgeMs}`
+            )
+        }
+        // A NaN TTL would not disable expiry: SET with EX NaN fails per command, so every ledger
+        // write fails and the lane stops recording while looking healthy. The hour floor catches
+        // unit suffixes, which the env parser truncates rather than rejects: "7d" parses to 7, and
+        // a 7-second TTL empties the ledger as fast as it fills, so nothing dedups.
+        if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
+            throw new Error(
+                `SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS must be an integer of at least 3600, got ` +
+                    `${options.seenTtlSeconds} (a unit suffix like "7d" parses as 7: give the value in seconds)`
             )
         }
         if (!options.dryRun && !runner) {
@@ -265,7 +277,7 @@ export class UrlFetchConsumer {
         const keys = candidates.map((candidate) => crawlHistoryKey(candidate.pseudoTeam, candidate.urlHash))
         let failed: Set<number>
         try {
-            failed = (await this.crawlHistory.record(keys, nowMs, CRAWL_HISTORY_TTL_SECONDS)).failed
+            failed = (await this.crawlHistory.record(keys, nowMs, this.options.seenTtlSeconds)).failed
         } catch (error) {
             ImageFetchConsumerMetrics.incStoreError('write', keys.length)
             logger.warn('🌐', 'ml_image_fetch_crawl_history_write_failed', { count: keys.length, error: String(error) })

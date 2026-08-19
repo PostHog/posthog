@@ -18,7 +18,6 @@ import { AnnotatedScreenshotView, parseAnnotatedScreenshot } from './AnnotatedSc
 export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = [
     'search_session_recordings',
     'search_error_tracking_issues',
-    'summarize_sessions',
     'create_form',
 ]
 

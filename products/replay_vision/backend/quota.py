@@ -156,6 +156,10 @@ class BillingPeriod:
     start: datetime
     end: datetime
 
+    def __post_init__(self) -> None:
+        if self.start >= self.end:
+            raise ValueError(f"BillingPeriod start must be before end: start={self.start}, end={self.end}")
+
 
 def _current_month_bounds(now: datetime) -> BillingPeriod:
     return BillingPeriod(start=start_of_month(now), end=next_month_start(now))
@@ -170,9 +174,11 @@ def _current_period_bounds(organization: Organization | None, now: datetime) -> 
     """The org's active billing period when synced and current, else the calendar month containing `now`."""
     billing_period = organization.current_billing_period if organization else None
     if billing_period:
-        synced = BillingPeriod(start=_as_utc(billing_period.start), end=_as_utc(billing_period.end))
-        if synced.start <= now < synced.end:
-            return synced
+        start = _as_utc(billing_period.start)
+        end = _as_utc(billing_period.end)
+        # Gate before constructing so a malformed synced period falls back to the calendar month
+        if start <= now < end:
+            return BillingPeriod(start=start, end=end)
     return _current_month_bounds(now)
 
 
