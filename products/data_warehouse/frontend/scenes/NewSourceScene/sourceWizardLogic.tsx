@@ -1495,6 +1495,7 @@ export interface sourceWizardLogicActions {
             | 'Podium'
             | 'Polar'
             | 'Polygon'
+            | 'Polymarket'
             | 'Poplar'
             | 'Postgres'
             | 'Postmark'

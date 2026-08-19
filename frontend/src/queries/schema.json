@@ -25695,7 +25695,8 @@
                 "WisprFlow",
                 "SamCart",
                 "IronSourceAds",
-                "MicrosoftExcel"
+                "MicrosoftExcel",
+                "Polymarket"
             ],
             "type": "string"
         },
