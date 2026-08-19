@@ -36,6 +36,7 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
 from products.tasks.backend.logic.services.modal_sandbox import (
     _GHCR_RESOLVE_MAX_ATTEMPTS,
     AGENT_SERVER_PORT,
+    CPU_BILLING_SAMPLER_PATH,
     CPU_BILLING_STATE_PATH,
     DEFAULT_MODAL_REGION,
     DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS,
@@ -1094,6 +1095,7 @@ class TestModalSandboxResourceUsage:
             assert sandbox.start_cpu_billing_sampler() is True
         command = execute.call_args.args[0]
         assert CPU_BILLING_STATE_PATH in command
+        assert CPU_BILLING_SAMPLER_PATH in command
         assert "0.5" in command
 
 

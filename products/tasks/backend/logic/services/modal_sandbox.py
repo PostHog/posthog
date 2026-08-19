@@ -119,39 +119,7 @@ STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
 SELF_DRIVING_MODAL_APP_NAME = "posthog-sandbox-self-driving"
 
 CPU_BILLING_STATE_PATH = "/tmp/posthog-cpu-billing.state"
-CPU_BILLING_SAMPLER = """
-import os
-import time
-
-path, request_cores = __import__('sys').argv[1], float(__import__('sys').argv[2])
-
-def cpu_usage_usec():
-    with open('/sys/fs/cgroup/cpu.stat') as handle:
-        for line in handle:
-            key, value = line.split()
-            if key == 'usage_usec':
-                return int(value)
-    raise RuntimeError('usage_usec missing')
-
-previous_cpu = cpu_usage_usec()
-previous_time = time.time_ns()
-billed_usec = 0
-with open(path, 'w') as handle:
-    handle.write(f'{billed_usec} {previous_cpu} {previous_time}')
-while True:
-    time.sleep(2)
-    current_cpu = cpu_usage_usec()
-    current_time = time.time_ns()
-    actual_usec = current_cpu - previous_cpu
-    floor_usec = round(request_cores * (current_time - previous_time) / 1000)
-    billed_usec += max(actual_usec, floor_usec)
-    temporary_path = f'{path}.tmp'
-    with open(temporary_path, 'w') as handle:
-        handle.write(f'{billed_usec} {current_cpu} {current_time}')
-    os.replace(temporary_path, path)
-    previous_cpu = current_cpu
-    previous_time = current_time
-"""
+CPU_BILLING_SAMPLER_PATH = "/usr/local/bin/posthog-cpu-billing-sampler"
 
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
@@ -313,6 +281,7 @@ LOCAL_MODAL_GH_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/gh-gua
 # so a local build context needs the package and the module that computes the hash.
 LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_package.py")
 LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
+LOCAL_MODAL_CPU_BILLING_SAMPLER = Path("products/tasks/backend/sandbox/images/cpu_billing_sampler.py")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
@@ -655,6 +624,11 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     destination_gh_guard_path = context_dir / LOCAL_MODAL_GH_GUARD_SCRIPT
     destination_gh_guard_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(base_dir / LOCAL_MODAL_GH_GUARD_SCRIPT, destination_gh_guard_path)
+
+    if template == SandboxTemplate.VM_BASE:
+        destination_sampler_path = context_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER
+        destination_sampler_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_dir / LOCAL_MODAL_CPU_BILLING_SAMPLER, destination_sampler_path)
 
     if template == SandboxTemplate.DEFAULT_BASE:
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
@@ -1813,7 +1787,7 @@ class ModalSandbox(SandboxBase):
         request_cores = self.config.effective_cpu_request_cores
         command = (
             f"rm -f {shlex.quote(CPU_BILLING_STATE_PATH)}; "
-            f"setsid /usr/bin/python3 -c {shlex.quote(CPU_BILLING_SAMPLER)} "
+            f"setsid {shlex.quote(CPU_BILLING_SAMPLER_PATH)} "
             f"{shlex.quote(CPU_BILLING_STATE_PATH)} {shlex.quote(str(request_cores))} "
             ">/dev/null 2>&1 </dev/null & "
             f"for _ in $(seq 1 50); do [ -f {shlex.quote(CPU_BILLING_STATE_PATH)} ] && exit 0; sleep 0.02; done; exit 1"
