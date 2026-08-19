@@ -1,14 +1,18 @@
 import tempfile
 import subprocess
+from datetime import timedelta
 from pathlib import Path
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
+from django.utils import timezone
 
 import posthog.storage.object_storage as object_storage_module
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.storage.object_storage import UnavailableStorage
@@ -32,6 +36,50 @@ class TestContextLayerAPI(APIBaseTest):
         response = self.client.post(f"{self.base_url}/enable/")
         assert response.status_code == 201, response.content
         return response.json()["head_sha"]
+
+    def _bearer(self, scope: str, *, scoped_teams: list[int] | None = None, sandbox_task_id=None) -> str:  # noqa: ANN001
+        app = OAuthApplication.objects.create(
+            name="sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token=f"pha_{uuid4().hex}",
+            scope=scope,
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=scoped_teams or [],
+            scoped_organizations=[],
+            sandbox_task_id=sandbox_task_id,
+        )
+        return token.token
+
+    def test_agent_route_accepts_the_run_token_the_org_route_refuses(self, _flag) -> None:
+        self._enable()
+        bundle_bytes = self._bundle_with_edit("areas/from-agent.md", "# From an agent\n")
+        # Minted the way production mints one: bound to a task, scoped to a team.
+        token = self._bearer("task:write internal_run:read", scoped_teams=[self.team.id])
+        self.client.logout()
+
+        def post(base: str):
+            return self.client.post(
+                f"{base}/commits/",
+                {"bundle": SimpleUploadedFile("out.bundle", bundle_bytes)},
+                format="multipart",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+        assert post(f"/api/projects/{self.team.id}/context_layer").status_code == 200
+
+        # APIScopePermission refuses any token carrying scoped_teams on a route
+        # that is not project-nested, which is the whole reason the agent route
+        # exists — without it no real sandbox token can publish at all.
+        assert post(self.base_url).status_code == 403
 
     def test_enable_scaffolds_wiki_and_imports_channel_context(self, _flag) -> None:
         with team_scope(self.team.id):

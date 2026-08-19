@@ -8,6 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.oauth_provenance import INTERNAL_RUN_SCOPE, get_oauth_access_token
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
 from products.context_layer.backend.facade import api as facade
@@ -65,6 +66,50 @@ def _store_error_response(error: facade.ContextLayerStoreError) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
     raise error
+
+
+def _read_page(organization_id, request: Request) -> Response:  # noqa: ANN001
+    _assert_no_private_projects(organization_id)
+    try:
+        wiki_page = facade.get_page(organization_id, request.query_params.get("path", ""))
+    except facade.ContextLayerStoreError as error:
+        return _store_error_response(error)
+    return Response(WikiPageSerializer(wiki_page).data)
+
+
+def _write_page(organization_id, request: Request) -> Response:  # noqa: ANN001
+    _assert_no_private_projects(organization_id)
+    serializer = WikiPageWriteSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    user = request.user
+    author = (
+        facade.CommitAuthor(name=user.first_name or user.email, email=user.email)
+        if user and user.is_authenticated
+        else None
+    )
+    try:
+        head_sha = facade.write_page(
+            organization_id,
+            path=serializer.validated_data["path"],
+            content=serializer.validated_data["content"],
+            base_head=serializer.validated_data.get("base_head"),
+            author=author,
+        )
+    except facade.ContextLayerStoreError as error:
+        return _store_error_response(error)
+    return Response(ContextLayerStatusSerializer({"head_sha": head_sha}).data)
+
+
+def _land_commits(organization_id, request: Request) -> Response:  # noqa: ANN001
+    _assert_no_private_projects(organization_id)
+    serializer = CommitBundleSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    bundle_bytes = serializer.validated_data["bundle"].read()
+    try:
+        head_sha = facade.land_commit_bundle(organization_id, bundle_bytes)
+    except facade.ContextLayerStoreError as error:
+        return _store_error_response(error)
+    return Response(ContextLayerStatusSerializer({"head_sha": head_sha}).data)
 
 
 @extend_schema(tags=["context_layer"])
@@ -144,12 +189,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=False, url_path="pages", url_name="pages")
     def page(self, request: Request, **kwargs) -> Response:
-        _assert_no_private_projects(self.organization.id)
-        try:
-            wiki_page = facade.get_page(self.organization.id, request.query_params.get("path", ""))
-        except facade.ContextLayerStoreError as error:
-            return _store_error_response(error)
-        return Response(WikiPageSerializer(wiki_page).data)
+        return _read_page(self.organization.id, request)
 
     @extend_schema(
         request=WikiPageWriteSerializer,
@@ -162,26 +202,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @page.mapping.put
     def update_page(self, request: Request, **kwargs) -> Response:
-        _assert_no_private_projects(self.organization.id)
-        serializer = WikiPageWriteSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = request.user
-        author = (
-            facade.CommitAuthor(name=user.first_name or user.email, email=user.email)
-            if user and user.is_authenticated
-            else None
-        )
-        try:
-            head_sha = facade.write_page(
-                self.organization.id,
-                path=serializer.validated_data["path"],
-                content=serializer.validated_data["content"],
-                base_head=serializer.validated_data.get("base_head"),
-                author=author,
-            )
-        except facade.ContextLayerStoreError as error:
-            return _store_error_response(error)
-        return Response(ContextLayerStatusSerializer({"head_sha": head_sha}).data)
+        return _write_page(self.organization.id, request)
 
     @extend_schema(
         request=CommitBundleSerializer,
@@ -194,15 +215,7 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["POST"], detail=False, parser_classes=[MultiPartParser, FormParser])
     def commits(self, request: Request, **kwargs) -> Response:
-        _assert_no_private_projects(self.organization.id)
-        serializer = CommitBundleSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        bundle_bytes = serializer.validated_data["bundle"].read()
-        try:
-            head_sha = facade.land_commit_bundle(self.organization.id, bundle_bytes)
-        except facade.ContextLayerStoreError as error:
-            return _store_error_response(error)
-        return Response(ContextLayerStatusSerializer({"head_sha": head_sha}).data)
+        return _land_commits(self.organization.id, request)
 
     @extend_schema(
         responses={200: WikiExportSerializer},
@@ -217,3 +230,50 @@ class ContextLayerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except facade.ContextLayerStoreError as error:
             return _store_error_response(error)
         return Response(WikiExportSerializer({"url": bundle.url, "head_sha": bundle.head_sha}).data)
+
+
+@extend_schema(tags=["context_layer"])
+class ContextLayerAgentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """The same organization wiki, reached by an agent run inside a sandbox.
+
+    This exists as a second, project-nested route because a sandbox run token
+    carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+    project-nested view — on the organization-scoped route above, every sandbox
+    token is refused before it reaches any of this. The wiki is still one repo
+    per organization; the project in the path is how a run token proves which
+    organization it may act for, and is not a scope on the wiki itself.
+    """
+
+    posthog_feature_flag = "context-layer"
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    scope_object = "organization"
+    scope_object_write_actions = ["commits"]
+
+    def dangerously_get_required_scopes(self, request: Request, view=None) -> list[str] | None:  # noqa: ANN001
+        """A sandbox run lands its own commits with task scopes, not organization scopes.
+
+        `task:write` alone is user-grantable, so it only counts together with
+        `internal_run:read` — minted server-side for sandbox runs and rejected by
+        every user-facing scope validator, so a person cannot ask for it. Callers
+        without that marker keep the default `organization:write` requirement.
+        """
+        if self.action != "commits":
+            return None
+        access_token = get_oauth_access_token(request)
+        token_scopes = set((getattr(access_token, "scope", "") or "").split())
+        if INTERNAL_RUN_SCOPE in token_scopes:
+            return ["task:write", INTERNAL_RUN_SCOPE]
+        return None
+
+    @extend_schema(
+        request=CommitBundleSerializer,
+        responses={
+            200: ContextLayerStatusSerializer,
+            400: LintErrorSerializer,
+            409: OpenApiResponse(description="The posted commits conflict with the current head; re-pull and retry."),
+        },
+        summary="Land agent commits from a git bundle",
+    )
+    @action(methods=["POST"], detail=False, parser_classes=[MultiPartParser, FormParser])
+    def commits(self, request: Request, **kwargs) -> Response:
+        return _land_commits(self.organization.id, request)
