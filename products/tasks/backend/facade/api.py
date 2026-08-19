@@ -3967,8 +3967,9 @@ def _trigger_task_processing_workflow(
     initial_artifact_ids: list[str] | None = None,
     raise_on_error: bool = False,
 ) -> None:
-    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
-        execute_task_processing_workflow,
+    from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
+        WorkflowDispatchOptions,
+        enqueue_or_start_workflow,
     )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         RunSource,
@@ -3983,28 +3984,22 @@ def _trigger_task_processing_workflow(
     posthog_mcp_scopes: Literal["read_only", "full"] = "full" if run_source in full_mcp_run_sources else "read_only"
     try:
         logger.info("Attempting to trigger task processing workflow for task %s, run %s", task.id, run.id)
+        message = None
         if initial_message or initial_artifact_ids:
-            execute_task_processing_workflow(
-                task_id=str(task.id),
-                run_id=str(run.id),
-                team_id=task.team.id,
+            message = PendingFollowup(
+                message=initial_message,
+                artifact_ids=initial_artifact_ids or [],
+                actor_user_id=user_id,
+                message_id=str(uuid4()),
+            )
+        enqueue_or_start_workflow(
+            run,
+            options=WorkflowDispatchOptions(
                 user_id=user_id,
                 posthog_mcp_scopes=posthog_mcp_scopes,
-                initial_message=PendingFollowup(
-                    message=initial_message,
-                    artifact_ids=initial_artifact_ids or [],
-                    actor_user_id=user_id,
-                    message_id=str(uuid4()),
-                ),
-            )
-        else:
-            execute_task_processing_workflow(
-                task_id=str(task.id),
-                run_id=str(run.id),
-                team_id=task.team.id,
-                user_id=user_id,
-                posthog_mcp_scopes=posthog_mcp_scopes,
-            )
+                initial_message=message,
+            ),
+        )
         logger.info("Workflow trigger completed for task %s, run %s", task.id, run.id)
     except Exception as e:
         logger.exception("Failed to trigger task processing workflow for task %s, run %s: %s", task.id, run.id, e)
@@ -4068,20 +4063,27 @@ def start_task_run(
 
     previous_state = dict(run.state or {})
     try:
-        if state_updates:
-            TaskRun.update_state_atomic(run.id, updates=state_updates)
-            run.refresh_from_db()
-        logger.info("Triggering workflow for task %s, existing run %s", task.id, run.id)
-        _trigger_task_processing_workflow(
-            task,
-            run,
-            user_id,
-            initial_message=(pending_user_message or task.description or None)
-            if task.runtime == Task.Runtime.PI
-            else None,
-            initial_artifact_ids=pending_user_artifact_ids if task.runtime == Task.Runtime.PI else None,
-            raise_on_error=True,
-        )
+        with transaction.atomic():
+            run = (
+                TaskRun.objects.select_for_update(of=("self",))
+                .select_related("task", "task__team", "task__created_by")
+                .get(id=run.id)
+            )
+            task = run.task
+            if state_updates:
+                TaskRun.update_state_atomic(run.id, updates=state_updates)
+                run.refresh_from_db()
+            logger.info("Triggering workflow for task %s, existing run %s", task.id, run.id)
+            _trigger_task_processing_workflow(
+                task,
+                run,
+                user_id,
+                initial_message=(pending_user_message or task.description or None)
+                if task.runtime == Task.Runtime.PI
+                else None,
+                initial_artifact_ids=pending_user_artifact_ids if task.runtime == Task.Runtime.PI else None,
+                raise_on_error=True,
+            )
     except Exception:
         if state_updates:
             rollback_updates = {
@@ -4702,6 +4704,7 @@ def create_task(
     from posthog.models import Team  # noqa: PLC0415
 
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
+        enforce_report_task_cap,
         record_report_task,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
@@ -4911,11 +4914,24 @@ def create_task(
     # Gated regardless of the relationship label: the label is client-selected and manually
     # created tasks run PR-capable by default, so a "discussion" label must not dodge the limit.
     report_ref = validated_data.get("signal_report") or validated_data.get("signal_report_id")
-    if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT:
-        enforce_self_driving_pr_quota(team, report_id=str(getattr(report_ref, "id", report_ref)))
+    signal_report_id = (
+        str(getattr(report_ref, "id", report_ref))
+        if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+        else None
+    )
+    if signal_report_id:
+        enforce_self_driving_pr_quota(team, report_id=signal_report_id)
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
+        if signal_report_id:
+            # Locks the report row until commit, so concurrent creates (and auto-start, which
+            # takes the same lock) serialize instead of both passing the count check.
+            enforce_report_task_cap(
+                team_id=team_id,
+                report_id=signal_report_id,
+                relationship=signal_report_task_relationship,
+            )
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
             # Record the task↔report association + work-log artefact for the asserted relationship
@@ -7521,13 +7537,14 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
             # The workflow is gone despite the non-terminal row (evicted or stale); fall
             # through to a fresh run rather than reporting a dead end.
         task_run = task.create_run(mode="background", extra_state={"pending_user_message": prompt})
-        transaction.on_commit(
-            lambda: _dispatch_server_run(
-                team_id=task.team_id,
-                user_id=task.created_by_id,
-                task_id=str(task.id),
-                run_id=str(task_run.id),
-            )
+        from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
+            WorkflowDispatchOptions,
+            enqueue_or_start_workflow,
+        )
+
+        enqueue_or_start_workflow(
+            task_run,
+            options=WorkflowDispatchOptions(user_id=task.created_by_id, skip_user_check=True),
         )
     return "new_run"
 

@@ -41,7 +41,7 @@ from products.exports.backend.tasks.failure_handler import (
     InvalidExportContext,
     classify_failure_type,
 )
-from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+from products.product_analytics.backend.facade.api import map_stale_to_latest
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 logger = structlog.get_logger(__name__)
