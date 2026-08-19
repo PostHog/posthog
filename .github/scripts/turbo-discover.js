@@ -9,6 +9,15 @@
 // Products without contract-check are non-isolated: any change in them
 // triggers the full test suite (all products + Django).
 //
+// Internal libs are the other kind of workspace package with a backend:test
+// task: plain Python packages under posthog/libs/<name>/, imported as
+// posthog.libs.<name>. Because tach's source root resolves them, each one is a
+// real tach module and every consumer has to list it in depends_on for
+// `tach check` to pass, so their dependents are declared and enforced and
+// tach.toml answers who they are. They do become matrix entries: a lib's own
+// tests only exist as its workspace package's backend:test task, so the product
+// matrix is what runs them, one entry per lib.
+//
 // Products under SMALL_THRESHOLD duration get grouped into one matrix entry
 // to avoid spinning up a full Docker stack for a handful of tests.
 // Durations come from .test_durations (maintained by pytest-split).
@@ -18,7 +27,7 @@
 //         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
 //         is false, schema-impact.js narrows the matrix to products that
 //         depend on the affected posthog.schema types.
-// Output: JSON on stdout: { matrix, run_legacy, django_shards }
+// Output: JSON on stdout: { matrix, run_legacy, django_shards, internal_libs }
 //         Diagnostics on stderr
 
 const { execFileSync } = require('child_process')
@@ -123,20 +132,78 @@ function parseAffectedTasks(raw) {
     return JSON.parse(raw).data.affectedTasks.items
 }
 
+const PRODUCT_PACKAGE_PREFIX = '@posthog/products-'
+const INTERNAL_LIB_PACKAGE_PREFIX = '@posthog/lib-'
+const TACH_INTERNAL_LIB_PREFIX = 'posthog.libs.'
+
+function isProductPackage(name) {
+    return name.startsWith(PRODUCT_PACKAGE_PREFIX)
+}
+
+function isInternalLibPackage(name) {
+    return name.startsWith(INTERNAL_LIB_PACKAGE_PREFIX)
+}
+
 function packageToProduct(pkg) {
-    return pkg.replace('@posthog/products-', '')
+    return pkg.replace(PRODUCT_PACKAGE_PREFIX, '')
+}
+
+// An internal lib package @posthog/lib-<name> is the tach module
+// posthog.libs.<name>. A name this convention can't map throws rather than
+// returning a guess: a module path nothing declares has no dependents in
+// tach.toml, so a bad mapping reads as "no consumer to test" instead of
+// erroring.
+function internalLibPackageToModule(pkg) {
+    const name = pkg.startsWith(INTERNAL_LIB_PACKAGE_PREFIX) ? pkg.slice(INTERNAL_LIB_PACKAGE_PREFIX.length) : ''
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) {
+        throw new Error(
+            `cannot map package '${pkg}' to a tach module — internal lib packages must be named @posthog/lib-<name> with a lowercase, dashed name`
+        )
+    }
+    return `${TACH_INTERNAL_LIB_PREFIX}${name.replace(/-/g, '_')}`
+}
+
+function internalLibModuleToName(module) {
+    return module.slice(TACH_INTERNAL_LIB_PREFIX.length).replace(/_/g, '-')
 }
 
 function getIsolatedProducts(contractTasks) {
-    return new Set(contractTasks.map((t) => packageToProduct(t.package)))
+    return new Set(contractTasks.map((t) => t.package).filter(isProductPackage).map(packageToProduct))
 }
 
 function getAffectedTaskProducts(tasks) {
-    return [...new Set(tasks.map((t) => packageToProduct(t.package.name)))].sort()
+    return [...new Set(tasks.map((t) => t.package.name).filter(isProductPackage).map(packageToProduct))].sort()
+}
+
+// The matrix filters and the cascades below only understand two kinds of
+// workspace package. Anything else carrying a backend:test task would fall out
+// of every filter and quietly run no tests at all, so name it and fail the run.
+function assertKnownBackendTestPackages(names) {
+    for (const name of names) {
+        if (isProductPackage(name) || isInternalLibPackage(name)) {continue}
+        throw new Error(
+            `unsupported workspace package '${name}' with a backend:test task: expected ${PRODUCT_PACKAGE_PREFIX}* or ${INTERNAL_LIB_PACKAGE_PREFIX}*`
+        )
+    }
+}
+
+function getAffectedInternalLibModules(tasks) {
+    return [
+        ...new Set(
+            tasks
+                .map((t) => t.package.name)
+                .filter(isInternalLibPackage)
+                .map(internalLibPackageToModule)
+        ),
+    ].sort()
 }
 
 function getAllProducts(testTasks) {
-    return [...new Set(testTasks.map((t) => packageToProduct(t.package)))].sort()
+    return [...new Set(testTasks.map((t) => t.package).filter(isProductPackage).map(packageToProduct))].sort()
+}
+
+function getAllInternalLibModules(testTasks) {
+    return [...new Set(testTasks.map((t) => t.package).filter(isInternalLibPackage).map(internalLibPackageToModule))].sort()
 }
 
 function affectedArgs(taskName) {
@@ -236,15 +303,6 @@ const TACH_MODULE_PREFIX = 'products.'
 const productToModule = (product) => product.replace(/-/g, '_')
 const moduleToProduct = (module) => module.replace(/_/g, '-')
 
-// Parse tach.toml's [[modules]] blocks into product -> [products it depends
-// on]. Keys/values are tach names with the "products." prefix stripped
-// (underscores preserved) — callers normalize to/from Turbo's dashed names.
-//
-// Only products.* modules become nodes or edges. posthog/ee (and the
-// common.* utility modules) are dropped on both sides deliberately: they
-// aren't products.* so they fall out of the startsWith filter for free. See
-// tachDependents for why routing through them would be wrong, not just
-// inconvenient.
 // TOML comments run to the end of the line, and a `#` inside a double-quoted
 // string does not start one. Comments have to go before the block scan below,
 // because a comment inside a depends_on list can carry a `]`: tach.toml
@@ -271,8 +329,11 @@ function stripTomlComments(tomlText) {
     return out
 }
 
-function parseTachModules(tomlText) {
-    const graph = new Map()
+// Every `[[modules]]` block as { modulePath, deps }, with both sides kept as
+// written in tach.toml. parseTachModules narrows this to the product graph;
+// parseTachDependents keeps all of it.
+function parseTachModuleBlocks(tomlText) {
+    const blocks = []
     // Each `[[modules]]` block holds exactly one `path` and one `depends_on`
     // before the next block starts — split on the marker and take the first
     // match of each within a block. With comments stripped, depends_on entries
@@ -283,10 +344,9 @@ function parseTachModules(tomlText) {
     // Only double-quoted strings are supported. Other valid TOML (single-quoted
     // literals, inline tables) would be dropped by the regexes without error,
     // silently shrinking the cascade — so any entry the regexes can't represent
-    // throws instead, which loadTachModuleGraph turns into "test all products".
+    // throws instead, which loadTachGraphs turns into "test all products".
     // A false trip over-tests; a silent drop under-tests, so err on throwing.
-    const blocks = stripTomlComments(tomlText).split('[[modules]]').slice(1)
-    for (const block of blocks) {
+    for (const block of stripTomlComments(tomlText).split('[[modules]]').slice(1)) {
         const pathMatch = block.match(/path\s*=\s*"([^"]+)"/)
         if (!pathMatch) {
             if (/^\s*path\s*=/m.test(block)) {
@@ -309,16 +369,49 @@ function parseTachModules(tomlText) {
                 `unsupported \`depends_on\` entry for ${pathMatch[1]} in tach.toml (expected double-quoted strings): ${leftover.trim().slice(0, 80)}`
             )
         }
-        const modulePath = pathMatch[1]
+        blocks.push({
+            modulePath: pathMatch[1],
+            deps: [...dependsMatch[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]),
+        })
+    }
+    return blocks
+}
+
+// tach.toml's [[modules]] blocks as product -> [products it depends on].
+// Keys/values are tach names with the "products." prefix stripped (underscores
+// preserved), and callers normalize to/from Turbo's dashed names.
+//
+// Only products.* modules become nodes or edges. posthog/ee (and the
+// common.* utility modules) are dropped on both sides deliberately: they
+// aren't products.* so they fall out of the startsWith filter for free. See
+// tachDependents for why routing through them would be wrong, not just
+// inconvenient.
+function parseTachModules(tomlText) {
+    const graph = new Map()
+    for (const { modulePath, deps } of parseTachModuleBlocks(tomlText)) {
         if (!modulePath.startsWith(TACH_MODULE_PREFIX)) {continue}
-        const product = modulePath.slice(TACH_MODULE_PREFIX.length)
-        const deps = [...dependsMatch[1].matchAll(/"([^"]+)"/g)]
-            .map((m) => m[1])
-            .filter((d) => d.startsWith(TACH_MODULE_PREFIX))
-            .map((d) => d.slice(TACH_MODULE_PREFIX.length))
-        graph.set(product, deps)
+        graph.set(
+            modulePath.slice(TACH_MODULE_PREFIX.length),
+            deps.filter((d) => d.startsWith(TACH_MODULE_PREFIX)).map((d) => d.slice(TACH_MODULE_PREFIX.length))
+        )
     }
     return graph
+}
+
+// Reverse edges over the WHOLE tach graph: module path -> module paths that
+// declare it in depends_on. parseTachModules drops everything outside
+// products.* because routing a product cascade through core reaches every
+// product; an internal lib cascade needs the opposite, since a core dependent
+// is precisely the signal that forces the full Django suite.
+function parseTachDependents(tomlText) {
+    const reverse = new Map()
+    for (const { modulePath, deps } of parseTachModuleBlocks(tomlText)) {
+        for (const dep of deps) {
+            if (!reverse.has(dep)) {reverse.set(dep, [])}
+            reverse.get(dep).push(modulePath)
+        }
+    }
+    return reverse
 }
 
 // Reverse transitive closure over the product graph: who (transitively)
@@ -368,10 +461,77 @@ function tachDependents(changedProducts, moduleGraph, { direct = false } = {}) {
     return [...visited].map(moduleToProduct)
 }
 
+// Who depends on a set of internal libs, split by what the caller can do about
+// it: products get matrix entries, core forces the full Django suite, and libs
+// need their own tests run.
+//
+// The walk continues through posthog.libs.* nodes only. A product dependent
+// stops the walk because the product graph closes it separately
+// (tachDependents), and a core dependent stops it because "core is involved"
+// already means the full suite, which subsumes anything further out.
+//
+// A lib's module path starts with `posthog.`, so the lib check has to run
+// before the core branch. Classed as core, every lib change would force Django.
+function internalLibDependents(libModules, reverse) {
+    const products = new Set()
+    const core = new Set()
+    const libs = new Set()
+
+    const seeds = new Set(libModules)
+    const queue = [...seeds]
+    while (queue.length > 0) {
+        for (const dependent of reverse.get(queue.shift()) || []) {
+            if (dependent.startsWith(TACH_MODULE_PREFIX)) {
+                products.add(moduleToProduct(dependent.slice(TACH_MODULE_PREFIX.length)))
+            } else if (dependent.startsWith(TACH_INTERNAL_LIB_PREFIX)) {
+                if (libs.has(dependent) || seeds.has(dependent)) {continue}
+                libs.add(dependent)
+                queue.push(dependent)
+            } else {
+                core.add(dependent)
+            }
+        }
+    }
+    return { products: [...products].sort(), core: [...core].sort(), libs: [...libs].sort() }
+}
+
+// An internal lib needs both halves of its declaration to work, and neither
+// half fails visibly on its own. A tach module with no workspace package is
+// invisible to Turbo's affectedness query, so changing it cascades nothing and
+// runs no tests. A workspace package with no tach module has no declared
+// dependents, so it gets its own matrix entry while its consumers go untested.
+// Both are silent under-testing, which is what this cascade exists to prevent,
+// so a mismatch fails discovery and names the missing half.
+function checkInternalLibConsistency(tachLibModules, packageLibModules) {
+    const packages = new Set(packageLibModules)
+    for (const module of tachLibModules) {
+        if (!packages.has(module)) {
+            throw new Error(
+                `tach module ${module} has no ${INTERNAL_LIB_PACKAGE_PREFIX}${internalLibModuleToName(module)} workspace package with a backend:test task`
+            )
+        }
+    }
+    const modules = new Set(tachLibModules)
+    for (const module of packageLibModules) {
+        if (!modules.has(module)) {
+            throw new Error(
+                `workspace package ${INTERNAL_LIB_PACKAGE_PREFIX}${internalLibModuleToName(module)} has no ${module} module in tach.toml`
+            )
+        }
+    }
+}
+
+function internalLibModulePaths(tomlText) {
+    return parseTachModuleBlocks(tomlText)
+        .map((block) => block.modulePath)
+        .filter((modulePath) => modulePath.startsWith(TACH_INTERNAL_LIB_PREFIX))
+        .sort()
+}
+
 // Returns null when the graph can't be read or parsed. Callers must treat null as
 // "unknown dependents" and widen the matrix — never as "no dependents", which would
 // silently under-test exactly the contract changes this cascade guards.
-function loadTachModuleGraph() {
+function loadTachGraphs() {
     let text
     try {
         text = fs.readFileSync(TACH_TOML_FILE, 'utf-8')
@@ -380,11 +540,20 @@ function loadTachModuleGraph() {
         return null
     }
     try {
-        return parseTachModules(text)
+        return {
+            moduleGraph: parseTachModules(text),
+            reverse: parseTachDependents(text),
+            libModules: internalLibModulePaths(text),
+        }
     } catch (e) {
         console.error(`::warning::Could not parse ${TACH_TOML_FILE} (${e.message}) — falling back to testing all products`)
         return null
     }
+}
+
+function loadTachModuleGraph() {
+    const graphs = loadTachGraphs()
+    return graphs === null ? null : graphs.moduleGraph
 }
 
 function loadTestDurations() {
@@ -525,13 +694,13 @@ function packProducts(products, durations) {
 }
 
 // Path filters matching the Django workflow pytest invocations.
-// Core: posthog/ + ee/ minus temporal, dags, hogvm
+// Core: posthog/ + ee/ minus temporal, dags, libs, hogvm
 // Core POE: subset of Core (ignores hogql, hogql_queries) — same pool, fewer tests
 // Temporal: posthog/temporal + products/batch_exports/backend/tests/temporal + products/tasks/backend/temporal
 const DJANGO_SEGMENTS = {
     Core: {
         include: ['posthog/', 'ee/'],
-        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/'],
+        exclude: ['posthog/temporal/', 'posthog/dags/', 'posthog/libs/', 'common/hogvm/'],
     },
     CorePOE: {
         // Keep in sync with the person-on-events pytest targets in
@@ -543,7 +712,14 @@ const DJANGO_SEGMENTS = {
             'posthog/api/test/dashboards/test_dashboard.py',
             'ee/clickhouse/',
         ],
-        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/', 'posthog/hogql_queries/', 'posthog/hogql/'],
+        exclude: [
+            'posthog/temporal/',
+            'posthog/dags/',
+            'posthog/libs/',
+            'common/hogvm/',
+            'posthog/hogql_queries/',
+            'posthog/hogql/',
+        ],
     },
     Temporal: {
         include: ['posthog/temporal/', 'products/batch_exports/backend/tests/temporal/', 'products/tasks/backend/temporal/'],
@@ -592,7 +768,7 @@ function buildDjangoShards(durations) {
     return result
 }
 
-function buildMatrix(products, durations) {
+function buildMatrix(products, durations, internalLibs = []) {
     const matrix = []
     const packable = []
 
@@ -664,19 +840,38 @@ function buildMatrix(products, durations) {
         })
     }
 
+    // One entry per lib, never packed or split: a lib's suite is small enough
+    // that the packing and duration machinery would only add ways to get it
+    // wrong, and .test_durations records nothing under posthog/libs/ to pack it with.
+    for (const libModule of internalLibs) {
+        const name = internalLibModuleToName(libModule)
+        console.error(`  lib: ${name}`)
+        matrix.push({
+            group: `lib: ${name}`,
+            filters: `--filter=${INTERNAL_LIB_PACKAGE_PREFIX}${name}`,
+            pytest_args: '',
+        })
+    }
+
     return matrix
 }
 
 // Exported for unit tests only — not part of the public API.
 module.exports = {
     collectTestFiles,
+    internalLibModulePaths,
     checkProductStaleness,
     productPrefix,
     productEffectiveCost,
     STALENESS_COVERAGE_THRESHOLD,
     STALENESS_FALLBACK_SECONDS_PER_FILE,
     parseTachModules,
+    parseTachDependents,
     tachDependents,
+    checkInternalLibConsistency,
+    internalLibDependents,
+    internalLibPackageToModule,
+    buildMatrix,
 }
 
 // --- Main ---
@@ -702,15 +897,28 @@ try {
     }
     process.exit(1)
 }
+assertKnownBackendTestPackages(allTestTasks.map((t) => t.package))
+
 const allProducts = getAllProducts(allTestTasks)
 const allProductSet = new Set(allProducts)
 
+// Both paths below depend on the two halves agreeing, so the check runs before
+// the branch. A tach.toml that cannot be read or parsed is left to the existing
+// per-cascade fallbacks, which already widen to the full suite.
+const tachGraphsForLibCheck = loadTachGraphs()
+if (tachGraphsForLibCheck !== null) {
+    checkInternalLibConsistency(tachGraphsForLibCheck.libModules, getAllInternalLibModules(allTestTasks))
+}
+
 let products
 let runLegacy
+// Internal libs to run tests for, as tach module paths (posthog.libs.<name>).
+let internalLibs = []
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
     products = allProducts
+    internalLibs = getAllInternalLibModules(allTestTasks)
     runLegacy = true
 } else {
     const isolatedProducts = getIsolatedProducts(contractTasks)
@@ -762,6 +970,52 @@ if (legacyChanged) {
         console.error('No product changes detected')
         products = []
         runLegacy = false
+    }
+
+    const affectedInternalLibs = getAffectedInternalLibModules(affectedTestTasks)
+    if (affectedInternalLibs.length > 0) {
+        const tachGraphs = loadTachGraphs()
+        if (tachGraphs === null) {
+            // Same fail-toward-over-testing rule as the cascades above. The changed
+            // libs still run their own tests: that part needs no graph.
+            console.error('Internal lib dependent cascade unavailable — testing all products rather than risk skipping a dependent')
+            products = allProducts
+            runLegacy = true
+            internalLibs = affectedInternalLibs
+        } else {
+            const cascaded = new Set()
+            for (const libModule of affectedInternalLibs) {
+                const dependents = internalLibDependents([libModule], tachGraphs.reverse)
+                console.error(
+                    `Internal lib changed: ${libModule} — depended on by products ${JSON.stringify(dependents.products)}, libs ${JSON.stringify(dependents.libs)}`
+                )
+                for (const lib of dependents.libs) {
+                    internalLibs.push(lib)
+                }
+                for (const product of dependents.products.filter((p) => allProductSet.has(p))) {
+                    cascaded.add(product)
+                }
+                if (dependents.core.length > 0) {
+                    console.error(`internal lib ${libModule} is depended on by core (${dependents.core.join(', ')}) — Django will run`)
+                    runLegacy = true
+                }
+            }
+            internalLibs = [...new Set([...affectedInternalLibs, ...internalLibs])].sort()
+
+            const transitive = tachDependents([...cascaded], tachGraphs.moduleGraph).filter((p) => allProductSet.has(p))
+            if (transitive.length > 0) {
+                console.error(`Products depending on those consumers via tach.toml: ${JSON.stringify(transitive)}`)
+            }
+            const cascadedProducts = [...new Set([...cascaded, ...transitive])].sort()
+            products = [...new Set([...products, ...cascadedProducts])].sort()
+            const nonIsolatedCascaded = cascadedProducts.filter((p) => !isolatedProducts.has(p))
+            if (nonIsolatedCascaded.length > 0) {
+                console.error(
+                    `Non-isolated products cascaded in from an internal lib change: ${JSON.stringify(nonIsolatedCascaded)} — Django will run, since core can import their internals`
+                )
+                runLegacy = true
+            }
+        }
     }
 
     if (schemaChanged) {
@@ -822,6 +1076,7 @@ if (process.env.TURBO_SCM_BASE) {
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
+console.error(`Internal libs to test: ${JSON.stringify(internalLibs)}`)
 console.error(`Run legacy (Django): ${runLegacy}`)
 
 const durations = loadTestDurations()
@@ -830,9 +1085,10 @@ console.error('\nDjango shard calculation:')
 const djangoShards = buildDjangoShards(durations)
 
 const result = {
-    matrix: buildMatrix(products, durations),
+    matrix: buildMatrix(products, durations, internalLibs),
     run_legacy: runLegacy,
     django_shards: djangoShards,
+    internal_libs: internalLibs,
 }
 // eslint-disable-next-line no-console
 process.stdout.write(JSON.stringify(result) + '\n')

@@ -39,7 +39,7 @@ const {
     RUST,
     UNIVERSAL,
 } = require('./trunk-impacted-targets')
-const { parseTachModules, tachDependents } = require('./turbo-discover')
+const { internalLibModulePaths, parseTachDependents, parseTachModules, tachDependents } = require('./turbo-discover')
 
 const CONTEXT = {
     products: ['alpha', 'beta', 'gamma'],
@@ -537,6 +537,7 @@ test('an unmapped path widens rather than yielding an empty target set', () => {
 test('every target the rules can emit appears in the enumerated universe', () => {
     const everyRule = [
         'posthog/models/team.py',
+        'posthog/libs/dates/parse.py',
         'ee/settings.py',
         'ee/frontend/x.tsx',
         'frontend/src/index.tsx',
@@ -1159,6 +1160,147 @@ test('an unavailable tach graph widens backend changes instead of narrowing', ()
     const targets = computeTargets(['products/alpha/backend/api.py'], noTach)
     assert.equal(targets.includes('py:core'), true)
     assert.equal(targets.includes('py:product:gamma'), true)
+})
+
+// --- Internal libs under posthog/libs/ ---
+
+// Two underscore-named products join the synthetic set here, because a lib's
+// dependents are read straight out of tach module paths and the underscore is
+// where a name conversion can go wrong.
+const LIB_CONTEXT = {
+    ...CONTEXT,
+    products: [...CONTEXT.products, 'legal_documents', 'stamphog'],
+}
+
+const LIB_EVERYTHING = allKnownTargets(LIB_CONTEXT)
+const LIB_ALL_PY = ['py:core', ...LIB_CONTEXT.products.map((product) => `py:product:${product}`)].sort()
+
+function libContext(toml) {
+    return {
+        ...LIB_CONTEXT,
+        tachGraph: {
+            graph: parseTachModules(toml),
+            reverse: parseTachDependents(toml),
+            libModules: new Set(internalLibModulePaths(toml)),
+            tachDependents,
+        },
+    }
+}
+
+// The whole point of the lib layout: a lib is its own tach module, so unlike
+// the rest of posthog/ its importers are declared and the lane can name them.
+test('a lib change claims the lanes of the products that declare it', () => {
+    const context = libContext(`
+[[modules]]
+path = "posthog.libs.dates"
+depends_on = []
+
+[[modules]]
+path = "products.legal_documents"
+depends_on = ["posthog.libs.dates"]
+
+[[modules]]
+path = "products.stamphog"
+depends_on = ["posthog.libs.dates"]
+
+[[modules]]
+path = "products.alpha"
+depends_on = []
+`)
+    // The lib's own declarations and tests read the same symbols an importer
+    // does, so every file in the directory takes the same lanes. Its markdown
+    // is prose, as it is anywhere else in the repo.
+    for (const file of [
+        'posthog/libs/dates/parse.py',
+        'posthog/libs/dates/package.json',
+        'posthog/libs/dates/turbo.json',
+        'posthog/libs/dates/test_parse.py',
+    ]) {
+        assert.deepEqual(computeTargets([file], context), ['py:product:legal_documents', 'py:product:stamphog'], file)
+    }
+    assert.deepEqual(computeTargets(['posthog/libs/dates/README.md'], context), ['prose'])
+})
+
+// A lib that imports another can re-export its symbols, so the importers of the
+// wrapper can name the changed symbols without declaring the changed lib.
+test("a lib change walks through a dependent lib to that lib's products", () => {
+    const context = libContext(`
+[[modules]]
+path = "posthog.libs.dates"
+depends_on = []
+
+[[modules]]
+path = "posthog.libs.calendars"
+depends_on = ["posthog.libs.dates"]
+
+[[modules]]
+path = "products.beta"
+depends_on = ["posthog.libs.calendars"]
+`)
+    assert.deepEqual(computeTargets(['posthog/libs/dates/parse.py'], context), ['py:product:beta'])
+})
+
+// posthog and ee have no bounded set of readers, so a lib either of them
+// declares is back to the radius the rest of posthog/ has.
+test('a lib declared by core claims every backend lane', () => {
+    const context = libContext(`
+[[modules]]
+path = "posthog.libs.dates"
+depends_on = []
+
+[[modules]]
+path = "posthog"
+depends_on = ["posthog.libs.dates"]
+
+[[modules]]
+path = "products.beta"
+depends_on = ["posthog.libs.dates"]
+`)
+    assert.deepEqual(computeTargets(['posthog/libs/dates/parse.py'], context), LIB_ALL_PY)
+})
+
+// Nothing bounds who may import a lib tach does not declare, and the missing
+// declaration also means turbo-discover runs no tests for it, so the change is
+// as unclassified as a brand new tree.
+test('a lib with no tach module widens to every known target', () => {
+    const context = libContext(`
+[[modules]]
+path = "products.beta"
+depends_on = []
+`)
+    assert.deepEqual(computeTargets(['posthog/libs/dates/parse.py'], context), LIB_EVERYTHING)
+})
+
+// Declared but imported by nothing: there is no importer set to narrow to, so
+// the lane stays as wide as core's rather than collapsing to nothing.
+test('a lib nothing declares claims every backend lane', () => {
+    const context = libContext(`
+[[modules]]
+path = "posthog.libs.dates"
+depends_on = []
+
+[[modules]]
+path = "products.beta"
+depends_on = []
+`)
+    assert.deepEqual(computeTargets(['posthog/libs/dates/parse.py'], context), LIB_ALL_PY)
+})
+
+// The lib rule runs before the generic posthog/ rule, so it has to match only
+// the lib subtree. A core file matching it would hand core a product's lane.
+test('the lib rule leaves the rest of posthog on every backend lane', () => {
+    const context = libContext(`
+[[modules]]
+path = "posthog.libs.dates"
+depends_on = ["products.beta"]
+
+[[modules]]
+path = "products.beta"
+depends_on = []
+`)
+    for (const file of ['posthog/foo.py', 'posthog/models/team.py', 'posthog/libs.py']) {
+        assert.deepEqual(computeTargets([file], context), LIB_ALL_PY, file)
+    }
 })
 
 // Core changes have to overlap every leaf in their domain, because set
