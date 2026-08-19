@@ -55,6 +55,22 @@ class TestProductEnablementAPI(APIBaseTest):
         # The user's deliberate cost floor is left untouched.
         self.assertEqual(self.team.session_recording_minimum_duration_milliseconds, 5000)
 
+    def test_member_enables_replay_when_masking_already_set(self):
+        # A non-admin member can still turn replay on when masking is already configured: the
+        # cost floor rides with the masking floor, so this call touches no admin-only field and
+        # the admin gate stays clear. Without the pairing, the duration default would 403 here.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.team.session_recording_masking_config = {"maskAllInputs": True}
+        self.team.save()
+
+        response = self._enable(["session_replay"])
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.session_recording_opt_in)
+        self.assertIsNone(self.team.session_recording_minimum_duration_milliseconds)
+
     def test_enables_error_tracking(self):
         response = self._enable(["error_tracking"])
         self.assertEqual(response.json(), {"results": {"error_tracking": "enabled"}})
