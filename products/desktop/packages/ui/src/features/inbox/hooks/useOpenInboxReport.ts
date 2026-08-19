@@ -62,7 +62,11 @@ export function useOpenInboxReport() {
           return;
         }
 
-        if (reportCanvasesEnabled && reportSpaceId && report.canvas_session) {
+        if (
+          reportCanvasesEnabled &&
+          reportSpaceId &&
+          report.canvas_session?.generation_status === "ready"
+        ) {
           navigateToChannelDashboard(
             reportSpaceId,
             report.canvas_session.canvas_id,
