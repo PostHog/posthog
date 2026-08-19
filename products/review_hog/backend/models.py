@@ -6,6 +6,7 @@ from posthog.models.utils import UUIDModel
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
     FindingOutcomeArtefact,
+    ResolutionRunArtefact,
     ReviewArtefactContent,
     ReviewIssueFinding,
     ReviewLogArtefactContent,
@@ -166,6 +167,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         FINDING_OUTCOME = "finding_outcome"
         # The resolution stage's per-thread ruling (latest row per thread_id wins).
         THREAD_VERDICT = "thread_verdict"
+        # One resolution run's opening work-list; the newest row is the report's latest run.
+        RESOLUTION_RUN = "resolution_run"
         TASK_RUN = "task_run"
         COMMIT = "commit"
         CODE_REFERENCE = "code_reference"
@@ -280,6 +283,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         cls, *, team_id: int, report_id: str, content: ThreadVerdictArtefact, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
         """Append a `thread_verdict` (latest row per `thread_id` wins at read time)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
+    def append_resolution_run(
+        cls, *, team_id: int, report_id: str, content: ResolutionRunArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `resolution_run` (one per run, at prepare; the newest row is the latest run)."""
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod

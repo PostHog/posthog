@@ -456,17 +456,17 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'customer-analytics-calendar-sync',
-                title: 'Calendar sync',
+                title: 'Google account sync',
                 description:
-                    'Connect your Google Calendar to sync meetings with customers into their accounts. Each team member connects their own calendar.',
+                    'Connect your Google account to sync customer meetings and email to matching accounts. Each team member connects their own account.',
                 component: <CalendarSyncConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
-                keywords: ['calendar', 'meetings', 'google', 'sync', 'accounts'],
+                keywords: ['calendar', 'email', 'meetings', 'google', 'sync', 'accounts'],
             },
             {
                 id: 'customer-analytics-email-sync',
-                title: 'Email sync',
-                description: 'Connect your work email to show customer conversations on matching accounts.',
+                title: 'Email forwarding',
+                description: 'Manage existing email forwarding connections.',
                 component: <CustomerEmailConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['email', 'inbox', 'forwarding', 'sync', 'accounts'],
@@ -875,7 +875,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </span>
                 ),
                 component: <LogsRetentionSettings />,
-                flag: 'LOGS_SETTINGS_RETENTION',
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
             },
             {

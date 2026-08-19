@@ -607,6 +607,7 @@ from .intruder.source import IntruderSource
 from .invoiced.source import InvoicedSource
 from .invoiceninja.source import InvoiceninjaSource
 from .ip2whois.source import IP2WhoisSource
+from .ironsource_ads.source import IronSourceAdsSource
 from .iterable.source import IterableSource
 from .iyzico.source import IyzicoSource
 from .jamf_pro.source import JamfProSource
@@ -736,6 +737,7 @@ from .microsoft_defender_cloud_apps.source import MicrosoftDefenderCloudAppsSour
 from .microsoft_defender_endpoint.source import MicrosoftDefenderEndpointSource
 from .microsoft_defender_for_cloud.source import MicrosoftDefenderForCloudSource
 from .microsoft_entra_id.source import MicrosoftEntraIdSource
+from .microsoft_excel.source import MicrosoftExcelSource
 from .microsoft_intune.source import MicrosoftIntuneSource
 from .microsoft_lists.source import MicrosoftListsSource
 from .microsoft_purview.source import MicrosoftPurviewSource
