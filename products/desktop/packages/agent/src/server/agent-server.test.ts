@@ -2407,6 +2407,55 @@ describe("AgentServer HTTP Mode", () => {
       });
     }, 20000);
 
+    // A message folded into an already-running turn is acked with an instant
+    // benign end_turn (`_meta.steer`). Broadcasting turn_complete for that ack
+    // made clients ring "task finished" while the run was just starting.
+    it("does not broadcast turn_complete when the message folds into a running turn", async () => {
+      const s = createServer();
+      await s.start();
+      const broadcastEvent = vi.fn();
+      const prompt = vi.fn(async (_params: { prompt: ContentBlock[] }) => ({
+        stopReason: "end_turn",
+        _meta: { steer: true },
+      }));
+      const serverInternals = s as unknown as {
+        session: { clientConnection: { prompt: typeof prompt } };
+        broadcastEvent: typeof broadcastEvent;
+      };
+      serverInternals.session.clientConnection.prompt = prompt;
+      serverInternals.broadcastEvent = broadcastEvent;
+
+      const token = createToken();
+      const response = await fetch(`http://localhost:${port}/command`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "folded-first-message",
+          method: "user_message",
+          params: { content: "full first message" },
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        result?: { stopReason?: string; steered?: boolean };
+      };
+      expect(body.result).toMatchObject({
+        stopReason: "steered",
+        steered: true,
+      });
+      const turnCompleteEvents = broadcastEvent.mock.calls.filter(
+        ([event]) =>
+          (event as { notification?: { method?: string } }).notification
+            ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+      );
+      expect(turnCompleteEvents).toHaveLength(0);
+    }, 20000);
+
     it("rewrites a bundled local skill slash command before sending the prompt", async () => {
       const skillDefinition = [
         "---",

@@ -1330,9 +1330,27 @@ export class AgentServer {
           }
           commitDelivery();
 
+          // An adapter can fold a mid-turn message into the turn already
+          // running (native steering) and ack it with an instant benign
+          // end_turn marked `_meta.steer` — e.g. the forwarded first message
+          // racing the description-built initial turn. That ack is a delivery
+          // receipt, not a turn boundary: broadcasting turn_complete for it
+          // makes clients ring "task finished" seconds into a fresh run, and
+          // relaying would post a half-finished response. The owning turn
+          // broadcasts its own completion when it actually ends.
+          const foldedIntoRunningTurn =
+            (result._meta as { steer?: unknown } | undefined)?.steer === true;
+
           this.logger.debug("User message completed", {
             stopReason: result.stopReason,
+            steered: foldedIntoRunningTurn,
           });
+
+          if (foldedIntoRunningTurn) {
+            const outcome = { stopReason: "steered", steered: true };
+            resolveDelivery(outcome);
+            return outcome;
+          }
 
           if (result.stopReason === "end_turn") {
             void this.syncCloudBranchMetadata(commandSession.payload);
