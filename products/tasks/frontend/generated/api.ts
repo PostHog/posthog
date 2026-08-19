@@ -38,7 +38,6 @@ import type {
     PaginatedLoopDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
     PaginatedSandboxEnvironmentDTOListApi,
-    PaginatedTaskAutomationDTOListApi,
     PaginatedTaskDetailDTOListApi,
     PaginatedTaskMentionDTOListApi,
     PaginatedTaskRunDetailDTOListApi,
@@ -49,7 +48,6 @@ import type {
     PatchedLoopWriteApi,
     PatchedSandboxCustomImageUpdateApi,
     PatchedSandboxEnvironmentWriteApi,
-    PatchedTaskAutomationWriteApi,
     PatchedTaskRunSetOutputRequestApi,
     PatchedTaskRunUpdateApi,
     PatchedTaskWriteApi,
@@ -70,9 +68,6 @@ import type {
     TaskActivityMarkReadResponseApi,
     TaskActivityPageDTOApi,
     TaskArtifactsResponseApi,
-    TaskAutomationDTOApi,
-    TaskAutomationWriteApi,
-    TaskAutomationsListParams,
     TaskChannelsFeedListParams,
     TaskChannelsListParams,
     TaskCommentDetailApi,
@@ -718,127 +713,6 @@ export const taskActivityMarkReadCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskActivityMarkReadApi),
-    })
-}
-
-export const getTaskAutomationsListUrl = (projectId: string, params?: TaskAutomationsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/task_automations/?${stringifiedParams}`
-        : `/api/projects/${projectId}/task_automations/`
-}
-
-/**
- * API for managing scheduled task automations.
- */
-export const taskAutomationsList = async (
-    projectId: string,
-    params?: TaskAutomationsListParams,
-    options?: RequestInit
-): Promise<PaginatedTaskAutomationDTOListApi> => {
-    return apiMutator<PaginatedTaskAutomationDTOListApi>(getTaskAutomationsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTaskAutomationsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/task_automations/`
-}
-
-/**
- * API for managing scheduled task automations.
- */
-export const taskAutomationsCreate = async (
-    projectId: string,
-    taskAutomationWriteApi: TaskAutomationWriteApi,
-    options?: RequestInit
-): Promise<TaskAutomationDTOApi> => {
-    return apiMutator<TaskAutomationDTOApi>(getTaskAutomationsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskAutomationWriteApi),
-    })
-}
-
-export const getTaskAutomationsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/task_automations/${id}/`
-}
-
-/**
- * API for managing scheduled task automations.
- */
-export const taskAutomationsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<TaskAutomationDTOApi> => {
-    return apiMutator<TaskAutomationDTOApi>(getTaskAutomationsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTaskAutomationsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/task_automations/${id}/`
-}
-
-/**
- * API for managing scheduled task automations.
- */
-export const taskAutomationsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedTaskAutomationWriteApi?: PatchedTaskAutomationWriteApi,
-    options?: RequestInit
-): Promise<TaskAutomationDTOApi> => {
-    return apiMutator<TaskAutomationDTOApi>(getTaskAutomationsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTaskAutomationWriteApi),
-    })
-}
-
-export const getTaskAutomationsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/task_automations/${id}/`
-}
-
-/**
- * API for managing scheduled task automations.
- */
-export const taskAutomationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getTaskAutomationsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getTaskAutomationsRunCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/task_automations/${id}/run/`
-}
-
-/**
- * API for managing scheduled task automations.
- */
-export const taskAutomationsRunCreate = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<TaskAutomationDTOApi> => {
-    return apiMutator<TaskAutomationDTOApi>(getTaskAutomationsRunCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
     })
 }
 
