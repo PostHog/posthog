@@ -47,7 +47,7 @@ from posthog.permissions import APIScopePermission, get_authenticator_scoped_tea
 from posthog.rate_limit import CodeInviteThrottle, TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
-from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS, SANDBOX_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, TASK_AGENT_OAUTH_APP_CLIENT_IDS
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import render_png_export
@@ -313,7 +313,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not isinstance(authenticator, OAuthAccessTokenAuthentication):
             raise PermissionDenied("Task comments are available only to the current task agent.")
         application = authenticator.access_token.application
-        if application is None or application.client_id not in POSTHOG_CODE_OAUTH_APP_CLIENT_IDS:
+        if application is None or application.client_id not in TASK_AGENT_OAUTH_APP_CLIENT_IDS:
             raise PermissionDenied("Task comments are available only to the current task agent.")
         try:
             parsed_task_id = UUID(task_id)
