@@ -479,10 +479,14 @@ def finalize_report_canvas_generation(
                 attempt.canvas_id = generation.canvas_id
         attempt.save()
     if succeeded and publishing_enabled and notify_reviewers:
+        recipient_ids = _reviewer_user_ids(report)
+        acting_user_id = resolve_acting_user_id_for_team(team_id)
+        if acting_user_id is not None:
+            recipient_ids.add(acting_user_id)
         tasks_facade.record_task_activity_for_users(
             team_id=team_id,
             task_id=session.discussion_task_id,
-            user_ids=_reviewer_user_ids(report),
+            user_ids=recipient_ids,
             kind="completed",
         )
     return succeeded

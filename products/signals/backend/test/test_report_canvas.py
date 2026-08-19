@@ -361,7 +361,7 @@ class TestReportCanvasGeneration(APIBaseTest):
         assert session.collaboration_mode == expected_mode
 
     @parameterized.expand([(False,), (True,)])
-    def test_publication_controls_reviewer_notifications_and_canvas_link(self, publishing_enabled: bool) -> None:
+    def test_publication_notifies_the_generation_user_and_controls_canvas_link(self, publishing_enabled: bool) -> None:
         report = self._report()
         generation_task_id = uuid.uuid4()
         generation_run_id = uuid.uuid4()
@@ -415,7 +415,8 @@ class TestReportCanvasGeneration(APIBaseTest):
                 "products.signals.backend.report_canvas.report_canvas_publishing_enabled",
                 return_value=publishing_enabled,
             ),
-            patch("products.signals.backend.report_canvas._reviewer_user_ids", return_value={self.user.id}),
+            patch("products.signals.backend.report_canvas._reviewer_user_ids", return_value=set()),
+            patch("products.signals.backend.report_canvas.resolve_acting_user_id_for_team", return_value=self.user.id),
             patch("products.signals.backend.report_canvas.tasks_facade.record_task_activity_for_users") as notify,
         ):
             result = finalize_report_canvas_generation(
