@@ -95,8 +95,14 @@ class ProvisioningConfig(BaseModel):
         for "no override" and 0 for "unlimited"."""
         if not isinstance(value, dict):
             return {}
-        return {
-            str(key): (UNLIMITED_OVERRIDE if int(raw) <= 0 else int(raw))
-            for key, raw in value.items()
-            if raw is not None
-        }
+        limits: dict[str, int] = {}
+        for key, raw in value.items():
+            try:
+                parsed = int(raw)
+            except (TypeError, ValueError):
+                # Dropped like a null rather than raised: pydantic lets a TypeError out of a
+                # validator, and the config is re-parsed on every read, so one unreadable
+                # value would fail every request for that partner.
+                continue
+            limits[str(key)] = UNLIMITED_OVERRIDE if parsed <= 0 else parsed
+        return limits

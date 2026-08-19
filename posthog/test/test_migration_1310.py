@@ -25,16 +25,24 @@ class ProvisioningRateLimitOverridesMigrationTest(TestMigrations):
                 _provisioning_config=config,
             )
 
-        # Tier-sourced value cleared; the admin value on another endpoint survives.
+        # Tier-sourced: the persisted tier value goes, other keys are normalized while
+        # this row is being written anyway.
         self.tiered = create(
             "tiered",
             {
                 "active": True,
-                "rate_limits": {"account_requests": 100, "resource_creates": 5, "token_exchanges": None},
+                "rate_limits": {
+                    "account_requests": 100,
+                    "resource_creates": 5,
+                    "wizard_runs": 0,
+                    "token_exchanges": None,
+                },
                 "rate_limit_source": "default_verified",
             },
         )
-        # Admin-sourced value kept; legacy 0 becomes the -1 unlimited sentinel.
+        # Not tier-sourced, so the migration leaves it alone. 1274 wrote a config onto
+        # every OAuthApplication, so rewriting these rows would mean rewriting the table;
+        # the read-path validator normalizes them instead.
         self.admin_set = create(
             "admin_set",
             {
@@ -43,18 +51,17 @@ class ProvisioningRateLimitOverridesMigrationTest(TestMigrations):
                 "rate_limit_source": "admin",
             },
         )
-        # Legacy row with no source recorded is treated as admin and kept.
         self.legacy = create("legacy", {"active": True, "rate_limits": {"account_requests": 42}})
         self.untouched = create("untouched", {})
 
-    def test_tier_values_cleared_and_admin_overrides_normalized(self) -> None:
+    def test_only_tier_sourced_rows_are_rewritten(self) -> None:
         tiered = self.OAuthApplication.objects.get(pk=self.tiered.pk)._provisioning_config
-        assert tiered["rate_limits"] == {"resource_creates": 5}
+        assert tiered["rate_limits"] == {"resource_creates": 5, "wizard_runs": -1}
         assert "rate_limit_source" not in tiered
 
         admin_set = self.OAuthApplication.objects.get(pk=self.admin_set.pk)._provisioning_config
-        assert admin_set["rate_limits"] == {"account_requests": 250, "wizard_runs": -1}
-        assert "rate_limit_source" not in admin_set
+        assert admin_set["rate_limits"] == {"account_requests": 250, "wizard_runs": 0}
+        assert admin_set["rate_limit_source"] == "admin"
 
         legacy = self.OAuthApplication.objects.get(pk=self.legacy.pk)._provisioning_config
         assert legacy["rate_limits"] == {"account_requests": 42}
