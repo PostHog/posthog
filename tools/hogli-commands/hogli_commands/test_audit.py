@@ -29,6 +29,7 @@ import json
 import hashlib
 import subprocess
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 import click
@@ -43,6 +44,19 @@ MIN_CLUSTER_SIZE = 3
 
 NODEID_RE = re.compile(r"^[\w./-]+\.py::")
 DEF_TEST_RE = re.compile(rb"^\s*(async )?def test_")
+
+
+@dataclass(frozen=True, kw_only=True)
+class _GrowthRow:
+    month: str
+    defs: int
+    files: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class _DupeCluster:
+    members: list[str]  # nodeids
+    seconds: float
 
 
 def _root() -> Path:
@@ -72,7 +86,7 @@ def _count_defs(root: Path) -> int:
     return total
 
 
-def _growth_rows(root: Path, top: int) -> list[tuple[str, int, int]]:
+def _growth_rows(root: Path, top: int) -> list[_GrowthRow]:
     """(month, def count, file count) sampled at the first commit of each month."""
     months = _sh("git", "log", "--reverse", "--format=%ad", "--date=format:%Y-%m", cwd=root).splitlines()
     months = sorted(set(months))
@@ -93,7 +107,7 @@ def _growth_rows(root: Path, top: int) -> list[tuple[str, int, int]]:
             for f in _sh("git", "ls-tree", "-r", "--name-only", sha, cwd=root).splitlines()
             if f.endswith(".py") and (f.split("/")[-1].startswith("test_") or f.endswith("_test.py"))
         )
-        rows.append((month, defs, files))
+        rows.append(_GrowthRow(month=month, defs=defs, files=files))
     return rows[-top:]
 
 
@@ -139,12 +153,12 @@ def _body_hash(func: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[str, int]:
     for child in ast.walk(func):
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child is not func:
             statements += len(child.body)
-    return hashlib.sha1(ast.dump(func).encode()).hexdigest(), statements
+    return hashlib.sha256(ast.dump(func).encode()).hexdigest(), statements
 
 
-def _dupes(root: Path, durations: dict[str, float]) -> list[tuple[list[tuple[str, str, str]], float]]:
-    """Cluster tests by normalized body hash -> (members, est seconds)."""
-    clusters: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+def _dupes(root: Path, durations: dict[str, float]) -> list[_DupeCluster]:
+    """Cluster tests by normalized body hash."""
+    clusters: dict[str, list[str]] = defaultdict(list)
 
     def visit(node: ast.AST, path: str, qualname: str) -> None:
         for child in ast.iter_child_nodes(node):
@@ -153,8 +167,9 @@ def _dupes(root: Path, durations: dict[str, float]) -> list[tuple[list[tuple[str
                 if name.startswith("test_"):
                     h, size = _body_hash(child)
                     if size >= MIN_BODY_STATEMENTS:
-                        clusters[h].append((path, qualname, name))
-                visit(child, path, f"{qualname}::{child.name}" if qualname else child.name)
+                        nodeid = f"{path}::{qualname}::{name}" if qualname else f"{path}::{name}"
+                        clusters[h].append(nodeid)
+                visit(child, path, f"{qualname}::{name}" if qualname else name)
             elif isinstance(child, ast.ClassDef):
                 visit(child, path, f"{qualname}::{child.name}" if qualname else child.name)
 
@@ -169,12 +184,9 @@ def _dupes(root: Path, durations: dict[str, float]) -> list[tuple[list[tuple[str
     for members in clusters.values():
         if len(members) < MIN_CLUSTER_SIZE:
             continue
-        seconds = sum(
-            durations.get(f"{f}::{cls}::{name}", 0.0) if cls else durations.get(f"{f}::{name}", 0.0)
-            for f, cls, name in members
-        )
-        out.append((members, seconds))
-    out.sort(key=lambda row: (-row[1], -len(row[0])))
+        seconds = sum(durations.get(nodeid, 0.0) for nodeid in members)
+        out.append(_DupeCluster(members=members, seconds=seconds))
+    out.sort(key=lambda cluster: (-cluster.seconds, -len(cluster.members)))
     return out
 
 
@@ -225,9 +237,9 @@ def test_audit(do_collect: bool, top: int, dupes: bool, growth: bool, output: Pa
                 "",
                 "| Month | Test functions | Test files |",
                 "| --- | ---: | ---: |",
-                *[f"| {m} | {d:,} | {f:,} |" for m, d, f in rows],
+                *[f"| {row.month} | {row.defs:,} | {row.files:,} |" for row in rows],
                 "",
-                f"Net change {first[0]} to {last[0]}: **+{last[1] - first[1]:,} functions**.",
+                f"Net change {first.month} to {last.month}: **+{last.defs - first.defs:,} functions**.",
                 "",
             ]
         else:
@@ -317,8 +329,8 @@ def test_audit(do_collect: bool, top: int, dupes: bool, growth: bool, output: Pa
     if dupes:
         lines += ["## Duplicate-shape tests", ""]
         clusters = _dupes(root, durations)
-        in_clusters = sum(len(m) for m, _ in clusters)
-        est = sum(s for _, s in clusters)
+        in_clusters = sum(len(c.members) for c in clusters)
+        est = sum(c.seconds for c in clusters)
         lines += [
             f"Tests in clusters of {MIN_CLUSTER_SIZE}+ with identical bodies (modulo names and literals): "
             f"**{in_clusters:,}** in **{len(clusters):,}** clusters"
@@ -330,10 +342,8 @@ def test_audit(do_collect: bool, top: int, dupes: bool, growth: bool, output: Pa
             "| Cluster size | Est. seconds | Example |",
             "| ---: | ---: | --- |",
         ]
-        for members, seconds in clusters[:top]:
-            f, cls, name = members[0]
-            example = f"{f}::{cls}::{name}" if cls else f"{f}::{name}"
-            lines.append(f"| {len(members)} | {seconds:,.1f} | `{example}` |")
+        for cluster in clusters[:top]:
+            lines.append(f"| {len(cluster.members)} | {cluster.seconds:,.1f} | `{cluster.members[0]}` |")
         lines.append("")
 
     report = "\n".join(lines)

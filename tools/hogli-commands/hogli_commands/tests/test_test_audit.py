@@ -58,9 +58,8 @@ def test_dupes_clusters_across_files_and_skips_tiny_bodies(tmp_path: Path) -> No
         clusters = test_audit._dupes(tmp_path, {})
 
     assert len(clusters) == 1
-    members, _ = clusters[0]
-    assert len(members) == 3
-    assert all("test_tiny.py" not in path for path, _, _ in members)
+    assert len(clusters[0].members) == 3
+    assert all("test_tiny.py" not in nodeid for nodeid in clusters[0].members)
 
 
 def test_dupes_estimates_seconds_from_durations(tmp_path: Path) -> None:
@@ -75,4 +74,4 @@ def test_dupes_estimates_seconds_from_durations(tmp_path: Path) -> None:
     with patch.object(test_audit, "_test_files", return_value=[f"pkg/test_copy_{i}.py" for i in range(3)]):
         clusters = test_audit._dupes(tmp_path, durations)
 
-    assert clusters[0][1] == 12.0
+    assert clusters[0].seconds == 12.0
