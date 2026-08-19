@@ -72,6 +72,20 @@ describe('router-utils', () => {
         })
     })
 
+    describe('project id from the current URL', () => {
+        afterEach(() => {
+            window.history.replaceState({}, '', '/')
+        })
+        it('prefixes a relative path with the project in the current URL, not the app context', () => {
+            window.history.replaceState({}, '', '/project/456/persons')
+            expect(addProjectIdIfMissing('/person/abc')).toEqual('/project/456/person/abc')
+        })
+        it('prefers an explicit team id over the project in the current URL', () => {
+            window.history.replaceState({}, '', '/project/456/persons')
+            expect(addProjectIdIfMissing('/person/abc', 123)).toEqual('/project/123/person/abc')
+        })
+    })
+
     describe('ensureRoutablePathname', () => {
         // kea-router runs decodeURI(pathname) while matching; a stray `%` used to throw URIError
         // and crash routing before any scene loaded. Whatever we return must be decodeURI-safe.

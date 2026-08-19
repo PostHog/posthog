@@ -45,6 +45,17 @@ function normalizeRelativePath(path: string): string {
     return normalized.startsWith('/') ? normalized : `/${normalized}`
 }
 
+// The project the person is looking at right now, taken from the URL. This is more
+// reliable than the booted app context, which still holds the default project after a
+// direct link into another project — a mismatch that sends relative links to the wrong one.
+function getProjectIdFromCurrentUrl(): string | undefined {
+    const pathname = window.location.pathname
+    if (!pathname.match(projectIdentifierInUrlRegex)) {
+        return undefined
+    }
+    return pathname.split('/')[2] || undefined
+}
+
 function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): string {
     if (path.match(projectIdentifierInUrlRegex)) {
         return path
@@ -56,7 +67,7 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
 
     let prefix = ''
     try {
-        prefix = `/project/${teamId ?? getCurrentTeamId()}`
+        prefix = `/project/${teamId ?? getProjectIdFromCurrentUrl() ?? getCurrentTeamId()}`
         if (path == '/') {
             return prefix
         }

@@ -130,6 +130,7 @@ export interface personsLogicValues {
     person: PersonType | null
     personError: string | null
     personLoading: boolean
+    personRequested: boolean
     persons: CountedPaginatedResponse<PersonType> & {
         offset: number
     }
@@ -535,6 +536,15 @@ export const personsLogic = kea<personsLogicType>([
                 loadPersonUUID: () => null,
                 loadPersonFailure: (_, { error }) => error,
                 loadPersonUUIDFailure: (_, { error }) => error,
+            },
+        ],
+        // Tracks whether a person load has ever started, so the scene can tell
+        // "not requested yet" apart from "loaded and does not exist".
+        personRequested: [
+            false,
+            {
+                loadPerson: () => true,
+                loadPersonUUID: () => true,
             },
         ],
         distinctId: [

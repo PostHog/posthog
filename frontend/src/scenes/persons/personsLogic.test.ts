@@ -145,6 +145,22 @@ describe('personsLogic', () => {
         })
     })
 
+    describe('personRequested', () => {
+        // The scene shows "not found" only once a load has finished and come back empty.
+        // personRequested lets it tell "not requested yet" apart from "loaded and missing".
+        it('is false before any load starts', async () => {
+            await expectLogic(logic).toMatchValues({ personRequested: false })
+        })
+
+        it('turns true once a load has started', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadPerson('abc')
+            })
+                .toDispatchActions(['loadPerson'])
+                .toMatchValues({ personRequested: true })
+        })
+    })
+
     describe('loadPersonUUID error handling', () => {
         it('surfaces a genuine load failure as personError', async () => {
             silenceKeaLoadersErrors()

@@ -1,4 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 import { memo } from 'react'
 
 import { IconChevronDown, IconCopy, IconInfo, IconRefresh, IconTrash } from '@posthog/icons'
@@ -200,6 +201,7 @@ export function PersonScene(): JSX.Element | null {
         feedEnabled,
         person,
         personLoading,
+        personRequested,
         personError,
         currentTab,
         splitMergeModalShown,
@@ -212,7 +214,6 @@ export function PersonScene(): JSX.Element | null {
         surveyResponsesQuery,
     } = useValues(mountedPersonsLogic)
     const {
-        loadPersons,
         editProperty,
         deleteProperty,
         navigateToTab,
@@ -251,7 +252,12 @@ export function PersonScene(): JSX.Element | null {
         )
     }
     if (!person) {
-        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
+        // Only claim the person does not exist once a load has finished and come back empty.
+        // Before the load starts or while it runs, keep showing the spinner.
+        if (personRequested && !personLoading) {
+            return <NotFound object="person" meta={{ urlId }} />
+        }
+        return <SpinnerOverlay sceneLevel />
     }
 
     return (
@@ -285,7 +291,7 @@ export function PersonScene(): JSX.Element | null {
                             size="small"
                         />
                         <LemonButton
-                            onClick={() => showPersonDeleteModal(person, () => loadPersons())}
+                            onClick={() => showPersonDeleteModal(person, () => router.actions.push(urls.persons()))}
                             disabled={deletedPersonLoading}
                             loading={deletedPersonLoading}
                             type="secondary"
