@@ -120,6 +120,7 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
     tiles=DashboardTile.objects,
 )
 
+# A delivery keeps the results it rendered, so a soft-deleted target still restricts it.
 _DELIVERY_TARGETS = _TargetLookups(
     insight="subscription__insight_id__in",
     dashboard="subscription__dashboard_id__in",
