@@ -77,7 +77,8 @@ export default function Canvas() {
   }, [win, nonce])
 
   return (
-    <div className="flex flex-col gap-4 p-6">
+    // The canvas root must resolve height against the iframe viewport.
+    <div className="flex h-screen flex-col gap-4 overflow-y-auto p-6">
       <div className="flex items-center justify-between">
         <Heading size="xl" className="mb-4">
           Canvas
