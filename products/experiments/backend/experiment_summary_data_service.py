@@ -33,6 +33,7 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARIZE, ExperimentSummaryData
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -54,7 +55,6 @@ class ExposureQueryResult:
     pending: bool
 
 
-MAX_METRICS_TO_SUMMARIZE = 50
 MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES = 10
 
 # This threshold is just to avoid minor discrepancies in timestamps.
@@ -138,18 +138,25 @@ def is_incomplete_response(result: Any) -> TypeIs[CacheMissResponse | QueryStatu
     return isinstance(result, (CacheMissResponse, QueryStatusResponse))
 
 
+def order_metrics_by_uuid(metrics: list[dict], ordered_uuids: list | None) -> list[dict]:
+    """
+    Apply the UI's display order so metric numbering in the AI summary matches the
+    metrics list in the app. Metrics missing from the ordering keep their relative
+    position at the end.
+    """
+    if not ordered_uuids:
+        return metrics
+    position = {uuid: index for index, uuid in enumerate(ordered_uuids)}
+    return sorted(metrics, key=lambda metric: position.get(metric.get("uuid"), len(position)))
+
+
 class ExperimentSummaryDataService:
     def __init__(self, team, user):
         self._team = team
         self._user = user
 
-    async def fetch_experiment_data(
-        self, experiment_id: int
-    ) -> tuple[MaxExperimentSummaryContext, datetime | None, bool]:
-        """
-        Fetch experiment data from the database and run cached queries concurrently.
-        Returns the context data, the last refresh timestamp, and whether any calculation is pending.
-        """
+    async def fetch_experiment_data(self, experiment_id: int) -> ExperimentSummaryData:
+        """Fetch experiment data from the database and run cached queries concurrently."""
         team_id = self._team.id
 
         # First, fetch the experiment (required to build queries)
@@ -245,7 +252,7 @@ class ExperimentSummaryDataService:
                     exposure_query = ExperimentExposureQuery(
                         experiment_id=experiment_id,
                         experiment_name=experiment.name,
-                        feature_flag=feature_flag.filters,
+                        feature_flag={"key": feature_flag.key, "filters": feature_flag.filters},
                         start_date=experiment.start_date.isoformat() if experiment.start_date else None,
                         end_date=experiment.end_date.isoformat() if experiment.end_date else None,
                         exposure_criteria=experiment.exposure_criteria,
@@ -303,6 +310,13 @@ class ExperimentSummaryDataService:
                 primary_metrics.append(query)
             else:
                 secondary_metrics.append(query)
+
+        primary_metrics = order_metrics_by_uuid(primary_metrics, experiment.primary_metrics_ordered_uuids)
+        secondary_metrics = order_metrics_by_uuid(secondary_metrics, experiment.secondary_metrics_ordered_uuids)
+
+        omitted_metric_count = max(0, len(primary_metrics) - MAX_METRICS_TO_SUMMARIZE) + max(
+            0, len(secondary_metrics) - MAX_METRICS_TO_SUMMARIZE
+        )
 
         primary_metric_tasks = [
             run_metric_query_async(metric, i) for i, metric in enumerate(primary_metrics[:MAX_METRICS_TO_SUMMARIZE])
@@ -369,8 +383,8 @@ class ExperimentSummaryDataService:
             ):
                 latest_refresh = exposure_query_result.refresh_time
 
-        return (
-            MaxExperimentSummaryContext(
+        return ExperimentSummaryData(
+            context=MaxExperimentSummaryContext(
                 experiment_id=experiment_id,
                 experiment_name=experiment.name or "Unnamed experiment",
                 description=experiment.description or None,
@@ -380,8 +394,9 @@ class ExperimentSummaryDataService:
                 secondary_metrics_results=secondary_results,
                 stats_method=stats_method,
             ),
-            latest_refresh,
-            pending_calculation,
+            last_refresh=latest_refresh,
+            pending_calculation=pending_calculation,
+            omitted_metric_count=omitted_metric_count,
         )
 
     def check_data_freshness(

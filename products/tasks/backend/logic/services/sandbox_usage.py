@@ -146,6 +146,27 @@ def open_sandbox_session(
             raise
 
 
+def _elapsed_seconds(start: datetime | None, end: datetime) -> float | None:
+    return None if start is None else round((end - start).total_seconds(), 1)
+
+
+def _capture_sandbox_session_closed(
+    task_run: TaskRun, sandbox_session: SandboxSession, *, reason: str, ended_at: datetime
+) -> None:
+    task_run.capture_event(
+        "sandbox_session_closed",
+        {
+            "sandbox_id": sandbox_session.sandbox_id,
+            "ended_reason": reason,
+            "runtime_seconds": _elapsed_seconds(sandbox_session.created_at, ended_at),
+            "attributed_seconds": _elapsed_seconds(sandbox_session.user_attributed_at, ended_at),
+            "idle_seconds": _elapsed_seconds(sandbox_session.last_user_activity_at, ended_at),
+            "prewarmed": sandbox_session.prewarmed,
+            "vm_runtime": sandbox_session.vm_runtime,
+        },
+    )
+
+
 @_best_effort
 def close_sandbox_session(
     sandbox_id: str,
@@ -161,15 +182,22 @@ def close_sandbox_session(
     if sandbox_session is None:
         return
     with transaction.atomic():
-        TaskRun.objects.select_for_update().get(id=sandbox_session.task_run_id)
-        updates: dict[str, object] = {"ended_at": timezone.now(), "ended_reason": reason}
+        task_run = TaskRun.objects.select_for_update().get(id=sandbox_session.task_run_id)
+        ended_at = timezone.now()
+        updates: dict[str, object] = {"ended_at": ended_at, "ended_reason": reason}
         if cpu_usage_usec is not None:
             updates["provider_cpu_usage_usec"] = cpu_usage_usec
             updates["provider_usage_measured_at"] = cpu_usage_measured_at or timezone.now()
-        SandboxSession.objects.unscoped().filter(
-            id=sandbox_session.id,
-            ended_at__isnull=True,
-        ).update(**updates)
+        stamped = (
+            SandboxSession.objects.unscoped()
+            .filter(
+                id=sandbox_session.id,
+                ended_at__isnull=True,
+            )
+            .update(**updates)
+        )
+    if stamped:
+        _capture_sandbox_session_closed(task_run, sandbox_session, reason=reason, ended_at=ended_at)
 
 
 @_best_effort

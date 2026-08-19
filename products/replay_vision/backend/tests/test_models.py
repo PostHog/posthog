@@ -138,7 +138,10 @@ class TestReplayScanner(BaseTest):
         # Without the reset, a re-enabled scanner backfills every session since it was disabled.
         stale = timezone.now() - timedelta(days=21)
         scanner = self._create_scanner(
-            enabled=False, last_swept_at=stale, last_seen_session_id="sess-tie", last_deep_swept_at=stale
+            enabled=False,
+            last_swept_at=stale,
+            last_seen_session_id="sess-tie",
+            deep_swept_through=stale,
         )
         scanner.enabled = True
         scanner.save(update_fields=update_fields)
@@ -146,7 +149,7 @@ class TestReplayScanner(BaseTest):
         self.assertGreater(scanner.last_swept_at, timezone.now() - timedelta(hours=1))
         self.assertEqual(scanner.last_seen_session_id, "")
         # The deep pass sweeps from here to last_swept_at, so a stale value would cover the whole gap.
-        self.assertEqual(scanner.last_deep_swept_at, scanner.last_swept_at)
+        self.assertEqual(scanner.deep_swept_through, scanner.last_swept_at)
 
     @parameterized.expand(
         [
@@ -162,7 +165,7 @@ class TestReplayScanner(BaseTest):
             enabled=enabled_before,
             last_swept_at=stale,
             last_seen_session_id="sess-tie",
-            last_deep_swept_at=stale,
+            deep_swept_through=stale,
         )
         scanner.enabled = enabled_after
         scanner.description = "touched"
@@ -170,7 +173,7 @@ class TestReplayScanner(BaseTest):
         scanner.refresh_from_db()
         self.assertEqual(scanner.last_swept_at, stale)
         self.assertEqual(scanner.last_seen_session_id, "sess-tie")
-        self.assertEqual(scanner.last_deep_swept_at, stale)
+        self.assertEqual(scanner.deep_swept_through, stale)
 
     def test_full_save_does_not_clobber_sweep_owned_columns(self) -> None:
         # A concurrent sweep stamps these via targeted updates; a full save from a stale

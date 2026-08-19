@@ -54,6 +54,7 @@ from products.replay_vision.backend.tests.helpers import (
     seed_scanner_spend,
     snapshot_for as _snapshot_for,
 )
+from products.signals.backend.facade.api import SignalSourceSliceOutcomes
 from products.signals.backend.models import SignalSourceConfig
 
 
@@ -3531,3 +3532,28 @@ class TestInlineScanAction(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.content)
         self.assertFalse(ReplayScanner.all_origins.filter(origin=ScannerOrigin.INLINE).exists())
         start_workflow.assert_not_called()
+
+
+class TestScannerSelfDrivingStatsAPI(_VisionAPITestCase):
+    def test_returns_the_scanners_signal_outcomes(self) -> None:
+        # Wiring guard: the endpoint must query the signals facade for this scanner's slice and
+        # serialize the outcome counts; a dropped extra filter would return team-wide numbers.
+        scanner = self._create_scanner()
+        outcomes = SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=1, merged_pr_count=1)
+        with patch(
+            "products.replay_vision.backend.api.scanners.get_outcomes_for_signal_source_slice",
+            return_value=outcomes,
+        ) as mock_outcomes:
+            response = self.client.get(f"{self.scanners_url}{scanner.id}/self_driving_stats/")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "signals_emitted": 5,
+            "reports_contributed": 2,
+            "prs_opened": 1,
+            "prs_merged": 1,
+        }
+        kwargs = mock_outcomes.call_args.kwargs
+        assert kwargs["source_product"] == "replay_vision"
+        assert kwargs["source_type"] == "scanner_finding"
+        assert kwargs["extra_equals"] == {"scanner_id": str(scanner.id)}
