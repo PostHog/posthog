@@ -75,11 +75,15 @@ describe("feedQuery", () => {
     });
 
     it("maps aliases onto canonical keys", () => {
-      const parsed = parseFeedQuery("author:shy channel:mobile repository:web");
+      const parsed = parseFeedQuery(
+        "author:shy channel:mobile repository:web commenter:shy mentioned:shy",
+      );
       expect(parsed.tokens.map((t) => t.key)).toEqual([
         "created-by",
         "space",
         "repo",
+        "commented-by",
+        "mentions",
       ]);
     });
 
@@ -357,6 +361,102 @@ describe("feedQuery", () => {
       expect(plan.issues.map((i) => i.kind)).toEqual(["unknown-value"]);
     });
 
+    it.each([
+      ["origin:desktop", "user_created"],
+      ["origin:scout", "signals_scout"],
+      ["origin:ai", "posthog_ai"],
+      ["origin:slack", "slack"],
+      ["origin:hogdesk", "hogdesk"],
+    ])("aliases %s onto the origin enum", (query, expected) => {
+      const plan = planFeedQuery(parseFeedQuery(query), context);
+      expect(plan.requests).toEqual([{ originProduct: expected }]);
+    });
+
+    it("aliases origins inside OR groups and negations", () => {
+      const plan = planFeedQuery(
+        parseFeedQuery("origin:scout origin:desktop"),
+        context,
+      );
+      expect(plan.requests).toEqual([
+        { originProduct: "signals_scout" },
+        { originProduct: "user_created" },
+      ]);
+      expect(plan.matches(task({ origin_product: "signals_scout" }))).toBe(
+        true,
+      );
+      expect(plan.matches(task({ origin_product: "slack" }))).toBe(false);
+
+      const negated = planFeedQuery(parseFeedQuery("-origin:scout"), context);
+      expect(negated.matches(task({ origin_product: "signals_scout" }))).toBe(
+        false,
+      );
+      expect(negated.matches(task({ origin_product: "slack" }))).toBe(true);
+    });
+
+    it("compiles is:pinned into the pinned request param", () => {
+      const plan = planFeedQuery(parseFeedQuery("is:pinned"), context);
+      expect(plan.requests).toEqual([{ pinned: true }]);
+    });
+
+    it("flags -is:pinned as unsupported instead of silently ignoring it", () => {
+      const plan = planFeedQuery(parseFeedQuery("-is:pinned"), context);
+      expect(plan.requests).toEqual([{}]);
+      expect(plan.issues.map((i) => i.kind)).toEqual(["unsupported"]);
+    });
+
+    it.each([
+      ["commented-by:shy", { commentedBy: shy.id }],
+      ["mentions:@me", { mentions: shy.id }],
+    ])("compiles %s into a server param", (query, expected) => {
+      const plan = planFeedQuery(parseFeedQuery(query), context);
+      expect(plan.requests).toEqual([expected]);
+      expect(plan.issues).toEqual([]);
+    });
+
+    it("fans repeated commented-by out into one request per person", () => {
+      const plan = planFeedQuery(
+        parseFeedQuery("commented-by:shy commented-by:moshe"),
+        context,
+      );
+      expect(plan.requests).toEqual([
+        { commentedBy: shy.id },
+        { commentedBy: moshe.id },
+      ]);
+    });
+
+    it("spells involves as one request per leg", () => {
+      const plan = planFeedQuery(parseFeedQuery("involves:shy"), context);
+      expect(plan.requests).toEqual([
+        { createdBy: shy.id },
+        { commentedBy: shy.id },
+      ]);
+    });
+
+    it("reports involves combined with created-by instead of widening", () => {
+      const plan = planFeedQuery(
+        parseFeedQuery("created-by:moshe involves:shy"),
+        context,
+      );
+      expect(plan.requests).toEqual([{ createdBy: moshe.id }]);
+      expect(plan.issues.map((i) => i.kind)).toEqual(["unsupported"]);
+    });
+
+    it("flags a negated comment filter instead of silently ignoring it", () => {
+      const plan = planFeedQuery(parseFeedQuery("-commented-by:shy"), context);
+      expect(plan.requests).toEqual([{}]);
+      expect(plan.matches(task())).toBe(true);
+      expect(plan.issues.map((i) => i.kind)).toEqual(["unsupported"]);
+    });
+
+    it("matches nothing when a comment filter names nobody", () => {
+      const plan = planFeedQuery(
+        parseFeedQuery("commented-by:nobody"),
+        context,
+      );
+      expect(plan.matches(task())).toBe(false);
+      expect(plan.issues.some((i) => i.message.includes("nobody"))).toBe(true);
+    });
+
     it("reports an unresolved teammate and matches nothing", () => {
       const plan = planFeedQuery(parseFeedQuery("created-by:nobody"), context);
       expect(plan.issues.some((i) => i.message.includes("nobody"))).toBe(true);
@@ -379,6 +479,10 @@ describe("feedQuery", () => {
       ["repo:webapp pr:none", "Tasks in webapp without a PR"],
       ["is:running is:failed", "Running or failed tasks"],
       ["billing", "Billing tasks"],
+      ["is:pinned", "Pinned tasks"],
+      ["mentions:@me", "Tasks mentioning me"],
+      ["involves:shy status:failed", "Failed tasks involving Shy"],
+      ["commented-by:adam", "Tasks commented on by Adam"],
       ["", ""],
     ])("suggests a name for %j", (query, expected) => {
       expect(suggestFeedName(query)).toBe(expected);

@@ -21,6 +21,7 @@ import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { getOriginProductMeta } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
 import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { type ReactNode, useMemo } from "react";
 
@@ -109,7 +110,7 @@ const KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
   {
     insert: "origin:",
     label: "origin:",
-    hint: "product that created the task",
+    hint: "slack, scout, desktop, ai…",
     icon: keyIcon(<AppWindowIcon size={14} />),
   },
   {
@@ -142,6 +143,32 @@ const TYPE_VALUES: FeedQuerySuggestion[] = [
 ].map((s) => ({ ...s, icon: keyIcon(<SquaresFourIcon size={14} />) }));
 
 const IS_VALUES = ["archived", "pinned", "running", "done", "failed"];
+
+// The backend's `Task.OriginProduct` enum, most-reached-for first. Hints
+// carry the branded label where the sidebar has one (`getOriginProductMeta`)
+// so the same origin reads the same everywhere; the rest are spelled out
+// here. `origin:desktop`, `origin:scout`, … alias onto these in the planner.
+const ORIGIN_VALUES: { value: string; fallbackHint: string }[] = [
+  { value: "user_created", fallbackHint: "you, from desktop or the app" },
+  { value: "slack", fallbackHint: "Slack" },
+  { value: "signals_scout", fallbackHint: "Signals scout" },
+  { value: "posthog_ai", fallbackHint: "PostHog AI" },
+  { value: "signal_report", fallbackHint: "Signals" },
+  { value: "error_tracking", fallbackHint: "Error tracking" },
+  { value: "session_summaries", fallbackHint: "Session summary" },
+  { value: "loop", fallbackHint: "Loops" },
+  { value: "automation", fallbackHint: "Automation" },
+  { value: "review_hog", fallbackHint: "ReviewHog" },
+  { value: "support_queue", fallbackHint: "Support" },
+  { value: "support_reply", fallbackHint: "Support reply" },
+  { value: "eval_clusters", fallbackHint: "Evals" },
+  { value: "experiments", fallbackHint: "Experiments" },
+  { value: "onboarding", fallbackHint: "Onboarding" },
+  { value: "hogdesk", fallbackHint: "HogDesk" },
+  { value: "mcp_analytics", fallbackHint: "MCP analytics" },
+  { value: "signals_chat", fallbackHint: "Signals chat" },
+  { value: "image_builder", fallbackHint: "Image builder" },
+];
 
 const PR_SUGGESTIONS: FeedQuerySuggestion[] = [
   {
@@ -394,6 +421,30 @@ export function useFeedQuerySuggestions(
               icon: keyIcon(<PackageIcon size={14} />),
             })),
         };
+      case "origin": {
+        const needle = activeValue.toLowerCase();
+        return {
+          heading: "Origin",
+          items: ORIGIN_VALUES.filter(({ value: v, fallbackHint }) => {
+            const hint = getOriginProductMeta(v)?.label ?? fallbackHint;
+            return (
+              v.startsWith(needle) || hint.toLowerCase().startsWith(needle)
+            );
+          })
+            .slice(0, 8)
+            .map(({ value: v, fallbackHint }) => {
+              const meta = getOriginProductMeta(v);
+              return {
+                insert: v,
+                label: v,
+                hint: meta?.label ?? fallbackHint,
+                icon: meta
+                  ? keyIcon(<meta.Icon size={14} />)
+                  : keyIcon(<AppWindowIcon size={14} />),
+              };
+            }),
+        };
+      }
       case "status":
         return {
           heading: "Run status",

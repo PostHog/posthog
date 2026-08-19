@@ -120,6 +120,24 @@ const CI_ALIASES: Record<string, string> = {
   green: "passing",
 };
 
+/**
+ * The words people reach for onto the backend's `origin_product` enum
+ * (`Task.OriginProduct`): a desktop-created task is stored as user_created,
+ * a scout's as signals_scout. Unknown origins pass through untouched — the
+ * enum grows server-side and an unaliased value still filters exactly.
+ */
+export const ORIGIN_ALIASES: Record<string, string> = {
+  desktop: "user_created",
+  user: "user_created",
+  scout: "signals_scout",
+  signals: "signal_report",
+  ai: "posthog_ai",
+  max: "posthog_ai",
+  errors: "error_tracking",
+  support: "support_queue",
+  replay: "session_summaries",
+};
+
 export interface FeedQueryToken {
   /** The chunk as typed, for chips and error messages. */
   raw: string;
@@ -865,9 +883,13 @@ export function planFeedQuery(
     }
   }
 
+  const originValue = (token: FeedQueryToken): string => {
+    const value = normalize(token.value);
+    return ORIGIN_ALIASES[value] ?? value;
+  };
   const origin = groups.get("origin");
   if (origin) {
-    const values = new Set(origin.positives.map((t) => normalize(t.value)));
+    const values = new Set(origin.positives.map(originValue));
     if (origin.negatives.length === 0 && values.size === 1) {
       server.originProduct = [...values][0];
     } else {
@@ -885,9 +907,7 @@ export function planFeedQuery(
         );
       }
       if (origin.negatives.length > 0) {
-        const negated = new Set(
-          origin.negatives.map((t) => normalize(t.value)),
-        );
+        const negated = new Set(origin.negatives.map(originValue));
         predicates.push(
           (task) =>
             !task.origin_product ||
