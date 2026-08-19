@@ -139,6 +139,7 @@ export function TaskFeedModal({
                 {counting ? (
                   <Spinner className="size-3" />
                 ) : (
+                  trimmedQuery !== "" &&
                   previewQuery !== "" &&
                   (preview.tasks.length === 1
                     ? "1 task matches"
