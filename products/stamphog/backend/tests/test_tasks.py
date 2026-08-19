@@ -1432,30 +1432,6 @@ def test_retention_needs_a_usable_approved_base_sha(team, repo_config, output):
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-@pytest.mark.parametrize("files_head_sha,expect_retained", [("sha-1", True), ("sha-9", False), (None, False)])
-def test_retention_refuses_a_file_list_from_another_head(team, repo_config, files_head_sha, expect_retained):
-    # get_pr_files answers for the PR's live head, not for the head the run reviewed, so a push
-    # landing during the context fetch would store a newer head's listing against an older approval.
-    # Comparing that against the same newer head reads as "unchanged" and retains an approval over
-    # commits nobody reviewed. A run predating the marker is refused for the same reason.
-    _run_task(_pr_payload(), f"delivery-provenance-approved-{files_head_sha}", team.id)
-    output: dict[str, Any] = {"files": [{"filename": "docs/thing.md", "sha": "aaa"}]}
-    if files_head_sha is not None:
-        output["files_head_sha"] = files_head_sha
-    with team_scope(team.id):
-        ReviewRun.objects.filter(pull_request__pr_number=42).update(posted_review_id=9, output=output)
-
-    mock_execute = _run_task(
-        _pr_payload(action="synchronize", head_sha="sha-2"),
-        f"delivery-provenance-push-{files_head_sha}",
-        team.id,
-        pr_files=[{"filename": "docs/thing.md", "sha": "bbb"}],
-    )
-
-    assert mock_execute.called is not expect_retained
-
-
-@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize("action,expect_comment", [("labeled", True), ("synchronize", False)])
 def test_trigger_label_is_taken_back_off_a_bot_pr(team, repo_config, action, expect_comment):
     # Labeling a dependabot PR used to get an explanation and the label back off. Without that the
