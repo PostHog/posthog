@@ -85,6 +85,11 @@ _TRANSIENT_ERROR_SNIPPETS = (
     "reduce your request rate",  # S3 503 SlowDown surfaced by the delta kernel as OSError
     "error occurred while loading credentials",  # IMDS/credential-provider timeout inside the kernel
     "event loop is closed",  # s3fs client bound to an already-completed async_to_sync loop
+    # S3 NoSuchKey from an s3fs purge/swap op (`_copy`/`_rm`/`_find`) that raced a concurrent delete —
+    # a temp file swept by another attempt, not a bug. A hollow *live* table surfaces the missing file
+    # with its path embedded and is routed to a revive inside `repartition_table_in_place` before it
+    # ever reaches here, so this bare, pathless variant only ever means a raced object-store operation.
+    "the specified key does not exist",
 )
 
 
@@ -257,7 +262,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
 
     # Log the rollout-flag verdict (and the recorded/budget sizes) so it's clear from the Syncs UI why a
     # table does or doesn't repartition — a disabled flag is the most common reason for a no-op. Note
-    # `max_partition_bytes` here is the last *recorded* value (can be stale); the gate no longer trusts
+    # `max_partition_bytes` here is the last *recorded* value (can be stale); the gate does not trust
     # it, the live size is read below. Evaluate the flag once and thread the result into the
     # pre-extraction detection path so it isn't re-evaluated inside maybe_flag_for_repartition.
     enabled = is_auto_repartition_enabled(schema)
@@ -376,13 +381,14 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 deadline=_rewrite_deadline(),
             )
     except RepartitionBudgetExceededError as e:
-        # The table is telling us its rewrite doesn't fit in one activity. Record it as a real failed
-        # attempt so `MAX_REPARTITION_ATTEMPTS` is reachable and the table eventually gives up,
-        # instead of restarting the same doomed rewrite in front of every sync forever.
+        # The rewrite didn't fit in one activity's budget. Checkpoint/resume lets a large table
+        # converge across runs, so an attempt that advanced the checkpoint is progress, not a failure,
+        # and must not burn an attempt (see `_handle_budget_exceeded`); only a stuck one that made no
+        # progress counts toward `MAX_REPARTITION_ATTEMPTS` so a doomed rewrite still gives up.
         logger.warning(f"repartition: {e}")
         DELTA_REPARTITION_TOTAL.labels(
             team_id=str(inputs.team_id),
-            outcome=_handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger),
+            outcome=_handle_budget_exceeded(inputs, schema, pending, trigger_reason, e, claim_token, logger),
         ).inc()
         return
     except RepartitionSupersededError:
@@ -435,7 +441,10 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         if _is_transient_infra_error(e):
             # Transient infra noise mid-repartition (app-DB pooler drop, S3 rate limit, credential
             # timeout) — not a repartition bug. The rewrite/swap is idempotent via the swap marker, so
-            # retrying is always safe. Don't consume an attempt or emit a failure event.
+            # retrying is always safe. Don't consume an attempt, emit a failure event, or report to
+            # error tracking — a condition nobody can act on (e.g. a pgbouncer login-retry cooldown)
+            # shouldn't trip an issue there; the log line, the transient metric, and the skipped
+            # event's reason="transient_infra_error" already carry the visibility.
             DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="transient").inc()
             if trigger_reason == "admin":
                 # An operator staged this rewrite precisely because syncing on the old layout is
@@ -453,7 +462,6 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                     type="TransientRepartitionError",
                 ) from e
             logger.warning("repartition: transient infra error, will retry on next sync", exc_info=True)
-            capture_exception(e)
             _capture_stood_down(schema, inputs, trigger_reason, "transient_infra_error", logger)
             return
         failure_outcome = _handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger)
@@ -503,6 +511,81 @@ def _capture_stood_down(
         # Every caller is an except-handler whose contract is to swallow, so a telemetry failure must
         # not escape: it would fail an activity that deliberately stood down and trigger a retry.
         logger.warning("repartition: failed to capture stand-down event", exc_info=True)
+
+
+def _handle_budget_exceeded(
+    inputs: RepartitionActivityInputs,
+    schema: ExternalDataSchema,
+    pending: dict[str, Any] | None,
+    trigger_reason: str,
+    error: RepartitionBudgetExceededError,
+    claim_token: str,
+    logger: FilteringBoundLogger,
+) -> str:
+    """Record a rewrite that ran out of one activity's budget, distinguishing progress from a stall.
+
+    Checkpoint/resume lets a table too large to rewrite in one activity converge across runs (see
+    `RepartitionBudgetExceededError`), so an attempt that appended new rows is forward progress, not a
+    failure: counting it against the finite `MAX_REPARTITION_ATTEMPTS` would abandon a table that simply
+    needs more than three budgets mid-convergence and leave it un-repartitioned. Only an attempt that
+    appended nothing this run is stuck; that one falls through to `_handle_failure` so a rewrite which
+    genuinely can't advance in one budget still gives up.
+
+    Progress means this attempt left the rewrite further along than it found it. Neither row count
+    alone can say that. A cumulative temp size against a stored high-water mark is not monotonic,
+    because the rewrite restarts from row 0 whenever its checkpoint is discarded (the source's Delta
+    version moved between runs), so a fresh rebuild reading back below an earlier attempt's mark was
+    charged a spurious failure. But the rows written this attempt cannot say it either: a rewrite that
+    restarts every run writes hundreds of millions of rows each time, clears any `> 0` test, and ends
+    exactly where it began. Three schemas sat in that loop for six weeks, each burning a full budget per
+    run and finishing nothing, because the cap could never count to three.
+
+    Two shapes count as progress. A resumed attempt that appended rows extended what it inherited. And
+    a genuine first attempt — one with no prior checkpoint to inherit — that persisted a checkpoint the
+    next run resumes from broke new ground, even though `resumed_from` is 0. `had_prior_checkpoint`
+    keeps that first attempt apart from a restart that inherited nothing because it discarded an
+    existing checkpoint: the restart re-covered ground the last attempt already covered, however much it
+    wrote, so only it (and an attempt that saved no checkpoint at all) falls through to `_handle_failure`.
+
+    Returns the metric outcome: "superseded" when a newer attempt owns the claim, "progressing" when
+    the rewrite broke new ground, otherwise whatever `_handle_failure` returns.
+    """
+    schema.refresh_from_db(fields=["sync_type_config"])
+    claim = schema.repartition_claim
+    if not (claim and claim.get("token") == claim_token):
+        logger.info("repartition: superseded (claim changed under us), standing down without recording failure")
+        return "superseded"
+
+    pending = schema.repartition_pending or pending or {}
+    resumed_and_advanced = error.resumed_from > 0 and error.rows_written > 0
+    # A first attempt inherits nothing, so `resumed_from` is 0, but saving a fresh checkpoint the next
+    # run resumes from is still forward progress. Only a restart that discarded an existing checkpoint
+    # (`had_prior_checkpoint`) re-covered ground already covered — that one is the treadmill to stop.
+    fresh_and_checkpointed = not error.had_prior_checkpoint and error.checkpoint_saved
+    if resumed_and_advanced or fresh_and_checkpointed:
+        # Forward progress this attempt: keep the checkpoint and reset the failure counter — a rewrite
+        # still advancing is not the doomed one the cap exists to stop. The next run resumes from the
+        # checkpoint rather than giving up.
+        schema.set_repartition_pending({**pending, "attempts": 0})
+        logger.info(
+            f"repartition: over budget but rewrite advanced {error.rows_written} rows past the "
+            f"{error.resumed_from} it inherited, resuming next run",
+            rows_written=error.rows_written,
+            resumed_from=error.resumed_from,
+        )
+        _capture_stood_down(schema, inputs, trigger_reason, "rewrite_progressing", logger)
+        return "progressing"
+
+    # Either this attempt inherited nothing (so it re-streamed ground already covered) or it inherited
+    # a checkpoint and appended nothing. Both mean the rewrite can't converge on the budget it has, so
+    # count a real failed attempt and let `MAX_REPARTITION_ATTEMPTS` eventually give up on it.
+    logger.info(
+        f"repartition: over budget without converging (resumed_from={error.resumed_from} "
+        f"rows_written={error.rows_written})",
+        rows_written=error.rows_written,
+        resumed_from=error.resumed_from,
+    )
+    return _handle_failure(inputs, schema, pending, trigger_reason, error, claim_token, logger)
 
 
 def _handle_failure(

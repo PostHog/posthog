@@ -13,6 +13,7 @@ authentic without any registration ceremony.
 from __future__ import annotations
 
 import time
+from dataclasses import field
 from typing import Any
 
 from django.conf import settings
@@ -23,9 +24,18 @@ import structlog
 from jwt import PyJWK, PyJWKSet
 
 from posthog.api.oauth.cimd import CIMDFetchError, CIMDValidationError, fetch_client_json_document
+from posthog.dataclasses import frozen
 from posthog.models.oauth import OAuthApplication
 
 logger = structlog.get_logger(__name__)
+
+
+@frozen
+class ResolvedClientAssertion:
+    # repr=False: the assertion is a signed credential, kept out of logs and tracebacks.
+    client_assertion: str = field(repr=False)
+    client_id: str
+
 
 CLIENT_ASSERTION_TYPE_JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
@@ -78,8 +88,8 @@ def _request_field(request: Any, name: str) -> str:
     return str(request.query_params.get(name) or "") if hasattr(request, "query_params") else ""
 
 
-def extract_client_assertion(request: Any) -> tuple[str, str] | None:
-    """Return the ``(client_assertion, client_id)`` a request presents, or None.
+def extract_client_assertion(request: Any) -> ResolvedClientAssertion | None:
+    """Return the client assertion and client_id a request presents, or None.
 
     ``client_id`` is optional on the wire for this method (RFC 7521 section 4.2 allows the
     assertion to carry the identity), so it falls back to the assertion's own ``sub``.
@@ -91,8 +101,8 @@ def extract_client_assertion(request: Any) -> tuple[str, str] | None:
     )
 
 
-def resolve_client_assertion(assertion: str, assertion_type: str, client_id: str) -> tuple[str, str] | None:
-    """Return the ``(client_assertion, client_id)`` from raw field values, or None.
+def resolve_client_assertion(assertion: str, assertion_type: str, client_id: str) -> ResolvedClientAssertion | None:
+    """Return the client assertion and client_id from raw field values, or None.
 
     Kept separate from ``extract_client_assertion`` so the oauthlib-backed token endpoint,
     whose request object exposes these fields as plain attributes rather than through the DRF
@@ -105,7 +115,7 @@ def resolve_client_assertion(assertion: str, assertion_type: str, client_id: str
     if not resolved_client_id:
         return None
 
-    return assertion, resolved_client_id
+    return ResolvedClientAssertion(client_assertion=assertion, client_id=resolved_client_id)
 
 
 def _unverified_subject(assertion: str) -> str:
@@ -258,12 +268,13 @@ def _consume_jti(client_id: str, jti: str, expires_at: int) -> None:
 def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences: list[str] | None = None) -> None:
     """Verify a ``private_key_jwt`` assertion presented by ``app``, or raise.
 
-    Checks, in order: the app is registered for this method and has a key source; the
+    Checks, in order: the app has a published key source to verify against — confidential
+    partners always have one, and a public CIMD client may too, once it starts signing; the
     signature verifies against that key under an asymmetric algorithm; the audience is us;
     ``iss`` and ``sub`` both identify this client (RFC 7523 section 3); the lifetime is
     bounded; and the ``jti`` has not been seen before.
     """
-    if not app.uses_private_key_jwt_auth or not app.jwks_uri:
+    if not app.jwks_uri:
         raise ClientAssertionError("This client is not registered for private_key_jwt authentication")
 
     key = _select_key_allowing_rotation(app.jwks_uri, assertion)

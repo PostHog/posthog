@@ -21,6 +21,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     EvalReportMetrics,
     ReportSection,
 )
+from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput
 
 
 class TestSystemPromptFormat(SimpleTestCase):
@@ -376,18 +377,20 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
         mock_create_agent.return_value = mock_agent
 
         graph.run_eval_report_agent(
-            team_id=1,
-            report_id="report-1",
-            trace_id="report-run-1",
-            session_id="report-session-1",
-            evaluation_id="eval-1",
-            evaluation_name="Relevance",
-            evaluation_description="",
-            evaluation_prompt="",
-            evaluation_type="llm_judge",
-            period_start="2026-04-08T14:00:00+00:00",
-            period_end="2026-04-08T15:00:00+00:00",
-            previous_period_start="2026-04-08T13:00:00+00:00",
+            RunEvalReportAgentInput(
+                team_id=1,
+                report_id="report-1",
+                trace_id="report-run-1",
+                session_id="report-session-1",
+                evaluation_id="eval-1",
+                evaluation_name="Relevance",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-04-08T14:00:00+00:00",
+                period_end="2026-04-08T15:00:00+00:00",
+                previous_period_start="2026-04-08T13:00:00+00:00",
+            )
         )
 
         mock_build_llm.assert_called_once_with(
@@ -419,15 +422,18 @@ class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
             ) as mock_increment_generated,
         ):
             content = graph.run_eval_report_agent(
-                team_id=1,
-                evaluation_id="eval-1",
-                evaluation_name="Relevance",
-                evaluation_description="",
-                evaluation_prompt="",
-                evaluation_type="llm_judge",
-                period_start="2026-04-08T14:00:00+00:00",
-                period_end="2026-04-08T15:00:00+00:00",
-                previous_period_start="2026-04-08T13:00:00+00:00",
+                RunEvalReportAgentInput(
+                    team_id=1,
+                    report_id="report-1",
+                    evaluation_id="eval-1",
+                    evaluation_name="Relevance",
+                    evaluation_description="",
+                    evaluation_prompt="",
+                    evaluation_type="llm_judge",
+                    period_start="2026-04-08T14:00:00+00:00",
+                    period_end="2026-04-08T15:00:00+00:00",
+                    previous_period_start="2026-04-08T13:00:00+00:00",
+                )
             )
 
         mock_create_agent.assert_not_called()
@@ -462,18 +468,20 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
         }
         mock_create_agent.return_value = mock_agent
         graph.run_eval_report_agent(
-            team_id=1,
-            report_id="report-1",
-            trace_id="report-run-1",
-            session_id="report-session-1",
-            evaluation_id="eval-1",
-            evaluation_name="Relevance",
-            evaluation_description="",
-            evaluation_prompt="",
-            evaluation_type="llm_judge",
-            period_start="2026-04-08T14:00:00+00:00",
-            period_end="2026-04-08T15:00:00+00:00",
-            previous_period_start="2026-04-08T13:00:00+00:00",
+            RunEvalReportAgentInput(
+                team_id=1,
+                report_id="report-1",
+                trace_id="report-run-1",
+                session_id="report-session-1",
+                evaluation_id="eval-1",
+                evaluation_name="Relevance",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-04-08T14:00:00+00:00",
+                period_end="2026-04-08T15:00:00+00:00",
+                previous_period_start="2026-04-08T13:00:00+00:00",
+            )
         )
 
         expected_properties = {"team_id": "1", "evaluation_id": "eval-1", "report_id": "report-1"}
@@ -509,18 +517,20 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
         mock_create_agent.return_value.invoke.side_effect = RuntimeError("agent failed")
 
         graph.run_eval_report_agent(
-            team_id=1,
-            report_id="report-1",
-            trace_id="report-run-1",
-            session_id="report-session-1",
-            evaluation_id="eval-1",
-            evaluation_name="Relevance",
-            evaluation_description="",
-            evaluation_prompt="",
-            evaluation_type="llm_judge",
-            period_start="2026-04-08T14:00:00+00:00",
-            period_end="2026-04-08T15:00:00+00:00",
-            previous_period_start="2026-04-08T13:00:00+00:00",
+            RunEvalReportAgentInput(
+                team_id=1,
+                report_id="report-1",
+                trace_id="report-run-1",
+                session_id="report-session-1",
+                evaluation_id="eval-1",
+                evaluation_name="Relevance",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-04-08T14:00:00+00:00",
+                period_end="2026-04-08T15:00:00+00:00",
+                previous_period_start="2026-04-08T13:00:00+00:00",
+            )
         )
 
         mock_logger_exception.assert_called_once_with(

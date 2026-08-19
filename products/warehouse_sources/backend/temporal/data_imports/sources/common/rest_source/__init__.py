@@ -19,7 +19,7 @@ from .config_setup import (
 from .jsonpath_utils import TJsonPath
 from .paginators import BasePaginator
 from .resource import Resource
-from .rest_client import DEFAULT_RETRY_ATTEMPTS, RESTClient
+from .rest_client import DEFAULT_RETRY_ATTEMPTS, DEFAULT_RETRY_BACKOFF_MAX_SECONDS, RESTClient, RESTClientRetryableError
 from .typing import ClientConfig, Endpoint, EndpointResource, HTTPMethodBasic, ResolvedParam, RESTAPIConfig
 from .utils import exclude_keys  # noqa: F401
 
@@ -82,12 +82,18 @@ def rest_api_resources(
     db_incremental_field_last_value: Optional[Any],
     resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
     initial_paginator_state: Optional[dict[str, Any]] = None,
+    on_parent_error: Optional[Callable[[str, Exception], None]] = None,
 ) -> list[Resource]:
     """Creates a list of resources from a REST API configuration.
 
     Prefer ``rest_api_resource`` (singular) for the common single-resource
     case. This function is needed for multi-resource configs like date-chunked
     report endpoints or parent/child fanout.
+
+    ``on_parent_error`` opts a parent/child fanout into per-parent fault tolerance: when a parent's
+    child pagination raises ``RESTClientRetryableError`` (a transient failure the client's own
+    retries could not clear), the fanout hands the parent path and error to this callback and moves
+    on to the next parent instead of failing the whole resource. Without it, that error propagates.
     """
     client_config = config["client"]
     resource_defaults = config.get("resource_defaults") or {}
@@ -112,6 +118,7 @@ def rest_api_resources(
         db_incremental_field_last_value=db_incremental_field_last_value,
         resume_hook=resume_hook,
         initial_paginator_state=initial_paginator_state,
+        on_parent_error=on_parent_error,
     )
 
     return list(resources.values())
@@ -131,6 +138,7 @@ def _make_paginate_dependent_resource(
     initial_state: Optional[dict[str, Any]] = None,
     data_selector_required: bool = False,
     data_selector_empty_ok: bool = False,
+    on_parent_error: Optional[Callable[[str, Exception], None]] = None,
 ) -> Callable[..., Iterator[list[Any]]]:
     """Build the generator for a dependent (child) resource.
 
@@ -190,23 +198,38 @@ def _make_paginate_dependent_resource(
                 current_child_state = paginator_state
                 checkpoint(_path, paginator_state)
 
-            for child_page in client.paginate(
-                method=method,
-                path=formatted_path,
-                params=dict(params),
-                paginator=paginator,
-                data_selector=data_selector,
-                hooks=hooks,
-                resume_hook=child_resume_hook if resume_hook is not None else None,
-                initial_paginator_state=child_initial,
-                data_selector_required=data_selector_required,
-                data_selector_empty_ok=data_selector_empty_ok,
-            ):
-                if parent_record:
-                    for child_record in child_page:
-                        child_record.update(parent_record)
+            try:
+                for child_page in client.paginate(
+                    method=method,
+                    path=formatted_path,
+                    params=dict(params),
+                    paginator=paginator,
+                    data_selector=data_selector,
+                    hooks=hooks,
+                    resume_hook=child_resume_hook if resume_hook is not None else None,
+                    initial_paginator_state=child_initial,
+                    data_selector_required=data_selector_required,
+                    data_selector_empty_ok=data_selector_empty_ok,
+                ):
+                    if parent_record:
+                        for child_record in child_page:
+                            child_record.update(parent_record)
 
-                yield list(convert_types(child_page, effective_columns_config))
+                    yield list(convert_types(child_page, effective_columns_config))
+            except RESTClientRetryableError as exc:
+                # One parent whose child resource keeps failing after the client exhausts its own
+                # retries must not sink the whole fan-out. When the caller opts in, skip that parent,
+                # hand the failure to the handler, and move on so every other parent's rows land.
+                if on_parent_error is None:
+                    raise
+                on_parent_error(formatted_path, exc)
+                if resume_hook is not None:
+                    # Clear the in-progress pointer so a later retry re-attempts this parent from the
+                    # start; leave it off `completed` so it is never permanently skipped.
+                    current_path = None
+                    current_child_state = None
+                    checkpoint(None, None)
+                continue
 
             if resume_hook is not None:
                 completed.add(formatted_path)
@@ -227,6 +250,7 @@ def create_resources(
     db_incremental_field_last_value: Optional[Any] = None,
     resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
     initial_paginator_state: Optional[dict[str, Any]] = None,
+    on_parent_error: Optional[Callable[[str, Exception], None]] = None,
 ) -> dict[str, Resource]:
     resources: dict[str, Resource] = {}
 
@@ -270,14 +294,18 @@ def create_resources(
             paginator=create_paginator(client_config.get("paginator")),
             session=client_config.get("session"),
             max_retry_attempts=client_config.get("max_retries", DEFAULT_RETRY_ATTEMPTS),
+            retry_backoff_max_seconds=client_config.get("retry_backoff_max_seconds", DEFAULT_RETRY_BACKOFF_MAX_SECONDS),
             allowed_hosts=client_config.get("allowed_hosts"),
             allow_redirects=client_config.get("allow_redirects", True),
             request_timeout=client_config.get("request_timeout"),
+            capture=client_config.get("capture", True),
         )
 
-        hooks = create_response_hooks(endpoint_config.get("response_actions"))
+        hooks = create_response_hooks(endpoint_config.get("response_actions"), resource_name=resource_name)
 
-        resource_kwargs = exclude_keys(endpoint_resource, {"endpoint", "include_from_parent", "data_map"})
+        resource_kwargs = exclude_keys(
+            endpoint_resource, {"endpoint", "include_from_parent", "data_map", "data_iterator"}
+        )
 
         columns_config = endpoint_resource.get("columns")
 
@@ -295,7 +323,18 @@ def create_resources(
             )
         }
 
-        if resolved_params is None:
+        data_iterator = endpoint_resource.get("data_iterator")
+        if data_iterator is not None:
+            # Iterator-backed resource: pages come from the callable (e.g. an already-synced
+            # warehouse parent table) instead of HTTP pagination. Downstream dependents consume
+            # it via ``data_from`` exactly like an HTTP-backed parent.
+            resources[resource_name] = Resource(
+                data_iterator,
+                name=resource_name,
+                hints=hints,
+            )
+
+        elif resolved_params is None:
 
             def paginate_resource(
                 method: HTTPMethodBasic,
@@ -381,6 +420,7 @@ def create_resources(
                 initial_state=dependent_initial_state,
                 data_selector_required=bool(endpoint_config.get("data_selector_required")),
                 data_selector_empty_ok=bool(endpoint_config.get("data_selector_empty_ok")),
+                on_parent_error=on_parent_error,
             )
 
             resources[resource_name] = Resource(

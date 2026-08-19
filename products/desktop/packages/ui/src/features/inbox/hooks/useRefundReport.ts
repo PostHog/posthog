@@ -1,4 +1,5 @@
 import { inboxReportKeys } from "@posthog/core/inbox/inboxQuery";
+import { computeRefundEligibility } from "@posthog/core/inbox/refundEligibility";
 import { SIGNALS_PR_REFUNDS_FLAG } from "@posthog/shared";
 import type {
   SignalReport,
@@ -6,7 +7,6 @@ import type {
 } from "@posthog/shared/types";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { computeRefundEligibility } from "@posthog/ui/features/inbox/utils/refundEligibility";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 

@@ -45,6 +45,7 @@ export interface HogFunctionInvocationPipelineDeps {
 export interface BuildHogFunctionInvocationsOptions {
     hogTypes: HogFunctionTypeType[]
     filterFn: (fn: HogFunctionType) => boolean
+    invocationFilterFn?: (fn: HogFunctionType, globals: HogFunctionInvocationGlobals) => boolean
 }
 
 /**
@@ -86,7 +87,9 @@ export class HogFunctionInvocationPipeline {
         const possibleInvocations = (
             await Promise.all(
                 invocationGlobals.map(async (globals) => {
-                    const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
+                    const teamHogFunctions = opts.invocationFilterFn
+                        ? hogFunctionsByTeam[globals.project.id].filter((fn) => opts.invocationFilterFn!(fn, globals))
+                        : hogFunctionsByTeam[globals.project.id]
 
                     const { invocations, metrics, logs } = await buildHogFunctionInvocations(
                         this.deps.hogInputsService,

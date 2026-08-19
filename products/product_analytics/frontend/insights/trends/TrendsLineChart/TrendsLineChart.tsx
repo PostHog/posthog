@@ -103,7 +103,14 @@ export function TrendsLineChart({
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
 
-    const labels = currentPeriodResult?.labels ?? []
+    // The chart keys x positions off these strings, so they must be unique per point. The
+    // backend's display labels are not: week and hour labels omit the year, so a multi-year
+    // range repeats them and every repeated point snaps back to the first occurrence's x,
+    // drawing the line backwards. Pass the ISO days instead; the interval-aware tick and
+    // tooltip formatters already render display text from them. Stickiness x values are
+    // interval counts rather than dates, so it keeps its (already unique) labels.
+    const days = currentPeriodResult?.days
+    const labels = (!isStickiness && days?.length ? days : currentPeriodResult?.labels) ?? []
 
     const hasData = hasTrendsChartData(indexedResults)
 
@@ -277,6 +284,9 @@ export function TrendsLineChart({
                 allDays: currentPeriodResult?.days ?? [],
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
+                yAxisStartAtZero: trendsFilter?.yAxisStartAtZero,
+                yAxisMin: trendsFilter?.yAxisMin,
+                yAxisMax: trendsFilter?.yAxisMax,
                 goalLines,
                 incompletenessOffsetFromEnd,
                 getHidden: getTrendsHidden,

@@ -23,8 +23,10 @@ from ee.models.rbac.role import Role
 
 
 class TestErrorTrackingFacadeAPI(BaseTest):
-    def _create_issue(self, *, team, name: str, description: str | None = None) -> ErrorTrackingIssue:
-        issue = ErrorTrackingIssue.objects.create(team=team, name=name, description=description)
+    def _create_issue(
+        self, *, team, name: str, description: str | None = None, severity: str | None = None
+    ) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(team=team, name=name, description=description, severity=severity)
         ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=f"fp-{issue.id}")
         return issue
 
@@ -162,13 +164,26 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         [
             ["name", "name", "checkout", ["Checkout timeout", "Checkout type error"]],
             ["issue_description", "issue_description", "timeout", ["A timeout during payment"]],
+            ["severity", "severity", "hi", ["high"]],
+            ["empty_name_search", "name", None, ["Checkout timeout", "Checkout type error"]],
+            [
+                "empty_description_search",
+                "issue_description",
+                None,
+                ["A timeout during payment", "Type mismatch in checkout"],
+            ],
+            ["empty_severity_search", "severity", None, ["low", "medium", "high", "critical"]],
             ["missing_key", None, "timeout", []],
-            ["missing_value", "name", None, []],
             ["unknown_key", "unknown", "checkout", []],
         ]
     )
     def test_get_issue_values(self, _name: str, key: str | None, value: str | None, expected: list[str]):
-        self._create_issue(team=self.team, name="Checkout timeout", description="A timeout during payment")
+        self._create_issue(
+            team=self.team,
+            name="Checkout timeout",
+            description="A timeout during payment",
+            severity=ErrorTrackingIssue.Severity.HIGH,
+        )
         self._create_issue(team=self.team, name="Checkout type error", description="Type mismatch in checkout")
 
         values = api.get_issue_values(team_id=self.team.id, key=key, value=value)

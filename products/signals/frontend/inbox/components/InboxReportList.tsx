@@ -4,7 +4,7 @@ import { ComponentType, JSX, useEffect, useRef } from 'react'
 import { captureInboxReportsImpressed, captureInboxViewed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
-import { reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
+import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
 import { InboxFlatListTabKey, SignalReport } from '../types'
 import { DismissalReasonValue } from '../utils/dismissalReasons'
 import { CardSkeleton } from './cards/CardSkeleton'
@@ -23,7 +23,9 @@ export interface InboxReportCardProps {
 
 interface InboxReportListProps extends ReportListLogicProps {
     Card: ComponentType<InboxReportCardProps>
-    emptyState: { icon: JSX.Element; title: string; description: string; extra?: JSX.Element }
+    emptyState:
+        | { content: JSX.Element }
+        | { icon: JSX.Element; title: string; description: string; extra?: JSX.Element }
 }
 
 /**
@@ -53,22 +55,52 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     const listVisible = !selectedReportId && !selectedScoutSkillName && !isScratchpadOpen && !isFindingsOpen
     const sentinelRef = useRef<HTMLDivElement>(null)
 
-    // Fire `Inbox viewed` once per tab mount, the first time its list settles while visible.
+    // The Pull requests / Reports badge counts go on every `Inbox viewed`, whatever tab is open: the
+    // active tab's `total_count` alone says nothing about a user who lands on Pull requests and has
+    // 200 reports waiting. These share the tab bar's keyed instances, so no extra requests.
+    const { count: pullsTabCount, countLoading: pullsTabCountLoading } = useValues(
+        reportListLogic({ tabKey: 'pulls', listParams: INBOX_FLAT_TAB_LIST_PARAMS.pulls })
+    )
+    const { count: reportsTabCount, countLoading: reportsTabCountLoading } = useValues(
+        reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports })
+    )
+    // A badge count is settled once its request is no longer in flight: loaded, refreshed, or failed
+    // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
+    // filter refresh in progress doesn't fire the event with the previous query's counts.
+    const badgeCountsSettled = !pullsTabCountLoading && !reportsTabCountLoading
+
+    // Fire `Inbox viewed` once per tab mount, the first time its list and the badge counts settle
+    // while visible.
     const viewedFiredRef = useRef(false)
     useEffect(() => {
-        if (listVisible && isLoaded && count !== null && !viewedFiredRef.current) {
+        if (listVisible && isLoaded && count !== null && badgeCountsSettled && !viewedFiredRef.current) {
             viewedFiredRef.current = true
             captureInboxViewed({
                 tab: tabKey,
                 reports,
                 totalCount: count,
+                pullsTabCount,
+                reportsTabCount,
                 hasActiveFilters,
                 sourceProductFilter,
                 priorityFilter,
                 scope,
             })
         }
-    }, [listVisible, isLoaded, count, reports, tabKey, hasActiveFilters, sourceProductFilter, priorityFilter, scope])
+    }, [
+        listVisible,
+        isLoaded,
+        count,
+        badgeCountsSettled,
+        pullsTabCount,
+        reportsTabCount,
+        reports,
+        tabKey,
+        hasActiveFilters,
+        sourceProductFilter,
+        priorityFilter,
+        scope,
+    ])
 
     // Impression log for ranking-model training: record each report the first time it appears in
     // the visible list (initial page, pagination, refresh), with its rank at that moment. Deduped
@@ -149,14 +181,18 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             {showSkeleton ? (
                 <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" dashed={tabKey !== 'pulls'} />
             ) : reports.length === 0 ? (
-                <div className="mx-auto max-w-md flex flex-col items-center text-center py-12 gap-2">
-                    <div className="flex items-center justify-center h-12 w-12 rounded-full bg-fill-primary text-secondary mb-1">
-                        {emptyState.icon}
+                'content' in emptyState ? (
+                    emptyState.content
+                ) : (
+                    <div className="mx-auto max-w-md flex flex-col items-center text-center py-12 gap-2">
+                        <div className="flex items-center justify-center h-12 w-12 rounded-full bg-fill-primary text-secondary mb-1">
+                            {emptyState.icon}
+                        </div>
+                        <h3 className="text-base font-semibold m-0">{emptyState.title}</h3>
+                        <p className="text-sm text-tertiary m-0">{emptyState.description}</p>
+                        {emptyState.extra}
                     </div>
-                    <h3 className="text-base font-semibold m-0">{emptyState.title}</h3>
-                    <p className="text-sm text-tertiary m-0">{emptyState.description}</p>
-                    {emptyState.extra}
-                </div>
+                )
             ) : (
                 <>
                     {/* Each report is its own freestanding card, separated by a small gap. */}

@@ -128,11 +128,9 @@ const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-launch-promo'
 
 function ReplayVisionPromoBanner(): JSX.Element | null {
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
-    const hasReplayVision = useFeatureFlag('REPLAY_VISION')
 
-    // Without the flag the CTA would land on a 404, so don't advertise the feature at all.
     // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
-    if (!hasReplayVision || isDismissed) {
+    if (isDismissed) {
         return null
     }
 

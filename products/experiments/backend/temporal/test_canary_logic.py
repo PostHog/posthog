@@ -28,6 +28,7 @@ from products.experiments.backend.temporal.models import (
     OUTCOME_SKIPPED,
     CanaryMetricResult,
     CanaryMetricTarget,
+    CanaryOutcome,
     CanaryReportInputs,
     CanaryRunSnapshot,
     CanaryVariantStats,
@@ -402,7 +403,7 @@ class TestRunMetricCanary(BaseTest):
                 run_metric_canary_sync(self._target(experiment, metric["uuid"]))
 
 
-def _result(outcome: str, **kwargs) -> CanaryMetricResult:
+def _result(outcome: CanaryOutcome, **kwargs) -> CanaryMetricResult:
     target = CanaryMetricTarget(team_id=1, experiment_id=2, metric_uuid="m-uuid", metric_type="funnel")
     return CanaryMetricResult(target=target, outcome=outcome, runs=[_snapshot("a", _BASE)], **kwargs)
 

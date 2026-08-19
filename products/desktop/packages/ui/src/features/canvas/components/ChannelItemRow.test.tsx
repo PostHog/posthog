@@ -1,9 +1,15 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import {
+  TASK_DRAG_TYPE,
+  TASK_IDS_DRAG_TYPE,
+} from "@posthog/ui/features/sidebar/taskDrag";
+import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The row's status comes from live session/workspace state and a per-task tRPC
@@ -25,6 +31,7 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 }));
 
 import { usePendingCanvasDeleteStore } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
+import { ChannelItemPreviewCardProvider } from "./ChannelItemHoverCard";
 import { ChannelItemRow } from "./ChannelItemRow";
 
 const actions = {
@@ -41,8 +48,13 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     id: "task-1",
     title: "Investigate signup drop-off",
     ts: Date.parse("2026-07-17T12:00:00.000Z"),
+    createdAt: Date.parse("2026-07-16T12:00:00.000Z"),
     pinned: false,
     rawStatus: null,
+    environment: null,
+    source: null,
+    needsInput: false,
+    unread: false,
     authorUser: null,
     authorName: null,
     authorUuid: "user-uuid",
@@ -52,17 +64,31 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
   };
 }
 
-function renderRow(model: ChannelItemModel) {
+/**
+ * The list's rows share one preview card, hung off a provider above them, so a
+ * row on its own has no card to open — every hover assertion here needs it.
+ */
+function renderInList(row: ReactNode) {
   return render(
     <Theme>
-      <ChannelItemRow actions={actions} isActive={false} item={model} />
+      <ChannelItemPreviewCardProvider>{row}</ChannelItemPreviewCardProvider>
     </Theme>,
+  );
+}
+
+function renderRow(model: ChannelItemModel) {
+  return renderInList(
+    <ChannelItemRow actions={actions} isActive={false} item={model} />,
   );
 }
 
 beforeEach(() => {
   mocks.status = null;
   usePendingCanvasDeleteStore.setState({ pending: {} });
+  useTaskSelectionStore.setState({
+    selectedTaskIds: [],
+    lastClickedId: null,
+  });
 });
 
 describe("ChannelItemRow", () => {
@@ -241,15 +267,38 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
   });
 
-  it("makes tasks draggable into the Command Center", () => {
+  // A pinned row offering only `move` resolves against the Command Center's
+  // `copy` as no drop, so the tile stops accepting it with nothing to show why.
+  it.each([{ pinned: false }, { pinned: true }])(
+    "makes tasks draggable into the Command Center, pinned=$pinned",
+    ({ pinned }) => {
+      renderRow(item({ pinned }));
+      const setData = vi.fn();
+      const dataTransfer = { setData, effectAllowed: "none" };
+
+      fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
+
+      expect(setData).toHaveBeenCalledWith(TASK_DRAG_TYPE, "task-1");
+      expect(dataTransfer.effectAllowed).toBe("copyMove");
+    },
+  );
+
+  it("drags every selected task into the Command Center", () => {
+    useTaskSelectionStore.setState({
+      selectedTaskIds: ["task-2", "task-1"],
+    });
     renderRow(item());
     const setData = vi.fn();
     const dataTransfer = { setData, effectAllowed: "none" };
 
     fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
 
-    expect(setData).toHaveBeenCalledWith("text/x-task-id", "task-1");
-    expect(dataTransfer.effectAllowed).toBe("copy");
+    expect(setData).toHaveBeenCalledWith(TASK_DRAG_TYPE, "task-1");
+    expect(setData).toHaveBeenCalledWith(
+      TASK_IDS_DRAG_TYPE,
+      JSON.stringify(["task-1", "task-2"]),
+    );
+    expect(dataTransfer.effectAllowed).toBe("copyMove");
   });
 
   it("does not make canvases draggable into the Command Center", () => {
@@ -278,16 +327,14 @@ describe("ChannelItemRow", () => {
     onRename?: () => void;
     onAddToCommandCenter?: () => void;
   }) {
-    return render(
-      <Theme>
-        <ChannelItemRow
-          actions={actions}
-          isActive={false}
-          item={item()}
-          onRename={overrides.onRename ?? (() => {})}
-          onAddToCommandCenter={overrides.onAddToCommandCenter}
-        />
-      </Theme>,
+    return renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={item()}
+        onRename={overrides.onRename ?? (() => {})}
+        onAddToCommandCenter={overrides.onAddToCommandCenter}
+      />,
     );
   }
 
@@ -361,10 +408,8 @@ describe("ChannelItemRow", () => {
       id: "c1",
       title: "Web analytics overview",
     });
-    render(
-      <Theme>
-        <ChannelItemRow actions={actions} isActive={false} item={canvas} />
-      </Theme>,
+    renderInList(
+      <ChannelItemRow actions={actions} isActive={false} item={canvas} />,
     );
 
     await userEvent.hover(screen.getByText("Web analytics overview"));
@@ -388,14 +433,12 @@ describe("ChannelItemRow", () => {
       id: "c1",
       title: "Web analytics overview",
     });
-    render(
-      <Theme>
-        <ChannelItemRow
-          actions={{ ...actions, remove }}
-          isActive={false}
-          item={canvas}
-        />
-      </Theme>,
+    renderInList(
+      <ChannelItemRow
+        actions={{ ...actions, remove }}
+        isActive={false}
+        item={canvas}
+      />,
     );
 
     await userEvent.hover(screen.getByText("Web analytics overview"));

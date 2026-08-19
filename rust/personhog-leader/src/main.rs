@@ -17,6 +17,7 @@ use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use tokio::sync::Notify;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tonic::codec::CompressionEncoding;
@@ -120,7 +121,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let kafka_handle = manager.register(
         "kafka-producer",
-        ComponentOptions::new().with_shutdown_phase(1),
+        // The graceful window is the ceiling; the bounded flush task
+        // spawned after the producer is built normally completes well
+        // inside it.
+        ComponentOptions::new()
+            .with_graceful_shutdown(Duration::from_secs(15))
+            .with_shutdown_phase(1),
     );
 
     let authority_metrics_handle = manager.register(
@@ -147,6 +153,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
         )
         .route("/_liveness", get(move || async move { liveness.check() }));
+    // Changelog payload sizes: dense through the small-person range,
+    // with the top boundaries straddling the broker's message.max.bytes
+    // (typically 1 MiB) so p99 creeping toward the produce limit is
+    // visible before messages start getting rejected.
+    const CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES: &[f64] = &[
+        256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 524288.0, 1048576.0, 2097152.0,
+    ];
     // The write path and warms are tuned in single-digit milliseconds;
     // the default ladder's 10 → 50 ms step blurs exactly the spans the
     // fencing and warm work steers by, and pins interpolated quantiles
@@ -199,6 +212,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Matcher::Full("personhog_leader_warm_span_ms".into()),
                 WARM_LATENCY_BUCKETS_MS,
             ),
+            (
+                Matcher::Full("personhog_leader_kafka_produce_bytes".into()),
+                CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES,
+            ),
         ],
     );
     preregister_metrics();
@@ -247,13 +264,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize partitioned cache and Kafka producer
     let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity_bytes));
 
-    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle).await {
+    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle.clone()).await {
         Ok(producer) => producer,
         Err(e) => {
             tracing::error!(error = %e, "failed to create Kafka producer");
             return Err(e.into());
         }
     };
+    // Runs at phase 1, after the coordination drain, so the drain's last
+    // records are in the queue it flushes.
+    personhog_leader::kafka::spawn_bounded_flush_on_shutdown(
+        kafka_producer.clone(),
+        kafka_handle,
+        Duration::from_secs(10),
+    );
 
     // PG fallback pool for cache misses (optional, disabled if URL is empty)
     let fallback = if config.fallback_database_url.is_empty() {
@@ -322,6 +346,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.ingestion_warnings_topic.clone(),
     );
     let fence_scan_pool = fallback.as_ref().map(|f| f.pool.clone());
+    let mut fence_repair_nudge: Option<Arc<Notify>> = None;
     let fenced = if config.kafka_transactional_fencing {
         // Every one of these is derived from LEASE_TTL rather than set
         // directly, so an operator debugging a fenced-write timeout has
@@ -336,6 +361,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "broker-enforced epoch fencing enabled for the changelog"
         );
         preregister_fencing_metrics(num_partitions);
+        // A condemned producer's repair otherwise waits for the next
+        // reconcile tick; this nudge lets the condemnation itself
+        // trigger the repair pass that heals it.
+        let repair_nudge = Arc::new(Notify::new());
+        fence_repair_nudge = Some(Arc::clone(&repair_nudge));
         // The fenced producer runs on a tighter message timeout than the
         // shared one: its writes must resolve inside the lease runway.
         let fencing_kafka = common_kafka::config::KafkaConfig {
@@ -347,17 +377,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             kafka_producer_queue_messages: config.fencing_queue_messages(num_partitions),
             ..config.kafka.clone()
         };
-        Some(Arc::new(FencedChangelogProducers::new(
-            FencedProducerConfig {
+        Some(Arc::new(
+            FencedChangelogProducers::new(FencedProducerConfig {
                 kafka: fencing_kafka,
                 topic: config.kafka_person_state_topic.clone(),
                 init_timeout: config.fencing_init_timeout(),
                 commit_timeout: config.fencing_txn_timeout(),
                 broker_txn_timeout: config.fencing_broker_txn_timeout(),
                 window: Duration::from_millis(config.fencing_window_ms),
+                window_max_writes: config.fencing_window_max_writes,
                 settle_budget: config.fencing_settle_budget(),
-            },
-        )))
+            })
+            .with_repair_nudge(repair_nudge),
+        ))
     } else {
         None
     };
@@ -564,13 +596,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let pod = PodHandle::new(
+    let mut pod = PodHandle::new(
         store,
         pod_config,
         Arc::new(handler),
         k8s_awareness,
         Arc::clone(&authority),
     );
+    if let Some(nudge) = fence_repair_nudge.take() {
+        pod = pod.with_repair_nudge(nudge);
+    }
 
     tokio::spawn(async move {
         let _guard = coordination_handle.process_scope();
@@ -579,15 +614,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Periodic sweep of idle per-key locks and refilled warning-throttle keys
+    // Periodic sweep of idle per-key locks, refilled warning-throttle
+    // keys, and parked fence connections nothing consumed (a cancelled
+    // inbound handoff leaves no convergence behind to discard them).
     let sweep_locks = Arc::clone(&locks);
     let sweep_warnings = warnings.clone();
+    let sweep_fenced = fenced.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
             sweep_idle_locks(&sweep_locks);
             sweep_warnings.sweep_throttle();
+            if let Some(fenced) = &sweep_fenced {
+                fenced.sweep_prepared();
+            }
         }
     });
 

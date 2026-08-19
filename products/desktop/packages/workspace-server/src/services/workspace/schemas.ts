@@ -316,6 +316,8 @@ export const sidebarPrStateSchema = z
 export const taskPrStatusOutput = z.object({
   prState: sidebarPrStateSchema,
   hasDiff: z.boolean(),
+  /** The PR the state belongs to, so a row can offer to open it. */
+  prUrl: z.string().nullable(),
 });
 
 export type TaskPrStatusInput = z.infer<typeof taskPrStatusInput>;

@@ -91,6 +91,7 @@ Escalating to the next rung is the last resort, not the default.
   - testing `transaction.on_commit` side effects → use `TestCase` + `self.captureOnCommitCallbacks(execute=True)`.
   - needing a connection visible across a real separate thread (`thread_sensitive`) → `async_to_sync(...)`, not `asyncio.run(...)`.
     Use `TransactionTestCase` only when the regression genuinely requires committed transaction boundaries that `TestCase` hides.
+- **Dedicated data migration tests are temporary.** Remove a dedicated test after every supported environment has applied the migration, the rollback window has closed, and no supported upgrade relies on the old data state. Delete the expired test instead of marking it skipped. Keep the migration file and tests for migration tooling, safety checks, reusable backfill systems, and backfills people can still run. Use `/django-migrations` for the migration safety workflow.
 - **DRF input-validation belongs in a `SimpleTestCase`, not an `APIBaseTest` round-trip.**
   A test that posts a malformed body to an endpoint and asserts a 400 pays for `APIBaseTest` to build an Organization + Team + User in Postgres and wrap the test in a transaction — just to exercise validation that runs entirely in memory.
   DRF field validators (`required`, type coercion, `choices`, `min/max`, regex) and `validate_<field>` methods run inside `Serializer(data=...).is_valid()` with no database and no request: field-level validation happens in `to_internal_value`, _before_ the object-level `validate()` that typically needs `self.context`. So an invalid-field case never reaches the DB-touching code.
@@ -113,6 +114,7 @@ Escalating to the next rung is the last resort, not the default.
   Don't mock your own internal helpers (that's how change-detector tests are born).
 - **Person/group/cohort data:** use the helpers in `posthog/test/persons.py` (`create_person`, `create_group`, `create_group_type_mapping`, `add_cohort_members`, etc.) — never `Person.objects.create()` or similar ORM calls directly.
   See [`posthog/test/AGENTS.md`](../../posthog/test/AGENTS.md) for the full API reference and rationale.
+- **Whole-repo guards go in `posthog/test/repo_invariants/`.** If a test's input is the entire repo — it walks `apps.get_models()`, inspects `sys.modules` after a cold `django.setup()`, enumerates every route or signal receiver, or `rglob`s the tree against a baseline — any file anywhere can break it and diff-based test selection can't select it. That directory runs unconditionally in the `repo-checks` CI job on every backend PR (products-only and drafts included) with no Postgres/ClickHouse, and the Core shards skip it. Tests with a bounded input stay next to the code they cover.
 
 ### Frontend (Jest)
 

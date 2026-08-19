@@ -1,4 +1,6 @@
+import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import type { Task, TaskRun, TaskRunArtifact } from "@posthog/shared";
+import type { TaskThreadMessage } from "@posthog/shared/domain-types";
 import {
   fireEvent,
   render,
@@ -16,10 +18,6 @@ const mocks = vi.hoisted(() => ({
   commentsError: false,
   sessionEvents: [] as unknown[],
   taskRunsRefreshKeys: [] as number[],
-}));
-
-vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => true,
 }));
 
 vi.mock("@posthog/core/sessions/sessionService", () => ({
@@ -190,6 +188,38 @@ describe("TaskArtifactsList", () => {
 
     expect(screen.getByText("Pull request #1")).toBeTruthy();
     expect(screen.getByText("Pull request #2")).toBeTruthy();
+  });
+
+  // The age reads from each row's announcing timestamp, so the tab shows how
+  // long ago a PR or canvas was produced next to its state.
+  it("shows how long ago each PR and canvas was produced", () => {
+    mocks.runs = [];
+    const now = Date.now();
+    const message = (id: string): TaskThreadMessage => ({
+      id,
+      task: "task-1",
+      content: "",
+      created_at: "",
+    });
+    const timeline: ThreadTimelineRow<TaskThreadMessage>[] = [
+      {
+        kind: "artifact",
+        timestamp: now - 2 * 86_400_000,
+        message: message("m1"),
+        artifact: { kind: "canvas", name: "Dashboard", url: null },
+      },
+      {
+        kind: "artifact",
+        timestamp: now - 43 * 60_000,
+        message: message("m2"),
+        artifact: { kind: "pr", url: "https://github.com/acme/repo/pull/7" },
+      },
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={timeline} />);
+
+    expect(screen.getByText("Canvas · 2d")).toBeInTheDocument();
+    expect(screen.getByText("Open · 43m")).toBeInTheDocument();
   });
 
   it("lists uploaded files with their comment count", () => {

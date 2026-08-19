@@ -993,9 +993,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         Trusts the pairs — see the tenant-isolation contract on
         ``insert_users_list_by_id_uuid_pairs_skip_validation``. Calls the InsertCohortMembers RPC.
-        ClickHouse inserts (if requested) exclude persons already in the cohort
-        because the person_static_cohort table's ORDER BY includes a per-row UUID,
-        preventing ReplacingMergeTree from deduplicating repeated inserts.
+        Duplicates have to be kept out of person_static_cohort by the writer: the table's ORDER BY
+        includes a per-row UUID, so ReplacingMergeTree never collapses repeated inserts. Hence both
+        the within-batch dedup below and the existing-member check before the ClickHouse insert.
         """
         from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 
@@ -1004,8 +1004,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if not id_uuid_pairs:
             return
 
-        person_ids = [person_id for person_id, _ in id_uuid_pairs]
-        person_uuids = [person_uuid for _, person_uuid in id_uuid_pairs]
+        seen_uuids: set[str] = set()
+        deduped_pairs: list[tuple[int, str]] = []
+        for person_id, person_uuid in id_uuid_pairs:
+            if person_uuid in seen_uuids:
+                continue
+            seen_uuids.add(person_uuid)
+            deduped_pairs.append((person_id, person_uuid))
+
+        person_ids = [person_id for person_id, _ in deduped_pairs]
+        person_uuids = [person_uuid for _, person_uuid in deduped_pairs]
 
         if insert_in_clickhouse:
             existing_uuids = self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)

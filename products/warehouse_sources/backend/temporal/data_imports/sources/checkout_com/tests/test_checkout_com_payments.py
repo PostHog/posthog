@@ -4,10 +4,18 @@ import pytest
 from freezegun import freeze_time
 from unittest import mock
 
+import pyarrow as pa
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    append_partition_key_to_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
     CheckoutComResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
+    SYNC_BUDGET_EXCEEDED_MARKER,
+    CheckoutComSyncBudgetExceeded,
     checkout_com_payments_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -116,6 +124,12 @@ def _rows(source_response) -> list[dict[str, Any]]:
     return [row for chunk in source_response.items() for row in chunk]
 
 
+def _collect_rows(source_response, into: list[dict[str, Any]]) -> None:
+    """Drain into a caller-owned list, so rows yielded before a raise stay inspectable."""
+    for chunk in source_response.items():
+        into.extend(chunk)
+
+
 def _source(
     schema_name: str,
     manager: Optional[_FakeManager] = None,
@@ -183,8 +197,10 @@ class TestPaymentsWindowWalking:
             # which fits a single MAX_SEARCH_WINDOW request.
             (None, False, None, "2023-12-02T00:00:00Z", 1),
             ("2024-01-01", False, None, "2024-01-01T00:00:00Z", 1),
-            # A start older than the horizon clamps to it; search can't return older payments.
-            ("2023-01-01", False, None, "2023-12-02T00:00:00Z", 1),
+            # A start older than the documented horizon is honoured rather than clamped
+            # forward: search serves well past 90 days, and clamping silently dropped every
+            # month before it. 425 days walks as five MAX_SEARCH_WINDOW chunks.
+            ("2023-01-01", False, None, "2023-01-01T00:00:00Z", 5),
             ("2024-01-01", True, "2024-02-01T00:00:00Z", "2024-02-01T00:00:00Z", 1),
         ],
     )
@@ -324,7 +340,7 @@ class TestPaymentActionsFanout:
 
     @mock.patch(LOOKUP_BUDGET_PATCH, 1)
     @mock.patch(SESSION_PATCH)
-    def test_lookup_budget_stops_cleanly_without_checkpointing(self, mock_make_session):
+    def test_lookup_budget_raises_instead_of_reporting_a_complete_sync(self, mock_make_session):
         session = _FakeSession(
             search_responses=[
                 _search_page(
@@ -349,14 +365,18 @@ class TestPaymentActionsFanout:
             resumable_source_manager=manager,
             start_date="2024-02-28",
         )
-        rows = _rows(response)
+        collected: list[dict[str, Any]] = []
+        with pytest.raises(CheckoutComSyncBudgetExceeded) as excinfo:
+            _collect_rows(response, collected)
 
-        # Only the budgeted lookup ran, the interrupted window is not checkpointed (the
-        # next run re-covers it), and the stop is loud.
-        assert [row["id"] for row in rows] == ["act_1"]
+        # Returning here reported the schema Completed over a range holding no rows, so the
+        # gap was invisible. Rows found before the cut-off still land, the interrupted window
+        # is not checkpointed, and the run fails so the gap surfaces as latest_error.
+        assert [row["id"] for row in collected] == ["act_1"]
         assert len(session.lookups) == 1
         assert manager.saved_states == []
-        logger.warning.assert_called_once()
+        # The source classifies this as retryable by matching the marker in the message.
+        assert SYNC_BUDGET_EXCEEDED_MARKER in str(excinfo.value)
 
 
 @freeze_time(NOW)
@@ -408,11 +428,60 @@ class TestReferencedRecordFanout:
         assert [state.search_window_to for state in manager.saved_states] == [NOW]
 
 
+def _yielded_payment(payment_id: str, requested_on: Optional[str]) -> dict[str, Any]:
+    # The row shape the source yields: a search result with `_links` stripped; the
+    # search index doesn't guarantee `requested_on`, so None models an absent field.
+    payment = _payment(payment_id, requested_on or "")
+    if requested_on is None:
+        del payment["requested_on"]
+    return {key: value for key, value in payment.items() if key != "_links"}
+
+
+def _derived_partition_value(response, payment: dict[str, Any]) -> Optional[str]:
+    # Derive the partition exactly as setup_partitioning does for a fresh schema
+    # (partition keys fall back to the primary keys). None means the batch is written
+    # unpartitioned, where the merge matches on primary key alone.
+    result = append_partition_key_to_table(
+        table=pa.Table.from_pylist([payment]),
+        partition_count=response.partition_count,
+        partition_size=response.partition_size,
+        partition_keys=response.partition_keys or response.primary_keys,
+        partition_mode=response.partition_mode,
+        partition_format=response.partition_format,
+        logger=mock.MagicMock(),
+    )
+    if result is None:
+        return None
+    return result.table.column(PARTITION_KEY).to_pylist()[0]
+
+
+class TestPaymentsPartitionStability:
+    # The delta merge matches rows on primary key AND partition, so a payment whose
+    # derived partition differs between two runs is re-inserted instead of updated and
+    # its id duplicates. Overlapping windows are re-covered by design (budget retries,
+    # incremental re-reads), and every fetch re-reads the payment from the search index,
+    # so the partition must be a pure function of an immutable attribute of the payment.
+    @pytest.mark.parametrize(
+        "first_requested_on, second_requested_on",
+        [
+            pytest.param(None, "2024-02-29T18:00:00Z", id="requested_on-missing-then-present"),
+            pytest.param("2024-02-29T23:59:30Z", "2024-03-01T00:00:15Z", id="requested_on-drifts-across-month"),
+        ],
+    )
+    def test_same_payment_id_gets_same_partition_across_runs(self, first_requested_on, second_requested_on):
+        response = _source("payments")
+
+        first = _derived_partition_value(response, _yielded_payment("pay_dup", first_requested_on))
+        second = _derived_partition_value(response, _yielded_payment("pay_dup", second_requested_on))
+
+        assert first == second
+
+
 class TestCheckoutComPaymentsSourceResponse:
     @pytest.mark.parametrize(
         "schema_name, primary_keys, partition_keys",
         [
-            ("payments", ["id"], ["requested_on"]),
+            ("payments", ["id"], ["id"]),
             ("payment_actions", ["payment_id", "id"], ["payment_requested_on"]),
             ("customers", ["id"], None),
             ("instruments", ["id"], None),

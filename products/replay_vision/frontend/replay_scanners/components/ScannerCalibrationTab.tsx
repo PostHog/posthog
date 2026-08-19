@@ -25,6 +25,7 @@ import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { VisionDocsLink } from '../../components/DocsLink'
 import { ObservationResultSummary } from '../../components/ObservationCard'
 import type {
     FeedbackThemesApi,
@@ -984,11 +985,19 @@ export function ScannerCalibrationTab({ scannerId }: { scannerId: string }): JSX
                     nouns={['result', 'results']}
                     emptyState={
                         <div className="p-6 text-center text-muted">
-                            {ratedFilter === 'rated'
-                                ? 'No rated results yet. Rate some under "All" or "Unrated".'
-                                : ratedFilter === 'unrated'
-                                  ? 'No unrated results. Everything has been rated.'
-                                  : "No successful observations to rate yet. They'll appear here once the scanner produces results."}
+                            {ratedFilter === 'rated' ? (
+                                'No rated results yet. Rate some under "All" or "Unrated".'
+                            ) : ratedFilter === 'unrated' ? (
+                                'No unrated results. Everything has been rated.'
+                            ) : (
+                                <>
+                                    No successful observations to rate yet. They'll appear here once the scanner
+                                    produces results.{' '}
+                                    <VisionDocsLink page="calibration" dataAttr="vision-empty-docs-link-calibration">
+                                        Learn how calibration works
+                                    </VisionDocsLink>
+                                </>
+                            )}
                         </div>
                     }
                 />

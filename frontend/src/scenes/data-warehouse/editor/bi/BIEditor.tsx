@@ -36,6 +36,7 @@ import {
     BIFilterOperator,
     BIShelf,
     BIField,
+    BISortDirection,
     PIVOT_TABLE_QUERY_LIMIT,
     getBIDataSourceKey,
     isDateTimeBIField,
@@ -93,9 +94,14 @@ const LIMIT_OPTIONS = BI_QUERY_LIMITS.map((limit) => ({
     label: limit === 1000 ? '1k' : limit === 10000 ? '10k' : limit === 50000 ? '50k' : String(limit),
 }))
 
+const SORT_DIRECTION_OPTIONS: { value: BISortDirection; label: string }[] = [
+    { value: 'desc', label: 'Descending' },
+    { value: 'asc', label: 'Ascending' },
+]
+
 export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
     const logic = biEditorLogic({ tabId })
-    const { activeDropShelf, activeExpressionEditorId, availableDataSources, config, databaseLoading } =
+    const { activeDropShelf, activeExpressionEditorId, availableDataSources, config, databaseLoading, sortOptions } =
         useValues(logic)
     const { biEditorHeight, biEditorResizerProps } = useValues(editorSizingLogic)
     const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
@@ -116,6 +122,7 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
         setFilterOperator,
         setFilterValue,
         setLimit,
+        setSort,
         setValueAggregation,
         setValueCustomExpression,
     } = useActions(logic)
@@ -193,6 +200,40 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                             dropdownMatchSelectWidth={false}
                             data-attr="bi-editor-query-limit"
                         />
+                        <LemonSelect
+                            value={config.sort?.key ?? null}
+                            options={[
+                                {
+                                    value: null,
+                                    label: 'Auto',
+                                    tooltip:
+                                        'Sorts by the newest date or the highest value first, so the top rows stay within the limit.',
+                                },
+                                ...sortOptions.map((option) => ({ value: option.key, label: option.label })),
+                            ]}
+                            onChange={(key) =>
+                                setSort(key === null ? null : { key, direction: config.sort?.direction ?? 'desc' })
+                            }
+                            renderButtonContent={(option) => `Sort: ${option?.label ?? 'Auto'}`}
+                            aria-label="Sort results by"
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            disabledReason={
+                                sortOptions.length === 0 ? 'Add a field to rows or columns first' : undefined
+                            }
+                            data-attr="bi-editor-sort"
+                        />
+                        {config.sort ? (
+                            <LemonSelect
+                                value={config.sort.direction}
+                                options={SORT_DIRECTION_OPTIONS}
+                                onChange={(direction) => config.sort && setSort({ key: config.sort.key, direction })}
+                                aria-label="Sort direction"
+                                size="small"
+                                dropdownMatchSelectWidth={false}
+                                data-attr="bi-editor-sort-direction"
+                            />
+                        ) : null}
                         <LemonButton
                             type="secondary"
                             size="small"

@@ -505,3 +505,39 @@ describe("handleSystemMessage model_refusal_fallback", () => {
     },
   );
 });
+
+describe("tool_use blocks for an already-emitted tool call", () => {
+  function toolUseMessage(name: string, input: Record<string, unknown>) {
+    return assistantMessage("msg_1", [
+      { type: "tool_use", id: "toolu_1", name, input },
+    ]);
+  }
+
+  it("keeps the permission handler's resolved plan on an ExitPlanMode call", async () => {
+    const { context, updates } = createHandlerContext();
+    context.emittedToolCalls = new Set(["toolu_1"]);
+
+    await handleUserAssistantMessage(
+      toolUseMessage("ExitPlanMode", {}),
+      context,
+    );
+
+    expect(
+      updates.filter((u) => u.update.sessionUpdate === "tool_call_update"),
+    ).toEqual([]);
+  });
+
+  it("still updates other tools from the streamed input", async () => {
+    const { context, updates } = createHandlerContext();
+    context.emittedToolCalls = new Set(["toolu_1"]);
+
+    await handleUserAssistantMessage(
+      toolUseMessage("Read", { file_path: "/test/a.ts" }),
+      context,
+    );
+
+    expect(
+      updates.filter((u) => u.update.sessionUpdate === "tool_call_update"),
+    ).toHaveLength(1);
+  });
+});

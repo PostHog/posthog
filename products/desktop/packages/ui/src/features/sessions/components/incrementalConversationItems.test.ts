@@ -198,6 +198,7 @@ function normalize(result: BuildResult) {
     lastTurnInfo: result.lastTurnInfo,
     isCompacting: result.isCompacting,
     completedToolCallCount: result.completedToolCallCount,
+    lastActivityAt: result.lastActivityAt,
   };
 }
 
@@ -279,6 +280,15 @@ const SCENARIOS: Record<string, AcpMessage[]> = {
     agentChunk(5, "out"),
     promptResponseMsg(6, 1),
   ],
+  // The prompt echo reaches the client after the reply it prompted. Rendering
+  // in arrival order would put the agent above the user's own message until the
+  // turn ended and the thread re-sorted.
+  "prompt echo arriving after the reply": [
+    agentChunk(2, "on it"),
+    userPromptMsg(1, 1, "hello"),
+    agentChunk(3, " — done"),
+    promptResponseMsg(4, 1),
+  ],
 };
 
 const EQUIVALENCE_CASES = Object.entries(SCENARIOS).flatMap(([name, events]) =>
@@ -345,9 +355,9 @@ describe("createIncrementalConversationBuilder", () => {
     );
   });
 
-  // A full rebuild sorts by ts while the incremental builder processed arrival
-  // order, so out-of-order events must reject finalize-in-place and fall back.
-  it("falls back to a full rebuild on out-of-order timestamps at idle", () => {
+  // Both builders read events in ts-order, so a late arrival mid-stream must
+  // leave the streamed transcript and the finalized one in the same order.
+  it("stays equivalent when a timestamp arrives out of order", () => {
     const events = [
       userPromptMsg(1, 1, "hello"),
       agentChunk(5, "later "),

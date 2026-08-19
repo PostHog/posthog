@@ -414,6 +414,7 @@ async def _run_cdc_post_load(
     queryable_folder: str,
     cdc_write_mode: Optional[str],
     is_cdc_companion: bool,
+    is_initial_load: bool,
     logger: FilteringBoundLogger,
 ) -> None:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
@@ -438,13 +439,16 @@ async def _run_cdc_post_load(
         return
 
     # After the initial snapshot load for a CDC schema, seed the companion _cdc table
-    # with the snapshot rows as synthetic INSERT events.  Only fires when cdc_write_mode
-    # is None (initial non-CDC load), NOT on every CDC consolidated streaming batch.
-    should_seed = cdc_write_mode is None and schema.cdc_table_mode in ("cdc_only", "both")
+    # with the snapshot rows as synthetic INSERT events. Seeding resets the companion, so
+    # it must happen only on the initial load: a missing cdc_write_mode alone does not mean
+    # "initial" — a redelivered final batch reaches post-load without one, and re-seeding
+    # there throws away every SCD2 version the stream has accumulated since.
+    should_seed = is_initial_load and cdc_write_mode is None and schema.cdc_table_mode in ("cdc_only", "both")
     logger.info(
         "cdc_seed_check",
         should_seed=should_seed,
         cdc_write_mode=cdc_write_mode,
+        is_initial_load=is_initial_load,
         sync_type=schema.sync_type,
         cdc_table_mode=schema.cdc_table_mode,
     )
@@ -581,6 +585,9 @@ async def run_post_load_operations(
     # table independently, otherwise we overwrite the snapshot queryable_folder with the SCD2 path.
     is_cdc_companion = cdc_write_mode == "scd2_append"
     is_cdc_schema = schema.sync_type == ExternalDataSchema.SyncType.CDC
+    # Read before the bookkeeping below sets the flag, which would otherwise make every run
+    # look like a continuation.
+    is_initial_load = not schema.initial_sync_complete
 
     await _run_delta_maintenance(schema, delta_table_ref, is_cdc_companion, logger)
 
@@ -610,6 +617,7 @@ async def run_post_load_operations(
             queryable_folder=queryable_folder,
             cdc_write_mode=cdc_write_mode,
             is_cdc_companion=is_cdc_companion,
+            is_initial_load=is_initial_load,
             logger=logger,
         )
 

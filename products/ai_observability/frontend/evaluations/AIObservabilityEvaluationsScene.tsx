@@ -35,7 +35,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { fullName } from 'lib/utils/strings'
@@ -737,12 +736,13 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
 export function AIObservabilityEvaluationsScene(): JSX.Element {
     const { searchParams, location } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
-    const evaluationsLogic = useMountedLogic(llmEvaluationsLogic())
-    const metricsLogic = evaluationMetricsLogic()
+    useMountedLogic(llmEvaluationsLogic())
+    // Mount for this component's lifetime rather than attaching to llmEvaluationsLogic:
+    // evaluationMetricsLogic connects to it, so attaching leaves the two holding each
+    // other mounted, and the list never reloads on the next visit to this scene.
+    useMountedLogic(evaluationMetricsLogic())
     const showOfflineEvals = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
     const activeTab = getActiveTab(location.pathname, searchParams, showOfflineEvals)
-
-    useAttachedLogic(metricsLogic, evaluationsLogic)
 
     const tabs: LemonTab<string>[] = [
         {

@@ -11,7 +11,7 @@ import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/fr
 import {
     AccountsTableQueryPlan,
     BuildAccountsTableQueryPlanInput,
-    accountsTableRowsToLegacyRows,
+    accountsTableCell,
     buildAccountsTableQueryPlan,
 } from './accountsTableQuery'
 
@@ -133,17 +133,75 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan?.query.filters).toEqual([{ kind: 'account_id', accountId: RELATIONSHIP_ID }])
+        expect(plan?.query.includeChurned).toBe(true)
     })
 
-    it.each([
-        ['tile filter', { tileFilter: { tileId: 'tile', expression: 'count > 1' } }],
-        [
-            'unsupported column',
-            { querySelectColumns: ['name', 'arbitrary_hogql()'], visibleColumnNames: ['name', 'x'] },
-        ],
-        ['misaligned columns', { querySelectColumns: ['name'], visibleColumnNames: ['name', 'extra'] }],
-    ])('falls back to HogQL for %s', (_, overrides) => {
-        expect(buildAccountsTableQueryPlan(queryInput(overrides))).toBeNull()
+    it('drops unsupported columns instead of changing runners', () => {
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                querySelectColumns: ['name', 'arbitrary_hogql()'],
+                visibleColumnNames: ['name', 'unsupported'],
+            })
+        )
+
+        expect(plan.query.columns).toEqual([{ kind: 'account_field', field: 'name' }])
+        expect(plan.columns.map((column) => column.visibleName)).toEqual(['name'])
+    })
+
+    it('translates a threshold tile into a typed list filter', () => {
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                tileFilter: {
+                    tileId: 'tile',
+                    filter: {
+                        kind: 'custom_property',
+                        definitionId: CUSTOM_PROPERTY_ID,
+                        operator: AccountsTableCustomPropertyOperator.GreaterThan,
+                        values: [1],
+                    },
+                },
+            })
+        )
+
+        expect(plan.query.filters).toEqual([
+            {
+                kind: 'custom_property',
+                definitionId: CUSTOM_PROPERTY_ID,
+                operator: AccountsTableCustomPropertyOperator.GreaterThan,
+                values: [1],
+            },
+        ])
+    })
+
+    it('excludes unset accounts from a not-equal threshold tile', () => {
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                tileFilter: {
+                    tileId: 'tile',
+                    filter: {
+                        kind: 'custom_property',
+                        definitionId: CUSTOM_PROPERTY_ID,
+                        operator: AccountsTableCustomPropertyOperator.IsNot,
+                        values: [1],
+                    },
+                },
+            })
+        )
+
+        expect(plan.query.filters).toEqual([
+            {
+                kind: 'custom_property',
+                definitionId: CUSTOM_PROPERTY_ID,
+                operator: AccountsTableCustomPropertyOperator.IsSet,
+                values: [],
+            },
+            {
+                kind: 'custom_property',
+                definitionId: CUSTOM_PROPERTY_ID,
+                operator: AccountsTableCustomPropertyOperator.IsNot,
+                values: [1],
+            },
+        ])
     })
 
     it.each([
@@ -151,70 +209,37 @@ describe('accountsTableQuery', () => {
         ['contains on a number', 'currency', PropertyOperator.IContains],
         ['comparison on text', 'text', PropertyOperator.GreaterThan],
         ['date comparison on boolean', 'boolean', PropertyOperator.IsDateBefore],
-    ])('falls back to HogQL for %s custom property filters', (_, displayType, operator) => {
+    ])('omits unsupported %s custom property filters', (_, displayType, operator) => {
         const incompatibleDefinition = { ...definition, display_type: displayType } as CustomPropertyDefinitionApi
-
-        expect(
-            buildAccountsTableQueryPlan(
-                queryInput({
-                    customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: incompatibleDefinition },
-                    customPropertyFilters: [customFilter({ operator })],
-                })
-            )
-        ).toBeNull()
-    })
-
-    it('translates custom property values and history into positional cells', () => {
         const plan = buildAccountsTableQueryPlan(
             queryInput({
-                querySelectColumns: [
-                    'name',
-                    `accounts.custom_properties.values.\`${CUSTOM_PROPERTY_ID}\` AS cp_value`,
-                    `accounts.custom_properties_history.values.\`${CUSTOM_PROPERTY_ID}\` AS cp_history`,
-                ],
-                visibleColumnNames: ['name', 'cp_value', 'cp_history'],
-                columnDisplay: { [CUSTOM_PROPERTY_ID]: { mode: 'trend', window_days: 30 } },
+                customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: incompatibleDefinition },
+                customPropertyFilters: [customFilter({ operator })],
             })
-        ) as AccountsTableQueryPlan
-
-        const rows = accountsTableRowsToLegacyRows(
-            [
-                {
-                    id: 'account-id',
-                    name: 'Acme',
-                    accountFields: { name: 'Acme' },
-                    relationships: {},
-                    customProperties: { [CUSTOM_PROPERTY_ID]: 42 },
-                    customPropertyHistory: {
-                        [CUSTOM_PROPERTY_ID]: [{ timestamp: '2026-01-01T00:00:00Z', value: 40 }],
-                    },
-                },
-            ],
-            plan
         )
 
-        expect(rows).toEqual([[{ id: 'account-id', name: 'Acme', external_id: null }, 42, [[1767225600, 40]]]])
+        expect(plan.query.filters).toEqual([])
     })
 
-    it('translates keyed Postgres rows into the positional table response', () => {
+    it('reads cells directly from keyed rows', () => {
         const plan = buildAccountsTableQueryPlan(queryInput()) as AccountsTableQueryPlan
-        const rows = accountsTableRowsToLegacyRows(
-            [
-                {
-                    id: 'account-id',
-                    name: 'Acme',
-                    externalId: 'acme-1',
-                    accountFields: { name: 'Acme' },
-                    tags: ['enterprise'],
-                    noteCount: 2,
-                    relationships: { [RELATIONSHIP_ID]: [42] },
-                    customProperties: {},
-                    customPropertyHistory: {},
-                },
-            ],
-            plan
-        )
+        const row = {
+            id: 'account-id',
+            name: 'Acme',
+            externalId: 'acme-1',
+            accountFields: { name: 'Acme' },
+            tags: ['enterprise'],
+            noteCount: 2,
+            relationships: { [RELATIONSHIP_ID]: [42] },
+            customProperties: {},
+            customPropertyHistory: {},
+        }
 
-        expect(rows).toEqual([[{ id: 'account-id', name: 'Acme', external_id: 'acme-1' }, ['enterprise'], 2, [42]]])
+        expect(plan.columns.map((column) => accountsTableCell(row, column.visibleName, plan))).toEqual([
+            { id: 'account-id', name: 'Acme', external_id: 'acme-1' },
+            ['enterprise'],
+            2,
+            [42],
+        ])
     })
 })

@@ -1,9 +1,14 @@
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
+from posthog.models.integration import Integration
+
+from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import (
     UPSTREAM_PROVIDER_FAILURE_MESSAGE,
     SlackThreadContext,
@@ -322,3 +327,203 @@ class TestPostPrOpenedReplyTarget(SimpleTestCase):
 
         kwargs = mock_client.chat_postMessage.call_args.kwargs
         assert kwargs["text"].startswith(expected_text_start)
+
+
+class TestReplyFooterGate(SimpleTestCase):
+    def _handler(self, footer: RunFooter | None = None) -> SlackThreadHandler:
+        context = SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+            mentioning_slack_user_id="U123",
+        )
+        return SlackThreadHandler(context, footer or RunFooter(model="claude-opus-5"))
+
+    @parameterized.expand([("withheld", False), ("granted", True)])
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_withholding_the_links_still_leaves_the_model_and_configure(
+        self,
+        _name: str,
+        code_access: bool,
+        mock_get_client,
+        mock_get_integration,
+        _mock_flag,
+        _mock_home,
+    ) -> None:
+        # Whether this reader can open a task page changes which segments render, never
+        # whether the line appears: the model and the way to change it are theirs either way.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(config={"app_id": "A1"}, integration_id="T1")
+        footer = RunFooter(
+            task_url="https://app/project/1/tasks/t",
+            desktop_url="https://us.posthog.com/code/task/t",
+            model="claude-opus-5",
+        )
+
+        with patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=code_access):
+            self._handler(footer).post_thread_message("the answer", with_footer=True)
+
+        line = mock_client.chat_postMessage.call_args.kwargs["blocks"][-1]["elements"][0]["text"]
+        assert "*Claude Opus 5*" in line
+        assert "|Configure>" in line
+        assert ("View on web" in line) is code_access
+        assert ("View on desktop" in line) is code_access
+
+    @parameterized.expand([("off", False, False), ("on", True, True)])
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_streamed_reply_carries_the_footer_only_inside_the_rollout(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        expected: bool,
+        mock_get_client,
+        mock_get_integration,
+        _mock_home_enabled,
+    ) -> None:
+        # Losing this gate would put the footer under every workspace's replies at once.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(config={}, integration_id="T1")
+
+        with patch(
+            "products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled",
+            return_value=flag_enabled,
+        ):
+            self._handler().stop_status_stream(ts="1.0", final_markdown="Done.")
+
+        chunks = mock_client.chat_appendStream.call_args.kwargs["chunks"]
+        # The footer rides as a `blocks` chunk: a `context` block is the only muted text,
+        # and Slack's streamed markdown_text has no equivalent.
+        assert any(chunk.get("type") == "blocks" for chunk in chunks) is expected
+
+
+class TestFooterNeverCostsTheAnswer(SimpleTestCase):
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_a_rejected_footer_reposts_the_answer_as_plain_text(
+        self, mock_get_client, mock_get_integration, _mock_flag, _mock_home
+    ) -> None:
+        # Slack fails the whole request when blocks are invalid — the text fallback does
+        # not rescue it — so without this the reader loses the answer, not just its footer.
+        mock_client = MagicMock()
+        mock_client.chat_postMessage.side_effect = [
+            SlackApiError("invalid_blocks", {"error": "invalid_blocks"}),
+            MagicMock(),
+        ]
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(config={}, integration_id="T1")
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+
+        SlackThreadHandler(context, RunFooter(model="claude-opus-5")).post_thread_message(
+            "the answer", with_footer=True
+        )
+
+        assert mock_client.chat_postMessage.call_count == 2
+        retry = mock_client.chat_postMessage.call_args_list[1].kwargs
+        assert retry["text"] == "the answer"
+        assert not retry.get("blocks")
+
+
+class TestRelayedAnswerFooter(SimpleTestCase):
+    def _handler(self, footer: RunFooter) -> SlackThreadHandler:
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        return SlackThreadHandler(context, footer)
+
+    @parameterized.expand(
+        [
+            ("final_chunk_with_model", RunFooter(model="claude-opus-5"), True, True),
+            ("final_chunk_nothing_to_say", RunFooter(), True, False),
+            ("earlier_chunk", RunFooter(model="claude-opus-5"), False, False),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_footer_rides_the_last_chunk_only(
+        self,
+        _name: str,
+        footer: RunFooter,
+        with_footer: bool,
+        expected: bool,
+        mock_get_client,
+        mock_get_integration,
+        _mock_flag,
+        _mock_home,
+    ) -> None:
+        # A non-streamed answer is split only to fit Slack's length cap, so a footer on
+        # any chunk but the last would appear mid-answer.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(config={}, integration_id="T1")
+
+        self._handler(footer).post_thread_message("the answer", with_footer=with_footer)
+
+        kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert kwargs["text"] == "the answer"
+        # Without a footer the message carries no blocks, staying the plain-text post it
+        # has always been.
+        assert bool(kwargs.get("blocks")) is expected
+        if expected:
+            assert kwargs["blocks"][-1]["type"] == "context"
+            # A section collapses behind "Show more" unless it is told to expand.
+            assert kwargs["blocks"][0]["expand"] is True
+
+
+class TestDeletedTriggerMessage(SimpleTestCase):
+    """A run whose prompt has been deleted has nobody left to answer, so it says nothing."""
+
+    def setUp(self) -> None:
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
+
+    def _handler(self) -> SlackThreadHandler:
+        return SlackThreadHandler(
+            SlackThreadContext(
+                integration_id=1,
+                channel="C_DELETED",
+                thread_ts="1700000000.000100",
+                mentioning_slack_user_id="U123",
+            )
+        )
+
+    @parameterized.expand(
+        [
+            ("relayed_answer", lambda h: h.post_thread_message("here is the answer")),
+            ("completion_card", lambda h: h.post_completion(task_url=None)),
+            ("failure_card", lambda h: h.post_error("boom", task_url=None)),
+            ("progress_update", lambda h: h.post_or_update_progress("planning")),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_nothing_is_posted_once_the_prompt_is_deleted(
+        self, _name, post, mock_get_client, _mock_find_progress
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.conversations_history.return_value = {"messages": []}
+        mock_get_client.return_value = mock_client
+
+        post(self._handler())
+
+        mock_client.chat_postMessage.assert_not_called()
+
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_status_stream_does_not_start_for_a_deleted_prompt(self, mock_get_client) -> None:
+        mock_client = MagicMock()
+        mock_client.conversations_history.return_value = {"messages": []}
+        mock_get_client.return_value = mock_client
+
+        assert self._handler().start_status_stream(first_markdown_text="thinking") is None
+
+        mock_client.chat_startStream.assert_not_called()

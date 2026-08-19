@@ -227,8 +227,13 @@ async def validate_schema_and_update_table(
                 # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
                 # enough for the pooled Postgres connection to be recycled underneath us. Retry once
                 # on a fresh connection rather than let this escape as error-tracking noise.
+                # new_url_pattern above is derived from the job's own destination folder, not from
+                # request input, so this sync is a trusted writer of a credential-less table's URL.
                 retry_on_db_connection_drop(
-                    lambda: table.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
+                    lambda: table.save(
+                        update_fields=["format", "url_pattern", "queryable_folder", "row_count"],
+                        internally_computed_url_pattern=True,
+                    )
                 )
 
             if not table_created:
@@ -389,8 +394,13 @@ async def register_cdc_companion_table(
                 # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
                 # enough for the pooled Postgres connection to be recycled underneath us. Retry once
                 # on a fresh connection rather than let this escape as error-tracking noise.
+                # new_url_pattern above is derived from the job's own destination folder, not from
+                # request input, so this sync is a trusted writer of a credential-less table's URL.
                 retry_on_db_connection_drop(
-                    lambda: table.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
+                    lambda: table.save(
+                        update_fields=["format", "url_pattern", "queryable_folder", "row_count"],
+                        internally_computed_url_pattern=True,
+                    )
                 )
             else:
                 logger.debug(f"Creating CDC companion table: {companion_table_name}")

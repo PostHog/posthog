@@ -12,6 +12,8 @@ import { urls } from 'scenes/urls'
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { VisionDocsLink } from '../../components/DocsLink'
+import { CreditPriceNote } from '../../components/PricingLink'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd, formatCreditsRange } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
@@ -278,7 +280,14 @@ export function VisionUsageTab(): JSX.Element {
                 dataSource={rows}
                 loading={usageScannersLoading}
                 rowKey={(scanner) => scanner.id}
-                emptyState="No spend this period yet. Costs appear here once scanners produce observations."
+                emptyState={
+                    <>
+                        No spend this period yet. Costs appear here once scanners produce observations.{' '}
+                        <VisionDocsLink page="quota-and-limits" dataAttr="vision-empty-docs-link-usage">
+                            Learn how credits and limits work
+                        </VisionDocsLink>
+                    </>
+                }
                 footer={
                     hiddenCount > 0 ? (
                         <div className="px-3 py-2 text-xs text-muted">
@@ -287,6 +296,9 @@ export function VisionUsageTab(): JSX.Element {
                     ) : undefined
                 }
             />
+            <div className="text-xs text-muted">
+                <CreditPriceNote dataAttr="vision-pricing-link-usage" />
+            </div>
         </div>
     )
 }

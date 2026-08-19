@@ -1,12 +1,13 @@
 ---
 name: review-hog-authoring
 description: >
-  How to author custom ReviewHog skills — the review perspectives, blind-spot checks, and
-  validation criteria that drive ReviewHog's automated PR reviews. Use when a user wants a new
-  review perspective (a specialist lens on their PRs), a custom blind-spot sweep, or their own
-  validation bar for which findings get published. Trigger on "create a ReviewHog perspective",
-  "custom review perspective", "my own blind-spot check", "custom validation criteria", "tune what
-  ReviewHog publishes".
+  How to author custom ReviewHog skills — the review perspectives, blind-spot checks, validation
+  criteria, and resolution criteria that drive ReviewHog's automated PR reviews. Use when a user
+  wants a new review perspective (a specialist lens on their PRs), a custom blind-spot sweep,
+  their own validation bar for which findings get published, or their own bar for which review
+  comments get implemented. Trigger on "create a ReviewHog perspective", "custom review
+  perspective", "my own blind-spot check", "custom validation criteria", "custom resolution
+  criteria", "tune what ReviewHog publishes", "tune what ReviewHog implements".
 metadata:
   owner_team: review_hog
   skill_type: authoring
@@ -18,9 +19,11 @@ metadata:
 chunk runs every enabled **perspective** in parallel (independent specialist lenses), a single
 **blind-spot check** afterwards (a final sweep conditioned on what the perspectives found), and
 finally judges every surviving candidate finding against one **validation criteria** skill — only
-findings that pass get published to the pull request.
+findings that pass get published to the pull request. After a published review, the **resolution
+stage** goes back over the PR's unresolved review threads and judges each against one **resolution
+criteria** skill — worth-and-safe asks get implemented on the PR branch, every thread gets a reply.
 
-All three kinds are team `LLMSkill` rows the review agents pull over MCP at run time. PostHog ships
+All four kinds are team `LLMSkill` rows the review agents pull over MCP at run time. PostHog ships
 canonicals; this skill is the guide for authoring **custom** ones. The skill itself is team-level;
 whether it _runs_ is a per-user setting in **Inbox → Code review**.
 
@@ -29,6 +32,7 @@ whether it _runs_ is a per-user setting in **Inbox → Code review**.
 | Review perspective  | `review-hog-perspective-<slug>` | Multi-enable, at least one stays on | `review-hog-perspective-logic-correctness` |
 | Blind-spot check    | `review-hog-blind-spots-<slug>` | Exactly one active; selecting swaps | `review-hog-blind-spots-general`           |
 | Validation criteria | `review-hog-validation-<slug>`  | Exactly one active; selecting swaps | `review-hog-validation-criteria`           |
+| Resolution criteria | `review-hog-resolution-<slug>`  | Exactly one active; selecting swaps | `review-hog-resolution-criteria`           |
 
 ## Authoring flow
 
@@ -55,8 +59,9 @@ whether it _runs_ is a per-user setting in **Inbox → Code review**.
 5. **Tell the user how to activate it.** A custom skill starts inactive for them:
    - **Perspective** — toggle it on under Inbox → Code review → Perspectives (it appears disabled
      until they enable it; at least one perspective must stay on).
-   - **Blind-spot check / validation criteria** — select it under the matching section; exactly one
-     runs at a time, so selecting it swaps out the current one **for their reviews only**.
+   - **Blind-spot check / validation criteria / resolution criteria** — select it under the
+     matching section; exactly one runs at a time, so selecting it swaps out the current one
+     **for their reviews only**.
      Reviews pin skill versions when a run starts, so an edit mid-review applies from the next run.
 
 ## Writing a review perspective
@@ -97,3 +102,14 @@ data loss, contract breaks, performance), what gets dropped (overengineering, sp
 defensive paranoia, unreachable edges, style), and how to treat genuine uncertainty (default:
 drop). A custom bar shifts strictness or re-weights concerns; it should still demand evidence from
 the live codebase, not vibes.
+
+## Writing resolution criteria
+
+The body defines the bar the resolution stage applies to each unresolved review thread on a PR:
+**worth implementing** (a real improvement the PR should carry, in scope for what it changes) and
+**safe to implement unattended** (small blast radius, no contract or API changes, no cross-cutting
+rewrites, verifiable locally). Define what gets implemented, what gets a reasoned decline
+(overengineering asks, scope creep, style-only churn, requests better served by a follow-up), and
+what escalates to a human. The harness owns the hard floors — human-authored threads are never
+resolved by the bot, escalations never resolve a thread, replies always explain the decision — so
+a custom skill may tighten the bar or re-weight what counts as worth it, never loosen those floors.

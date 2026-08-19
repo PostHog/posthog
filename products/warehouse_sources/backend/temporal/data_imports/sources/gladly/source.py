@@ -67,17 +67,23 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url": "Gladly authentication failed. Please check your agent email and API token.",
             "403 Client Error: Forbidden for url": "Gladly denied access. Please check that the agent has the API User permission.",
+            # Raised by `_report_rows` when a report header is missing the columns the stream is
+            # keyed on. Gladly returns the same body for that window on a retry, so stop and tell
+            # the customer rather than replaying it.
+            "Gladly report is missing required columns": (
+                "Gladly returned a report without the columns this table syncs on, so there was no "
+                "data to sync. Re-enable the sync to try again, and contact support if it keeps happening."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # `_report_rows` reads the report CSV straight off `response.raw` (see gladly.py) rather
-        # than through `iter_content`, so a stall in Gladly's report generation past
-        # REQUEST_TIMEOUT_SECONDS raises the bare urllib3 read-timeout while streaming rows —
-        # after `generate_report`'s own retry-on-`requests.ReadTimeout` has already returned a
-        # response, so it isn't caught there either. Temporal's activity retry regenerates the
-        # report and re-streams it; the resumable window state means only the in-flight window is
-        # redone, deduped on merge, so this is self-recovering rather than a tracked-exception-worthy
-        # failure.
+        # `_report_rows` streams the report CSV while it yields rows (see gladly.py), so a stall in
+        # Gladly's report generation past REQUEST_TIMEOUT_SECONDS raises the bare urllib3
+        # read-timeout mid-stream, after `generate_report`'s own retry-on-`requests.ReadTimeout` has
+        # already returned a response, so it isn't caught there either. Temporal's activity retry
+        # regenerates the report and re-streams it; the resumable window state means only the
+        # in-flight window is redone, deduped on merge, so this is self-recovering rather than a
+        # tracked-exception-worthy failure.
         return {"Read timed out"}
 
     @property

@@ -25,6 +25,7 @@ import {
 } from 'lib/utils/operators'
 import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
+import { PropValue } from '~/models/propertyDefinitionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     GroupTypeIndex,
@@ -147,6 +148,8 @@ export interface OperatorValueSelectProps {
      * Force single-select mode regardless of operator type
      * **/
     forceSingleSelect?: boolean
+    /** Statically known value suggestions, replacing API-fetched ones. See `PropertyValueProps.staticValues`. */
+    staticValues?: PropValue[] | null
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -202,6 +205,7 @@ export function OperatorValueSelect({
     startVisible,
     operatorAllowlist,
     forceSingleSelect,
+    staticValues,
 }: OperatorValueSelectProps): JSX.Element {
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
@@ -436,6 +440,7 @@ export function OperatorValueSelect({
                             key={propertyKey}
                             propertyKey={propertyKey}
                             endpoint={endpoint}
+                            staticValues={staticValues}
                             operator={currentOperator || PropertyOperator.Exact}
                             placeholder={placeholder}
                             value={value}
@@ -452,6 +457,7 @@ export function OperatorValueSelect({
                             size={size}
                             forceSingleSelect={forceSingleSelect}
                             validationError={validationError}
+                            propertyTypeOverride={propertyDefinition?.property_type}
                         />
                     )}
                 </div>

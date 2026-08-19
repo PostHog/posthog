@@ -15,14 +15,23 @@ export const TaskLinkEvent = {
   OpenTask: "openTask",
 } as const;
 
-export interface TaskLinkEvents {
-  [TaskLinkEvent.OpenTask]: { taskId: string; taskRunId?: string };
+export interface TaskLinkCommentAnchor {
+  threadId: string;
+  scope?: string;
+  itemId?: string;
 }
 
-export interface PendingDeepLink {
+export interface TaskLinkPayload {
   taskId: string;
   taskRunId?: string;
+  comment?: TaskLinkCommentAnchor;
 }
+
+export interface TaskLinkEvents {
+  [TaskLinkEvent.OpenTask]: TaskLinkPayload;
+}
+
+export type PendingDeepLink = TaskLinkPayload;
 
 @injectable()
 export class TaskLinkService extends TypedEventEmitter<TaskLinkEvents> {
@@ -40,12 +49,12 @@ export class TaskLinkService extends TypedEventEmitter<TaskLinkEvents> {
     super();
     this.log = rootLogger.scope("task-link-service");
 
-    this.deepLinkService.registerHandler("task", (path) =>
-      this.handleTaskLink(path),
+    this.deepLinkService.registerHandler("task", (path, searchParams) =>
+      this.handleTaskLink(path, searchParams),
     );
   }
 
-  private handleTaskLink(path: string): boolean {
+  private handleTaskLink(path: string, searchParams: URLSearchParams): boolean {
     const parts = path.split("/");
     const taskId = parts[0];
     const taskRunId = parts[1] === "run" ? parts[2] : undefined;
@@ -55,18 +64,32 @@ export class TaskLinkService extends TypedEventEmitter<TaskLinkEvents> {
       return false;
     }
 
+    const threadId = searchParams.get("comment");
+    const comment: TaskLinkCommentAnchor | undefined = threadId
+      ? {
+          threadId,
+          scope: searchParams.get("scope") ?? undefined,
+          itemId: searchParams.get("item") ?? undefined,
+        }
+      : undefined;
+    return this.openTask({ taskId, taskRunId, comment });
+  }
+
+  /** Routes the main window to a task, queueing until the renderer is ready. */
+  public openTask(payload: TaskLinkPayload): boolean {
+    const { taskId, taskRunId, comment } = payload;
     const hasListeners = this.listenerCount(TaskLinkEvent.OpenTask) > 0;
 
     if (hasListeners) {
       this.log.info(
-        `Emitting task link event: taskId=${taskId}, taskRunId=${taskRunId ?? "none"}`,
+        `Emitting task link event: taskId=${taskId}, taskRunId=${taskRunId ?? "none"}, comment=${comment?.threadId ?? "none"}`,
       );
-      this.emit(TaskLinkEvent.OpenTask, { taskId, taskRunId });
+      this.emit(TaskLinkEvent.OpenTask, payload);
     } else {
       this.log.info(
-        `Queueing task link (renderer not ready): taskId=${taskId}, taskRunId=${taskRunId ?? "none"}`,
+        `Queueing task link (renderer not ready): taskId=${taskId}, taskRunId=${taskRunId ?? "none"}, comment=${comment?.threadId ?? "none"}`,
       );
-      this.pendingDeepLink = { taskId, taskRunId };
+      this.pendingDeepLink = payload;
     }
 
     this.log.info("Deep link focusing window", { taskId, taskRunId });
