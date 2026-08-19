@@ -224,6 +224,9 @@ class ExportedAsset(models.Model):
             "export_format": self.export_format,
             "dashboard_id": self.dashboard_id,
             "insight_id": self.insight_id,
+            # Scanner-driven renders (replay_vision) report through the same pipeline; without this
+            # flag their volume is indistinguishable from user exports in failure-rate comparisons.
+            "is_system": bool(self.is_system),
         }
 
     def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):

@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
     IncrementalConfig,
+    ParentRowFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
@@ -40,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.settings import (
     ALLOWED_SENTRY_API_BASE_URLS,
     DEFAULT_SENTRY_API_BASE_URL,
+    ISSUES_PARENT_ROW_FILTER,
     PROJECT_STAT_NAMES,
     REQUIRED_SENTRY_SCOPES,
     SENTRY_ENDPOINTS,
@@ -400,10 +402,26 @@ def _skip_rows_on_stale_issue_404(
         raise
 
 
-def _issues_parent_columns(cutoff_last_seen: Any) -> list[str]:
-    # lastSeen is only projected when an incremental cutoff needs it — a parent whose column
-    # selection dropped it can still drive full-refresh children.
-    return ["id", "lastSeen"] if cutoff_last_seen is not None else ["id"]
+# lastSeen carries the scan floor, so it is always projected. A parent whose column selection
+# dropped it fails the eager resolve check and drives this child from the API instead.
+_ISSUES_PARENT_COLUMNS = ["id", "lastSeen"]
+
+
+def _issues_parent_row_filter(cutoff_last_seen: datetime | None) -> ParentRowFilter:
+    """Floor for the issues scan: Sentry's list window, tightened by the incremental cutoff.
+
+    The cutoff half is pure I/O: it turns the per-row skip below into a predicate the parquet
+    reader applies, so an incremental run stops reading issues it would only discard. The
+    per-row check stays the authority, and the floor is never tighter than it.
+
+    The window half is the same constant `issue_events` and `issue_hashes` use, so all three
+    children fan out over one row set instead of each bounding the parent differently. It does
+    drop issues this iterator used to yield, in the two cases where the per-row check bounded
+    nothing: a full refresh (no cutoff at all) and a watermark older than the window. Those are
+    issues Sentry's own listing no longer returns, so the API path never fanned out over them
+    either.
+    """
+    return dataclasses.replace(ISSUES_PARENT_ROW_FILTER, not_before=cutoff_last_seen)
 
 
 def _usable_resume_state(
@@ -460,9 +478,10 @@ def _iter_issue_tag_values_rows(
             for page in iter_parent_pages_from_warehouse(
                 table=issues_table,
                 parent_name="issues",
-                columns=_issues_parent_columns(cutoff_last_seen),
+                columns=_ISSUES_PARENT_COLUMNS,
                 page_size=100,
                 schema_name="issue_tag_values",
+                row_filter=_issues_parent_row_filter(cutoff_last_seen),
             )
             for row in page
         )
@@ -1272,8 +1291,9 @@ def sentry_source(
                 team_id=team_id,
                 source_id=source_id,
                 parent_name="issues",
-                required_columns=_issues_parent_columns(_parse_datetime_value(incremental_last_seen_max)),
+                required_columns=_ISSUES_PARENT_COLUMNS,
                 schema_name="issue_tag_values",
+                row_filter=_issues_parent_row_filter(_parse_datetime_value(incremental_last_seen_max)),
             )
         if resumable_source_manager is not None and resumable_source_manager.can_resume():
             # The pipeline reads this same Redis state to pick replace-vs-append for chunk 0,

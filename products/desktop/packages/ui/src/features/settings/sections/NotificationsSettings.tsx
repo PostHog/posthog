@@ -37,6 +37,7 @@ import {
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { AddCustomSoundDialog } from "@posthog/ui/features/settings/sections/AddCustomSoundDialog";
+import { TipsSection } from "@posthog/ui/features/settings/sections/TipsSettings";
 import {
   type CompletionSound,
   type CustomSound,
@@ -429,6 +430,8 @@ export function NotificationsSettings() {
       />
 
       {spokenNarrationEnabled && <VoiceSection />}
+
+      <TipsSection />
 
       <TestSection
         bus={bus}
