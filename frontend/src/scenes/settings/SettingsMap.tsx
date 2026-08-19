@@ -303,7 +303,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'internal-user-filtering-existing-insights',
-                title: 'Apply the filter to existing insights',
+                title: 'Apply the internal and test user filter to existing insights',
                 description:
                     'Turning the filter on for new insights leaves the insights you already have alone. Use this to turn it on or off across them.',
                 component: <ApplyTestAccountFilterToExistingInsights />,

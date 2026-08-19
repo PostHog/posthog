@@ -24,12 +24,13 @@ export function ApplyTestAccountFilterToExistingInsights(): JSX.Element {
 
     const confirm = (enabled: boolean): void => {
         LemonDialog.open({
-            title: `Turn this filter ${enabled ? 'on' : 'off'} for every existing insight?`,
+            title: `Turn the internal and test user filter ${enabled ? 'on' : 'off'} for every existing insight?`,
             width: 560,
             content: (
                 <div className="flex flex-col gap-3">
                     <p className="mb-0">
-                        This updates the insights you already have. The default for new insights stays as it is.
+                        Every insight you already have will {enabled ? 'start' : 'stop'} filtering out internal and test
+                        users, using the filters you've defined for them. The default for new insights stays as it is.
                     </p>
                     <div>
                         <p className="mb-1">Left as they are:</p>
@@ -46,7 +47,7 @@ export function ApplyTestAccountFilterToExistingInsights(): JSX.Element {
                 </div>
             ),
             primaryButton: {
-                children: `Turn it ${enabled ? 'on' : 'off'}`,
+                children: `Turn the filter ${enabled ? 'on' : 'off'}`,
                 onClick: () => applyToExistingInsights(enabled),
             },
             secondaryButton: { children: 'Cancel' },
