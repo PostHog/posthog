@@ -5,7 +5,12 @@ import { Sparkline, SparklineReferenceLine } from 'lib/components/Sparkline'
 import type { AnyScaleOptions } from 'lib/components/Sparkline'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { AlertConditionType, InsightsThresholdBounds, InsightThresholdType } from '~/queries/schema/schema-general'
+import {
+    AlertConditionType,
+    ForecastConditionType,
+    InsightsThresholdBounds,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 
 import { ForecastSimulateResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
@@ -86,7 +91,11 @@ export function AlertPreviewCard({
               alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
           )
         : null
-    const referenceLines = thresholdReferenceLines(alertForm)
+    // Only a predicted breach reads the thresholds. The other two forecast conditions score against
+    // the forecast's own band or a target, so bounds are neither asked for nor used.
+    const forecastReadsThreshold =
+        !alertForm.forecast_config || alertForm.forecast_config.condition === ForecastConditionType.FUTURE_BREACH
+    const referenceLines = forecastReadsThreshold ? thresholdReferenceLines(alertForm) : []
     const useLogScale = Boolean(trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines))
     const previewValues = useLogScale ? trendsPreview?.values.map(toLogScale) : trendsPreview?.values
     const previewReferenceLines = useLogScale
@@ -95,6 +104,7 @@ export function AlertPreviewCard({
     const checkPreviewValues = checkPreview?.values
     const isUnconfiguredAbsoluteThreshold =
         !alertForm.detector_config &&
+        forecastReadsThreshold &&
         alertForm.condition?.type === AlertConditionType.ABSOLUTE_VALUE &&
         alertForm.threshold?.configuration?.type === InsightThresholdType.ABSOLUTE &&
         referenceLines.length === 0
@@ -112,6 +122,12 @@ export function AlertPreviewCard({
                 thresholdBounds={forecast.thresholdBounds}
                 forecastConfig={alertForm.forecast_config ?? null}
             />
+        )
+    } else if (alertForm.forecast_config) {
+        body = (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                Run Simulate to preview this forecast.
+            </div>
         )
     } else if (isUnconfiguredAbsoluteThreshold) {
         body = (

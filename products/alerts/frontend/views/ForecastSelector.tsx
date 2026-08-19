@@ -13,7 +13,11 @@ import {
 } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
-import { forecastTargetDateError, maxHorizonForInterval } from 'products/alerts/frontend/logic/forecastReach'
+import {
+    clampHorizon,
+    forecastTargetDateError,
+    maxHorizonForInterval,
+} from 'products/alerts/frontend/logic/forecastReach'
 
 /** Labels the horizon input. Keyed by the insight's interval, since that is what the horizon counts. */
 const HORIZON_UNIT: Partial<Record<IntervalType, string>> = {
@@ -64,14 +68,17 @@ export function withConditionDefaults(config: ForecastConfig, condition: Forecas
     }
 }
 
-export function getDefaultForecastConfig(): ForecastConfig {
-    return {
-        type: 'ForecastConfig',
-        engine: ForecastEngineType.PROPHET,
-        condition: ForecastConditionType.FUTURE_BREACH,
-        horizon: DEFAULT_HORIZON,
-        interval_width: DEFAULT_INTERVAL_WIDTH,
-    }
+export function getDefaultForecastConfig(insightInterval?: IntervalType | null): ForecastConfig {
+    return clampHorizon(
+        {
+            type: 'ForecastConfig',
+            engine: ForecastEngineType.PROPHET,
+            condition: ForecastConditionType.FUTURE_BREACH,
+            horizon: DEFAULT_HORIZON,
+            interval_width: DEFAULT_INTERVAL_WIDTH,
+        },
+        insightInterval
+    )
 }
 
 /** A setting's label with an info balloon saying what the setting is for, rather than what it does.
@@ -92,11 +99,13 @@ interface ForecastSelectorProps {
 }
 
 export function ForecastSelector({ value, onChange, insightInterval }: ForecastSelectorProps): JSX.Element {
-    const config = value ?? getDefaultForecastConfig()
+    const config = value ?? getDefaultForecastConfig(insightInterval)
     const unit = HORIZON_UNIT[insightInterval ?? 'day'] ?? 'intervals'
     // The backend caps reach as a duration, so this ceiling moves with the insight's interval.
     const maxHorizon = maxHorizonForInterval(insightInterval)
     const targetDateError = forecastTargetDateError(config.target_date, dayjs())
+    // A predicted breach has a threshold to cross, not a target to miss.
+    const missesOrCrosses = config.condition === ForecastConditionType.FUTURE_BREACH ? 'crosses it' : 'misses'
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <LemonSelect
@@ -139,12 +148,14 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
                         type="number"
                         className="w-24"
                         data-attr="alertForm-forecast-target"
+                        aria-label="Target value"
                         value={config.target ?? undefined}
                         onChange={(target) => onChange({ ...config, target: target ?? undefined })}
                     />
                     <span className="whitespace-nowrap">on</span>
                     <LemonCalendarSelectInput
-                        data-attr="alertForm-forecast-target-date"
+                        selectionPeriod="upcoming"
+                        buttonProps={{ fullWidth: false, 'data-attr': 'alertForm-forecast-target-date' }}
                         value={config.target_date ? dayjs(config.target_date) : null}
                         onChange={(d) => onChange({ ...config, target_date: d ? d.format('YYYY-MM-DD') : undefined })}
                     />
@@ -162,9 +173,10 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
                         type="number"
                         className="w-20"
                         data-attr="alertForm-forecast-horizon"
+                        aria-label="Forecast horizon"
                         min={1}
                         max={maxHorizon}
-                        value={Math.min(config.horizon ?? DEFAULT_HORIZON, maxHorizon)}
+                        value={config.horizon ?? DEFAULT_HORIZON}
                         onChange={(horizon) =>
                             onChange({
                                 ...config,
@@ -183,18 +195,19 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
                     <SettingHelp text="How far from normal counts as unusual. Narrower catches smaller dips and fires more often." />
                     <LemonSegmentedButton
                         size="small"
-                        data-attr="alertForm-forecast-interval-width"
                         value={config.interval_width ?? DEFAULT_INTERVAL_WIDTH}
                         onChange={(interval_width) => onChange({ ...config, interval_width })}
                         options={[
                             {
                                 value: 0.8,
                                 label: 'Narrower',
+                                'data-attr': 'alertForm-forecast-interval-width-narrower',
                                 tooltip: 'More sensitive. Fires on smaller deviations, with more noise.',
                             },
                             {
                                 value: DEFAULT_INTERVAL_WIDTH,
                                 label: 'Wider',
+                                'data-attr': 'alertForm-forecast-interval-width-wider',
                                 tooltip: 'Fires only on clear deviations.',
                             },
                         ]}
@@ -204,21 +217,22 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
                 /* The band width does not decide when these two fire; which line they read does. */
                 <div className="flex items-center gap-2">
                     <span className="text-secondary whitespace-nowrap">Alert once</span>
-                    <SettingHelp text="How certain to be before alerting. Best case waits until the outcome can no longer be avoided, so it fires less often." />
+                    <SettingHelp text="How certain to be before alerting. The best case waits until the outcome can no longer be avoided, so it fires less often." />
                     <LemonSegmentedButton
                         size="small"
-                        data-attr="alertForm-forecast-sensitivity"
                         value={config.sensitivity ?? defaultSensitivity(config.condition)}
                         onChange={(sensitivity) => onChange({ ...config, sensitivity })}
                         options={[
                             {
                                 value: ForecastSensitivity.FORECAST,
-                                label: 'The forecast misses',
+                                label: `The forecast ${missesOrCrosses}`,
+                                'data-attr': 'alertForm-forecast-sensitivity-forecast',
                                 tooltip: 'Warns earlier, and can change its mind while the forecast is uncertain.',
                             },
                             {
                                 value: ForecastSensitivity.BEST_CASE,
-                                label: 'Even the best case misses',
+                                label: `Even the best case ${missesOrCrosses}`,
+                                'data-attr': 'alertForm-forecast-sensitivity-best-case',
                                 tooltip: 'Quieter. Waits until the outcome is no longer avoidable.',
                             },
                         ]}

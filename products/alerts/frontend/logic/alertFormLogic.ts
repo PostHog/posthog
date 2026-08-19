@@ -9,6 +9,7 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -33,6 +34,7 @@ import {
     getDefaultSimulationRange,
     isSubDailyAlertInterval,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { clampHorizon } from 'products/alerts/frontend/logic/forecastReach'
 import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
 
 import {
@@ -237,9 +239,22 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
     }
 }
 
-function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id']): AlertFormType {
+/** kea-forms addresses a nested field as an array path, so the first element is the top-level key. */
+function invalidatesForecastSimulation(name: FieldName): boolean {
+    const field = Array.isArray(name) ? name[0] : name
+    return field === 'forecast_config' || field === 'threshold'
+}
+
+function alertToFormType(
+    alert: AlertType,
+    insightId: QueryBasedInsightModel['id'],
+    insightInterval: IntervalType | null | undefined
+): AlertFormType {
     return {
         ...alert,
+        // The insight's interval can change after the alert is saved, which moves the reach cap.
+        // Clamping on load keeps the horizon the editor shows the one it submits.
+        forecast_config: alert.forecast_config ? clampHorizon(alert.forecast_config, insightInterval) : null,
         insight: insightId,
     }
 }
@@ -520,6 +535,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
             null as ForecastSimulateResponseApi | null,
             {
                 clearSimulation: () => null,
+                // A simulation belongs to the config that produced it. The chart is drawn against the
+                // form's current thresholds, so keeping an old run on screen after either side changes
+                // shows a forecast and a threshold that were never evaluated together.
+                setAlertFormValue: (state, { name }) => (invalidatesForecastSimulation(name) ? null : state),
+                setAlertFormValues: (state, { values: changed }) =>
+                    'forecast_config' in changed || 'threshold' in changed ? null : state,
             },
         ],
         alertFormSubmitAttempted: [
@@ -561,8 +582,10 @@ export const alertFormLogic = kea<alertFormLogicType>([
             {
                 simulateForecast: async (): Promise<ForecastSimulateResponseApi | null> => {
                     const forecastConfig = values.alertForm.forecast_config
-                    // An unresolved team would build /api/projects/null/... and 404.
+                    // An unresolved team would build /api/projects/null/... and 404. Say so rather
+                    // than leaving the click with no response at all.
                     if (!forecastConfig || !props.insightId || !values.currentTeamId) {
+                        lemonToast.error('Simulation is not available yet. Try again in a moment.')
                         return null
                     }
                     const formConfig = values.alertForm.config
@@ -584,7 +607,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
     forms(({ props, values, actions }) => ({
         alertForm: {
             defaults: props.alert
-                ? alertToFormType(props.alert, props.insightId)
+                ? alertToFormType(props.alert, props.insightId, props.insightInterval)
                 : (() => {
                       const calculationInterval = insightIntervalToAlertInterval(props.insightInterval)
                       return {
@@ -618,7 +641,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           insight: props.insightId,
                       } as AlertFormType
                   })(),
-            errors: (alert: AlertFormType) => getAlertFormValidationErrors(alert),
+            errors: (alert: AlertFormType) =>
+                getAlertFormValidationErrors(alert, props.alert?.forecast_config?.target_date),
             submit: async (alert) => {
                 const entitlementCheck = blockSubmitWithoutEntitlement(alert.calculation_interval, {
                     hasHighFrequencyAlertsEntitlement: userLogic.values.hasAvailableFeature(
@@ -633,6 +657,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     actions.setAlertFormManualErrors({ calculation_interval: entitlementCheck.message })
                     throw new Error(entitlementCheck.message)
                 }
+
+                const forecastConfigUnchanged =
+                    !!props.alert && objectsEqual(alert.forecast_config ?? null, props.alert.forecast_config ?? null)
 
                 const payload: AlertTypeWrite = {
                     ...alert,
@@ -667,6 +694,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         (alert.schedule_restriction?.blocked_windows?.length ?? 0) > 0
                             ? alert.schedule_restriction
                             : null,
+                }
+
+                // The server only re-checks that a target date is in the future for a config the request
+                // actually sends. Leaving an unchanged one out is what keeps an alert whose target date
+                // has passed editable, so it can still be renamed or turned off. PATCH, so a missing key
+                // means "leave it alone".
+                if (forecastConfigUnchanged) {
+                    delete payload.forecast_config
                 }
 
                 // absolute value alert can only have absolute threshold
@@ -748,7 +783,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     lemonToast.success('Alert saved.')
                 }
 
-                return alertToFormType(updatedAlert, props.insightId)
+                return alertToFormType(updatedAlert, props.insightId, props.insightInterval)
             },
         },
     })),

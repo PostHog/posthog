@@ -29,8 +29,8 @@ const FIT_QUALITY_COPY: Record<
     { type: 'success' | 'warning' | 'danger'; label: string } | null
 > = {
     [ForecastFitQualityVerdictEnumApi.Good]: { type: 'success', label: 'Good fit' },
-    [ForecastFitQualityVerdictEnumApi.Noisy]: { type: 'warning', label: 'Noisy fit, alerts may be sensitive' },
-    [ForecastFitQualityVerdictEnumApi.Poor]: { type: 'danger', label: 'Poor fit, the forecast may not be reliable' },
+    [ForecastFitQualityVerdictEnumApi.Noisy]: { type: 'warning', label: 'Noisy fit - this alert may fire often' },
+    [ForecastFitQualityVerdictEnumApi.Poor]: { type: 'danger', label: 'Poor fit - the forecast may not be reliable' },
     // Not enough data to assess the fit, so hide the badge rather than guess.
     [ForecastFitQualityVerdictEnumApi.Unknown]: null,
 }
@@ -51,7 +51,7 @@ function FitQualityBadge({
             <LemonTag type={copy.type}>{copy.label}</LemonTag>
             {mape != null && coverage != null && (
                 <span className="text-xs text-muted">
-                    Forecast is on average {mape} off; {coverage} of history fell inside the expected range
+                    Forecast is on average {mape} off; {coverage} of history falls inside the expected range
                 </span>
             )}
         </div>
@@ -243,13 +243,17 @@ export function ForecastPreview({
                             Predicted to cross the threshold on {formatSimDate(result.forecast_dates[crossingIndex])}
                         </span>
                     ) : (
-                        <span>No breach predicted within the forecast window</span>
+                        <span>Not predicted to cross the threshold within the forecast window</span>
                     )
+                ) : forecastConfig?.condition === ForecastConditionType.FUTURE_BREACH ? (
+                    // Simulating before entering a threshold used to land in the branch below and
+                    // report missing data, when all that is missing is the threshold.
+                    <span>Set less than or more than to see when this is predicted to breach</span>
                 ) : deviation == null ? (
                     <span>
                         {forecastConfig?.condition === ForecastConditionType.TARGET_BY_DATE
                             ? 'Set a target and a date to see whether this metric reaches it'
-                            : 'Not enough data to assess the expected range'}
+                            : 'Not enough history yet. Pick a longer date range on the insight.'}
                     </span>
                 ) : (
                     <span>

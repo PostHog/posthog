@@ -1,3 +1,4 @@
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import {
@@ -98,14 +99,11 @@ function detectorSummary(): string {
     return 'an anomaly'
 }
 
-/** Build a one-line human summary of what an alert does. Pure (no React) so it can feed a header
- *  string, a wizard review step, or a tooltip. Returns empty parts when the form is too incomplete
- *  to summarize — the caller decides whether to render them at all. */
 /** A forecast alert fires on a prediction, not on the latest value, so the threshold phrasing below
  *  would describe the wrong thing. Each condition reads a different part of the config. */
 function forecastSummary(config: AlertFormType['forecast_config']): string {
     if (!config) {
-        return 'the forecast says so'
+        return 'the forecast crosses your threshold'
     }
     if (config.condition === ForecastConditionType.BAND_DEVIATION) {
         return 'a value falls outside its expected range'
@@ -113,12 +111,16 @@ function forecastSummary(config: AlertFormType['forecast_config']): string {
     if (config.condition === ForecastConditionType.TARGET_BY_DATE) {
         const target = config.target != null ? humanFriendlyNumber(config.target) : 'a target'
         const direction = config.target_direction === ForecastTargetDirection.AT_MOST ? 'above' : 'below'
-        const on = config.target_date ? ` on ${config.target_date}` : ''
+        // The preview card formats the same field this way, and both render in the same modal.
+        const on = config.target_date ? ` on ${dayjs(config.target_date).format('MMM D, YYYY')}` : ''
         return `the forecast is ${direction} ${target}${on}`
     }
-    return 'the forecast is predicted to cross the threshold'
+    return 'the forecast crosses your threshold'
 }
 
+/** Build a one-line human summary of what an alert does. Pure (no React) so it can feed a header
+ *  string, a wizard review step, or a tooltip. Returns empty parts when the form is too incomplete
+ *  to summarize — the caller decides whether to render them at all. */
 export function buildAlertSummary(
     alertForm: AlertFormType | AlertType,
     subscribedCount: number,

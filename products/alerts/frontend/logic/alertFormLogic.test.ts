@@ -17,12 +17,15 @@ import {
     AlertConditionType,
     ForecastConditionType,
     ForecastEngineType,
+    ForecastTargetDirection,
     HogQLAlertConfig,
     InsightThresholdType,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
+
+import { alertsSimulateForecastCreate } from 'products/alerts/frontend/generated/api'
 
 import { supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
@@ -39,11 +42,9 @@ import { deriveHogQLAlertPreview, HOGQL_ANY_ROW_MAX_ROWS, HOGQL_LAST_ROW_MAX_ROW
 import { insightAlertsLogic } from './insightAlertsLogic'
 
 jest.mock('products/alerts/frontend/generated/api', () => ({
+    ...jest.requireActual('products/alerts/frontend/generated/api'),
     alertsSimulateForecastCreate: jest.fn(),
 }))
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const generatedAlertsApi = require('products/alerts/frontend/generated/api')
 
 const Insight42 = '42' as InsightShortId
 
@@ -137,7 +138,7 @@ describe('alertFormLogic', () => {
         successToastSpy = jest.spyOn(lemonToast, 'success').mockImplementation(jest.fn())
         captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(jest.fn())
         captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(jest.fn())
-        ;(generatedAlertsApi.alertsSimulateForecastCreate as jest.Mock).mockReset()
+        ;(alertsSimulateForecastCreate as jest.Mock).mockReset()
 
         insightLogic(insightLogicProps).mount()
         insightDataLogic(insightLogicProps).mount()
@@ -332,6 +333,61 @@ describe('alertFormLogic', () => {
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
     })
 
+    it('leaves an unchanged forecast config out of the update, so a finished target alert stays editable', async () => {
+        // The server only re-checks that a target date is in the future for a config the request
+        // sends. Sending it every time made a target alert whose date had passed impossible to
+        // rename or turn off from the modal.
+        const forecastConfig = {
+            type: 'ForecastConfig',
+            engine: ForecastEngineType.PROPHET,
+            condition: ForecastConditionType.TARGET_BY_DATE,
+            target: 100,
+            target_direction: ForecastTargetDirection.AT_LEAST,
+            target_date: '2020-01-01',
+        }
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id', forecast_config: forecastConfig } as any)
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess: jest.fn(),
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+        })
+        logic.mount()
+        logic.actions.setAlertFormValue('name', 'Renamed')
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(updateSpy).toHaveBeenCalledTimes(1)
+        expect(updateSpy.mock.calls[0][1]).not.toHaveProperty('forecast_config')
+    })
+
+    it('sends the forecast config when it actually changed', async () => {
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id', forecast_config: null } as any)
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess: jest.fn(),
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+        })
+        logic.mount()
+        logic.actions.setAlertFormValue('forecast_config', {
+            type: 'ForecastConfig',
+            engine: ForecastEngineType.PROPHET,
+            condition: ForecastConditionType.BAND_DEVIATION,
+            interval_width: 0.95,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(updateSpy.mock.calls[0][1]).toHaveProperty('forecast_config')
+    })
+
     it('blocks save when threshold alert has no lower or upper bound', async () => {
         const logic = mountForm()
         logic.actions.setAlertFormValues({
@@ -433,14 +489,14 @@ describe('alertFormLogic', () => {
                 forecast_upper: [5],
                 fit_quality: { mape: 0.05, coverage: 0.94, verdict: 'good' },
             }
-            ;(generatedAlertsApi.alertsSimulateForecastCreate as jest.Mock).mockResolvedValueOnce(mockResponse)
+            ;(alertsSimulateForecastCreate as jest.Mock).mockResolvedValueOnce(mockResponse)
             const logic = mountForecastForm()
 
             await expectLogic(logic, () => {
                 logic.actions.simulateForecast()
             }).toFinishAllListeners()
 
-            expect(generatedAlertsApi.alertsSimulateForecastCreate).toHaveBeenCalledTimes(1)
+            expect(alertsSimulateForecastCreate).toHaveBeenCalledTimes(1)
             expect(logic.values.forecastSimulationResult).toEqual(mockResponse)
             expect(logic.values.forecastSimulationResultLoading).toBe(false)
         })
@@ -448,7 +504,7 @@ describe('alertFormLogic', () => {
         // Double-submit guard: the Simulate button disables on `forecastSimulationResultLoading`.
         // If a failure left it stuck `true`, the button would stay disabled forever.
         it('resets loading and shows an error toast when the simulation fails', async () => {
-            ;(generatedAlertsApi.alertsSimulateForecastCreate as jest.Mock).mockRejectedValueOnce(
+            ;(alertsSimulateForecastCreate as jest.Mock).mockRejectedValueOnce(
                 new Error('Not enough history to forecast')
             )
             const logic = mountForecastForm()
@@ -471,7 +527,7 @@ describe('alertFormLogic', () => {
                     status: 400,
                 })
             )
-            ;(generatedAlertsApi.alertsSimulateForecastCreate as jest.Mock).mockRejectedValueOnce(rejection)
+            ;(alertsSimulateForecastCreate as jest.Mock).mockRejectedValueOnce(rejection)
             const logic = mountForecastForm()
 
             await expectLogic(logic, () => {
@@ -494,7 +550,7 @@ describe('alertFormLogic', () => {
                 forecast_upper: [5],
                 fit_quality: { mape: 0.05, coverage: 0.94, verdict: 'good' },
             }
-            ;(generatedAlertsApi.alertsSimulateForecastCreate as jest.Mock).mockResolvedValueOnce(mockResponse)
+            ;(alertsSimulateForecastCreate as jest.Mock).mockResolvedValueOnce(mockResponse)
             const logic = mountForecastForm()
 
             await expectLogic(logic, () => {

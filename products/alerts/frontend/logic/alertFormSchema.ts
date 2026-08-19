@@ -1,13 +1,17 @@
 import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { z } from 'zod'
 
+import { dayjs } from 'lib/dayjs'
+
 import { AlertConditionType, ForecastConditionType } from '~/queries/schema/schema-general'
 
 import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
+import { forecastTargetDateError } from './forecastReach'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
 export const THRESHOLD_BOUNDS_FORM_ERROR = 'Enter at least one threshold (less than or more than)'
+export const TARGET_REQUIRED_FORM_ERROR = 'Enter the number this metric should reach'
 
 const NAME_REQUIRED_MESSAGE = 'You need to give your alert a name'
 
@@ -90,6 +94,19 @@ const alertFormSchema = z
             })
         }
 
+        // Save used to be the only thing that checked a target, so the user met the server's
+        // message as a toast with no field marked, after a round trip.
+        const forecast = (alert as AlertFormType).forecast_config
+        if (forecast?.condition === ForecastConditionType.TARGET_BY_DATE) {
+            if (!isFiniteThresholdBound(forecast.target)) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ['forecast_config'],
+                    message: TARGET_REQUIRED_FORM_ERROR,
+                })
+            }
+        }
+
         const hasNegativeRelativeBound =
             alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE &&
             [bounds?.lower, bounds?.upper].some((value) => isFiniteThresholdBound(value) && value < 0)
@@ -102,13 +119,32 @@ const alertFormSchema = z
         }
     })
 
-export function getAlertFormValidationErrors(alert: AlertFormType): DeepPartialMap<AlertFormType, ValidationErrorType> {
-    const result = alertFormSchema.safeParse(alert)
-    if (result.success) {
-        return {}
+/** `savedTargetDate` is the date already stored on the alert, when there is one. A date that was
+ *  legitimate when it was saved must keep saving, or a target alert whose date has arrived can no
+ *  longer be renamed or turned off. The server draws the same line. */
+export function getAlertFormValidationErrors(
+    alert: AlertFormType,
+    savedTargetDate?: string
+): DeepPartialMap<AlertFormType, ValidationErrorType> {
+    const errors: Record<string, ValidationErrorType> = {}
+
+    const forecast = alert.forecast_config
+    if (
+        forecast?.condition === ForecastConditionType.TARGET_BY_DATE &&
+        forecast.target_date &&
+        forecast.target_date !== savedTargetDate
+    ) {
+        const dateError = forecastTargetDateError(forecast.target_date, dayjs())
+        if (dateError) {
+            errors.forecast_config = dateError
+        }
     }
 
-    const errors: Record<string, ValidationErrorType> = {}
+    const result = alertFormSchema.safeParse(alert)
+    if (result.success) {
+        return errors as DeepPartialMap<AlertFormType, ValidationErrorType>
+    }
+
     for (const issue of result.error.issues) {
         const field = issue.path[0]
         if (typeof field === 'string' && errors[field] === undefined) {

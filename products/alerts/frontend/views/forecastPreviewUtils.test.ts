@@ -3,7 +3,11 @@ import { ForecastTargetDirection } from '~/queries/schema/schema-general'
 import { findFirstCrossing, targetSummary } from './forecastPreviewUtils'
 
 describe('findFirstCrossing', () => {
-    const series = (yhat: number[], lower: number[], upper: number[]) => ({ yhat, lower, upper })
+    const series = (
+        yhat: number[],
+        lower: number[],
+        upper: number[]
+    ): { yhat: number[]; lower: number[]; upper: number[] } => ({ yhat, lower, upper })
 
     // Mirrors TestFutureBreachSensitivity in the backend. best_case reads the edge that keeps the
     // metric on the acceptable side: the LOWER edge against a ceiling, the UPPER edge against a floor.

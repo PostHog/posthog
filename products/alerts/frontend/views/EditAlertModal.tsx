@@ -45,6 +45,7 @@ import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } fro
 import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
+import { intervalSupportsForecast } from '../logic/forecastReach'
 import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { alertModeOf, supportsAnomalyDetection, supportsForecast, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
@@ -345,7 +346,13 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 labelColumnOptions: hogqlLabelColumnOptions,
             }}
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
-            supportsForecast={forecastAlertsEnabled && !isNonTimeSeriesDisplay && supportsForecast(alertForm.config)}
+            supportsForecast={
+                forecastAlertsEnabled &&
+                !isNonTimeSeriesDisplay &&
+                !isBreakdownValid &&
+                intervalSupportsForecast(trendInterval) &&
+                supportsForecast(alertForm.config)
+            }
             insightInterval={trendInterval}
             showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
             twoColumnLayout

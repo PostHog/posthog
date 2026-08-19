@@ -10,6 +10,15 @@ export const MAX_FORECAST_REACH_DAYS = 183
 
 const MINUTES_PER_DAY = 60 * 24
 
+/** Mirrors SUPPORTED_FORECAST_INTERVALS in products/alerts/backend/forecasting/engine.py. Prophet
+ *  needs a seasonal cycle it can see, which the other insight intervals do not give it. */
+const SUPPORTED_FORECAST_INTERVALS: ReadonlySet<IntervalType> = new Set(['hour', 'day', 'week', 'month'])
+
+/** A null interval means the insight uses the daily default, which is supported. */
+export function intervalSupportsForecast(interval: IntervalType | null | undefined): boolean {
+    return interval == null || SUPPORTED_FORECAST_INTERVALS.has(interval)
+}
+
 /** How many intervals a forecast may look ahead.
  *
  * Keyed by the INSIGHT's interval, not the alert's check cadence. The horizon counts insight
@@ -18,6 +27,19 @@ const MINUTES_PER_DAY = 60 * 24
 export function maxHorizonForInterval(interval: IntervalType | null | undefined): number {
     const minutes = INSIGHT_INTERVAL_DURATION_MINUTES[interval ?? 'day']
     return Math.max(1, Math.floor((MAX_FORECAST_REACH_DAYS * MINUTES_PER_DAY) / minutes))
+}
+
+/** Pull a horizon inside the reach cap for an interval. Applied wherever a forecast config is
+ *  written, so the number on screen is always the number that gets submitted. */
+export function clampHorizon<T extends { horizon?: number | null }>(
+    config: T,
+    interval: IntervalType | null | undefined
+): T {
+    if (config.horizon == null) {
+        return config
+    }
+    const clamped = Math.min(Math.max(config.horizon, 1), maxHorizonForInterval(interval))
+    return clamped === config.horizon ? config : { ...config, horizon: clamped }
 }
 
 /** Why a target date cannot be forecast, or null when it can. Mirrors horizon_for_target_date in
@@ -31,7 +53,7 @@ export function forecastTargetDateError(targetDate: string | undefined, today: d
         return 'The target date must be in the future.'
     }
     if (days > MAX_FORECAST_REACH_DAYS) {
-        return 'A forecast target must be within 6 months. Move the date closer, or use an insight with a coarser interval.'
+        return 'A forecast target must be within 6 months. Move the date closer.'
     }
     return null
 }
