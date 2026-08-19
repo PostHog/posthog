@@ -10,7 +10,6 @@ from __future__ import annotations
 import re
 import json
 import hashlib
-from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
@@ -19,10 +18,12 @@ import yaml
 import requests
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
 
+from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from .skill_services import (
     MAX_SKILL_BODY_BYTES,
     MAX_SKILL_FILE_BYTES,
@@ -59,6 +60,9 @@ MAX_DISPLAY_NAME_LENGTH = 64
 DISPLAY_NAME_PATTERN = re.compile(r"^[^\x00-\x1f\x7f]*$")
 MAX_TAG_LENGTH = 64
 SKILLS_DIR = "skills"
+# The subtree one publish owns. Rewritten whole on every publish, so a file dropped from the skill
+# stops being published rather than surviving on the branch the previous publish left it on.
+SKILL_TREE_MODE = "040000"
 COMMUNITY_SKILLS_PR_BASE_BRANCH = "main"
 COMMUNITY_SKILLS_BRANCH_PREFIX = "community-skill/"
 
@@ -92,7 +96,7 @@ class _CommunitySkillsPublisher(GitHubIntegration):
         raise GitHubIntegrationError("The community-skills publisher mints a token per publish and cannot refresh.")
 
 
-@dataclass(frozen=True)
+@frozen
 class RenderedFile:
     """A single file to commit, at its path within the community-skills repo."""
 
@@ -183,6 +187,13 @@ def render_skill_md(
         raise CommunitySkillPublishValidationError("Skill name must be one line, with no line breaks.")
     if not description.strip():
         raise CommunitySkillPublishValidationError("Skill description is required to publish.")
+    # LLMSkill.description holds 4096, and the Agent Skills spec stops at 1024. A longer one
+    # publishes, syncs and installs, and then validate_for_export refuses the installed skill, so the
+    # publisher hands someone a skill they can never export.
+    if len(description.strip()) > SPEC_DESCRIPTION_MAX_LENGTH:
+        raise CommunitySkillPublishValidationError(
+            f"Skill description must be {SPEC_DESCRIPTION_MAX_LENGTH} characters or fewer to publish."
+        )
     # The same rule install_community_skill applies on the way back in, where a blank body is refused
     # as having no instructions. Without it the publish succeeds, the entry merges into the catalog,
     # and the listing is one nobody can install.
@@ -239,7 +250,7 @@ def render_community_skill_files(
     `references/playbook.md` becomes `skills/<slug>/references/playbook.md`).
     """
     _validate_slug(slug)
-    _validate_publishable_size(body=body, files=files or [])
+    _validate_entry_caps(body=body, files=files or [])
     skill_root = f"{SKILLS_DIR}/{slug}"
 
     rendered: list[RenderedFile] = [
@@ -277,6 +288,7 @@ def render_community_skill_files(
         rendered.append(RenderedFile(path=path, content=file["content"]))
 
     _reject_blob_directory_collisions(seen_paths)
+    _validate_publishable_tree_size(rendered)
     return rendered
 
 
@@ -299,13 +311,12 @@ def _encoded_payload_bytes(content: str) -> int:
     return len(json.dumps(content).encode("utf-8"))
 
 
-def _validate_publishable_size(*, body: str, files: list[dict[str, str]]) -> None:
-    """Hold a publish to the limits the catalog and GitHub will hold it to anyway.
+def _validate_entry_caps(*, body: str, files: list[dict[str, str]]) -> None:
+    """Hold a publish to ingest's own per-entry caps, which it measures on the stored bytes.
 
-    The per-skill limits are ingest's (`community_skill_sync._validate_entry_within_caps`), where
-    breaching one drops the whole entry: the pull request merges and the skill never appears. They
-    are the stored bytes, which is what ingest measures. The aggregate is GitHub's request cap, where
-    breaching it fails the tree write with a 502 nobody can act on, so it measures the encoded form.
+    These are `community_skill_sync._validate_entry_within_caps`, where breaching one drops the whole
+    entry: the pull request merges and the skill never appears in the catalog. The file count is
+    checked here rather than after rendering so an absurd manifest never gets rendered at all.
     """
     if len(body.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
         raise CommunitySkillPublishValidationError(
@@ -313,14 +324,22 @@ def _validate_publishable_size(*, body: str, files: list[dict[str, str]]) -> Non
         )
     if len(files) > MAX_SKILL_FILE_COUNT:
         raise CommunitySkillPublishValidationError(f"A skill can publish at most {MAX_SKILL_FILE_COUNT} files.")
-
-    total = _encoded_payload_bytes(body)
     for file in files:
         if len(file["content"].encode("utf-8")) > MAX_SKILL_FILE_BYTES:
             raise CommunitySkillPublishValidationError(
                 f"'{file['path']}' must be under {MAX_SKILL_FILE_BYTES // 1_000_000} MB."
             )
-        total += _encoded_payload_bytes(file["content"])
+
+
+def _validate_publishable_tree_size(rendered: list[RenderedFile]) -> None:
+    """Hold the whole manifest to GitHub's cap on the create-tree request that writes it.
+
+    Measured on what is actually sent, which is why it runs on the rendered files rather than the
+    fields they came from: SKILL.md carries frontmatter as well as the body, and neither the tag list
+    nor `allowed_tools` has a count cap, so the difference is not a rounding error. Breaching the cap
+    fails the write with a 502 nobody can act on.
+    """
+    total = sum(_encoded_payload_bytes(file.content) + len(file.path.encode("utf-8")) for file in rendered)
     if total > MAX_PUBLISH_TREE_BYTES:
         raise CommunitySkillPublishValidationError(
             f"This skill is too large to publish. Trim it to under "
@@ -521,17 +540,25 @@ def _write_branch_and_pull_request(
         base,
         {rendered_file.path: rendered_file.content for rendered_file in rendered},
         f"{'Update' if existing_pr else 'Add'} community skill: {name}",
+        # The skill's directory is rewritten whole rather than merged onto whatever main already
+        # holds there. Merged, a bundled file the skill has since dropped keeps being published, and
+        # a rename that only changes case leaves both spellings, which ingest folds together and
+        # rejects: the pull request merges and the skill disappears from the catalog.
+        replace_directory=f"{SKILLS_DIR}/{slug}",
     )
     if not commit_result.get("success"):
         raise CommunitySkillPublishError(f"Failed to commit skill files: {commit_result.get('error')}")
     commit_sha = commit_result.get("commit_sha")
 
     if existing_pr is not None:
-        pr_url = existing_pr.get("url")
-        if not pr_url:
-            raise CommunitySkillPublishError("A pull request for this skill is already open for review.")
-        logger.info("community_skill_publish_updated_open_pr", slug=slug, pr_number=existing_pr["number"])
-        return {"pr_url": pr_url, "pr_number": existing_pr["number"], "branch": branch}
+        # Re-read rather than trusting the lookup from before the write. A maintainer merging or
+        # closing that review in between would otherwise leave our commit on a public branch with no
+        # open review, reported as a success pointing at a pull request that no longer takes it.
+        still_open = _reconcile_open_pr(publisher, repo=repo, slug=slug, branch=branch, base=base)
+        if still_open is not None:
+            logger.info("community_skill_publish_updated_open_pr", slug=slug, pr_number=still_open["pr_number"])
+            return still_open
+        logger.info("community_skill_publish_reopening_after_review_ended", slug=slug, pr_number=existing_pr["number"])
 
     try:
         pr_result = publisher.create_pull_request(

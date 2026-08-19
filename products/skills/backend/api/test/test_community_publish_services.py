@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.models.github_integration_base import GitHubIntegrationError
 
 from products.skills.backend.api.community_publish_services import (
+    MAX_TAG_LENGTH,
     CommunitySkillPublishError,
     get_community_skills_publisher,
     publish_skill_to_community,
@@ -21,6 +22,7 @@ from products.skills.backend.api.community_publish_services import (
     render_skill_md,
 )
 from products.skills.backend.api.skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
+from products.skills.backend.marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 
 # Mirror of the community-skills repo's frontmatter parser (scripts/build_registry.py) so these
 # tests fail if we ever render a SKILL.md the repo's own CI would reject.
@@ -81,6 +83,9 @@ class TestRenderSkillMd:
             # install_community_skill refuses a blank body as having no instructions, so publishing
             # one merges a listing that nobody can ever install.
             ("blank body", "n", "d", "  \n  "),
+            # Longer than the Agent Skills spec allows, so validate_for_export refuses the skill once
+            # someone installs it from the catalog.
+            ("description over the spec cap", "n", "x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1), "b"),
             # Longer than CommunitySkill.name: the PR would merge and ingest would then drop the entry.
             ("name over 64 chars", "x" * 65, "d", "b"),
             # The name becomes the commit message, where a trailer would reattribute the App's commit.
@@ -208,6 +213,21 @@ class TestPublishableSize:
                 ],
             )
 
+    def test_counts_the_rendered_frontmatter_against_the_tree_cap(self) -> None:
+        # Nothing caps how many tags a skill stores, and every one is rendered into SKILL.md, so
+        # measuring the fields the files came from instead of the files themselves leaves the
+        # difference between them unbounded.
+        files = [
+            {"path": f"references/{index}.md", "content": "x" * MAX_SKILL_FILE_BYTES, "content_type": "text/markdown"}
+            for index in range(4)
+        ]
+        fields: dict[str, Any] = {"slug": "make-pr", "name": "n", "description": "d", "body": "x" * 990_000}
+
+        render_community_skill_files(**fields, files=files)
+
+        with pytest.raises(CommunitySkillPublishError):
+            render_community_skill_files(**fields, files=files, tags=["t" * MAX_TAG_LENGTH] * 4000)
+
     def test_rejects_a_skill_whose_encoded_payload_blows_the_tree_cap(self) -> None:
         # 3 MB of newlines clears every raw-byte check, and doubles once escaped into the single JSON
         # body the tree write inlines it in. Counted raw, this publishes and then fails against
@@ -317,6 +337,9 @@ class TestPublishSkillToCommunity:
             "branch": TEAM_A_BRANCH,
         }
         publisher.commit_files_to_branch.assert_called_once()
+        # The skill's directory is replaced, not merged onto main, so a bundled file dropped since
+        # the last publish stops being published instead of surviving on the branch.
+        assert publisher.commit_files_to_branch.call_args.kwargs["replace_directory"] == "skills/make-pr"
         committed_files = publisher.commit_files_to_branch.call_args.args[3]
         assert set(committed_files) == {"skills/make-pr/SKILL.md", "skills/make-pr/references/playbook.md"}
 
@@ -348,6 +371,20 @@ class TestPublishSkillToCommunity:
         assert result["pr_number"] == 5
         publisher.create_pull_request.assert_not_called()
         publisher.commit_files_to_branch.assert_called_once()
+
+    def test_a_reused_pull_request_that_ends_mid_publish_opens_a_new_one(self) -> None:
+        # Open when we look before the write, merged by the time the commit lands. Returning it would
+        # report success for a review that no longer carries the commit, and leave that commit on a
+        # public branch with nothing open over it.
+        open_pr = {"number": 5, "url": "https://github.com/PostHog/community-skills/pull/5", "base": "main"}
+        publisher = self._publisher(open_pr=open_pr)
+        publisher.get_open_pull_request_for_head.side_effect = [open_pr, None]
+
+        result = self._publish(publisher)
+
+        assert result["pr_number"] == 12
+        publisher.create_pull_request.assert_called_once()
+        publisher.delete_branch.assert_not_called()
 
     def test_refuses_a_pull_request_retargeted_away_from_the_base_branch(self) -> None:
         # Merging it writes to that other branch, so the skill never reaches the catalog. Reusing it

@@ -1978,6 +1978,32 @@ class TestGitHubIntegrationModel(BaseTest):
         # The branch reference is written last, so a failure earlier leaves no branch in the repo.
         assert calls[-1][1].endswith("/git/refs")
 
+    def test_commit_files_to_branch_replaces_a_directory_rather_than_merging_into_it(self):
+        github = self._github_for_org()
+        request, calls = self._git_data_api_request()
+
+        with patch.object(github, "api_request", side_effect=request):
+            result = github.commit_files_to_branch(
+                "community-skills",
+                "community-skill/x",
+                "main",
+                {"skills/x/SKILL.md": "S", "skills/x/refs/g.md": "G", "README.md": "R"},
+                "msg",
+                replace_directory="skills/x",
+            )
+
+        assert result["success"] is True
+        subtree_body, tree_body = (body for _, path, body in calls if path.endswith("/git/trees"))
+        # No base_tree on the subtree, so it holds these files and nothing else. That is what makes a
+        # path the caller dropped disappear instead of surviving from the base.
+        assert "base_tree" not in subtree_body
+        assert {entry["path"] for entry in subtree_body["tree"]} == {"SKILL.md", "refs/g.md"}
+        assert tree_body["base_tree"] == "base-tree"
+        assert {(entry["path"], entry["type"]) for entry in tree_body["tree"]} == {
+            ("skills/x", "tree"),
+            ("README.md", "blob"),
+        }
+
     def test_commit_files_to_branch_force_updates_an_existing_branch(self):
         github = self._github_for_org()
         request, calls = self._git_data_api_request(ref_status=422)

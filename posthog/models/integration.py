@@ -3814,6 +3814,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         base_branch: str,
         files: Mapping[str, str],
         commit_message: str,
+        replace_directory: str | None = None,
     ) -> dict[str, Any]:
         """Point ``branch_name`` at a single commit on top of ``base_branch`` writing every file in
         ``files`` (repo-relative path → text content).
@@ -3824,6 +3825,12 @@ class GitHubIntegration(GitHubIntegrationBase):
         one per file. An existing branch is force-updated to the new commit, discarding whatever was
         on it — callers republishing generated content want exactly that, callers collaborating on a
         branch do not.
+
+        ``replace_directory`` makes the commit *replace* that directory with exactly the files given
+        under it, instead of merging them into whatever ``base_branch`` already holds there. Without
+        it a path that existed on the base and is absent from ``files`` survives, because the tree is
+        built on the base tree: a caller republishing a generated directory would keep shipping files
+        it has since deleted or renamed. Files outside the directory are still merged as usual.
         """
         if not files:
             return {"success": False, "error": "No files to commit"}
@@ -3858,17 +3865,47 @@ class GitHubIntegration(GitHubIntegrationBase):
 
         # Inline `content` lets GitHub create the blobs as part of the tree, so no separate blob
         # round trip per file. 100644 is a non-executable file.
+        def blob_entries(paths: Mapping[str, str]) -> list[dict[str, str]]:
+            return [
+                {"path": path, "mode": "100644", "type": "blob", "content": content} for path, content in paths.items()
+            ]
+
+        entries: list[dict[str, str]] = []
+        if replace_directory:
+            prefix = replace_directory.rstrip("/") + "/"
+            inside = {path[len(prefix) :]: content for path, content in files.items() if path.startswith(prefix)}
+            # Built with no base_tree, so this tree holds the given files and nothing else. Pointing
+            # the directory entry at it swaps the whole subtree in one step, which is what makes a
+            # path the caller dropped disappear rather than survive from the base tree.
+            subtree_response = self.api_request(
+                "POST",
+                f"/repos/{org}/{repository}/git/trees",
+                endpoint="/repos/{owner}/{repo}/git/trees",
+                json_body={"tree": blob_entries(inside)},
+            )
+            if subtree_response.status_code != 201:
+                return {
+                    "success": False,
+                    "error": f"Failed to create tree for {replace_directory}: {subtree_response.text}",
+                    "status_code": subtree_response.status_code,
+                }
+            entries.append(
+                {
+                    "path": replace_directory.rstrip("/"),
+                    "mode": "040000",
+                    "type": "tree",
+                    "sha": subtree_response.json()["sha"],
+                }
+            )
+            entries.extend(blob_entries({p: c for p, c in files.items() if not p.startswith(prefix)}))
+        else:
+            entries = blob_entries(files)
+
         tree_response = self.api_request(
             "POST",
             f"/repos/{org}/{repository}/git/trees",
             endpoint="/repos/{owner}/{repo}/git/trees",
-            json_body={
-                "base_tree": base_tree_sha,
-                "tree": [
-                    {"path": path, "mode": "100644", "type": "blob", "content": content}
-                    for path, content in files.items()
-                ],
-            },
+            json_body={"base_tree": base_tree_sha, "tree": entries},
         )
         if tree_response.status_code != 201:
             return {
