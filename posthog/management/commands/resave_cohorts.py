@@ -7,12 +7,22 @@ from django.core.management.base import BaseCommand, CommandParser
 import structlog
 
 from posthog.api.cohort import validate_filters_and_compute_realtime_support
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 
 logger = structlog.get_logger(__name__)
+
+
+@frozen
+class CohortResaveStats:
+    total: int
+    changed: int
+    errors: int
+    validation_errors: int
+    prospective_realtime: int
 
 
 class Command(BaseCommand):
@@ -81,34 +91,30 @@ class Command(BaseCommand):
             stats = self._process_team_cohorts(team, batch_size, dry_run)
 
             # Accumulate stats
-            global_total += stats["total"]
-            global_changed += stats["changed"]
-            global_errors += stats["errors"]
-            global_validation_errors += stats["validation_errors"]
-            global_prospective_realtime += stats["prospective_realtime"]
+            global_total += stats.total
+            global_changed += stats.changed
+            global_errors += stats.errors
+            global_validation_errors += stats.validation_errors
+            global_prospective_realtime += stats.prospective_realtime
 
             # Log team completion
-            if stats["total"] > 0:
+            if stats.total > 0:
                 logger.info(
                     "cohort_resave_team_completed",
                     team_id=team.id,
-                    total_cohorts=stats["total"],
-                    changed_cohorts=stats["changed"],
-                    realtime_cohorts=stats["prospective_realtime"],
-                    error_count=stats["errors"],
-                    validation_error_count=stats["validation_errors"],
+                    total_cohorts=stats.total,
+                    changed_cohorts=stats.changed,
+                    realtime_cohorts=stats.prospective_realtime,
+                    error_count=stats.errors,
+                    validation_error_count=stats.validation_errors,
                     dry_run=dry_run,
                 )
-                msg = f"  Team {team.id}: {stats['total']} cohorts, {stats['changed']} changed, {stats['prospective_realtime']} realtime"
-                if stats["errors"] > 0:
-                    msg += f", {stats['errors']} errors"
-                if stats["validation_errors"] > 0:
-                    msg += f", {stats['validation_errors']} validation errors"
-                style = (
-                    self.style.WARNING
-                    if (stats["errors"] > 0 or stats["validation_errors"] > 0)
-                    else self.style.SUCCESS
-                )
+                msg = f"  Team {team.id}: {stats.total} cohorts, {stats.changed} changed, {stats.prospective_realtime} realtime"
+                if stats.errors > 0:
+                    msg += f", {stats.errors} errors"
+                if stats.validation_errors > 0:
+                    msg += f", {stats.validation_errors} validation errors"
+                style = self.style.WARNING if (stats.errors > 0 or stats.validation_errors > 0) else self.style.SUCCESS
                 self.stdout.write(style(msg))
 
         # Log final summary
@@ -138,7 +144,7 @@ class Command(BaseCommand):
             )
         )
 
-    def _process_team_cohorts(self, team: Team, batch_size: int, dry_run: bool) -> dict[str, int]:
+    def _process_team_cohorts(self, team: Team, batch_size: int, dry_run: bool) -> CohortResaveStats:
         """Process all cohorts for a single team."""
         # Initialize stats for this team
         total = 0
@@ -262,13 +268,13 @@ class Command(BaseCommand):
                     exc_info=True,
                 )
 
-        return {
-            "total": total,
-            "changed": changed,
-            "errors": errors,
-            "validation_errors": validation_errors,
-            "prospective_realtime": prospective_realtime,
-        }
+        return CohortResaveStats(
+            total=total,
+            changed=changed,
+            errors=errors,
+            validation_errors=validation_errors,
+            prospective_realtime=prospective_realtime,
+        )
 
     def _get_direct_cohort_references(self, filters: dict[str, Any]) -> set[int]:
         """Get only the direct cohort references from filters (not transitive)."""

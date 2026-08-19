@@ -178,6 +178,7 @@ jest.mock('posthog-js', () => {
         isFeatureEnabled: jest.fn(),
         getEarlyAccessFeatures: jest.fn(),
         getSurveys: jest.fn(),
+        displaySurvey: jest.fn(),
         onFeatureFlags: jest.fn(() => () => {}),
         debug: jest.fn(),
         get_session_id: jest.fn(),

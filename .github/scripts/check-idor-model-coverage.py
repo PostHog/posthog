@@ -93,7 +93,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "CoreEvent",
         "ElementGroup",
         "Event",
-        "PersonlessDistinctId",
         "SessionRecordingEvent",
         # --- Persons system (managed separately, not looked up by user input) ---
         "FlatPersonOverride",
@@ -191,13 +190,13 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "DuckLakeBackfill",
         "DuckLakeCatalog",
         "DuckgresServer",
-        "DuckgresSinkSchemaState",
         "EvaluationConfig",
         "RemoteConfig",
         "TeamConversationsSlackConfig",
         "TeamConversationsTeamsChannelSync",
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationContext",
+        "TeamDataQualityConfig",
         "TeamDataWarehouseConfig",
         "TeamExperimentsConfig",
         "TeamFeatureFlagsConfig",
@@ -359,11 +358,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SessionRecordingExternalReference",  # via SessionRecording
         "SessionRecordingPlaylistItem",  # via Playlist
         "SharePassword",  # via SharingConfiguration
-        "SourceBatchDuckgresStatus",  # via SourceBatch
         "SourceBatchStatus",  # via SourceBatch
         "StreamlitAppSandbox",  # via StreamlitApp
         "TaggedItem",  # via Tag/Dashboard/Insight
-        "TaskAutomation",  # via Task
         "TicketAssignment",  # via Ticket
         "UserGroupMembership",  # via UserGroup
         # --- Other models missing direct team_id ---
@@ -381,6 +378,14 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
     user_scoped: set[str] = set()
     no_scope: set[str] = set()
 
+    # Billing alerts are organization-scoped through BillingAlertConfiguration. Team is only an
+    # execution context; claim and event records inherit scope through their canonical parent.
+    organization_scoped_overrides = {
+        "BillingAlertConfiguration",
+        "BillingAlertEvaluationClaim",
+        "BillingAlertEvent",
+    }
+
     for model in apps.get_models():
         model_name = model.__name__
 
@@ -390,6 +395,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
 
         # Skip proxy models
         if model._meta.proxy:
+            continue
+
+        if model_name in organization_scoped_overrides:
+            org_scoped.add(model_name)
             continue
 
         # Check for FK fields and plain team_id (ProductTeamModel uses BigIntegerField)

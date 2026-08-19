@@ -141,7 +141,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "profiles": {
-        "description": "A profile in Klaviyo representing a person you can message and track.",
+        "description": (
+            "A profile in Klaviyo representing a person you can message and track. Includes consent "
+            "and suppression status per channel in the subscriptions column."
+        ),
         "docs_url": "https://developers.klaviyo.com/en/reference/get_profiles",
         "columns": {
             "id": "Unique identifier for the profile.",
@@ -153,6 +156,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "organization": "The organization the profile is associated with.",
             "title": "The profile's job title.",
             "location": "The profile's location details.",
+            "subscriptions": (
+                "The profile's consent and suppression status per channel, stored as JSON and "
+                "requested by default. `email.marketing` holds `consent`, "
+                "`can_receive_email_marketing`, `suppression` (global suppressions as "
+                "{reason, timestamp} entries, with reason one of HARD_BOUNCE, INVALID_EMAIL, "
+                "SPAM_COMPLAINT, UNSUBSCRIBE, or USER_SUPPRESSED), and `list_suppressions` "
+                "(per-list suppressions as {list_id, reason, timestamp} entries). `sms.marketing` "
+                "and `sms.transactional` hold `consent`, `consent_timestamp`, and a `can_receive_*` "
+                "flag, while `mobile_push.marketing` holds `consent` and `can_receive_push_marketing`. Use "
+                "this column to export unsubscribe, suppression, and consent state, e.g. when "
+                "migrating to another sending platform."
+            ),
             "properties": (
                 "Custom properties set on the profile. Subscription status lives here in the `$consent` array "
                 "— the communication channels (`sms`, `email`, and/or `push`) the profile is currently "
@@ -172,7 +187,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "from a list are only pruned by a full refresh. List membership is not the same as subscription: "
             "a profile can be on a list without being subscribed to any channel. To tell which channels "
             "(`sms`, `email`, and/or `push`) a profile is actually subscribed to, check the `$consent` array "
-            "in the profile's `properties` (in the `profiles` table)."
+            "in the profile's `properties` (in the `profiles` table). To tell which profiles are suppressed "
+            "for a specific list, use the `profiles` table's `subscriptions` column: "
+            "`email.marketing.list_suppressions` records {list_id, reason, timestamp} per suppression."
         ),
         "docs_url": "https://developers.klaviyo.com/en/reference/get_profiles_for_list",
         "columns": {

@@ -66,10 +66,9 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_REDIS_READER_HOST: string
     CDP_REDIS_READER_PORT: number
 
-    // Shadow Valkey pool for dual-write/read. CDP_VALKEY_HOST is required: every CDP
-    // Redis call also runs against this pool, and a process without it is misconfigured
-    // rather than degraded. Shadow results are discarded, and errors/timeouts are logged
-    // and counted but never affect the primary code path.
+    // Valkey pool for dual-write/read. CDP_VALKEY_HOST is required: every CDP Redis call
+    // also runs against this pool, and a process without it is misconfigured rather than
+    // degraded.
     CDP_VALKEY_HOST: string
     CDP_VALKEY_PORT: number
     CDP_VALKEY_PASSWORD: string
@@ -77,6 +76,12 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_VALKEY_READER_PORT: number
     // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
     CDP_VALKEY_TLS: boolean
+    // Comma-separated list of features (see MIRROR_FEATURES in utils/dual-store.ts) whose reads
+    // are served from Valkey rather than Redis. `*` selects every feature. Writes always go to
+    // both stores regardless, so a feature can be flipped back by removing it from this list.
+    // Check the cdp_valkey_mirror_operations_total mismatch/failed counts for a feature before
+    // flipping it: hog-watcher reads a missing key as healthy with a full token bucket.
+    CDP_VALKEY_READ_FEATURES: string
 
     SES_RATE_LIMITER_VALKEY_HOST: string
     SES_RATE_LIMITER_VALKEY_PORT: number
@@ -115,7 +120,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_TRACKING_URL: string
 
     // Cyclotron (CDP job queue)
-    CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
     CYCLOTRON_NODE_DATABASE_URL?: string
     // SES (Workflows email sending)
@@ -237,6 +241,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_READER_HOST: '',
         CDP_VALKEY_READER_PORT: 6379,
         CDP_VALKEY_TLS: false,
+        CDP_VALKEY_READ_FEATURES: '',
 
         SES_RATE_LIMITER_VALKEY_HOST: '',
         SES_RATE_LIMITER_VALKEY_PORT: 6379,
@@ -281,9 +286,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 
         // Cyclotron
-        CYCLOTRON_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-            : 'postgres://posthog:posthog@localhost:5432/cyclotron',
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
         CYCLOTRON_NODE_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'

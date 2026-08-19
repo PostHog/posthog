@@ -1,37 +1,84 @@
 {% extends "admin/base_site.html" %}
 {% load i18n %}
 
-{% block content %}
-<p><a href="{% url 'admin:posthog_team_change' team.pk %}">&larr; Back to team</a></p>
-
-<h2>Delete session recordings</h2>
-<p class="warning-banner">This action permanently deletes session recording data and cannot be undone.</p>
-
+{% block extrastyle %}{{ block.super }}
 <style>
+    :root {
+        --dr-danger-bg: #fef2f2;
+        --dr-danger-border: #fca5a5;
+        --dr-danger-fg: #991b1b;
+        --dr-success-border: #86efac;
+        --dr-btn-danger-bg: #dc2626;
+        --dr-btn-danger-hover-bg: #b91c1c;
+        --dr-focus-ring: rgba(59, 130, 246, 0.15);
+        --dr-status-running-bg: #dbeafe;
+        --dr-status-running-fg: #1d4ed8;
+        --dr-status-completed-bg: #dcfce7;
+        --dr-status-completed-fg: #166534;
+        --dr-status-failed-bg: #fee2e2;
+        --dr-status-failed-fg: #991b1b;
+        --dr-status-canceled-bg: #fef3c7;
+        --dr-status-canceled-fg: #92400e;
+    }
+    /* Dark values, declared twice the same way Django's own dark_mode.css does it: once for the OS
+       preference (unless the admin theme toggle has forced light) and once for an explicit dark pick. */
+    @media (prefers-color-scheme: dark) {
+        html:not([data-theme="light"]) {
+            --dr-danger-bg: #3b1414;
+            --dr-danger-border: #7f1d1d;
+            --dr-danger-fg: #fca5a5;
+            --dr-success-border: #166534;
+            --dr-focus-ring: rgba(129, 212, 250, 0.25);
+            --dr-status-running-bg: #1e3a5f;
+            --dr-status-running-fg: #93c5fd;
+            --dr-status-completed-bg: #14532d;
+            --dr-status-completed-fg: #86efac;
+            --dr-status-failed-bg: #4c1d1d;
+            --dr-status-failed-fg: #fca5a5;
+            --dr-status-canceled-bg: #4a3209;
+            --dr-status-canceled-fg: #fcd34d;
+        }
+    }
+    html[data-theme="dark"] {
+        --dr-danger-bg: #3b1414;
+        --dr-danger-border: #7f1d1d;
+        --dr-danger-fg: #fca5a5;
+        --dr-success-border: #166534;
+        --dr-focus-ring: rgba(129, 212, 250, 0.25);
+        --dr-status-running-bg: #1e3a5f;
+        --dr-status-running-fg: #93c5fd;
+        --dr-status-completed-bg: #14532d;
+        --dr-status-completed-fg: #86efac;
+        --dr-status-failed-bg: #4c1d1d;
+        --dr-status-failed-fg: #fca5a5;
+        --dr-status-canceled-bg: #4a3209;
+        --dr-status-canceled-fg: #fcd34d;
+    }
     .warning-banner {
-        background: #fef2f2;
-        border: 1px solid #fca5a5;
+        background: var(--dr-danger-bg);
+        border: 1px solid var(--dr-danger-border);
         border-radius: 6px;
-        color: #991b1b;
+        color: var(--dr-danger-fg);
         padding: 10px 14px;
         font-weight: 600;
         margin-bottom: 24px;
     }
     .danger-note {
-        background: #fef2f2;
-        border: 1px solid #fca5a5;
+        background: var(--dr-danger-bg);
+        border: 1px solid var(--dr-danger-border);
         border-radius: 4px;
-        color: #991b1b;
+        color: var(--dr-danger-fg);
         padding: 8px 12px;
         font-size: 13px;
         margin-bottom: 12px;
     }
     .workflow-section {
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--border-color);
         padding: 20px 24px;
         margin: 20px 0;
         border-radius: 8px;
-        background: #fff;
+        background: var(--body-bg);
+        color: var(--body-fg);
     }
     .workflow-section h3 {
         margin-top: 0;
@@ -39,7 +86,7 @@
         font-size: 16px;
     }
     .workflow-section > p {
-        color: #6b7280;
+        color: var(--body-quiet-color);
         font-size: 13px;
         margin-top: 0;
         margin-bottom: 16px;
@@ -51,16 +98,16 @@
     .workflow-table th {
         padding: 8px 10px;
         text-align: left;
-        border-bottom: 2px solid #e5e7eb;
-        background: #f9fafb;
+        border-bottom: 2px solid var(--border-color);
+        background: var(--darkened-bg);
         font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        color: #6b7280;
+        color: var(--body-quiet-color);
     }
     .workflow-table td {
         padding: 8px 10px;
-        border-bottom: 1px solid #f3f4f6;
+        border-bottom: 1px solid var(--hairline-color);
     }
     .workflow-table tr:last-child td {
         border-bottom: none;
@@ -68,7 +115,7 @@
     .workflow-id {
         font-family: monospace;
         font-size: 11px;
-        color: #4b5563;
+        color: var(--body-medium-color);
     }
     .status-badge {
         display: inline-block;
@@ -77,10 +124,10 @@
         font-size: 12px;
         font-weight: 600;
     }
-    .status-running { background: #dbeafe; color: #1d4ed8; }
-    .status-completed { background: #dcfce7; color: #166534; }
-    .status-failed { background: #fee2e2; color: #991b1b; }
-    .status-canceled { background: #fef3c7; color: #92400e; }
+    .status-running { background: var(--dr-status-running-bg); color: var(--dr-status-running-fg); }
+    .status-completed { background: var(--dr-status-completed-bg); color: var(--dr-status-completed-fg); }
+    .status-failed { background: var(--dr-status-failed-bg); color: var(--dr-status-failed-fg); }
+    .status-canceled { background: var(--dr-status-canceled-bg); color: var(--dr-status-canceled-fg); }
     .form-row {
         margin: 14px 0;
     }
@@ -97,11 +144,12 @@
         width: 100%;
         max-width: 500px;
         padding: 8px 10px;
-        border: 1px solid #d1d5db;
+        border: 1px solid var(--border-color);
         border-radius: 6px;
         font-size: 14px;
         box-sizing: border-box;
-        background: #fff;
+        background: var(--body-bg);
+        color: var(--body-fg);
     }
     .form-row input[type="file"] {
         font-size: 14px;
@@ -111,25 +159,22 @@
         font-family: monospace;
         resize: vertical;
     }
+    /* Deliberately keeps the native dropdown caret. A custom `appearance: none` + data-URI caret
+       renders no caret at all under the admin CSP, which sets `default-src 'self'` with no `img-src`
+       (posthog/middleware.py) and so blocks `data:` background images. The native control also
+       follows the `color-scheme` that Django's dark_mode.css sets, so it themes itself. */
     .form-row select {
         max-width: 200px;
         height: 38px;
         line-height: 1.4;
         cursor: pointer;
-        -webkit-appearance: none;
-        -moz-appearance: none;
-        appearance: none;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M3 5l3 3 3-3'/%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: right 10px center;
-        padding-right: 28px;
     }
     .form-row input:focus,
     .form-row textarea:focus,
     .form-row select:focus {
         outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+        border-color: var(--link-fg);
+        box-shadow: 0 0 0 2px var(--dr-focus-ring);
     }
     .checkbox-row {
         margin: 14px 0;
@@ -140,7 +185,7 @@
         cursor: pointer;
     }
     .help-text {
-        color: #9ca3af;
+        color: var(--body-quiet-color);
         font-size: 12px;
         margin-top: 4px;
     }
@@ -156,10 +201,13 @@
     .submit-row {
         margin-top: 20px;
     }
+    /* Selector has to outrank Django's own `.submit-row input` rule in base.css, otherwise these
+       destructive buttons render in the default admin blue. */
+    .submit-row input.btn-danger,
     .btn-danger {
         padding: 8px 18px;
-        background: #dc2626;
-        color: white;
+        background: var(--dr-btn-danger-bg);
+        color: #fff;
         border: none;
         border-radius: 6px;
         font-size: 14px;
@@ -167,8 +215,9 @@
         cursor: pointer;
         transition: background 0.15s;
     }
+    .submit-row input.btn-danger:hover,
     .btn-danger:hover {
-        background: #b91c1c;
+        background: var(--dr-btn-danger-hover-bg);
     }
     .cert-link {
         font-size: 13px;
@@ -193,35 +242,44 @@
         font-size: 14px;
         line-height: 1;
         text-decoration: none;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--border-color);
         border-radius: 4px;
         padding: 0;
         cursor: pointer;
-        background: #fff;
+        background: var(--body-bg);
+        color: var(--body-fg);
     }
     .refresh-btn:hover {
-        border-color: #d1d5db;
-        background: #f9fafb;
+        background: var(--darkened-bg);
     }
     .refresh-btn.is-playing {
-        color: #991b1b;
-        border-color: #fca5a5;
+        color: var(--dr-danger-fg);
+        border-color: var(--dr-danger-border);
     }
     .refresh-btn.is-playing:hover {
-        background: #fef2f2;
+        background: var(--dr-danger-bg);
     }
     .refresh-btn.is-stopped {
-        color: #166534;
-        border-color: #86efac;
+        color: var(--dr-status-completed-fg);
+        border-color: var(--dr-success-border);
     }
     .refresh-btn.is-stopped:hover {
-        background: #f0fdf4;
+        background: var(--dr-status-completed-bg);
     }
     .empty-state {
-        color: #9ca3af;
+        color: var(--body-quiet-color);
         font-style: italic;
     }
 </style>
+{% endblock %}
+
+{% block content %}
+<span id="delete-recordings-meta" data-team-id="{{ team.pk }}" data-team-name="{{ team.name }}" hidden></span>
+
+<p><a href="{% url 'admin:posthog_team_change' team.pk %}">&larr; Back to team</a></p>
+
+<h2>Delete session recordings</h2>
+<p class="warning-banner">This action permanently deletes session recording data and cannot be undone.</p>
 
 <!-- Workflow Status -->
 <div class="workflow-section">
@@ -251,7 +309,7 @@
         <div class="checkbox-row">
             <label>
                 <input type="checkbox" name="dry_run" checked>
-                Dry run &mdash; preview which recordings would be deleted without actually deleting them
+                Dry run: preview which recordings would be deleted without actually deleting them
             </label>
         </div>
 
@@ -277,7 +335,7 @@
         <div class="checkbox-row">
             <label>
                 <input type="checkbox" name="dry_run" checked>
-                Dry run &mdash; preview which recordings would be deleted without actually deleting them
+                Dry run: preview which recordings would be deleted without actually deleting them
             </label>
         </div>
 
@@ -343,7 +401,7 @@
         <div class="checkbox-row">
             <label>
                 <input type="checkbox" name="dry_run" checked>
-                Dry run &mdash; preview which recordings would be deleted without actually deleting them
+                Dry run: preview which recordings would be deleted without actually deleting them
             </label>
         </div>
 
@@ -374,7 +432,7 @@
         <div class="checkbox-row">
             <label>
                 <input type="checkbox" name="dry_run" checked>
-                Dry run &mdash; preview which recordings would be deleted without actually deleting them
+                Dry run: preview which recordings would be deleted without actually deleting them
             </label>
         </div>
 
@@ -390,6 +448,121 @@
 </div>
 
 <script nonce="{{ request.csp_nonce }}">
+// Confirmation guards, in their own IIFE and first in the file so that nothing else on this page
+// can throw and silently leave the delete forms unguarded.
+(function() {
+    var ACTIONS = {
+        person: "delete recordings for the listed person(s)",
+        team: "delete ALL recordings",
+        filters: "delete recordings matching these filters",
+        session_ids: "delete recordings for the uploaded session IDs"
+    };
+
+    // Forms whose blast radius the operator cannot eyeball from the form itself get the stricter
+    // type-the-project-ID gate. `filters` belongs here because the server only requires ONE filter to
+    // be set, so a single mistyped date range (-3650d instead of -30d) is a delete-everything wearing
+    // a narrower-looking form.
+    var NEEDS_TYPED_ID = { team: true, filters: true };
+    var FILTER_FIELDS = ["date_from", "date_to", "duration_min", "duration_max", "person_uuid", "platform"];
+
+    var meta = document.getElementById("delete-recordings-meta");
+    var teamId = meta.dataset.teamId;
+    var teamName = meta.dataset.teamName;
+    var project = teamName ? "project " + teamName + " (" + teamId + ")" : "project " + teamId;
+
+    // Echo the filters back so a fat-fingered date range is visible in the dialog, not just implied.
+    function filterSummary(form) {
+        var parts = [];
+        FILTER_FIELDS.forEach(function(name) {
+            var field = form.querySelector('[name="' + name + '"]');
+            var value = field && field.value.trim();
+            if (value) parts.push(name + "=" + value);
+        });
+        return parts.join(", ");
+    }
+
+    function shouldSubmit(form) {
+        var typeInput = form.querySelector('[name="workflow_type"]');
+        var workflowType = typeInput ? typeInput.value : null;
+        var action = ACTIONS[workflowType];
+        if (!action) {
+            // Fail closed: an unrecognised form is a delete path nobody has written a confirmation for.
+            window.alert("This form has no confirmation configured, so nothing was submitted.");
+            return false;
+        }
+
+        var dryRunInput = form.querySelector('[name="dry_run"]');
+        var dryRun = dryRunInput ? dryRunInput.checked : false;
+        var scope = workflowType === "filters" ? filterSummary(form) : "";
+        var scopeLine = scope ? "\n\nFilters: " + scope : "";
+
+        if (dryRun) {
+            return window.confirm(
+                "Dry run: no recordings will be deleted.\n\n" +
+                "Preview which recordings would match if you " + action + " from " + project + "?" + scopeLine
+            );
+        }
+
+        if (!window.confirm(
+            "Are you sure you want to " + action + " from " + project + "?" + scopeLine + "\n\n" +
+            "This permanently deletes session recording data and cannot be undone."
+        )) {
+            return false;
+        }
+
+        if (NEEDS_TYPED_ID[workflowType]) {
+            var whatItDeletes = workflowType === "team"
+                ? "This deletes every recording for " + project + "."
+                : "This deletes every recording matching " + (scope || "these filters") + " for " + project + ".";
+            var typed = window.prompt(whatItDeletes + "\n\nType the project ID (" + teamId + ") to confirm:");
+            if (typed === null || typed.trim() !== teamId) {
+                window.alert("Project ID did not match, so nothing was deleted.");
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Each POST mints a fresh Temporal workflow id server-side (team_admin.py), so a double submit
+    // starts a second, redundant deletion workflow. Lock the form once a submit is accepted.
+    // Sibling admin templates do this with an inline `onsubmit=` attribute, which cannot work here:
+    // the admin CSP has no 'unsafe-inline' for script-src, so attribute handlers are blocked.
+    var inFlight = false;
+
+    function lock(form) {
+        // Safe to do synchronously: the submit event has already committed the navigation, and these
+        // controls have no `name`, so removing them cannot drop a field from the POST body. Deferring
+        // it to a timeout does NOT work, because the pending navigation means the callback never runs.
+        var controls = form.querySelectorAll('input[type="submit"], button[type="submit"]');
+        Array.prototype.forEach.call(controls, function(c) { c.disabled = true; });
+    }
+
+    var typeInputs = document.querySelectorAll('form input[name="workflow_type"]');
+    Array.prototype.forEach.call(typeInputs, function(input) {
+        var form = input.form;
+        if (!form) return;
+        form.addEventListener("submit", function(event) {
+            if (inFlight || !shouldSubmit(form)) {
+                event.preventDefault();
+                return;
+            }
+            inFlight = true;
+            lock(form);
+        });
+    });
+
+    // Back/forward can restore this page from the bfcache with the buttons still disabled, which
+    // would strand the operator on a dead page. Restoring from cache means the POST is done with.
+    window.addEventListener("pageshow", function(event) {
+        if (!event.persisted) return;
+        inFlight = false;
+        var controls = document.querySelectorAll('form input[type="submit"][disabled]');
+        Array.prototype.forEach.call(controls, function(c) { c.disabled = false; });
+    });
+})();
+
+// Auto-refresh for the workflow status table.
 (function() {
     var container = document.getElementById("workflows-container");
     var pollUrl = "{% url 'admin:posthog_team_delete_recordings_workflows' team.pk %}";

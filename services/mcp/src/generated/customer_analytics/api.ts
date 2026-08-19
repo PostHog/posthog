@@ -113,11 +113,17 @@ export const AccountsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const accountsListQueryIncludeChurnedDefault = false
+
 export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
     all_roles_unassigned: zod
         .boolean()
         .optional()
         .describe('When true, returns only accounts where no user actively holds any relationship.'),
+    include_churned: zod
+        .boolean()
+        .default(accountsListQueryIncludeChurnedDefault)
+        .describe('Include churned accounts. Churned accounts are hidden by default.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe("Sort order. Defaults to '-created_at'."),
@@ -154,6 +160,16 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
+                email_domains: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe(
+                        "Email domains owned by this account's company, used to match inbound touchpoints to the account."
+                    ),
+                known_emails: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe('Individual email addresses pinned to this account, matched before the domain fallback.'),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -165,7 +181,7 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
+                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -182,6 +198,10 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
             ),
+        churned_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('When the account churned. Null means the account has not churned.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -349,6 +369,16 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
+                email_domains: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe(
+                        "Email domains owned by this account's company, used to match inbound touchpoints to the account."
+                    ),
+                known_emails: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe('Individual email addresses pinned to this account, matched before the domain fallback.'),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -360,7 +390,7 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
+                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -377,6 +407,10 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
             ),
+        churned_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('When the account churned. Null means the account has not churned.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -713,13 +747,13 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                'Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.'
+                'UUID of the data-warehouse saved query to read from. Required for an account source. For a person or group source it must be a materialized view, and is one of the two binding options. Mutually exclusive with external_data_schema.'
             ),
         external_data_schema: zod
             .string()
             .nullish()
             .describe(
-                'Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
+                'Person and group sources only: UUID of the warehouse schema (an imported table) to read from. Mutually exclusive with saved_query; a person or group source sets exactly one.'
             ),
         source_column: zod
             .string()
@@ -736,7 +770,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                "Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
+                "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
             ),
         key_column: zod
             .string()
@@ -752,7 +786,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        'Binds a data-warehouse source to a custom property definition. Account sources read a\nmaterialized view column and sync onto matching accounts; person and group sources read a\nwarehouse schema and sync onto matching persons or groups on each warehouse sync.'
+        'Binds warehouse columns to a custom property definition. Account sources read a materialized\nview column and sync onto matching accounts; person and group sources read either an imported\nwarehouse table or a materialized view, and sync onto matching persons or groups on every\nwarehouse run of what they read.'
     )
 
 export const CustomPropertySourcesRetrieveParams = /* @__PURE__ */ zod.object({
@@ -841,9 +875,9 @@ export const CustomPropertySourcesRunsListQueryParams = /* @__PURE__ */ zod.obje
 })
 
 /**
- * Person and group sources only: trigger the underlying warehouse schema's sync now. This
- * re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
- * off it.
+ * Person and group sources only: run what this source reads now — an import for a table
+ * binding (a real, billable warehouse sync), a materialization for a view binding. The
+ * incremental person/group-property update runs off that run.
  */
 export const CustomPropertySourcesSyncParams = /* @__PURE__ */ zod.object({
     id: zod.string(),

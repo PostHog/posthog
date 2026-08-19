@@ -237,6 +237,70 @@ class TestCrossReferenceIssueKinds:
         assert issue.shared_with_integrations == []
         assert issue.suggested_actions == [SuggestedAction.FIX_PLATFORM_URLS]
 
+    def test_not_linked_offers_the_typo_mapping_when_one_exists(self):
+        # The audit sees no pageviews; the suggester holds the other half, the typo'd value
+        # with real traffic on it.
+        campaigns = [Campaign("spring_sale_2024", "456", "google", 500.0, 100, 5000)]
+        utm_events = {("sprng_sale_2024", "google"): 1340}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        issue = results[0].issues[0]
+        assert issue.kind == UtmIssueKind.NOT_LINKED
+        assert issue.mapping_candidate == "sprng_sale_2024"
+        # Appended, not prepended: fixing the URL is still the cure.
+        assert issue.suggested_actions == [
+            SuggestedAction.FIX_PLATFORM_URLS,
+            SuggestedAction.ADD_CAMPAIGN_NAME_MAPPING,
+        ]
+
+    def test_candidate_stays_on_the_platform_the_suggester_named(self):
+        # A campaign name is unique only within a platform, and the traffic is tagged google.
+        # Keying on the name alone explained meta's row with google's traffic.
+        campaigns = [
+            Campaign("brand", "1", "google", 9000.0, 100, 5000),
+            Campaign("brand", "2", "meta", 4000.0, 100, 5000),
+        ]
+        utm_events = {("brnd", "google"): 900}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        google = next(r for r in results if r.source_name == "google")
+        meta = next(r for r in results if r.source_name == "meta")
+        assert google.issues[0].mapping_candidate == "brnd"
+        assert meta.issues[0].mapping_candidate == ""
+        assert SuggestedAction.ADD_CAMPAIGN_NAME_MAPPING not in meta.issues[0].suggested_actions
+
+    def test_not_linked_offers_nothing_when_the_match_is_ambiguous(self):
+        # The audit must not launder the suggester's refusal into a confident suggestion.
+        campaigns = [
+            Campaign("uk_uss", "1", "google", 5000.0, 10, 100),
+            Campaign("email_uk", "2", "google", 4000.0, 10, 100),
+        ]
+        utm_events = {("uk_us", "google"): 900}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        for result in results:
+            for issue in result.issues:
+                assert issue.mapping_candidate == ""
+                assert SuggestedAction.ADD_CAMPAIGN_NAME_MAPPING not in issue.suggested_actions
+
+    @patch("products.marketing_analytics.backend.services.utm_audit.suggest_campaign_name_mappings")
+    def test_audit_survives_a_broken_suggester(self, mock_suggester):
+        # The candidate is advisory; the `except` is all that keeps a suggester bug from
+        # 500ing the audit.
+        mock_suggester.side_effect = RuntimeError("boom")
+        campaigns = [Campaign("spring_sale_2024", "456", "google", 500.0, 100, 5000)]
+        utm_events = {("sprng_sale_2024", "google"): 1340}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        issue = results[0].issues[0]
+        assert issue.kind == UtmIssueKind.NOT_LINKED
+        assert issue.mapping_candidate == ""
+        assert issue.suggested_actions == [SuggestedAction.FIX_PLATFORM_URLS]
+
     def test_no_tagged_events_when_alt_source_is_another_default(self):
         # Bing campaign but events only arrive with utm_source=google (Google's default).
         # Mapping google→bing would break Google attribution, so ADD_SOURCE_MAPPING must not be suggested.

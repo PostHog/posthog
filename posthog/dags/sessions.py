@@ -33,6 +33,7 @@ from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags
+from posthog.dataclasses import frozen
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
@@ -454,10 +455,18 @@ def _split_uint64_range(low: int, high: int, num: int, i: int) -> tuple[int, int
     return sub_low, sub_high
 
 
+@frozen
+class ExperimentalChunking:
+    num_chunks: int
+    description: str
+    chunk_where_fn: Callable[[int], str]
+    sub_chunk_where_fn: Callable[[int, int, int], str]
+
+
 def _get_experimental_chunking(
     config: ExperimentalSessionsBackfillConfig,
-) -> tuple[int, str, Callable[[int], str], Callable[[int, int, int], str]]:
-    """Return (num_chunks, description, chunk_where_fn, sub_chunk_where_fn) for the experimental backfill.
+) -> ExperimentalChunking:
+    """Return the chunking strategy for the experimental backfill.
 
     chunk_where_fn(chunk_i) returns the chunk-level SQL condition.
     sub_chunk_where_fn(parent_chunk_i, sub_chunk_i, total_sub_chunks) returns the chunk-level
@@ -505,7 +514,12 @@ def _get_experimental_chunking(
         def team_sub_chunk(parent_chunk_i: int, sub_chunk_i: int, total_sub_chunks: int) -> str:
             return f"({team_chunk(parent_chunk_i)}) AND ({full_range_sub_chunk(parent_chunk_i, sub_chunk_i, total_sub_chunks)})"
 
-        return num_chunks, "team_id", team_chunk, team_sub_chunk
+        return ExperimentalChunking(
+            num_chunks=num_chunks,
+            description="team_id",
+            chunk_where_fn=team_chunk,
+            sub_chunk_where_fn=team_sub_chunk,
+        )
 
     if has_distinct:
         num_chunks = max(1, config.distinct_id_chunks or 1)
@@ -531,9 +545,19 @@ def _get_experimental_chunking(
                 is_last=parent_chunk_i == num_chunks - 1 and sub_chunk_i == total_sub_chunks - 1,
             )
 
-        return num_chunks, "cityHash64(distinct_id) range", distinct_id_chunk, distinct_id_sub_chunk
+        return ExperimentalChunking(
+            num_chunks=num_chunks,
+            description="cityHash64(distinct_id) range",
+            chunk_where_fn=distinct_id_chunk,
+            sub_chunk_where_fn=distinct_id_sub_chunk,
+        )
 
-    return 1, "team_id", lambda i: "1", full_range_sub_chunk
+    return ExperimentalChunking(
+        num_chunks=1,
+        description="team_id",
+        chunk_where_fn=lambda i: "1",
+        sub_chunk_where_fn=full_range_sub_chunk,
+    )
 
 
 def _is_oom_error(exc: Exception) -> bool:
@@ -686,7 +710,7 @@ def _do_experimental_backfill(
         merged_settings.update(config.clickhouse_settings)
         context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
-    num_chunks, chunk_desc, chunk_where_fn, sub_chunk_where_fn = _get_experimental_chunking(config)
+    chunking = _get_experimental_chunking(config)
 
     # Determine start chunk from Redis progress (unless force_fresh_restart is set)
     asset_name = context.asset_key.path[-1]
@@ -699,18 +723,20 @@ def _do_experimental_backfill(
         last_completed = _get_completed_chunk(asset_name, partition_key)
         if last_completed is not None:
             start_chunk = last_completed + 1
-            context.log.info(f"Resuming from chunk {start_chunk}/{num_chunks} (last completed: {last_completed})")
+            context.log.info(
+                f"Resuming from chunk {start_chunk}/{chunking.num_chunks} (last completed: {last_completed})"
+            )
         else:
             start_chunk = 0
 
-    if start_chunk >= num_chunks:
-        context.log.info(f"All {num_chunks} chunks already completed, nothing to do")
+    if start_chunk >= chunking.num_chunks:
+        context.log.info(f"All {chunking.num_chunks} chunks already completed, nothing to do")
         _clear_progress(asset_name, partition_key)
         return
 
     context.log.info(
         f"Running backfill for Dagster partitions {partition_range_str} "
-        f"(where='{where_clause}', chunking={num_chunks} chunks on {chunk_desc}, start_chunk={start_chunk}) "
+        f"(where='{where_clause}', chunking={chunking.num_chunks} chunks on {chunking.description}, start_chunk={start_chunk}) "
         f"using commit {get_git_commit_short() or 'unknown'}"
     )
     if debug_url := metabase_debug_query_url(context.run_id):
@@ -724,21 +750,21 @@ def _do_experimental_backfill(
     target_table = DISTRIBUTED_RAW_SESSIONS_TABLE_V3()
 
     # Budget = num_chunks so a persistently un-merging partition fails fast instead of looping forever.
-    parts_retry_state = {"count": 0, "max": num_chunks}
+    parts_retry_state = {"count": 0, "max": chunking.num_chunks}
 
     with get_http_client(**kwargs, **config.client_overrides) as client:
         tags = dagster_tags(context)
         with tags_context(kind="dagster", dagster=tags, product=ProductKey.WEB_ANALYTICS, feature=Feature.BACKFILL):
-            for chunk_i in range(start_chunk, num_chunks):
+            for chunk_i in range(start_chunk, chunking.num_chunks):
                 try:
                     wait_for_parts_to_merge(context, config, sync_client=client, table=target_table, use_cluster=False)
                 except Exception as e:
-                    _raise_failure(context, chunk_i, num_chunks, partition_range_str, e)
+                    _raise_failure(context, chunk_i, chunking.num_chunks, partition_range_str, e)
 
-                if num_chunks > 1:
-                    chunk_condition = chunk_where_fn(chunk_i)
+                if chunking.num_chunks > 1:
+                    chunk_condition = chunking.chunk_where_fn(chunk_i)
                     chunk_where_clause = f"({where_clause}) AND {chunk_condition}"
-                    context.log.info(f"Processing chunk {chunk_i}/{num_chunks} ({chunk_condition})")
+                    context.log.info(f"Processing chunk {chunk_i}/{chunking.num_chunks} ({chunk_condition})")
                 else:
                     chunk_where_clause = where_clause
 
@@ -758,14 +784,14 @@ def _do_experimental_backfill(
                         merged_settings,
                         target_table,
                         parts_retry_state,
-                        f"chunk {chunk_i}/{num_chunks}",
+                        f"chunk {chunk_i}/{chunking.num_chunks}",
                     )
                 except Exception as e:
                     if not _is_oom_error(e):
-                        _raise_failure(context, chunk_i, num_chunks, partition_range_str, e)
+                        _raise_failure(context, chunk_i, chunking.num_chunks, partition_range_str, e)
 
                     context.log.warning(
-                        f"OOM error on chunk {chunk_i}/{num_chunks}, "
+                        f"OOM error on chunk {chunk_i}/{chunking.num_chunks}, "
                         f"retrying by splitting into {OOM_RETRY_SUB_CHUNKS} sub-chunks: {e}"
                     )
 
@@ -778,14 +804,14 @@ def _do_experimental_backfill(
                             _raise_failure(
                                 context,
                                 chunk_i,
-                                num_chunks,
+                                chunking.num_chunks,
                                 partition_range_str,
                                 sub_e,
                                 sub_chunk_i=sub_i,
                                 total_sub_chunks=OOM_RETRY_SUB_CHUNKS,
                             )
 
-                        sub_chunk_condition = sub_chunk_where_fn(chunk_i, sub_i, OOM_RETRY_SUB_CHUNKS)
+                        sub_chunk_condition = chunking.sub_chunk_where_fn(chunk_i, sub_i, OOM_RETRY_SUB_CHUNKS)
                         sub_where = f"({where_clause}) AND {sub_chunk_condition}"
                         sub_sql = sql_template(
                             where=sub_where,
@@ -793,7 +819,7 @@ def _do_experimental_backfill(
                             include_session_timestamp=True,
                         )
                         context.log.info(
-                            f"Running sub-chunk {sub_i}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i}/{num_chunks}"
+                            f"Running sub-chunk {sub_i}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i}/{chunking.num_chunks}"
                         )
                         context.log.info(sub_sql)
                         try:
@@ -805,24 +831,24 @@ def _do_experimental_backfill(
                                 merged_settings,
                                 target_table,
                                 parts_retry_state,
-                                f"chunk {chunk_i}/{num_chunks} sub-chunk {sub_i}/{OOM_RETRY_SUB_CHUNKS}",
+                                f"chunk {chunk_i}/{chunking.num_chunks} sub-chunk {sub_i}/{OOM_RETRY_SUB_CHUNKS}",
                             )
                         except Exception as sub_e:
                             _raise_failure(
                                 context,
                                 chunk_i,
-                                num_chunks,
+                                chunking.num_chunks,
                                 partition_range_str,
                                 sub_e,
                                 sub_chunk_i=sub_i,
                                 total_sub_chunks=OOM_RETRY_SUB_CHUNKS,
                             )
                         context.log.info(
-                            f"Completed sub-chunk {sub_i}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i}/{num_chunks}"
+                            f"Completed sub-chunk {sub_i}/{OOM_RETRY_SUB_CHUNKS} for chunk {chunk_i}/{chunking.num_chunks}"
                         )
 
-                if num_chunks > 1:
-                    context.log.info(f"Completed chunk {chunk_i}/{num_chunks}")
+                if chunking.num_chunks > 1:
+                    context.log.info(f"Completed chunk {chunk_i}/{chunking.num_chunks}")
 
                 _save_completed_chunk(asset_name, partition_key, chunk_i)
 

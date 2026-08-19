@@ -35,6 +35,9 @@ export type DeliveryFeedbackSource = 'email' | 'slack' | 'in_app'
 
 export const FEEDBACK_THANKS_DISPLAY_MS = 1000
 
+// Shown as a popup when someone votes a report down, asking what was wrong with it.
+export const NEGATIVE_FEEDBACK_SURVEY_ID = '019fd71b-1df8-0000-6b5f-2c35bb4aacc2'
+
 function parseCursorFromPaginationUrl(url: string | null | undefined): string | undefined {
     if (!url) {
         return undefined
@@ -288,6 +291,12 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                 // event per person + delivery, so a switched vote simply wins.
                 previous_feedback: selectors.deliveryFeedback(previousState)[deliveryId] ?? null,
             })
+            if (feedback === 'negative') {
+                // Show the follow-up survey directly rather than via its event trigger. The Slack
+                // link's router redirect strips the feedback params before trigger conditions
+                // evaluate, so displaySurvey is the reliable path for that flow.
+                posthog.displaySurvey(NEGATIVE_FEEDBACK_SURVEY_ID)
+            }
             // In-app thumbs show a per-row "Thanks" state instead of a toast.
             if (source !== 'in_app') {
                 lemonToast.success('Thanks for your feedback')

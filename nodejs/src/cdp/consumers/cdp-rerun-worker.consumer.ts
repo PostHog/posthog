@@ -7,7 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig } from '../../types'
-import { RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'
+import { RERUN_PAGE_ERROR_BACKOFF_MAX_MS, RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'
 import { RerunJobQueues, RerunPaginatorService } from '../rerun/rerun-paginator.service'
 import { CyclotronV2Worker } from '../services/cyclotron-v2'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
@@ -20,6 +20,18 @@ const HEARTBEAT_INTERVAL_MS = 10_000
 // Delay between pages of the same rerun job. Keeps a long rerun from hot-looping
 // the worker; cyclotron-v2 reschedule + dequeue overhead absorbs the wait anyway.
 const RERUN_PAGE_DELAY_MS = 500
+
+/**
+ * Delay before retrying a page that errored, doubling per consecutive error up
+ * to `RERUN_PAGE_ERROR_BACKOFF_MAX_MS`. A healthy page (streak 0) keeps the
+ * flat `RERUN_PAGE_DELAY_MS`, so only the failing case slows down.
+ */
+export function pageRetryDelayMs(consecutiveErrors: number): number {
+    if (consecutiveErrors <= 0) {
+        return RERUN_PAGE_DELAY_MS
+    }
+    return Math.min(RERUN_PAGE_DELAY_MS * 2 ** consecutiveErrors, RERUN_PAGE_ERROR_BACKOFF_MAX_MS)
+}
 
 const counterRerunJobsAcked = new Counter({
     name: 'cdp_hog_invocation_rerun_jobs_acked_total',
@@ -185,7 +197,7 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
 
             // Persist progress + reschedule for the next page.
             await job.reschedule({
-                scheduledAt: new Date(Date.now() + RERUN_PAGE_DELAY_MS),
+                scheduledAt: new Date(Date.now() + pageRetryDelayMs(nextState.progress.consecutive_errors ?? 0)),
                 state: Buffer.from(JSON.stringify(nextState)),
             })
         } catch (e) {

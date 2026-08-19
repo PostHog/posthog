@@ -349,6 +349,13 @@ export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Create a comment.
+ *
+ * Support messages are deduplicated: an identical message from the same author on the same
+ * ticket within a short window returns the original comment with a 200 instead of creating a
+ * second one, and a 409 while a concurrent request is still creating it.
+ */
 export const commentsCreateBodyScopeMax = 79
 
 export const commentsCreateBodyIsTaskDefault = false
@@ -437,7 +444,9 @@ export const CommentsSendToSlackCreateBody = /* @__PURE__ */ zod.object({
     channel_id: zod
         .string()
         .max(commentsSendToSlackCreateBodyChannelIdMax)
-        .describe('Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.'),
+        .describe(
+            "Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side."
+        ),
 })
 
 /**

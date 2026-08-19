@@ -19,6 +19,7 @@ from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.models import OrganizationMembership, User
 from posthog.models.integration import GitHubInstallationAccess, GitHubUserAuthorization, Integration
 from posthog.models.user_integration import (
+    GitHubInstallRequest,
     ReauthorizationRequired,
     UserGitHubIntegration,
     UserIntegration,
@@ -126,6 +127,36 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         response = self.client.get("/api/users/@me/integrations/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 0)
+
+    def test_github_install_requests_returns_only_own_rows_newest_first(self):
+        other_user = User.objects.create_and_join(self.organization, "other-installer@example.com", None)
+        GitHubInstallRequest.objects.create(
+            user=self.user, github_user_id=4242, github_login="octocat", status=GitHubInstallRequest.Status.PENDING
+        )
+        approved = GitHubInstallRequest.objects.create(
+            user=self.user,
+            github_user_id=4242,
+            github_login="octocat-org",
+            status=GitHubInstallRequest.Status.APPROVED,
+            installation_id="55555",
+        )
+        GitHubInstallRequest.objects.create(
+            user=other_user,
+            github_user_id=9999,
+            github_login="someone-else",
+            status=GitHubInstallRequest.Status.PENDING,
+        )
+
+        response = self.client.get("/api/users/@me/integrations/github/install_requests/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]["id"], str(approved.id))
+        self.assertEqual(results[0]["status"], "approved")
+        self.assertEqual(results[0]["installation_id"], "55555")
+        logins = {r["github_login"] for r in results}
+        self.assertEqual(logins, {"octocat", "octocat-org"})
 
     def test_delete_removes_specific_installation(self):
         _create_user_integration(self.user, integration_id="12345")
@@ -662,6 +693,65 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, 302)
         self.assertIn("github_link_error=missing_params", response["Location"])
 
+    @patch("posthog.api.github_callback.install_requests.GitHubIntegration.github_user_from_code")
+    def test_github_link_personal_install_reports_pending_approval_when_org_owner_must_approve(self, mock_from_code):
+        # Non-owner accounts come back with setup_action=request and no installation_id; the
+        # OAuth code is still present because the App requests user authorization on install.
+        # Recording the pending approval as a durable GitHubInstallRequest row (rather than just
+        # redirecting) is what lets the desktop poll server-side state instead of holding a
+        # client-side marker across app restarts.
+        mock_from_code.return_value = _authorization(gh_id=4242, gh_login="octocat")
+        state = "test_state_pending_approval"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state,
+                flow=FlowKind.PERSONAL_INSTALL,
+                user_id=self.user.id,
+                connect_from="posthog_code",
+            ),
+        )
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"state": state, "setup_action": "request", "code": "gh-code"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        loc = response["Location"]
+        self.assertIn("provider=github", loc)
+        self.assertIn("error=github_install_pending", loc)
+        install_request = GitHubInstallRequest.objects.get(user=self.user)
+        self.assertEqual(install_request.github_user_id, 4242)
+        self.assertEqual(install_request.github_login, "octocat")
+        self.assertEqual(install_request.status, GitHubInstallRequest.Status.PENDING)
+
+    @patch("posthog.api.github_callback.install_requests.GitHubIntegration.github_user_from_code")
+    def test_github_link_personal_install_request_without_a_resolvable_requester_is_not_pending(self, mock_from_code):
+        # The installation.created webhook identifies the requester by GitHub user id, so a request
+        # recorded without one can never be approved. Marking it pending would leave the client
+        # polling forever, so it lands as unidentified and the user restarts the flow instead.
+        mock_from_code.return_value = None
+        state = "test_state_pending_approval_no_identity"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state,
+                flow=FlowKind.PERSONAL_INSTALL,
+                user_id=self.user.id,
+                connect_from="posthog_code",
+            ),
+        )
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"state": state, "setup_action": "request", "code": "gh-code"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("error=github_install_pending", response["Location"])
+        install_request = GitHubInstallRequest.objects.get(user=self.user)
+        self.assertIsNone(install_request.github_user_id)
+        self.assertEqual(install_request.status, GitHubInstallRequest.Status.UNIDENTIFIED)
+
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", SITE_URL="https://us.posthog.com")
     def test_github_link_personal_install_without_code_recovers_via_oauth_discover(self):
         # GitHub omits the OAuth code when the App is already installed, returning a
@@ -1030,6 +1120,58 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         self.assertEqual(UserIntegration.objects.filter(user=self.user, kind="github").count(), 1)
         self.assertEqual(integration.integration_id, "12345")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_refreshed")
+
+    @parameterized.expand(
+        [
+            ("deliberate_link", False, False),
+            ("rode_along_with_team_install", True, True),
+        ]
+    )
+    @patch("posthog.event_usage.report_user_action")
+    def test_reports_personal_integration_created(self, _name, create_only, expected_auto_created, mock_report):
+        user_github_integration_from_installation(
+            self.user,
+            GitHubInstallationAccess(
+                installation_id="12345",
+                installation_info={"account": {"type": "Organization", "login": "posthog"}},
+                access_token="ghs_install",
+                token_expires_at="2099-01-01T00:00:00Z",
+                repository_selection="selected",
+            ),
+            _authorization(),
+            create_only=create_only,
+        )
+
+        self.assertEqual(mock_report.call_count, 1)
+        args, _kwargs = mock_report.call_args
+        self.assertEqual(args[1], "personal integration created")
+        self.assertEqual(
+            args[2],
+            {
+                "integration_kind": "github",
+                "repo_owner_type": "Organization",
+                "account_type": "organization",
+                "auto_created": expected_auto_created,
+            },
+        )
+
+    @patch("posthog.event_usage.report_user_action")
+    def test_relinking_same_installation_does_not_report_again(self, mock_report):
+        _create_user_integration(self.user, integration_id="12345")
+
+        user_github_integration_from_installation(
+            self.user,
+            GitHubInstallationAccess(
+                installation_id="12345",
+                installation_info={"account": {"type": "User", "login": "octocat"}},
+                access_token="ghs_refreshed",
+                token_expires_at="2099-01-01T00:00:00Z",
+                repository_selection="all",
+            ),
+            _authorization(),
+        )
+
+        self.assertEqual(mock_report.call_count, 0)
 
 
 class TestGithubUserFromCode(APIBaseTest):

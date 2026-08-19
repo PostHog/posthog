@@ -17,6 +17,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { isApprovalRequiredError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -36,6 +37,7 @@ import {
     hasZeroRollout,
     featureFlagLogic as sceneFeatureFlagLogic,
     validateFeatureFlagKey,
+    validateFeatureFlagVariantKey,
 } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -2077,7 +2079,18 @@ export const experimentLogic = kea<experimentLogicType>([
         unmodifiedExperiment: [
             null as Experiment | null,
             {
-                setUnmodifiedExperiment: (_, { experiment }) => experiment,
+                // Every write path (user saves, the running-time auto-save, reorders) absorbs its
+                // response here, and responses can land out of order. An older response arriving
+                // after a newer one must not move this concurrency base backwards: a poisoned base
+                // makes every following save from this tab stale, so it 409s as a false conflict
+                // against the user's own earlier write.
+                setUnmodifiedExperiment: (state, { experiment }) =>
+                    state &&
+                    typeof state.version === 'number' &&
+                    typeof experiment?.version === 'number' &&
+                    experiment.version < state.version
+                        ? state
+                        : experiment,
             },
         ],
         // PRIMARY METRICS
@@ -2708,11 +2721,37 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateExperimentMetrics: async () => {
-            await asyncActions.updateExperiment({
+            actions.updateExperiment({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
                 update_feature_flag_params: false,
             })
+
+            // kea-loaders turns a rejected loader into a failure action, so awaiting its async action does
+            // not throw. Await the underlying queued request instead to keep the existing result caches when
+            // the save fails. The loader still owns error reporting and optimistic-concurrency recovery.
+            const updatePromise = cache.inflightUpdate?.promise
+            if (!updatePromise) {
+                return
+            }
+            try {
+                await updatePromise
+            } catch {
+                return
+            }
+
+            // Metric results are positional. Once the metric list has saved, keeping the previous arrays
+            // around can briefly pair a result with the wrong metric (and gives no feedback while the
+            // updated results are computed). Clear both result stores so every metric in the updated list
+            // renders its existing per-variant loading skeleton. Do this only after a successful save: if
+            // the update fails, the previous experiment and its results remain valid and visible.
+            actions.clearMetricsResults()
+            const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
+            metricsLogic.actions.setPrimaryMetricsResults([])
+            metricsLogic.actions.setPrimaryMetricsResultsErrors([])
+            metricsLogic.actions.setSecondaryMetricsResults([])
+            metricsLogic.actions.setSecondaryMetricsResultsErrors([])
+
             // Reload results for added/edited metrics
             actions.refreshExperimentResults(true, 'config_change')
         },
@@ -2822,10 +2861,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             } catch (error: any) {
                 actions.closeFinishExperimentModal()
-                if (error.status === 409 && error.data?.change_request_id) {
+                if (isApprovalRequiredError(error)) {
                     showApprovalRequiredToast(
                         error.data.change_request_id,
-                        'end this experiment and roll out the winning variant'
+                        'end this experiment and roll out the winning variant',
+                        error.data.code
                     )
                     dispatchChangeRequestCreated({
                         resourceType: 'feature_flag',
@@ -3628,7 +3668,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
     })),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         experiment: {
             loadExperiment: async (payload?: { triggeredBy?: ExperimentTriggeredBy }) => {
                 void payload?.triggeredBy
@@ -3682,40 +3722,68 @@ export const experimentLogic = kea<experimentLogicType>([
             null as Experiment | null,
             {
                 updateExperiment: async (update: ExperimentUpdatePayload) => {
-                    try {
-                        const response: Experiment = await api.update(
-                            `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
-                            { ...toConcurrencyPayload(values.unmodifiedExperiment), ...update }
-                        )
-                        const responseWithMetricsOrdering = initializeMetricOrdering(response)
-                        refreshTreeItem('experiment', String(values.experimentId))
-                        actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
-                        // Also update the main experiment state
-                        actions.setExperiment(responseWithMetricsOrdering)
-                        return responseWithMetricsOrdering
-                    } catch (error: any) {
-                        if (isExperimentConflictError(error)) {
-                            lemonToast.error(
-                                error.data?.detail ||
-                                    'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                    // The concurrency payload is built inside `send`, when the request actually
+                    // runs, so a queued update reads the version absorbed from its predecessor's
+                    // response instead of the one both dispatches started from.
+                    const send = async (): Promise<Experiment> => {
+                        try {
+                            const response: Experiment = await api.update(
+                                `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                                { ...toConcurrencyPayload(values.unmodifiedExperiment), ...update }
                             )
-                            // Reload so the next save carries the current version and base state,
-                            // but keep this update's rejected scalar fields in local state so the
-                            // user's edit isn't lost — they can review the fresh state and save again.
-                            const preserved = conflictPreservedFields(update)
-                            try {
-                                const fresh: Experiment = await api.get(
-                                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`
+                            const responseWithMetricsOrdering = initializeMetricOrdering(response)
+                            refreshTreeItem('experiment', String(values.experimentId))
+                            actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                            // Also update the main experiment state
+                            actions.setExperiment(responseWithMetricsOrdering)
+                            return responseWithMetricsOrdering
+                        } catch (error: any) {
+                            if (isExperimentConflictError(error)) {
+                                lemonToast.error(
+                                    error.data?.detail ||
+                                        'This experiment was changed while you were editing it. Review the latest changes and try again.'
                                 )
-                                const freshWithOrdering = initializeMetricOrdering(fresh)
-                                actions.setUnmodifiedExperiment(structuredClone(freshWithOrdering))
-                                actions.setExperiment({ ...freshWithOrdering, ...preserved })
-                            } catch {
-                                actions.loadExperiment()
+                                // Reload so the next save carries the current version and base state,
+                                // but keep this update's rejected scalar fields in local state so the
+                                // user's edit isn't lost — they can review the fresh state and save again.
+                                const preserved = conflictPreservedFields(update)
+                                try {
+                                    const fresh: Experiment = await api.get(
+                                        `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`
+                                    )
+                                    const freshWithOrdering = initializeMetricOrdering(fresh)
+                                    actions.setUnmodifiedExperiment(structuredClone(freshWithOrdering))
+                                    actions.setExperiment({ ...freshWithOrdering, ...preserved })
+                                } catch {
+                                    actions.loadExperiment()
+                                }
                             }
+                            throw error
                         }
-                        throw error
                     }
+
+                    // Concurrent dispatches would race each other into the server's lock window
+                    // carrying the same version, so the loser 409s even though its change saved.
+                    // A dispatch identical to the in-flight one (double click, twin listeners)
+                    // shares its request; a different one queues behind it.
+                    const key = JSON.stringify(update)
+                    const inflight: { key: string; promise: Promise<Experiment> } | undefined = cache.inflightUpdate
+                    if (inflight && inflight.key === key) {
+                        return inflight.promise
+                    }
+                    // Swallow the predecessor's error: it surfaces on its own dispatch, and a
+                    // failed save must not block the queued one.
+                    const promise = (inflight ? inflight.promise.catch(() => {}) : Promise.resolve()).then(send)
+                    const record = { key, promise }
+                    cache.inflightUpdate = record
+                    void promise
+                        .catch(() => {})
+                        .finally(() => {
+                            if (cache.inflightUpdate === record) {
+                                cache.inflightUpdate = undefined
+                            }
+                        })
+                    return promise
                 },
             },
         ],
@@ -4184,9 +4252,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     filters: {
                         multivariate: {
                             variants: feature_flag_config?.filters?.multivariate?.variants?.map(({ key }) => ({
-                                key: !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
-                                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-                                    : undefined,
+                                key: validateFeatureFlagVariantKey(key),
                             })),
                         },
                     },

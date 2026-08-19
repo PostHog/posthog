@@ -1,7 +1,8 @@
 import { toSentenceCase } from 'lib/utils/strings'
 
-import { APIScopeObject, AccessControlLevel } from '~/types'
+import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry, InheritedAccessLevelReason } from '~/types'
 
+import type { InheritedAccess } from '../accessControlLogic'
 import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettingsEntry, InheritedReason } from './types'
 
 export function describeAccessControlLevel(
@@ -139,8 +140,61 @@ export function getLevelOptionsForResource(
 
         return {
             value: level,
-            label: level === AccessControlLevel.None ? 'None' : toSentenceCase(level),
+            // Matches humanizeAccessControlLevel, so every V2 surface calls the level "No access"
+            label: level === AccessControlLevel.None ? 'No access' : toSentenceCase(level),
             disabledReason,
         }
     })
+}
+
+function inheritedReason(reason: InheritedAccessLevelReason | null, fallbackTo: string): string {
+    switch (reason) {
+        case 'role_override':
+            return 'Based on role permissions'
+        case 'organization_admin':
+            return 'Organization admins always have full access'
+        default:
+            return `Based on the default for ${fallbackTo}`
+    }
+}
+
+/**
+ * What applies to a resource when the subject has no rule of their own. The entry resolves explicit
+ * defaults and role grants server-side; `systemDefault` covers resources with no rule anywhere.
+ */
+export function inheritedFor(
+    res: EffectiveAccessControlEntry | undefined,
+    systemDefault: AccessControlLevel | undefined,
+    fallbackTo: string
+): InheritedAccess | null {
+    const level = res?.inherited_access_level ?? systemDefault
+    if (!level) {
+        return null
+    }
+    return {
+        label: humanizeAccessControlLevel(level),
+        reason: inheritedReason(
+            res?.inherited_access_level ? (res.inherited_access_level_reason ?? null) : null,
+            fallbackTo
+        ),
+    }
+}
+
+export function subjectDisabledReason(
+    entry: AccessControlSettingsEntry,
+    canEdit: boolean,
+    currentUserUuid?: string
+): string | undefined {
+    if (!canEdit) {
+        return 'You cannot edit this'
+    }
+    // Blocking self-edits keeps an admin from accidentally locking themselves out, and anyone
+    // from quietly raising their own access
+    if (isMemberEntry(entry) && currentUserUuid && entry.user.uuid === currentUserUuid) {
+        return 'You cannot change your own access'
+    }
+    if (entry.project.inherited_access_level_reason === 'organization_admin') {
+        return 'Organization admins always have full access'
+    }
+    return undefined
 }

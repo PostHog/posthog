@@ -223,6 +223,7 @@ def publish_skill_version(
     files: list[dict[str, str]] | None = None,
     file_edits: list[dict[str, Any]] | None = None,
     base_version: int,
+    version_description: str | None = None,
 ) -> LLMSkill:
     with transaction.atomic():
         current_latest = (
@@ -263,6 +264,7 @@ def publish_skill_version(
             category=current_latest.category,
             version=current_latest.version + 1,
             is_latest=True,
+            version_description=version_description,
             created_by=user,
         )
 

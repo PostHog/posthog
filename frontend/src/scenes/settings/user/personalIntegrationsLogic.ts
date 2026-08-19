@@ -135,12 +135,14 @@ export interface personalIntegrationsLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -159,6 +161,7 @@ export interface personalIntegrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -186,12 +189,14 @@ export interface personalIntegrationsLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -210,6 +215,7 @@ export interface personalIntegrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     } // integrationsLogic

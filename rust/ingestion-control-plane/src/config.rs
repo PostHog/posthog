@@ -146,11 +146,54 @@ pub struct Config {
 
     #[envconfig(default = "1000")]
     pub kafka_fetch_poll_timeout_ms: u64,
+
+    /// Comma-separated etcd endpoints for the etcd explorer and personhog
+    /// topology tools. Empty disables both tools.
+    #[envconfig(from = "ETCD_ENDPOINTS", default = "")]
+    pub etcd_endpoints: String,
+
+    /// Comma-separated key prefixes the etcd explorer may read and write.
+    /// Every operation's key must fall under one of them.
+    #[envconfig(from = "ETCD_ALLOWED_PREFIXES", default = "/")]
+    pub etcd_allowed_prefixes: String,
+
+    /// Key prefix the personhog coordination state lives under; must match
+    /// the personhog services' `ETCD_PREFIX`.
+    #[envconfig(from = "PERSONHOG_ETCD_PREFIX", default = "/personhog/")]
+    pub personhog_etcd_prefix: String,
+
+    /// Per-phase handoff deadline used to flag stuck handoffs; must match
+    /// the coordinator's `COORDINATOR_HANDOFF_DEADLINE_SECS` to agree with
+    /// its cancellation decisions.
+    #[envconfig(from = "PERSONHOG_HANDOFF_DEADLINE_SECS", default = "120")]
+    pub personhog_handoff_deadline_secs: u64,
+
+    /// Warming-phase deadline, mirroring `COORDINATOR_WARMING_DEADLINE_SECS`.
+    #[envconfig(from = "PERSONHOG_WARMING_DEADLINE_SECS", default = "1800")]
+    pub personhog_warming_deadline_secs: u64,
 }
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         Self::init_from_env()
+    }
+
+    pub fn etcd_endpoint_list(&self) -> Vec<String> {
+        self.etcd_endpoints
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    pub fn etcd_allowed_prefix_list(&self) -> Vec<String> {
+        self.etcd_allowed_prefixes
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
     }
 
     pub fn pod_targets(&self) -> Vec<PodTarget> {

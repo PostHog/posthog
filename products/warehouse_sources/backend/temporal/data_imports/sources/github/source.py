@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import GithubSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
+    _ORG_PERMISSION_REASON,
     ORG_SCOPED_ENDPOINTS,
     GithubEgressIdentity,
     GithubResumeConfig,
@@ -64,8 +65,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.nam
     split_schema_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
+    ENDPOINT_REQUIRED_PERMISSION,
     ENDPOINTS,
     GITHUB_ENDPOINTS,
+    GRANT_DENIAL_PREFIX,
+    GRANT_NAMES,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -216,7 +220,11 @@ class GithubSource(
 6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs**, **Workflow runs**, **Pull request reviews**, **Deployments**, and **Deployment statuses**
 7. Click **Add webhook**
 
-If automatic creation failed, your token needs webhook permissions — the **admin:repo_hook** scope on a classic token, or **Repository webhooks: read and write** on a fine-grained token. Add it and reconnect, or set the webhook up manually using the steps above.""",
+If automatic creation failed with a permissions error, the fix depends on how you connected:
+
+- **Classic personal access token**: add the **admin:repo_hook** scope, then reconnect the source.
+- **Fine-grained personal access token**: add **Repository webhooks: read and write**, then reconnect the source.
+- **GitHub app**: an installation only holds what the app itself requests, so you cannot add this permission yourself. Use the manual steps above, or reconnect the source with a personal access token.""",
             webhookFields=cast(
                 list[FieldType],
                 [
@@ -242,10 +250,20 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Invalid GitHub credentials. Please reconnect your account.",
-            # GitHub's own wording for the two denials a user can actually act on. Both are matched
+            # None deliberately: _fetch_page already raises these denials with a message naming the
+            # exact grant, and the job finalizer only overwrites latest_error when the value here is
+            # not None. Curated copy would replace that grant name with a vaguer sentence. Matched
             # ahead of the generic 403 keys below, because the first match in this dict wins.
-            "Resource not accessible by integration": "The GitHub app doesn't have permission to read this table. Give it the matching repository permission on GitHub, then reconnect your GitHub account.",
-            "Resource not accessible by personal access token": "Your GitHub token doesn't have permission to read this table. Add the missing scope to the token, then update the source with the new token.",
+            "Resource not accessible by integration": None,
+            "Resource not accessible by personal access token": None,
+            # GitHub's wording for the tables behind the administration grant (traffic, self-hosted
+            # runners). The picker only offers these on a token connection, so the reader is already
+            # on a token and needs the access level, not a route they are on.
+            "Must have push access to repository": "This table needs push access to the repository. Use a personal access token from an account with push access, then sync again.",
+            "Must have admin rights": "This table needs admin access to the repository. Use a personal access token from an account with admin access, then sync again.",
+            # Catch-all for the denial wordings GitHub phrases per endpoint ("Must have push access
+            # to view repository collaborators"), which the keys above can't enumerate.
+            GRANT_DENIAL_PREFIX: None,
             "SAML enforcement": "Your GitHub organization requires single sign-on for this connection. Authorize it on GitHub, then reconnect your GitHub account.",
             "OAuth App access restrictions": "Your GitHub organization hasn't approved this connection. Ask an organization owner to approve it, then reconnect your GitHub account.",
             # Rate-limited 403s never reach here: the sync classifies those as a rate limit and backs
@@ -275,7 +293,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             "This installation has been suspended": "Your GitHub App installation has been suspended. Re-enable it from your GitHub organization's installed GitHub Apps settings, then reconnect your GitHub account.",
             # Deterministic credential/config errors from _get_access_token and OAuthMixin.
             # These never resolve on retry — the source needs reconfiguring or reconnecting.
-            "Missing GitHub integration ID": "No GitHub account is connected. Please reconnect your GitHub account.",
+            "Missing GitHub integration ID": "No GitHub account is connected. Connect a GitHub account and try again.",
             "Missing personal access token": "GitHub personal access token is not configured. Please update the source configuration.",
             "No repositories configured": "No repositories are selected for this source. Please update the source configuration.",
             "resolve to the same warehouse table": "Two selected repositories resolve to the same warehouse table. Please remove or rename one.",
@@ -284,6 +302,16 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             "Integration not found": "The linked GitHub integration no longer exists. Please reconnect your GitHub account.",
             "Missing integration ID": "Integration ID is not configured. Please reconnect your GitHub account.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A GitHubRateLimitError that survives _fetch_page's own rate-limit-aware tenacity retry
+        # still gets picked up by Temporal's activity retry; classify it as retryable so it's
+        # logged as a warning rather than tracked as an exception. Mirrors Stripe's equivalent case.
+        #
+        # A GithubRetryableError (any transient upstream 5xx) that survives the same tenacity retry
+        # gets the same treatment — a GitHub-side outage, not something reconnecting or reconfiguring
+        # the source can fix.
+        return {"GitHub API rate limit exceeded", "Github API error (retryable)"}
 
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
@@ -443,6 +471,50 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
+    def _installation_permissions(self, config: GithubSourceConfig, team_id: int) -> dict[str, str] | None:
+        """The permission set the App installation holds, or None when it can't be known (a token
+        connection, a broken integration, a row connected before permissions were persisted — the
+        hourly token-refresh sweep backfills those). None fails open: the picker shows the table,
+        and a real denial still fails the sync with the grant named."""
+        if config.auth_method.selection == "pat" or not config.auth_method.github_integration_id:
+            return None
+        try:
+            integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
+            held = integration.config.get("permissions")
+            return held if isinstance(held, dict) else None
+        except Exception:
+            return None
+
+    def webhook_creation_blocked_reason(self, config: GithubSourceConfig, team_id: int) -> str | None:
+        # Creating a repo hook needs write on repository_hooks. An installation only ever holds what
+        # the GitHub app requests, so when the persisted permission set says otherwise the button
+        # can only 403 — send the user straight to the manual steps instead. Unknown permissions
+        # (token connections, rows predating persistence) fail open, as everywhere else.
+        held = self._installation_permissions(config, team_id)
+        if held is None or held.get("repository_hooks") == "write":
+            return None
+        return (
+            "This GitHub app installation cannot manage repository webhooks, so PostHog cannot "
+            "create the webhook for you. Set it up manually using the steps below, or reconnect "
+            "the source with a personal access token that has the admin:repo_hook scope."
+        )
+
+    @staticmethod
+    def _missing_permission_reason(required_permission: str) -> str:
+        # Rendered inside SchemaForm's tooltip wrapper ("Source credentials cannot read this
+        # table: {reason}. ..."), so this must stay a sentence fragment with no trailing period,
+        # like _ORG_PERMISSION_REASON.
+        fine_grained, classic_scope = GRANT_NAMES.get(required_permission, (required_permission, "repo"))
+        # The administration endpoints also gate on the account's own access level, so scope alone
+        # isn't enough there.
+        account_needs = (
+            " from an account with admin access to the repository" if required_permission == "administration" else ""
+        )
+        return (
+            f'Requires the "{fine_grained}" permission, which this GitHub app installation does not hold; '
+            f"use a personal access token with the {classic_scope} scope{account_needs} instead"
+        )
+
     def get_endpoint_permissions(
         self, config: GithubSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
@@ -452,9 +524,22 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         # unique owner and fan the reason back per input name, so a repo-scoped connection sees
         # exactly which tables need the extra grant and can deselect them.
         result: dict[str, str | None] = dict.fromkeys(endpoints)
+        # An installation can only hold permissions the App requests, so a table whose grant is
+        # absent from the held set can never sync on this connection, however often the user
+        # reconnects. A token connection returns None here (token grants aren't introspectable), so
+        # its denials surface at sync time instead, where the error names the grant.
+        held_permissions = self._installation_permissions(config, team_id)
         org_endpoints: dict[str, str] = {}  # input name -> repository to probe through
         for name in endpoints:
             repository, endpoint = split_schema_name(name)
+            required = ENDPOINT_REQUIRED_PERMISSION.get(endpoint)
+            if held_permissions is not None and required is not None and required not in held_permissions:
+                # The org tables keep their existing reason: it carries the org-owned-repository
+                # caveat this generic wording lacks, and the two surfaces should not diverge.
+                result[name] = (
+                    _ORG_PERMISSION_REASON if required == "members" else self._missing_permission_reason(required)
+                )
+                continue
             if endpoint not in ORG_SCOPED_ENDPOINTS:
                 continue
             org_endpoints[name] = (repository or config.repository or "").strip().lower()

@@ -66,7 +66,7 @@ function WidgetCardStory({
 }
 
 const meta: Meta<typeof WidgetCardStory> = {
-    title: 'Dashboards/Dashboard Widgets/WidgetCard',
+    title: 'Products/Dashboards/Dashboard Widgets/WidgetCard',
     component: WidgetCardStory,
     parameters: {
         layout: 'padded',

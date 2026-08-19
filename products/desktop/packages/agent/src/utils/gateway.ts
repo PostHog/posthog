@@ -16,11 +16,15 @@ export function resolveGatewayProduct({
   isInternal?: boolean;
   originProduct?: string | null;
 } = {}): GatewayProduct {
+  // Every signals origin belongs here: their tokens are minted under the Signals OAuth
+  // application, and no other product authorizes it — an unmapped origin falls through to
+  // posthog_code and the gateway rejects the token.
   const originProductToGatewayProductMap: Record<string, GatewayProduct> = {
     loop: "posthog_code",
     onboarding: "onboarding",
     posthog_ai: "posthog_ai",
     signal_report: "signals",
+    signals_chat: "signals",
     signals_scout: "signals",
     slack: "slack_app",
     support_reply: "conversations",
@@ -34,13 +38,6 @@ export function resolveGatewayProduct({
   }
   return "posthog_code";
 }
-
-export {
-  buildPosthogPropertiesHeaderLines as buildGatewayPropertiesHeader,
-  buildPosthogPropertiesHeaderRecord as buildGatewayPropertiesHeaderRecord,
-  buildPosthogPropertyHeaderLines as buildGatewayPropertyHeaders,
-  buildPosthogPropertyHeaderRecord as buildGatewayPropertyHeaderRecord,
-} from "@posthog/shared/posthog-property-headers";
 
 function getGatewayBaseUrl(posthogHost: string): string {
   return getCloudTaskGatewayUrl(posthogHost).replace(/\/posthog_code$/, "");

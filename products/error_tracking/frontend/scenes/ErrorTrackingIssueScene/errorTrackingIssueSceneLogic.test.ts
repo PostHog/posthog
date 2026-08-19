@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import type { ErrorEventType } from 'lib/components/Errors/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -19,6 +20,8 @@ describe('errorTrackingIssueSceneLogic', () => {
             get: {
                 '/api/environments/:team_id/error_tracking/issues/:id/': {},
                 '/api/environments/:team_id/error_tracking/issues/:id/fingerprints/': [],
+                // Fails by default, so every test in this file also proves the panel degrades quietly.
+                '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'ClickHouse is unhappy' }],
             },
             post: {
                 '/api/environments/:team_id/query/': { results: [] },
@@ -31,29 +34,26 @@ describe('errorTrackingIssueSceneLogic', () => {
 
     afterEach(() => logic?.unmount())
 
-    // eventsQueryKey is the kea key of the events table's data source logic: every key change
-    // unmounts and remounts the whole table tree. It used to be uuid() per recompute, so even a
-    // deep-equal fingerprints refetch rebuilt the table. These lock in the key contract both ways.
-    it('keeps eventsQuery and eventsQueryKey stable across deep-equal fingerprint loads', () => {
+    it('keeps the events query stable when the loaded fingerprints change', () => {
         logic.actions.loadIssueFingerprintsSuccess(makeFingerprints())
         const initialQuery = logic.values.eventsQuery
         const initialKey = logic.values.eventsQueryKey
 
-        // Freshly constructed but deep-equal — as a refetch would deliver.
-        logic.actions.loadIssueFingerprintsSuccess(makeFingerprints())
+        logic.actions.loadIssueFingerprintsSuccess(makeFingerprints('fp-2'))
 
         expect(logic.values.eventsQuery).toBe(initialQuery)
         expect(logic.values.eventsQueryKey).toBe(initialKey)
     })
 
-    it.each<[string, (logic: ReturnType<typeof errorTrackingIssueSceneLogic.build>) => void]>([
-        ['fingerprints change', (l) => l.actions.loadIssueFingerprintsSuccess(makeFingerprints('fp-2'))],
-        ['search query changes', (l) => l.actions.setSearchQuery('needle')],
-    ])('changes eventsQueryKey when the %s', (_name, mutate) => {
-        logic.actions.loadIssueFingerprintsSuccess(makeFingerprints())
+    it('leaves linked reports empty and does not fail when the signals lookup errors', async () => {
+        // Letting the loader reject would toast an error on every issue page during a signals outage.
+        await expectLogic(logic).toDispatchActions(['loadLinkedReportsSuccess']).toMatchValues({ linkedReports: [] })
+    })
+
+    it('changes the events query key when the search query changes', () => {
         const initialKey = logic.values.eventsQueryKey
 
-        mutate(logic)
+        logic.actions.setSearchQuery('needle')
 
         expect(logic.values.eventsQueryKey).not.toBe(initialKey)
     })
@@ -64,6 +64,14 @@ describe('errorTrackingIssueSceneLogic', () => {
         })
             .toDispatchActions(['loadInitialEventSuccess'])
             .toMatchValues({ initialEvent: null })
+    })
+
+    it('allows the event selection to close', () => {
+        const event = { uuid: 'event-1' } as ErrorEventType
+        logic.actions.selectEvent(event)
+        logic.actions.selectEvent(null)
+
+        expect(logic.values.selectedEvent).toBeNull()
     })
 
     it('keeps stable first and last event IDs in the issue summary', () => {

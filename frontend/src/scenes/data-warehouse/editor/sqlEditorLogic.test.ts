@@ -1508,6 +1508,7 @@ describe('sqlEditorLogic', () => {
             values: [],
             filters: [{ field: eventField, operator: 'equals', value: 'signup' }],
             limit: 1000,
+            sort: null,
         }
         const configEventProperties = {
             source_kind: 'project_data',
@@ -1521,6 +1522,8 @@ describe('sqlEditorLogic', () => {
             filter_operator_types: ['equals'],
             date_bucket_types: [],
             custom_expression_count: 0,
+            sort_kind: 'auto',
+            sort_direction: null,
         }
 
         it('captures BI mode selection and query runs without query contents', async () => {
@@ -1716,28 +1719,34 @@ describe('sqlEditorLogic', () => {
             logic.mount()
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()
+            const persistedConfig: BIConfig = {
+                ...config,
+                chartType: ChartDisplayType.TwoDimensionalHeatmap,
+                limit: 50000,
+            }
+            const restoredConfig: BIConfig = { ...persistedConfig, limit: 1000 }
 
             router.actions.push(urls.sqlEditor(), undefined, {
                 q: "SELECT event, count(*) FROM events WHERE event = 'signup' GROUP BY event",
                 mode: BIEditorView.BI,
-                bi: config,
+                bi: persistedConfig,
             })
 
             await expectLogic(logic)
                 .toDispatchActions(['createTab', 'updateTab'])
                 .toMatchValues({
                     activeTab: partial({
-                        biEditorState: { editorView: BIEditorView.BI, config },
+                        biEditorState: { editorView: BIEditorView.BI, config: restoredConfig },
                     }),
                 })
-            await expectLogic(biLogic).toMatchValues({ editorView: BIEditorView.BI, config })
+            await expectLogic(biLogic).toMatchValues({ editorView: BIEditorView.BI, config: restoredConfig })
 
             await expectLogic(biLogic, () => biLogic.actions.setFilterValue(0, 'purchase')).toFinishAllListeners()
 
             expect(router.values.hashParams.mode).toEqual(BIEditorView.BI)
             expect(router.values.hashParams.bi).toEqual({
-                ...config,
-                filters: [{ ...config.filters[0], value: 'purchase' }],
+                ...restoredConfig,
+                filters: [{ ...restoredConfig.filters[0], value: 'purchase' }],
             })
 
             biLogic.unmount()
@@ -1771,6 +1780,43 @@ describe('sqlEditorLogic', () => {
             expect(router.values.hashParams.bi).toEqual({
                 ...dateConfig,
                 rows: [{ ...timestampField, dateBucket: 'day' }],
+            })
+
+            biLogic.unmount()
+        })
+
+        it('regenerates the query and URL when the result limit changes', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, {
+                q: 'SELECT event, count(*) FROM events GROUP BY event LIMIT 1000',
+                mode: BIEditorView.BI,
+                bi: config,
+            })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            await expectLogic(biLogic, () => biLogic.actions.setLimit(50000)).toFinishAllListeners()
+
+            expect(logic.values.queryInput).toContain('LIMIT 50000')
+            expect(router.values.hashParams.bi).toEqual({ ...config, limit: 50000 })
+
+            await expectLogic(biLogic, () =>
+                biLogic.actions.setChartType(ChartDisplayType.TwoDimensionalHeatmap)
+            ).toFinishAllListeners()
+
+            expect(biLogic.values.config.limit).toBe(1000)
+            expect(logic.values.queryInput).toContain('LIMIT 1000')
+            expect(router.values.hashParams.bi).toEqual({
+                ...config,
+                chartType: ChartDisplayType.TwoDimensionalHeatmap,
+                limit: 1000,
             })
 
             biLogic.unmount()
@@ -2060,6 +2106,7 @@ describe('sqlEditorLogic', () => {
                                 source_type: 'Postgres',
                                 access_method: 'direct',
                                 supports_hogql: true,
+                                is_builtin_managed_warehouse: false,
                             },
                         ],
                     ],
@@ -2129,6 +2176,7 @@ describe('sqlEditorLogic', () => {
                                 source_type: 'Postgres',
                                 access_method: 'direct',
                                 supports_hogql: true,
+                                is_builtin_managed_warehouse: false,
                             },
                         ],
                     ],
@@ -2178,6 +2226,7 @@ describe('sqlEditorLogic', () => {
                                 source_type: 'MSSQL',
                                 access_method: 'direct',
                                 supports_hogql: false,
+                                is_builtin_managed_warehouse: false,
                             },
                         ],
                     ],
@@ -2718,6 +2767,80 @@ describe('sqlEditorLogic', () => {
             } else {
                 expect(materializeEndpointMock).toHaveBeenCalledTimes(0)
             }
+
+            editorDataNodeLogic.unmount()
+            viewsLogic.unmount()
+        })
+
+        // Regression: dropping the incremental spread from the create payload silently saves the
+        // view as a full refresh even though the user configured incremental in the save dialog.
+        it('sends the incremental config with the created view', async () => {
+            const viewsLogic = dataWarehouseViewsLogic()
+            viewsLogic.mount()
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            logic.actions.setQueryInput('SELECT 1')
+
+            const editorDataNodeLogic = dataNodeLogic({
+                key: logic.values.dataLogicKey,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+            })
+            editorDataNodeLogic.mount()
+
+            let createBody: Record<string, any> | undefined
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/warehouse_saved_queries/': async ({ request }) => {
+                        createBody = (await request.json()) as Record<string, any>
+                        return [
+                            200,
+                            {
+                                id: 'created-view-id',
+                                name: 'Incremental view',
+                                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                                is_materialized: false,
+                                latest_history_id: null,
+                                sync_frequency: null,
+                                status: null,
+                                last_run_at: null,
+                                latest_error: null,
+                            },
+                        ]
+                    },
+                    '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': materializeEndpointMock,
+                },
+            })
+
+            const incremental = {
+                enabled: true,
+                incremental_key: 'timestamp',
+                unique_key: ['id'],
+                lookback_seconds: 3600,
+            }
+            logic.actions.saveAsViewSubmit(
+                'Incremental view',
+                true,
+                undefined,
+                undefined,
+                undefined,
+                false,
+                undefined,
+                incremental
+            )
+
+            await expectLogic(viewsLogic).toDispatchActions(['createDataWarehouseSavedQuerySuccess'])
+            await expectLogic(viewsLogic).toFinishAllListeners()
+
+            expect(createBody?.incremental).toEqual(incremental)
+            expect(materializeEndpointMock).toHaveBeenCalledTimes(1)
 
             editorDataNodeLogic.unmount()
             viewsLogic.unmount()

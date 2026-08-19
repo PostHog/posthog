@@ -490,6 +490,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -589,7 +590,10 @@
          "posthog_insightvariable"."code_name",
          "posthog_insightvariable"."type",
          "posthog_insightvariable"."default_value",
-         "posthog_insightvariable"."values"
+         "posthog_insightvariable"."values",
+         "posthog_insightvariable"."is_multi",
+         "posthog_insightvariable"."values_query",
+         "posthog_insightvariable"."values_query_connection_id"
   FROM "posthog_insightvariable"
   WHERE "posthog_insightvariable"."team_id" = 99999
   '''
@@ -733,6 +737,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -872,6 +877,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1012,6 +1018,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1064,6 +1071,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1142,6 +1150,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1380,7 +1389,8 @@
          "posthog_taggeditem"."experiment_saved_metric_id",
          "posthog_taggeditem"."ticket_id",
          "posthog_taggeditem"."account_id",
-         "posthog_taggeditem"."endpoint_id"
+         "posthog_taggeditem"."endpoint_id",
+         "posthog_taggeditem"."replay_scanner_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."insight_id" IN (1,
                                               2,
@@ -1403,6 +1413,7 @@
          "posthog_taggeditem"."ticket_id",
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
+         "posthog_taggeditem"."replay_scanner_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -1457,6 +1468,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
@@ -1535,6 +1547,7 @@
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
          "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",

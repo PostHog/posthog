@@ -1,8 +1,10 @@
 import json
+from datetime import date
 
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
     LinkedinAdsSourceConfig,
 )
@@ -33,6 +35,9 @@ class TestLinkedInAdsSource:
             'LinkedIn API error (401): {"status":401,"serviceErrorCode":65608,"code":"RESTRICTED_MEMBER","message":"Member is restricted"}',
             # Integration.DoesNotExist when the OAuth integration row was deleted/disconnected.
             "Integration matching query does not exist.",
+            # A sunset version header (see `deprecated_versions`) — happens on every call under that
+            # pin regardless of resource, so it must never be left to retry forever.
+            'LinkedIn API error (426): {"status":426,"code":"NONEXISTENT_VERSION","message":"Requested version 20250801 is not active"}',
         ],
     )
     def test_non_retryable_errors_match_upstream_failures(self, observed_error):
@@ -79,6 +84,11 @@ class TestLinkedInAdsSource:
     def test_defaults_new_sources_to_202607(self):
         assert self.source.default_version == LINKEDIN_ADS_VERSION_202607
         assert set(self.source.supported_versions) == {"v1", LINKEDIN_ADS_VERSION_202606, LINKEDIN_ADS_VERSION_202607}
+
+    def test_legacy_v1_pin_is_deprecated(self):
+        # "v1" backs the sunset 202508 header (see client.API_VERSION) — the in-product deprecation
+        # banner depends on this metadata staying declared.
+        assert self.source.deprecated_versions == (VersionDeprecation(version="v1", sunset_at=date(2026, 8, 1)),)
 
     @pytest.mark.parametrize(
         "pinned_version,expected_header",

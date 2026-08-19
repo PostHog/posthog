@@ -667,7 +667,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         response = self.client.post(f"/api/projects/{self.project.id}/generate_conversations_public_token/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_project_name_search_filter(self):
+    def _create_searchable_projects(self) -> None:
         self.organization.available_product_features = [
             {
                 "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
@@ -679,39 +679,37 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        Project.objects.create_with_team(
-            organization=self.organization,
-            name="Analytics Dashboard",
-            initiating_user=self.user,
-        )
-        Project.objects.create_with_team(
-            organization=self.organization,
-            name="Revenue Tracker",
-            initiating_user=self.user,
-        )
-        Project.objects.create_with_team(
-            organization=self.organization,
-            name="User Analytics",
-            initiating_user=self.user,
-        )
+        for name in [
+            "Analytics Dashboard",
+            "Revenue Tracker",
+            "User Analytics",
+            "Acme Non-prod",
+            "Acme NON PROD Portal",
+        ]:
+            Project.objects.create_with_team(
+                organization=self.organization,
+                name=name,
+                initiating_user=self.user,
+            )
 
-        response = self.client.get("/api/projects/?search=Analytics")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-        self.assertEqual(len(results), 2)
-        names = {r["name"] for r in results}
-        self.assertEqual(names, {"Analytics Dashboard", "User Analytics"})
+    @parameterized.expand(
+        [
+            ("term_matching_several", "Analytics", {"Analytics Dashboard", "User Analytics"}),
+            ("term_matching_one", "Revenue", {"Revenue Tracker"}),
+            ("term_matching_none", "nonexistent", set()),
+            # The space is part of the value, so "Acme Non-prod" must not come back
+            ("phrase_keeps_its_space", "NON%20PROD", {"Acme NON PROD Portal"}),
+            # Quotes carry no meaning, so they only match a name that contains them
+            ("quotes_match_literally", "%22NON%20PROD%22", set()),
+        ]
+    )
+    def test_project_name_search_filter(self, _name: str, query: str, expected_names: set[str]) -> None:
+        self._create_searchable_projects()
 
-        response = self.client.get("/api/projects/?search=Revenue")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["name"], "Revenue Tracker")
+        response = self.client.get(f"/api/projects/?search={query}")
 
-        response = self.client.get("/api/projects/?search=nonexistent")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-        self.assertEqual(len(results), 0)
+        self.assertEqual({result["name"] for result in response.json()["results"]}, expected_names)
 
     def test_read_only_api_key_cannot_update_project_config_fields(self):
         """API keys with only project:read scope should not be able to modify config fields via /api/projects/."""

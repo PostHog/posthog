@@ -13,7 +13,6 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use personhog_writer::buffer::PersonBuffer;
 use personhog_writer::config::Config;
 use personhog_writer::consumer::ConsumerTask;
 use personhog_writer::kafka::PersonConsumer;
@@ -47,6 +46,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Flush interval: {}ms", config.flush_interval_ms);
     tracing::info!("Flush buffer size: {}", config.flush_buffer_size);
     tracing::info!("Buffer capacity: {}", config.buffer_capacity);
+    tracing::info!("Writer lanes: {}", config.writer_lanes);
+    tracing::info!("Upsert concurrency: {}", config.upsert_concurrency);
     tracing::info!("Metrics port: {}", config.metrics_port);
 
     let mut manager = Manager::builder("personhog-writer")
@@ -59,12 +60,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_graceful_shutdown(Duration::from_secs(15))
             .with_liveness_deadline(Duration::from_secs(30)),
     );
-    let writer_handle = manager.register(
-        "writer",
-        ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(15))
-            .with_liveness_deadline(Duration::from_secs(30)),
-    );
+    // All components must be registered before monitor_background() starts,
+    // so writer lane handles are created up front.
+    let lanes = config.writer_lanes.max(1);
+    let mut writer_handles = Vec::with_capacity(lanes);
+    for lane in 0..lanes {
+        writer_handles.push(
+            manager.register(
+                &format!("writer-{lane}"),
+                ComponentOptions::new()
+                    .with_graceful_shutdown(Duration::from_secs(15))
+                    .with_liveness_deadline(Duration::from_secs(30)),
+            ),
+        );
+    }
     let metrics_handle = manager.register(
         "metrics-server",
         ComponentOptions::new().is_observability(true),
@@ -138,8 +147,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let (flush_tx, flush_rx) = mpsc::channel(config.flush_channel_capacity);
-
     // Kafka consumer
     let kafka_consumer = Arc::new(PersonConsumer::from_config(
         &config.kafka,
@@ -149,26 +156,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?);
     tracing::info!("Subscribed to Kafka topic: {}", config.kafka_topic);
 
-    // Writer task
-    let pg_store = PgStore::new(pool, config.pg_target_table.clone());
-    let store = PersonWriteStore::new(
-        pg_store,
-        personhog_writer::store::StoreConfig {
-            chunk_size: config.upsert_batch_size,
-            row_fallback_concurrency: config.row_fallback_concurrency,
-        },
-    );
-    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
+    // One statement-concurrency budget for the whole pod: every lane's
+    // chunk and per-row statements draw from it, so lanes can overlap
+    // writes without collectively oversubscribing the pool.
+    let upsert_concurrency = config.upsert_concurrency.max(1);
+    if upsert_concurrency > config.pg_max_connections as usize {
+        tracing::warn!(
+            upsert_concurrency,
+            pg_max_connections = config.pg_max_connections,
+            "UPSERT_CONCURRENCY exceeds PG_MAX_CONNECTIONS; excess statements \
+             will queue on pool acquire instead of the semaphore"
+        );
+    }
+    let upsert_permits = Arc::new(tokio::sync::Semaphore::new(upsert_concurrency));
 
-    tokio::spawn(async move {
-        writer_task.run().await;
-    });
+    // Writer lanes: each lane gets its own channel, store, and task, and
+    // commits offsets only for the partitions routed to it.
+    let mut lane_txs = Vec::with_capacity(lanes);
+    for writer_handle in writer_handles {
+        let (flush_tx, flush_rx) = mpsc::channel(config.flush_channel_capacity);
+        let store = PersonWriteStore::new(
+            PgStore::new(pool.clone(), config.pg_target_table.clone()),
+            personhog_writer::store::StoreConfig {
+                chunk_size: config.upsert_batch_size,
+                row_fallback_concurrency: config.row_fallback_concurrency,
+            },
+            Arc::clone(&upsert_permits),
+        );
+        let writer_task =
+            WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
+        tokio::spawn(async move {
+            writer_task.run().await;
+        });
+        lane_txs.push(flush_tx);
+    }
 
     // Consumer task
     let consumer_task = ConsumerTask::new(
         kafka_consumer,
-        PersonBuffer::new(config.buffer_capacity),
-        flush_tx,
+        lane_txs,
+        (config.buffer_capacity / lanes).max(1),
         config.flush_interval(),
         config.flush_buffer_size,
         consumer_handle,

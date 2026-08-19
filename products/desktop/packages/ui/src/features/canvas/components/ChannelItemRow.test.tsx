@@ -4,6 +4,7 @@ import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/it
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The row's status comes from live session/workspace state and a per-task tRPC
@@ -25,6 +26,7 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 }));
 
 import { usePendingCanvasDeleteStore } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
+import { ChannelItemPreviewCardProvider } from "./ChannelItemHoverCard";
 import { ChannelItemRow } from "./ChannelItemRow";
 
 const actions = {
@@ -41,8 +43,13 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     id: "task-1",
     title: "Investigate signup drop-off",
     ts: Date.parse("2026-07-17T12:00:00.000Z"),
+    createdAt: Date.parse("2026-07-16T12:00:00.000Z"),
     pinned: false,
     rawStatus: null,
+    environment: null,
+    source: null,
+    needsInput: false,
+    unread: false,
     authorUser: null,
     authorName: null,
     authorUuid: "user-uuid",
@@ -52,11 +59,21 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
   };
 }
 
-function renderRow(model: ChannelItemModel) {
+/**
+ * The list's rows share one preview card, hung off a provider above them, so a
+ * row on its own has no card to open — every hover assertion here needs it.
+ */
+function renderInList(row: ReactNode) {
   return render(
     <Theme>
-      <ChannelItemRow actions={actions} isActive={false} item={model} />
+      <ChannelItemPreviewCardProvider>{row}</ChannelItemPreviewCardProvider>
     </Theme>,
+  );
+}
+
+function renderRow(model: ChannelItemModel) {
+  return renderInList(
+    <ChannelItemRow actions={actions} isActive={false} item={model} />,
   );
 }
 
@@ -71,19 +88,27 @@ describe("ChannelItemRow", () => {
   // run mechanics (queued, failed) resolve to a dot that describes the work
   // rather than the status: starting, live but stalled, or something to read.
   it.each([
-    [
-      "a permission prompt",
-      { needsPermission: true },
-      "Needs permission — blocked on you",
-    ],
+    ["a permission prompt", { needsPermission: true }, "Needs your input"],
     ["a streaming agent", { isGenerating: true }, "Working"],
     [
-      // The run says in_progress, but nothing is streaming: a local run never
-      // gets a terminal status written, and the cloud one holds in_progress past
-      // the agent. Live, but not moving — the still dot, not the spinner.
-      "a run claiming progress with nothing in flight",
-      { taskRunStatus: "in_progress" as const },
+      // A background run is one-shot and unattended, so its in_progress really
+      // is a claim that the agent is still on it. Live, but nothing streaming —
+      // the still dot, not the spinner.
+      "a background run claiming progress with nothing in flight",
+      { taskRunStatus: "in_progress" as const, runMode: "background" as const },
       "Pending — no work in flight",
+    ],
+    [
+      // The backend leaves an interactive run in_progress after it succeeds, so
+      // the session stays open for a follow-up. Reading that as a claim marked
+      // every finished session pending, forever, on a row opening it could not
+      // clear.
+      "an interactive run left in_progress after it finished",
+      {
+        taskRunStatus: "in_progress" as const,
+        runMode: "interactive" as const,
+      },
+      "All caught up",
     ],
     [
       // Launching: a sandbox is being claimed and the backend leaves this state
@@ -93,10 +118,10 @@ describe("ChannelItemRow", () => {
       "Starting",
     ],
     [
-      // A local run's status is never advanced, so queued here means "was
-      // launched at some point", not "is starting". Seen parked for hours.
-      "a local run parked at queued",
-      { taskRunStatus: "queued" as const },
+      // A background run's status is never advanced once it parks, so queued
+      // here means "was launched at some point", not "is starting".
+      "a local background run parked at queued",
+      { taskRunStatus: "queued" as const, runMode: "background" as const },
       "Pending — no work in flight",
     ],
     [
@@ -123,13 +148,18 @@ describe("ChannelItemRow", () => {
       // opening the PR; under a merge queue that wait can outlast the agent by
       // hours, so the PR's existence has to win over the run's claim.
       "a run still babysitting CI behind an open PR",
-      { taskRunStatus: "in_progress" as const, prState: "open" as const },
+      {
+        taskRunStatus: "in_progress" as const,
+        runMode: "background" as const,
+        prState: "open" as const,
+      },
       "All caught up",
     ],
     [
       "a run whose PR url is known but state isn't",
       {
         taskRunStatus: "in_progress" as const,
+        runMode: "background" as const,
         prUrl: "https://github.com/PostHog/code/pull/1",
       },
       "All caught up",
@@ -173,9 +203,28 @@ describe("ChannelItemRow", () => {
 
     renderRow(item());
 
-    expect(screen.getByRole("img", { name: "Cloud" })).not.toBeNull();
     expect(screen.getByRole("img", { name: "Merged" })).not.toBeNull();
     expect(screen.queryByText(formatRelativeTimeShort(item().ts))).toBeNull();
+  });
+
+  // Running in the cloud is the default, so it gets no badge of its own — and a
+  // row with nothing else to say carries no stack at all rather than a laptop
+  // that would claim the opposite of where it ran.
+  it("leaves a cloud task with nothing else to say unbadged", () => {
+    mocks.status = { workspaceMode: "cloud" };
+
+    renderRow(item());
+
+    expect(screen.queryByRole("img", { name: "Cloud" })).toBeNull();
+    expect(screen.queryByRole("img", { name: "Local" })).toBeNull();
+  });
+
+  it("marks a local task with the laptop badge", () => {
+    mocks.status = { workspaceMode: "local" };
+
+    renderRow(item());
+
+    expect(screen.getByRole("img", { name: "Local" })).not.toBeNull();
   });
 
   it("renders a canvas like a quiet task with its glyph in the badge stack", () => {
@@ -195,12 +244,12 @@ describe("ChannelItemRow", () => {
   });
 
   it("marks a pinned row with the pin badge, alongside its status badges", () => {
-    mocks.status = { workspaceMode: "cloud" };
+    mocks.status = { workspaceMode: "cloud", prState: "merged" };
 
     renderRow(item({ pinned: true }));
 
     expect(screen.getByRole("img", { name: "Pinned" })).not.toBeNull();
-    expect(screen.getByRole("img", { name: "Cloud" })).not.toBeNull();
+    expect(screen.getByRole("img", { name: "Merged" })).not.toBeNull();
   });
 
   it("leaves an unpinned row without one", () => {
@@ -209,16 +258,21 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
   });
 
-  it("makes tasks draggable into the Command Center", () => {
-    renderRow(item());
-    const setData = vi.fn();
-    const dataTransfer = { setData, effectAllowed: "none" };
+  // A pinned row offering only `move` resolves against the Command Center's
+  // `copy` as no drop, so the tile stops accepting it with nothing to show why.
+  it.each([{ pinned: false }, { pinned: true }])(
+    "makes tasks draggable into the Command Center, pinned=$pinned",
+    ({ pinned }) => {
+      renderRow(item({ pinned }));
+      const setData = vi.fn();
+      const dataTransfer = { setData, effectAllowed: "none" };
 
-    fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
+      fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
 
-    expect(setData).toHaveBeenCalledWith("text/x-task-id", "task-1");
-    expect(dataTransfer.effectAllowed).toBe("copy");
-  });
+      expect(setData).toHaveBeenCalledWith("text/x-task-id", "task-1");
+      expect(dataTransfer.effectAllowed).toBe("copyMove");
+    },
+  );
 
   it("does not make canvases draggable into the Command Center", () => {
     renderRow(
@@ -246,16 +300,14 @@ describe("ChannelItemRow", () => {
     onRename?: () => void;
     onAddToCommandCenter?: () => void;
   }) {
-    return render(
-      <Theme>
-        <ChannelItemRow
-          actions={actions}
-          isActive={false}
-          item={item()}
-          onRename={overrides.onRename ?? (() => {})}
-          onAddToCommandCenter={overrides.onAddToCommandCenter}
-        />
-      </Theme>,
+    return renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={item()}
+        onRename={overrides.onRename ?? (() => {})}
+        onAddToCommandCenter={overrides.onAddToCommandCenter}
+      />,
     );
   }
 
@@ -329,10 +381,8 @@ describe("ChannelItemRow", () => {
       id: "c1",
       title: "Web analytics overview",
     });
-    render(
-      <Theme>
-        <ChannelItemRow actions={actions} isActive={false} item={canvas} />
-      </Theme>,
+    renderInList(
+      <ChannelItemRow actions={actions} isActive={false} item={canvas} />,
     );
 
     await userEvent.hover(screen.getByText("Web analytics overview"));
@@ -356,14 +406,12 @@ describe("ChannelItemRow", () => {
       id: "c1",
       title: "Web analytics overview",
     });
-    render(
-      <Theme>
-        <ChannelItemRow
-          actions={{ ...actions, remove }}
-          isActive={false}
-          item={canvas}
-        />
-      </Theme>,
+    renderInList(
+      <ChannelItemRow
+        actions={{ ...actions, remove }}
+        isActive={false}
+        item={canvas}
+      />,
     );
 
     await userEvent.hover(screen.getByText("Web analytics overview"));

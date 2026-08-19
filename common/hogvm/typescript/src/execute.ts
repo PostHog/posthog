@@ -32,6 +32,55 @@ import {
     unifyComparisonTypes,
 } from './utils'
 
+function compareValues(left: any, right: any, operation: Operation): boolean {
+    ;[left, right] = unifyComparisonTypes(left, right)
+
+    if (Array.isArray(left) && Array.isArray(right) && left.every(Number.isFinite) && right.every(Number.isFinite)) {
+        let ordering = 0
+        for (let i = 0; i < Math.min(left.length, right.length); i++) {
+            if (left[i] !== right[i]) {
+                ordering = left[i] < right[i] ? -1 : 1
+                break
+            }
+        }
+        if (ordering === 0) {
+            ordering = Math.sign(left.length - right.length)
+        }
+
+        switch (operation) {
+            case Operation.EQ:
+                return ordering === 0
+            case Operation.NOT_EQ:
+                return ordering !== 0
+            case Operation.GT:
+                return ordering > 0
+            case Operation.GT_EQ:
+                return ordering >= 0
+            case Operation.LT:
+                return ordering < 0
+            case Operation.LT_EQ:
+                return ordering <= 0
+        }
+    }
+
+    switch (operation) {
+        case Operation.EQ:
+            return left === right
+        case Operation.NOT_EQ:
+            return left !== right
+        case Operation.GT:
+            return left > right
+        case Operation.GT_EQ:
+            return left >= right
+        case Operation.LT:
+            return left < right
+        case Operation.LT_EQ:
+            return left <= right
+        default:
+            throw new HogVMException(`Invalid comparison operation: ${operation}`)
+    }
+}
+
 export function execSync(bytecode: any[] | VMState | Bytecodes, options?: ExecOptions): any {
     const response = exec(bytecode, options)
     if (response.finished) {
@@ -409,28 +458,22 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     pushStack(Number(popStack()) % Number(popStack()))
                     break
                 case Operation.EQ:
-                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
-                    pushStack(temp === temp2)
+                    pushStack(compareValues(popStack(), popStack(), Operation.EQ))
                     break
                 case Operation.NOT_EQ:
-                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
-                    pushStack(temp !== temp2)
+                    pushStack(compareValues(popStack(), popStack(), Operation.NOT_EQ))
                     break
                 case Operation.GT:
-                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
-                    pushStack(temp > temp2)
+                    pushStack(compareValues(popStack(), popStack(), Operation.GT))
                     break
                 case Operation.GT_EQ:
-                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
-                    pushStack(temp >= temp2)
+                    pushStack(compareValues(popStack(), popStack(), Operation.GT_EQ))
                     break
                 case Operation.LT:
-                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
-                    pushStack(temp < temp2)
+                    pushStack(compareValues(popStack(), popStack(), Operation.LT))
                     break
                 case Operation.LT_EQ:
-                    ;[temp, temp2] = unifyComparisonTypes(popStack(), popStack())
-                    pushStack(temp <= temp2)
+                    pushStack(compareValues(popStack(), popStack(), Operation.LT_EQ))
                     break
                 case Operation.LIKE:
                     pushStack(like(popStack(), popStack(), false, options?.external?.regex?.match))

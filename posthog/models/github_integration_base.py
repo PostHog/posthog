@@ -22,6 +22,7 @@ import requests
 import structlog
 from prometheus_client import Counter
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
@@ -95,7 +96,7 @@ class GitHubCommitAttribution:
     name: str | None = None
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class PullRequestRef:
     """A pull request's coordinates, parsed from its GitHub HTML URL."""
 
@@ -406,6 +407,12 @@ class GitHubIntegrationBase:
             "expires_in": expires_in,
             "refreshed_at": int(time.time()),
         }
+        # The token response names the permissions this installation actually holds. Persisting them
+        # lets the warehouse schema picker mark tables the installation can't read without an API
+        # call, and keeps the copy current as the App's requested permissions change: every hourly
+        # refresh rewrites it, including for integrations connected before this key existed.
+        if isinstance(data.get("permissions"), dict):
+            config["permissions"] = data["permissions"]
         config.pop(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, None)
         self.integration.config = config
         self.integration.sensitive_config = {

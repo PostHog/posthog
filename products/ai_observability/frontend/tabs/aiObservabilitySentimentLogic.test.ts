@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { sceneLogic } from 'scenes/sceneLogic'
+import { emptySceneParams } from 'scenes/scenes'
+
 import { initKeaTests } from '~/test/init'
 
 import { evaluationsList } from '../generated/api'
@@ -53,7 +56,7 @@ describe('aiObservabilitySentimentLogic', () => {
     beforeEach(() => {
         initKeaTests()
         mockEvaluationsList.mockResolvedValue({ count: 0, results: [] })
-        mockFetchSentimentGenerationsPage.mockResolvedValue({ generations: [], rawCount: 0 })
+        mockFetchSentimentGenerationsPage.mockResolvedValue({ generations: [], rawCount: 0, hasMore: false })
         logic = null
         availabilityLogic = null
     })
@@ -76,6 +79,7 @@ describe('aiObservabilitySentimentLogic', () => {
         mockFetchSentimentGenerationsPage.mockResolvedValue({
             generations: [generationWithSentiment],
             rawCount: 1,
+            hasMore: false,
         })
         mountLogics()
 
@@ -86,6 +90,22 @@ describe('aiObservabilitySentimentLogic', () => {
         expect(mockFetchSentimentGenerationsPage).toHaveBeenCalled()
         expect(logic!.values.generations).toEqual([generationWithSentiment])
         expect(logic!.values.showSentimentEvaluationOnboarding).toBe(false)
+    })
+
+    it('does not automatically load another page when more results are available', async () => {
+        mockFetchSentimentGenerationsPage.mockResolvedValue({
+            generations: [generationWithSentiment],
+            rawCount: 200,
+            hasMore: true,
+        })
+        mountLogics()
+
+        await expectLogic(logic!, () => {
+            sceneLogic.actions.setScene('AIObservability', 'aiObservabilitySentiment', emptySceneParams)
+        }).toFinishAllListeners()
+
+        expect(mockFetchSentimentGenerationsPage).toHaveBeenCalledTimes(1)
+        expect(logic!.values.hasMore).toBe(true)
     })
 
     it('shows onboarding only when no configured eval and no stored sentiment rows match', async () => {

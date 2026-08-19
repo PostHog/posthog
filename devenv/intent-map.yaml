@@ -20,7 +20,8 @@ capabilities:
 
     event_ingestion:
         description: 'Kafka-based event pipeline for event capture'
-        requires: [core_infra]
+        # The combined-mode ingestion server's AI consumer reads persons through PersonHog
+        requires: [core_infra, personhog]
         docker_profiles: []
 
     property_definitions:
@@ -153,7 +154,7 @@ capabilities:
     nodejs_session_replay:
         description: 'Node.js Session Replay - recording ingestion'
         requires: [event_ingestion]
-        docker_profiles: [replay]
+        docker_profiles: [replay, dynamodb]
 
     nodejs_logs:
         description: 'Node.js Logs - log ingestion'

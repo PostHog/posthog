@@ -1,20 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
+import { IconBuilding, IconExternal } from '@posthog/icons'
+import { LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import {
-    Button,
-    ButtonGroup,
-    ButtonGroupText,
-    buttonVariants,
-    cn,
-    Label,
-    Switch,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from 'lib/ui/quill'
+import { Button } from 'lib/ui/quill'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -36,49 +25,62 @@ export const InternalAccountsToggle = ({
     const { setLocalDefault } = useActions(filterTestAccountsDefaultsLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
     const disabledReason = hasFilters ? undefined : "You haven't set any internal and test filters"
+    const isFiltering = hasFilters && filterTestAccounts
 
     return (
-        <ButtonGroup className="shrink-0" title={disabledReason}>
-            <Tooltip>
-                <TooltipTrigger
-                    render={
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            render={
-                                <LinkPrimitive
-                                    to={urls.settings('environment-customization', 'internal-user-filtering')}
-                                />
-                            }
-                            aria-label="Configure internal user filters"
+        <LemonMenu
+            placement="bottom-end"
+            closeOnClickInside={false}
+            items={[
+                {
+                    custom: true,
+                    label: () => (
+                        <LemonSwitch
+                            id={id}
+                            className="min-h-8"
+                            size="small"
+                            fullWidth
+                            checked={isFiltering}
+                            disabledReason={disabledReason}
+                            onChange={(checked) => {
+                                onChange(checked)
+                                setLocalDefault(checked)
+                            }}
+                            label="Exclude internal users"
+                            labelClassName="text-sm"
+                            data-attr="error-tracking-exclude-internal-users"
                         />
+                    ),
+                },
+                {
+                    label: 'Configure internal user filters',
+                    to: urls.settings('environment-customization', 'internal-user-filtering'),
+                    targetBlank: true,
+                    sideIcon: <IconExternal />,
+                },
+            ]}
+        >
+            <Button
+                variant="default"
+                size="icon"
+                aria-label="Internal user filters"
+                aria-pressed={isFiltering}
+                title="Internal user filters"
+                data-attr="error-tracking-internal-user-filters"
+            >
+                <span
+                    className={
+                        isFiltering
+                            ? 'relative flex size-4 items-center justify-center text-[var(--primary)]'
+                            : 'flex size-4 items-center justify-center'
                     }
                 >
-                    <IconGear />
-                </TooltipTrigger>
-                <TooltipContent>Configure internal user filters</TooltipContent>
-            </Tooltip>
-            {/*
-             * ButtonGroupText ships no frame, so this segment borrows the outline button's own
-             * variant classes rather than re-deriving its border and fill, which is how the two
-             * segments stay identical. It isn't a button, so the pointer cursor is dropped.
-             */}
-            <ButtonGroupText className={cn(buttonVariants({ variant: 'outline', size: 'default' }), 'cursor-default')}>
-                <Label htmlFor={id} className="whitespace-nowrap">
-                    Exclude internal users
-                </Label>
-                <Switch
-                    id={id}
-                    size="default"
-                    checked={hasFilters && filterTestAccounts}
-                    disabled={!hasFilters}
-                    onCheckedChange={(checked) => {
-                        onChange(checked)
-                        setLocalDefault(checked)
-                    }}
-                    aria-label="Exclude internal users"
-                />
-            </ButtonGroupText>
-        </ButtonGroup>
+                    <IconBuilding className={isFiltering ? 'size-4 text-[var(--primary)]' : 'size-4'} />
+                    {isFiltering && (
+                        <span className="absolute h-px w-5 -rotate-45 rounded-full bg-current" aria-hidden />
+                    )}
+                </span>
+            </Button>
+        </LemonMenu>
     )
 }

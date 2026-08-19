@@ -50,12 +50,20 @@ describe("formatGatewayModelName", () => {
 });
 
 describe("normalizeGatewayModelsResponse", () => {
-  it("corrects stale GLM 5.2 context-window metadata", () => {
+  it("passes through the gateway's advertised context window for GLM 5.2 unmodified", () => {
     const models = normalizeGatewayModelsResponse([
       model("@cf/zai-org/glm-5.2", "cloudflare"),
     ]);
 
-    expect(models[0]?.context_window).toBe(1_000_000);
+    expect(models[0]?.context_window).toBe(128000);
+  });
+
+  it("does not override any model's context window", () => {
+    const models = normalizeGatewayModelsResponse([
+      { ...model("@cf/zai-org/glm-5.2", "cloudflare"), context_window: 256000 },
+    ]);
+
+    expect(models[0]?.context_window).toBe(256000);
   });
 });
 

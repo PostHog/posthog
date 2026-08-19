@@ -361,6 +361,9 @@ const workflowsRestoreRevision = (): ToolBase<typeof WorkflowsRestoreRevisionSch
         if (params.overwrite !== undefined) {
             body['overwrite'] = params.overwrite
         }
+        if (params.expected_draft_updated_at !== undefined) {
+            body['expected_draft_updated_at'] = params.expected_draft_updated_at
+        }
         const result = await context.api.request<Schemas.HogFlow>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/${encodeURIComponent(String(params.version))}/restore/`,

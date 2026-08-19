@@ -21,6 +21,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "birthdate": "Date of birth collected or verified during the inquiry.",
         },
     },
+    "verifications": {
+        "description": "A single identity check run inside an inquiry (government ID, selfie, database, phone, email, and others), with its own status and per-check results.",
+        "docs_url": "https://docs.withpersona.com/api-reference/verifications",
+        "columns": {
+            "id": "Unique identifier for the verification (prefixed `ver_`).",
+            "type": "The kind of verification that ran (e.g. verification/government-id, verification/selfie).",
+            "status": "Current state of the verification (initiated, confirmed, submitted, passed, requires_retry, failed).",
+            "checks": "Individual checks the verification ran, each with a name, a passed/failed/not_applicable status, and reasons.",
+            "created_at": "Timestamp when the verification was created.",
+            "submitted_at": "Timestamp when the claimed information was submitted for processing.",
+            "completed_at": "Timestamp when the verification finished processing.",
+            "inquiry_id": "Identifier of the inquiry this verification belongs to (prefixed `inq_`).",
+            "inquiry_created_at": "Timestamp when the parent inquiry was created.",
+        },
+    },
     "accounts": {
         "description": "A persistent record of an individual, grouping all of their inquiries, verifications, and other activity over time.",
         "docs_url": "https://docs.withpersona.com/reference/accounts",

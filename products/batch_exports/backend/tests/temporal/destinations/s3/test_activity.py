@@ -6,7 +6,7 @@ from django.conf import settings
 
 from temporalio.testing._activity import ActivityEnvironment
 
-from posthog.models.integration import Integration, S3CredentialIntegrationError
+from posthog.models.integration import Integration, IntegrationError
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
@@ -42,7 +42,7 @@ async def test_get_s3_integration_rejects_wrong_kind(ateam):
         sensitive_config={},
     )
 
-    with pytest.raises(S3CredentialIntegrationError) as exc_info:
+    with pytest.raises(IntegrationError) as exc_info:
         await _get_s3_integration(integration.id, ateam.pk)
     assert "not an S3 integration" in str(exc_info.value)
     assert "kind='slack'" in str(exc_info.value)

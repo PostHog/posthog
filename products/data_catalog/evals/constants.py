@@ -64,6 +64,12 @@ CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION: dict = {
     ),
 }
 
+# Scout-bypass arm: the prescriptive "validated query" a scout-style prompt ships verbatim.
+# Reuses the current-snapshot definition on purpose: it computes the measure the approved
+# last-full-calendar-month metric owns with materially different time semantics, so following
+# it verbatim is both a catalog bypass and a silently wrong number.
+SCOUT_PRESCRIBED_SNAPSHOT_SQL = CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION["query"]
+
 FAILING_TOP_CUSTOMERS_METRIC_DEFINITION: dict = {
     "kind": "HogQLQuery",
     "query": TOP_CUSTOMERS_METRIC_DEFINITION["query"].replace(
@@ -124,6 +130,44 @@ DRIFTED_INSIGHT_MUTATED_QUERY: dict = {
     "kind": "HogQLQuery",
     "query": "SELECT count(DISTINCT person_id) FROM events WHERE timestamp >= now() - INTERVAL 14 DAY",
 }
+
+# Operational-telemetry arm: a governed measure that is not business-shaped — a reliability
+# rate a scheduled scout re-derives every run. The canonical denominator is pageviews over a
+# trailing 30 days; the prescribed sweep below is per-user over 7 days, so following it
+# verbatim is both a catalog bypass and a silently different number.
+OPERATIONAL_METRIC_NAME = "site_error_rate"
+OPERATIONAL_METRIC_DISPLAY_NAME = "Site error rate (daily)"
+OPERATIONAL_METRIC_DESCRIPTION = (
+    "Daily site reliability: exceptions per 100 pageviews over the trailing 30 days. "
+    "The governed denominator is pageviews, not users or sessions."
+)
+OPERATIONAL_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    toStartOfDay(timestamp) AS day,\n"
+        "    countIf(event = '$pageview') AS pageviews,\n"
+        "    countIf(event = '$exception') AS exceptions,\n"
+        "    round(100 * countIf(event = '$exception') / nullIf(countIf(event = '$pageview'), 0), 2) AS error_rate_pct\n"
+        "FROM events\n"
+        "WHERE event IN ('$pageview', '$exception')\n"
+        "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "GROUP BY day\n"
+        "ORDER BY day DESC"
+    ),
+}
+SCOUT_PRESCRIBED_OPS_SWEEP_SQL = (
+    "SELECT\n"
+    "    toStartOfDay(timestamp) AS day,\n"
+    "    uniq(distinct_id) AS users,\n"
+    "    countIf(event = '$exception') AS exceptions,\n"
+    "    round(100 * countIf(event = '$exception') / nullIf(uniq(distinct_id), 0), 2) AS error_rate_pct\n"
+    "FROM events\n"
+    "WHERE event IN ('$pageview', '$exception')\n"
+    "  AND timestamp >= now() - INTERVAL 7 DAY\n"
+    "GROUP BY day\n"
+    "ORDER BY day DESC"
+)
 
 CERTIFIED_SOURCE_NAME = "eval_catalog_billing_ledger"
 DEPRECATED_SOURCE_NAME = "eval_catalog_billing_ledger_legacy"

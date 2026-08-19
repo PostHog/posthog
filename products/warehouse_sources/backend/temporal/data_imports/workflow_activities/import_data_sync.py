@@ -8,6 +8,7 @@ from typing import Any, NoReturn, Optional
 from django.db import InterfaceError, OperationalError
 from django.db.models import Prefetch
 
+from jsonpath_ng.exceptions import JSONPathError
 from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     apply_incremental_lookback,
+    get_schema_if_exists,
     process_incremental_value,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -48,9 +50,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    AnySource,
     ResumableSource,
     SimpleSource,
     error_message_matches,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
+    is_fanout_warehouse_reuse_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
@@ -64,6 +70,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -103,6 +110,62 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
         .exclude(deleted=True)
         .get(id=schema_id, team_id=team_id)
     )
+
+
+def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
+    """Why a fan-out child can't read this parent from the warehouse, or None when it can."""
+    if parent is None:
+        return "missing"
+    if not parent.should_sync:
+        return "disabled"
+    if not (parent.is_incremental or parent.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH):
+        # An allow-list, not a deny-list: only merge and full-refresh parents hold one row per
+        # key. Append accumulates a row per sync, and CDC keeps change history, so the reader —
+        # which streams the table as-is, with no dedupe state — would fan the child out once
+        # per duplicate. New sync types have to opt in here deliberately.
+        return "unsupported_sync_type"
+    if not parent.initial_sync_complete:
+        return "no_initial_sync"
+    return None
+
+
+async def _warehouse_parent_reuse_available(
+    source: AnySource,
+    schema: ExternalDataSchema,
+    source_id: uuid.UUID,
+    team_id: int,
+    logger: FilteringBoundLogger,
+) -> bool:
+    """Whether this run reads its fan-out parents from the warehouse instead of the parent API.
+
+    Reuse is an optimization, never a requirement: any parent the child can't read falls the
+    whole run back to the legacy parent-API path, so enabling the flag can't break a schema
+    that syncs today. Sources consume the result via `SourceInputs.fanout_warehouse_reuse`;
+    this is the single feature-flag evaluation for the run.
+
+    A parent that is mid-sync doesn't force the fallback: `resolve_parent_table_ref` pins the
+    read to the parent's last completed snapshot (Delta time travel), so a concurrent rewrite
+    can't hand the child a torn table.
+    """
+    required_parents = source.get_required_parent_schemas(schema.name)
+    if not required_parents:
+        return False
+    if not await database_sync_to_async_pool(is_fanout_warehouse_reuse_enabled)(team_id):
+        return False
+
+    for parent_name in required_parents:
+        parent = await database_sync_to_async_pool(get_schema_if_exists)(parent_name, team_id, source_id)
+        unusable_reason = _parent_unusable_reason(parent)
+        if unusable_reason is not None:
+            await logger.ainfo(
+                "data_imports.fanout_parent_unusable",
+                schema=schema.name,
+                parent=parent_name,
+                reason=unusable_reason,
+            )
+            return False
+
+    return True
 
 
 @activity.defn
@@ -233,6 +296,20 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         if SourceRegistry.is_registered(source_type):
             new_source = SourceRegistry.get_source(source_type)
 
+            fanout_warehouse_reuse = await _warehouse_parent_reuse_available(
+                new_source, schema, inputs.source_id, inputs.team_id, logger
+            )
+            # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
+            # child took, and doubles as rollout-adoption telemetry. Only fan-out children
+            # (schemas with required parents) log it; every other schema stays quiet.
+            if new_source.get_required_parent_schemas(schema.name):
+                await logger.ainfo(
+                    "data_imports.fanout_parent_source",
+                    schema=schema.name,
+                    parent_source="warehouse" if fanout_warehouse_reuse else "api",
+                    source_type=source_type,
+                )
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
                 schema_id=str(schema.id),
@@ -256,6 +333,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 s3_folder_name=schema.resolved_s3_folder_name,
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
+                fanout_warehouse_reuse=fanout_warehouse_reuse,
             )
 
             try:
@@ -404,6 +482,16 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
+    # The shared REST engine compiles data_selector/cursor_path/next_url_path/resolve-param fields
+    # as JSONPath at sync time (jsonpath_utils.compile_path), not at manifest-validation time. A
+    # malformed path is a fixed string, so parsing it fails identically on every retry regardless
+    # of source — classify it here by type (message text varies across jsonpath_ng's several parse-
+    # and lex-error shapes, so it can't be matched via get_non_retryable_errors).
+    if isinstance(error, JSONPathError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
     # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
     # endpoint/resource doesn't exist — every retry replays the identical request against the same
     # dead URL. Unlike 401 (a token needing refresh, which the REST engine's own retry re-mints) or
@@ -459,8 +547,10 @@ async def _handle_import_error(
     # a raw driver connection, never Django's ORM, so this exception type can only mean a transient
     # connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout under load), not a
     # customer data or config problem. Same classification already used for app-DB blips in
-    # delta_table_ref.is_transient_maintenance_error.
-    if isinstance(error, OperationalError | InterfaceError):
+    # delta_table_ref.is_transient_maintenance_error. PostHogInternalDatabaseError is the same
+    # condition already reclassified by shared pipeline code (e.g. cdp_producer's should_run check)
+    # specifically so it wouldn't be mistaken for a customer-side failure here — honor that by type.
+    if isinstance(error, OperationalError | InterfaceError | PostHogInternalDatabaseError):
         await logger.awarning(error_msg)
         await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error

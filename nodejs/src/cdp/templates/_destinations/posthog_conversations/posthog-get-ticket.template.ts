@@ -1,5 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+import { hogApiErrorMessageFn } from '../../hog-helpers'
+
 export const template: HogFunctionTemplate = {
     free: true,
     status: 'hidden',
@@ -11,6 +13,8 @@ export const template: HogFunctionTemplate = {
     category: ['Custom'],
     code_language: 'hog',
     code: `
+${hogApiErrorMessageFn}
+
 if (empty(inputs.ticket_id)) {
   throw Error('Ticket ID is required')
 }
@@ -18,7 +22,7 @@ if (empty(inputs.ticket_id)) {
 let response := postHogGetTicket({'ticket_id': inputs.ticket_id})
 
 if (response.status != 200) {
-  throw Error(f'Failed to fetch ticket: {response.status}')
+  throw Error(f'Failed to fetch ticket ({response.status}): {apiErrorMessage(response)}')
 }
 
 return response.body

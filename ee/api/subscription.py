@@ -1014,6 +1014,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         "insight__name",
         "insight__derived_name",
         "dashboard__name",
+        # An AI report's subject lives only in its prompt, so without this the only way to find the
+        # reports about a given thing is to fetch every ai_prompt row and sift them client-side.
+        # Scoped to one team by the viewset, so the ILIKE never widens past that team's rows.
+        "prompt",
     ]
     ordering_fields = [
         "created_at",

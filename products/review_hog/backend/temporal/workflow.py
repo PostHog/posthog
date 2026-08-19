@@ -21,8 +21,9 @@ from datetime import timedelta
 
 import temporalio
 from temporalio import workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.workflow import ParentClosePolicy
 
 from products.review_hog.backend.reviewer.constants import (
     BLIND_SPOT_PASS_NUMBER,
@@ -30,13 +31,13 @@ from products.review_hog.backend.reviewer.constants import (
     MAX_CONCURRENT_SANDBOXES,
     VALIDATION_MAX_ATTEMPTS,
 )
+from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
     DedupResult,
     FetchPRDataInput,
-    FinalizeStatusCommentInput,
     GenerateSchemasInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
@@ -46,6 +47,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
+    RemoveTriggerLabelInput,
     ResolveActingUserInput,
     ReviewChunkInput,
     ReviewMeta,
@@ -70,6 +72,7 @@ from products.review_hog.backend.temporal.activities import (
     load_validation_skill_activity,
     post_status_comment_activity,
     publish_review_activity,
+    remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
     select_perspectives_activity,
@@ -80,7 +83,13 @@ from products.review_hog.backend.temporal.activities import (
     validate_chunk_activity,
     validate_github_integration_activity,
 )
-from products.review_hog.backend.temporal.types import TRIGGER_INBOX, TRIGGER_LABEL, ReviewPRWorkflowInputs
+from products.review_hog.backend.temporal.types import (
+    TRIGGER_INBOX,
+    TRIGGER_LABEL,
+    ResolvePRWorkflowInputs,
+    ReviewPRWorkflowInputs,
+    resolve_pr_workflow_id,
+)
 
 # Timeouts: sandbox turns can legitimately run long (a heavy validation chunk measured 34m — one
 # opus verdict per issue), so 60m start-to-close; the 5m heartbeat still catches dead sandboxes
@@ -348,6 +357,39 @@ class ReviewPRWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: ReviewPRWorkflowInputs) -> str:
+        completed = False
+        try:
+            result = await self._run(inputs)
+            completed = True
+            return result
+        finally:
+            info = workflow.info()
+            retry = info.retry_policy
+            terminal = (
+                completed or retry is None or (retry.maximum_attempts > 0 and info.attempt >= retry.maximum_attempts)
+            )
+            if (
+                workflow.patched("remove-reviewhog-trigger-label-2026-08")
+                and terminal
+                and inputs.trigger_source == TRIGGER_LABEL
+                and inputs.pr_number is not None
+            ):
+                try:
+                    await workflow.execute_activity(
+                        remove_trigger_label_activity,
+                        RemoveTriggerLabelInput(
+                            team_id=inputs.team_id,
+                            owner=inputs.owner,
+                            repo=inputs.repo,
+                            pr_number=inputs.pr_number,
+                        ),
+                        start_to_close_timeout=_QUICK_TIMEOUT,
+                        retry_policy=_RETRY,
+                    )
+                except Exception:
+                    workflow.logger.warning("Could not remove the ReviewHog trigger label")
+
+    async def _run(self, inputs: ReviewPRWorkflowInputs) -> str:
         repository = inputs.repository
         target = f"PR #{inputs.pr_number}" if inputs.pr_number is not None else f"branch '{inputs.head_branch}'"
         workflow.logger.info(f"ReviewHog · reviewing {target} · {repository}")
@@ -440,11 +482,14 @@ class ReviewPRWorkflow:
             return report_id
         acting_user_id = acting.acting_user_id
 
+        # One gate, three consumers: the status comment, finalize's deferred idle write, and the
+        # stage-7 publish dispatch all key off "this run publishes to a PR".
+        publishes_to_pr = inputs.publish and meta.pr_number is not None
         # The PR's live status comment: posted once every gate has passed, refreshed by the pipeline
         # activities as they persist progress, and rewritten with the outcome below. Publish-path
         # only — eval / CLI / branch-target runs keep zero GitHub footprint. Best-effort throughout:
         # a status comment must never cost a review.
-        status_comment = inputs.publish and meta.pr_number is not None
+        status_comment = publishes_to_pr
         if status_comment:
             try:
                 await workflow.execute_activity(
@@ -550,13 +595,16 @@ class ReviewPRWorkflow:
                     run_index=stage.run_index,
                     issue_ids=dedup.issue_ids,
                     urgency_threshold=acting.urgency_threshold,
+                    # Publishing runs stay ACTIVE through stage 7; publish/failure return them to rest.
+                    will_publish=publishes_to_pr,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
 
             workflow.logger.info("STAGE 7/7 · Publish review")
-            if inputs.publish and meta.pr_number is not None:
+            # The pr_number check is implied by the gate; restated so mypy narrows it to int.
+            if publishes_to_pr and meta.pr_number is not None:
                 publish_result = await workflow.execute_activity(
                     publish_review_activity,
                     PublishInput(
@@ -579,8 +627,9 @@ class ReviewPRWorkflow:
             else:
                 workflow.logger.info("Publishing disabled for this run (publish=False)")
         except Exception:
-            # A dead run must not read as forever in progress on the PR; best-effort so the status
-            # edit can never mask the original error.
+            # A dead run must not read as forever in progress on the PR or in the Code review UI
+            # (the activity also returns the report to rest, covering a publish that died with the
+            # idle write still deferred); best-effort so the edit can never mask the original error.
             if status_comment:
                 try:
                     await workflow.execute_activity(
@@ -661,6 +710,46 @@ class ReviewPRWorkflow:
             review_url=publish_result.review_url if publish_result is not None else None,
             best_effort=True,
         )
+
+        # Reviewing includes resolving: hand the PR to the resolution stage once this turn's comments
+        # are on it. The acting user's `resolve_comments` setting decides (via the resolve-time
+        # snapshot, publishing runs only — an unpublished eval/CLI review must not write to the PR);
+        # `inputs.resolve_comments` is the per-run override (the UI's "review without resolving").
+        # Fire-and-forget (ABANDON) — the resolution run outlives this workflow — and best-effort: a
+        # dispatch failure must never fail a finished review. Deterministic under replay: both
+        # operands come from recorded history (workflow input + activity result), and pre-field
+        # histories decode input None + snapshot False, so the command never fires where it didn't.
+        resolve_after = (
+            inputs.resolve_comments
+            if inputs.resolve_comments is not None
+            else (inputs.publish and acting.resolve_comments)
+        )
+        if resolve_after and meta.pr_number is not None:
+            workflow.logger.info("Dispatching the resolution stage for this PR")
+            try:
+                await workflow.start_child_workflow(
+                    "resolve-pr",
+                    ResolvePRWorkflowInputs(
+                        team_id=inputs.team_id,
+                        user_id=inputs.user_id,
+                        owner=inputs.owner,
+                        repo=inputs.repo,
+                        pr_number=meta.pr_number,
+                        pr_url=meta.pr_url or "",
+                        acting_user_id=acting_user_id,
+                        trigger_source=inputs.trigger_source,
+                    ),
+                    id=resolve_pr_workflow_id(
+                        team_id=inputs.team_id, owner=inputs.owner, repo=inputs.repo, pr_number=meta.pr_number
+                    ),
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    # A resolution run already in flight for this PR wins; this dispatch just no-ops.
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                )
+            except Exception as e:
+                # Broad by design (best-effort — a dispatch failure must never fail a finished review);
+                # log the detail so a real failure is distinguishable from the benign already-running race.
+                workflow.logger.warning(f"Could not dispatch the resolution stage; the review is unaffected: {e!r}")
 
         workflow.logger.info(f"ReviewHog complete · report stored on ReviewReport {report_id}")
         return report_id

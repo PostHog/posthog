@@ -58,6 +58,18 @@ vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", () => ({
     togglePin: mocks.togglePin,
   }),
 }));
+// The session facts behind the status and environment filters. All three reach
+// the host — for live sessions, viewed timestamps and workspaces — and this
+// suite is about which items the hook builds, not what they say.
+vi.mock("@posthog/ui/features/sidebar/useSidebarSessionMap", () => ({
+  useSidebarSessionMap: () => new Map(),
+}));
+vi.mock("@posthog/ui/features/sidebar/useTaskViewed", () => ({
+  useTaskViewed: () => ({ timestamps: {} }),
+}));
+vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
+  useWorkspaces: () => ({ data: undefined, isFetched: true }),
+}));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => undefined,
 }));
@@ -81,6 +93,8 @@ function channel(over: Partial<Channel> = {}): Channel {
     name: "eng",
     channelType: "public",
     starred: false,
+    repositories: [],
+    createdBy: null,
     ...over,
   };
 }

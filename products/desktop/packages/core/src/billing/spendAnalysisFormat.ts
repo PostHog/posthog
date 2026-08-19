@@ -1,4 +1,8 @@
-import type { SpendAnalysisDayRow } from "./spendAnalysisTypes";
+import type {
+  SpendAnalysisDayModelRow,
+  SpendAnalysisDayRow,
+  SpendAnalysisFilledDay,
+} from "./spendAnalysisTypes";
 
 export function formatUsd(amount: number): string {
   if (amount === 0) return "$0";
@@ -40,18 +44,19 @@ export function formatWindow(fromIso: string, toIso: string): string {
 const DAY_MS = 86_400_000;
 const MAX_FILLED_DAYS = 100;
 
-export interface SpendAnalysisFilledDay {
-  day: string;
-  event_count: number;
-  cost_usd: number;
-}
-
 export function fillSpendDays(
   items: SpendAnalysisDayRow[],
   fromIso: string,
   toIso: string,
+  byDayModel: SpendAnalysisDayModelRow[] = [],
 ): SpendAnalysisFilledDay[] {
   const byDay = new Map(items.map((row) => [row.day, row]));
+  const modelsByDay = new Map<string, SpendAnalysisDayModelRow[]>();
+  for (const row of byDayModel) {
+    const rows = modelsByDay.get(row.day) ?? [];
+    rows.push(row);
+    modelsByDay.set(row.day, rows);
+  }
   const from = new Date(fromIso);
   const start = Date.UTC(
     from.getUTCFullYear(),
@@ -71,6 +76,9 @@ export function fillSpendDays(
       day,
       event_count: row?.event_count ?? 0,
       cost_usd: row?.cost_usd ?? 0,
+      input_tokens: row?.input_tokens ?? 0,
+      output_tokens: row?.output_tokens ?? 0,
+      models: modelsByDay.get(day) ?? [],
     });
   }
   return filled;

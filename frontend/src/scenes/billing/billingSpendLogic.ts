@@ -9,7 +9,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { toParams } from 'lib/utils/url'
@@ -585,25 +584,19 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         setFilters: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)
-                actions.reportBillingSpendInteraction(
-                    buildSpendTrackingProperties('filters_changed', values, featureFlagLogic.values.featureFlags)
-                )
+                actions.reportBillingSpendInteraction(buildSpendTrackingProperties('filters_changed', values))
             }
             actions.loadBillingSpend()
         },
         setDateRange: async ({ shouldDebounce }, breakpoint) => {
             if (shouldDebounce) {
                 await breakpoint(200)
-                actions.reportBillingSpendInteraction(
-                    buildSpendTrackingProperties('date_changed', values, featureFlagLogic.values.featureFlags)
-                )
+                actions.reportBillingSpendInteraction(buildSpendTrackingProperties('date_changed', values))
             }
             actions.loadBillingSpend()
         },
         resetFilters: async () => {
-            actions.reportBillingSpendInteraction(
-                buildSpendTrackingProperties('filters_cleared', values, featureFlagLogic.values.featureFlags)
-            )
+            actions.reportBillingSpendInteraction(buildSpendTrackingProperties('filters_cleared', values))
             actions.loadBillingSpend()
         },
         toggleAllSeries: () => {
@@ -613,9 +606,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 : series
             const ids = potentiallyVisible.map((s) => s.id)
             const isAllVisible = ids.length > 0 && ids.every((id) => !userHiddenSeries.includes(id))
-            actions.reportBillingSpendInteraction(
-                buildSpendTrackingProperties('series_toggled', values, featureFlagLogic.values.featureFlags)
-            )
+            actions.reportBillingSpendInteraction(buildSpendTrackingProperties('series_toggled', values))
 
             if (isAllVisible) {
                 // Hide all series
@@ -627,9 +618,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         },
         toggleBreakdown: async (_payload, breakpoint) => {
             await breakpoint(200)
-            actions.reportBillingSpendInteraction(
-                buildSpendTrackingProperties('breakdown_toggled', values, featureFlagLogic.values.featureFlags)
-            )
+            actions.reportBillingSpendInteraction(buildSpendTrackingProperties('breakdown_toggled', values))
             actions.loadBillingSpend()
         },
     })),

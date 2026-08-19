@@ -97,7 +97,11 @@ if (empty(objectType)) {
 
 let schemaId := inputs.schema_mapping?.[objectType]
 
-if (empty(schemaId)) {
+// History tables receive the same events as the object type's primary table, under a
+// ':history'-suffixed mapping key (see PAYMENT_METHOD_HISTORY_MAPPING_KEY in constants.py).
+let historySchemaId := inputs.schema_mapping?.[concat(objectType, ':history')]
+
+if (empty(schemaId) and empty(historySchemaId)) {
   return {
     'httpResponse': {
       'status': 200,
@@ -106,7 +110,13 @@ if (empty(schemaId)) {
   }
 }
 
-produceToWarehouseWebhooks(request.body, schemaId)""",
+if (not empty(schemaId)) {
+  produceToWarehouseWebhooks(request.body, schemaId)
+}
+
+if (not empty(historySchemaId)) {
+  produceToWarehouseWebhooks(request.body, historySchemaId)
+}""",
     inputs_schema=[
         {
             "type": "string",

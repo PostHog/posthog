@@ -25,6 +25,7 @@ import {
   useTaskRepositoryDraftStore,
 } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
@@ -296,6 +297,8 @@ export function TaskInput({
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<AgentRuntime>("acp");
+  // Keep the menu open when a harness switch swaps its ACP/Pi control.
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const didResolveRuntimeRef = useRef(false);
   const [selectedPiModelId, setSelectedPiModelId] = useState<string | null>(
     null,
@@ -859,7 +862,11 @@ export function TaskInput({
   useWarmTask({
     workspaceMode,
     selectedRepository: selectedCloudRepository,
-    githubIntegrationId: orgGithubIntegrationId,
+    repositories: allowNoRepo ? taskRepositories : undefined,
+    githubIntegrationId: allowNoRepo
+      ? (taskGithubIntegration ?? undefined)
+      : orgGithubIntegrationId,
+    allowNoRepo,
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     runtimeAdapter: adapter ?? null,
@@ -969,6 +976,7 @@ export function TaskInput({
 
   const {
     isCreatingTask,
+    isExitingComposer,
     canSubmit,
     handleSubmit,
     additionalDirectories,
@@ -1259,8 +1267,16 @@ export function TaskInput({
                 // suggestions fade out (and back in when the prompt is cleared).
                 top: suggestions && suggestions.length > 0 ? "38%" : "50%",
                 transform: "translate(-50%, -50%)",
+                // Once the task is on its way, the whole composer fades out and
+                // the pending chat fades in over it.
+                opacity: isExitingComposer ? 0 : 1,
+                transitionProperty: "opacity",
+                transitionDuration: `${NEW_TASK_COMPOSER_FADE_MS}ms`,
+                transitionTimingFunction: "ease-out",
               }}
-              className="absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2"
+              className={`absolute left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2 ${
+                isExitingComposer ? "pointer-events-none" : ""
+              }`}
             >
               <Flex
                 gap="2"
@@ -1489,9 +1505,12 @@ export function TaskInput({
                         }
                         thinkingLevels={piThinkingLevels}
                         disabled={isCreatingTask || isPiConfigLoading}
+                        isLoading={isPiConfigLoading}
                         onChange={handlePiModelChange}
                         onThinkingLevelChange={handlePiThinkingLevelChange}
                         onHarnessChange={handleHarnessChange}
+                        menuOpen={modelMenuOpen}
+                        onMenuOpenChange={setModelMenuOpen}
                       />
                     ) : null
                   }
@@ -1518,6 +1537,8 @@ export function TaskInput({
                         }
                         includePiHarness={piHarnessEnabled}
                         onConfigOptionChange={setConfigOption}
+                        menuOpen={modelMenuOpen}
+                        onMenuOpenChange={setModelMenuOpen}
                         disabled={isCreatingTask}
                         isLoading={isPreviewLoading}
                       />

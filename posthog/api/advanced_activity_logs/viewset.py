@@ -100,6 +100,32 @@ def restrict_loop_activity_for_org(queryset: QuerySet[ActivityLog], organization
     return queryset.exclude(Q(scope="Loop") & Q(item_id__in=hidden_ids))
 
 
+def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user) -> QuerySet[ActivityLog]:
+    """Keep personal-channel canvases' metadata out of the team-wide activity feed.
+
+    Canvas activity is team-scoped in the log, but a canvas in a personal channel is
+    owner-only (see `CanvasViewSet`). Restrict `Canvas`-scoped rows to canvases this
+    user may actually see. Lazy import keeps the canvas product off this module's path.
+    """
+    from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
+
+    visible_ids = canvas_activity.visible_canvas_ids(team_id, user)
+    return queryset.exclude(Q(scope="Canvas") & ~Q(item_id__in=visible_ids))
+
+
+def restrict_canvas_activity_for_org(queryset: QuerySet[ActivityLog], organization_id, user) -> QuerySet[ActivityLog]:
+    """Org-wide equivalent of `restrict_canvas_activity`. The org route has no single
+    `team_id`, so deny other users' personal-channel canvas rows across the org. Canvases
+    are soft-deleted, so their visibility stays computable without a persisted snapshot.
+    """
+    from products.canvas.backend import activity_visibility as canvas_activity  # noqa: PLC0415
+
+    hidden_ids = canvas_activity.hidden_personal_canvas_ids_for_org(organization_id, user)
+    if not hidden_ids:
+        return queryset
+    return queryset.exclude(Q(scope="Canvas") & Q(item_id__in=hidden_ids))
+
+
 def apply_organization_scoped_filter(
     queryset: QuerySet[ActivityLog], include_org_scoped: bool, team_id: int, organization_id
 ) -> QuerySet[ActivityLog]:
@@ -312,6 +338,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
         queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
+        queryset = restrict_canvas_activity(queryset, self.team_id, self.request.user)
 
         return queryset
 
@@ -597,6 +624,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
         queryset = restrict_loop_activity(queryset, self.team_id, self.request.user)
+        queryset = restrict_canvas_activity(queryset, self.team_id, self.request.user)
 
         return queryset.order_by(*activity_log_ordering(self.request))
 
@@ -761,6 +789,7 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
         # Org route: no single team_id (this endpoint is org-nested), so use the org-wide variant.
         queryset = restrict_loop_activity_for_org(queryset, self.organization.id, self.request.user)
+        queryset = restrict_canvas_activity_for_org(queryset, self.organization.id, self.request.user)
 
         return queryset.order_by(*activity_log_ordering(self.request))
 

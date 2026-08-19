@@ -43,6 +43,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
             defaults: SDK_DEFAULTS_DATE,
+            strict_script_versioning: true,
             persistence: 'localStorage+cookie',
             cookie_persisted_properties: [
                 'prod_interest', // posthog.com sets these based on what docs were browsed
