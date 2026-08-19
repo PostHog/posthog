@@ -36,6 +36,7 @@ class AccountsTableAccountField(StrEnum):
     CREATED_AT = "created_at"
     UPDATED_AT = "updated_at"
     CHURNED_AT = "churned_at"
+    IGNORED_AT = "ignored_at"
     STRIPE_CUSTOMER_ID = "stripe_customer_id"
     HUBSPOT_DEAL_ID = "hubspot_deal_id"
     BILLING_ID = "billing_id"
