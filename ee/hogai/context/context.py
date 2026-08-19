@@ -532,6 +532,8 @@ class AssistantContextManager(AssistantContextMixin):
             name=insight.name,
             description=insight.description,
             insight_id=insight.id,
+            # `MaxInsightContext.id` is a saved insight's short_id
+            insight_short_id=insight.id,
             dashboard_filters=dashboard_filters,
             filters_override=filters_override,
             variables_override=variables_override,
