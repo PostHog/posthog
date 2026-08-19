@@ -95,17 +95,13 @@ export class ArchiveService {
   private readonly inFlightArchives = new Map<string, Promise<ArchivedTask>>();
 
   /**
-   * Idempotent: archiving an already-archived task returns the existing record
-   * instead of failing. The caller wants the task off the list, and it already
-   * is — reporting that as an error made the renderer roll its archived-state
-   * cache back to "not archived", putting the row back in the sidebar and
-   * leaving no way to archive it again.
+   * Idempotent: an already-archived task returns its existing record, so a
+   * caller that asks twice isn't left with a failure it can't act on.
    *
-   * A request that arrives while one is running joins it rather than starting a
-   * second teardown. The existing-record check alone can't cover that: it runs
-   * before the awaited worktree teardown, and the archive row lands after, so
-   * both requests would pass it, and the loser's rollback would delete the
-   * checkpoint the winner's restore point points at.
+   * Overlapping requests join the running one, because the existing-record
+   * check can't see them: it runs before the awaited teardown and the archive
+   * row lands after, so both requests pass it, and the loser's rollback would
+   * delete the checkpoint the winner's restore point points at.
    */
   archiveTask(input: ArchiveTaskInput): Promise<ArchivedTask> {
     const inFlight = this.inFlightArchives.get(input.taskId);
@@ -194,18 +190,13 @@ export class ArchiveService {
       };
     }
 
-    const suspension = this.suspensionRepo.findByWorkspaceId(workspace.id);
-    const worktree = this.worktreeRepo.findByWorkspaceId(workspace.id);
-
     const existingArchive = this.archiveRepo.findByWorkspaceId(workspace.id);
     if (existingArchive) {
-      return this.toArchivedTask(
-        workspace,
-        existingArchive,
-        worktree?.name ?? null,
-        worktree?.path ?? null,
-      );
+      return this.toArchivedTask(workspace, existingArchive);
     }
+
+    const suspension = this.suspensionRepo.findByWorkspaceId(workspace.id);
+    const worktree = this.worktreeRepo.findByWorkspaceId(workspace.id);
 
     if (suspension) {
       const archivedTask: ArchivedTask = {
@@ -545,13 +536,7 @@ export class ArchiveService {
       const workspace = this.workspaceRepo.findById(
         archive.workspaceId,
       ) as Workspace;
-      const worktree = this.worktreeRepo.findByWorkspaceId(workspace.id);
-      return this.toArchivedTask(
-        workspace,
-        archive,
-        worktree?.name ?? null,
-        worktree?.path ?? null,
-      );
+      return this.toArchivedTask(workspace, archive);
     });
     const rowless = this.rowlessArchived().map((meta) =>
       this.toRowlessArchivedTask(meta),
@@ -703,12 +688,9 @@ export class ArchiveService {
     this.log.info(`Deleted archived task ${taskId}`);
   }
 
-  private toArchivedTask(
-    workspace: Workspace,
-    archive: Archive,
-    worktreeName: string | null,
-    worktreePath: string | null,
-  ): ArchivedTask {
+  private toArchivedTask(workspace: Workspace, archive: Archive): ArchivedTask {
+    const worktree = this.worktreeRepo.findByWorkspaceId(workspace.id);
+    const worktreeName = worktree?.name ?? null;
     const repository =
       !archive.repository && workspace.repositoryId
         ? this.repositoryRepo.findById(workspace.repositoryId)
@@ -729,7 +711,8 @@ export class ArchiveService {
           worktreeName,
         ),
       taskCreatedAt: archive.taskCreatedAt ?? workspace.createdAt,
-      repository: archive.repository ?? repository?.path ?? worktreePath,
+      repository:
+        archive.repository ?? repository?.path ?? worktree?.path ?? null,
       recoveryPending: !archive.title,
     };
   }
@@ -744,7 +727,8 @@ export class ArchiveService {
       worktreeName: null,
       branchName: null,
       checkpointId: null,
-      title: meta.archivedTitle ?? `Unknown task (${meta.taskId.slice(0, 8)})`,
+      title:
+        meta.archivedTitle ?? this.unknownTaskTitle(meta.taskId, null, null),
       taskCreatedAt: meta.archivedTaskCreatedAt ?? meta.createdAt,
       repository: meta.archivedRepository,
       recoveryPending: !meta.archivedTitle,

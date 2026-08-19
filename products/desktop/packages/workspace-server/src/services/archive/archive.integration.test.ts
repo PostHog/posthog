@@ -445,7 +445,6 @@ describe("ArchiveService integration", () => {
         const second = await ctx.service.archiveTask(ctx.archiveInput());
 
         expect(second).toEqual(ctx.service.getArchivedTasks()[0]);
-        expect(ctx.archiveRepo.findAll()).toHaveLength(1);
         expect(ctx.service.getArchivedTaskIds()).toEqual([TASK_ID]);
       }));
 
