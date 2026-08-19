@@ -30,6 +30,7 @@ describe("useReportSpace", () => {
   it("provisions the default report space once and resolves its id", async () => {
     const { rerender, result } = renderHook(() => useReportSpace());
     await waitFor(() => expect(createChannel).toHaveBeenCalledTimes(1));
+    expect(createChannel).toHaveBeenCalledWith("general", { star: true });
 
     rerender();
     expect(createChannel).toHaveBeenCalledTimes(1);
