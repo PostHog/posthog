@@ -34,6 +34,7 @@ from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_vitals_timeseries import WebVitalsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute import (
+    is_vitals_precompute_enabled_for_team,
     vitals_timeseries_percentile,
 )
 
@@ -118,6 +119,16 @@ class TestVitalsTimeseriesGate(APIBaseTest):
     )
     def test_non_canonical_shapes_fall_back(self, _name: str, overrides: dict[str, Any]) -> None:
         assert vitals_timeseries_percentile(_vitals_query(**overrides)) is None
+
+    def test_flag_check_fails_closed_on_evaluation_error(self) -> None:
+        # The gate runs in dispatch and cache-key generation, outside the
+        # calculation fallback handler, so a flag-evaluation error must return
+        # False (use the live path) rather than fail the request.
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute.posthoganalytics.feature_enabled",
+            side_effect=Exception("flag service unavailable"),
+        ):
+            assert is_vitals_precompute_enabled_for_team(self.team) is False
 
 
 @override_settings(IN_UNIT_TESTING=True)

@@ -97,24 +97,30 @@ _READ_SETTINGS = {"max_execution_time": 30}
 
 
 def is_vitals_precompute_enabled_for_team(team: Team) -> bool:
-    """Evaluate the vitals-timeseries rollout flag locally — fails closed on
-    flag-service errors, mirroring the trends precompute ramp."""
-    return bool(
-        posthoganalytics.feature_enabled(
-            VITALS_TIMESERIES_FLAG_KEY,
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
+    """Evaluate the vitals-timeseries rollout flag locally. Must never raise —
+    it runs in dispatch and in cache-key generation, where an exception would
+    fail the request instead of falling back. Fails closed on any error,
+    mirroring the trends precompute ramp."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                VITALS_TIMESERIES_FLAG_KEY,
+                str(team.uuid),
+                groups={
+                    "organization": str(team.organization_id),
+                    "project": str(team.id),
+                },
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
         )
-    )
+    except Exception:
+        logger.exception("web_vitals_precompute_flag_check_failed", team_id=team.pk)
+        return False
 
 
 def vitals_timeseries_percentile(query: WebVitalsQuery) -> Optional[str]:
