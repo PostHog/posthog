@@ -82,6 +82,9 @@ def _client_config(api_key: str) -> ClientConfig:
         # free-form interaction notes that the name-based sample scrubbers can't recognise, so
         # keep every response body out of HTTP sample storage. Requests stay metered and logged.
         "session": make_tracked_session(redact_values=(api_key,), capture=False),
+        # X-Api-Key isn't the standard Authorization header, which `requests` strips on a
+        # cross-origin redirect; disable redirects so a hostile redirect can't harvest it.
+        "allow_redirects": False,
         "paginator": OffsetPaginator(
             limit=PAGE_SIZE,
             offset_param="skip",

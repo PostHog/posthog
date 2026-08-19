@@ -192,6 +192,17 @@ class TestBloomerangSourceTransport:
         assert auth.location == "header"
 
     @mock.patch(BLOOMERANG_SESSION_PATCH)
+    def test_does_not_follow_redirects(self, MockSession) -> None:
+        # X-Api-Key isn't the standard Authorization header, which `requests` strips on a
+        # cross-origin redirect; a hostile redirect must not be followed with the key attached.
+        session = MockSession.return_value
+        _wire(session, [_response([{"Id": 1}], total_filtered=1)])
+
+        _rows(_source("Appeals", _make_manager()))
+
+        assert session.send.call_args.kwargs["allow_redirects"] is False
+
+    @mock.patch(BLOOMERANG_SESSION_PATCH)
     def test_saves_resume_state_only_while_pages_remain(self, MockSession) -> None:
         session = MockSession.return_value
         first_page = [{"Id": i} for i in range(1, 51)]
