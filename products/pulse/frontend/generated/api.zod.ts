@@ -383,6 +383,21 @@ export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const pulseBriefsFeedbackCreateBodyReasonDefault = ``
+export const pulseBriefsFeedbackCreateBodyReasonMax = 1000
+
+export const PulseBriefsFeedbackCreateBody = /* @__PURE__ */ zod.object({
+    helpful: zod
+        .boolean()
+        .nullable()
+        .describe('True marks the item helpful, false marks it not helpful, and null clears your vote.'),
+    reason: zod
+        .string()
+        .max(pulseBriefsFeedbackCreateBodyReasonMax)
+        .default(pulseBriefsFeedbackCreateBodyReasonDefault)
+        .describe('Optional free-text reason for the vote. Ignored (and cleared) when the vote is cleared.'),
+})
+
 export const pulseBriefsGenerateCreateBodyPeriodOneDaysMax = 90
 
 export const PulseBriefsGenerateCreateBody = /* @__PURE__ */ zod.object({
@@ -407,4 +422,19 @@ export const PulseBriefsGenerateCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe('Period the brief should cover. Defaults to the last 7 days.'),
+})
+
+export const pulseOpportunitiesFeedbackCreateBodyReasonDefault = ``
+export const pulseOpportunitiesFeedbackCreateBodyReasonMax = 1000
+
+export const PulseOpportunitiesFeedbackCreateBody = /* @__PURE__ */ zod.object({
+    helpful: zod
+        .boolean()
+        .nullable()
+        .describe('True marks the item helpful, false marks it not helpful, and null clears your vote.'),
+    reason: zod
+        .string()
+        .max(pulseOpportunitiesFeedbackCreateBodyReasonMax)
+        .default(pulseOpportunitiesFeedbackCreateBodyReasonDefault)
+        .describe('Optional free-text reason for the vote. Ignored (and cleared) when the vote is cleared.'),
 })
