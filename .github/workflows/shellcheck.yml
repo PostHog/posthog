@@ -13,10 +13,10 @@ jobs:
         name: shellcheck
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-            # The runner image ships shellcheck, so this is a fallback for when it
-            # doesn't. apt has no retries and a 120s per-fetch timeout by default;
-            # an unresponsive mirror once held this job past its timeout, and the
-            # merge queue reads a cancelled required check as a failure.
+            # The runner image ships shellcheck, so apt is only a fallback. apt has
+            # no retries and a 120s per-fetch timeout by default, and a stalled
+            # mirror can hold this job past its timeout, which the merge queue
+            # reads as a failed required check.
             - name: Install shellcheck
               run: |
                   if command -v shellcheck >/dev/null; then
