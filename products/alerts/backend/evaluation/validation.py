@@ -32,6 +32,7 @@ from posthog.utils import get_from_dict_or_attr
 from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS, FORECAST_EXTRACTORS
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
 from products.alerts.backend.forecasting.engine import (
+    MAX_SCORE_THRESHOLD,
     horizon_for_target_date,
     validate_forecast_horizon_and_width,
     validate_forecast_interval,
@@ -233,8 +234,8 @@ def _validate_band_deviation(parsed: ForecastConfig) -> None:
             raise ValueError("A fixed-amount expected-range alert needs an amount to compare against.")
         if parsed.error_threshold_abs <= 0:
             raise ValueError("The amount must be more than 0.")
-    if parsed.score_threshold is not None and not 0 <= parsed.score_threshold <= 1:
-        raise ValueError("How far past the range must be between 0 and 1.")
+    if parsed.score_threshold is not None and not 0 <= parsed.score_threshold <= MAX_SCORE_THRESHOLD:
+        raise ValueError(f"How far past the range must be between 0 and {MAX_SCORE_THRESHOLD}.")
 
 
 def _validate_target_by_date(

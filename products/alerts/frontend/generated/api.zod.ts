@@ -1191,7 +1191,7 @@ export const AlertsSimulateForecastCreateBody = /* @__PURE__ */ zod.object({
                 .union([zod.number(), zod.null()])
                 .optional()
                 .describe(
-                    'How far outside the band counts, from 0 to 1 (prediction_interval mode only). Higher fires less. Measured in band half-widths rather than against training residuals: those exist only when the engine runs with history, which is the preview path, and a scheduled check does not. The band already carries the residual scale, since Prophet built it from them.'
+                    'How far outside the band counts, in band half-widths, from 0 to 3 (prediction_interval mode only). Higher fires less, and a well-calibrated band stops firing at all above about 2. Half-widths rather than training residuals: those exist only when the engine runs with history, which is the preview path, and a scheduled check does not. The band already carries the residual scale, since Prophet built it from them.'
                 ),
             sensitivity: zod
                 .union([zod.enum(['forecast', 'best_case']), zod.null()])
