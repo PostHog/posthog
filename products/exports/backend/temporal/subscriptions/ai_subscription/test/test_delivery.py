@@ -209,7 +209,6 @@ _CHART = {"title": "signups by day", "image_url": "https://ph.test/img.png"}
 
 class TestBuildChartImageUrls:
     def test_a_chart_gets_a_url_minted_at_the_asset_ttl(self) -> None:
-        # The url should not outlive the bytes it points at, nor die before them.
         with patch(f"{_DELIVERY}.get_delivery_image_url", return_value="https://ph.test/img.png") as mint:
             urls = build_chart_image_urls([{"export_asset_id": 7, "title": "signups by day"}], team_id=1)
 
@@ -218,12 +217,9 @@ class TestBuildChartImageUrls:
 
     @parameterized.expand(
         [
-            # An asset past its TTL renders as no chart at all, never a broken image.
             ("expired_asset", [{"export_asset_id": 7, "title": "t"}], None),
             ("missing_id", [{"title": "no id"}], "https://ph.test/img.png"),
             ("not_a_dict", ["junk"], "https://ph.test/img.png"),
-            # Raw JSONB: a row edited out of band can hold a non-list, which used to iterate
-            # per-character or raise and fail the delivery activity.
             ("not_a_list", "nonsense", "https://ph.test/img.png"),
             ("none", None, "https://ph.test/img.png"),
         ]
@@ -235,7 +231,6 @@ class TestBuildChartImageUrls:
 
 class TestChartsOnSlackMessages:
     def test_charts_follow_the_report_text(self) -> None:
-        # Insight subscriptions put the AI summary above their images; this matches that order.
         message = _build_ai_slack_message(
             _mock_subscription(), "A short report.", delivery_id=_DELIVERY_ID, charts=[_CHART]
         )
@@ -244,11 +239,9 @@ class TestChartsOnSlackMessages:
         assert message.blocks[1]["text"]["text"] == "A short report."
         assert message.blocks[2]["image_url"] == _CHART["image_url"]
         assert message.blocks[2]["alt_text"] == "signups by day"
-        # The block title is what a reader sees above the chart; alt_text only serves screen readers.
         assert message.blocks[2]["title"] == {"type": "plain_text", "text": "signups by day"}
 
     def test_an_untitled_chart_posts_no_title_block(self) -> None:
-        # Slack rejects an empty plain_text title, so an untitled chart must omit the field.
         message = _build_ai_slack_message(
             _mock_subscription(),
             "A short report.",
@@ -265,8 +258,6 @@ class TestChartsOnSlackMessages:
         assert all(block["type"] != "image" for block in message.blocks)
 
     async def test_a_chart_slack_rejects_costs_the_chart_not_the_report(self) -> None:
-        # invalid_blocks is retryable and not a user-config error, so an unreachable image url used
-        # to retry the identical payload, fail the activity, and send the recipient nothing.
         sent: list[list[dict]] = []
 
         async def _deliver(_integration, _subscription, message_data):
@@ -286,7 +277,6 @@ class TestChartsOnSlackMessages:
 
         assert len(sent) == 2
         assert any(block["type"] == "image" for block in sent[0])
-        # The retry drops the images and keeps the report text.
         assert all(block["type"] != "image" for block in sent[1])
         assert any("A short report." in block.get("text", {}).get("text", "") for block in sent[1])
 
@@ -305,8 +295,6 @@ class TestChartsOnSlackMessages:
                 )
 
     async def test_the_slack_sender_never_touches_the_orm(self) -> None:
-        # deliver_slack awaits this sender directly on the event loop, so a sync ORM read inside it
-        # raises SynchronousOnlyOperation in production. The urls must already be built by now.
         with (
             patch(f"{_DELIVERY}.get_delivery_image_url") as mint,
             patch(f"{_DELIVERY}.deliver_slack_message_data", new_callable=AsyncMock),

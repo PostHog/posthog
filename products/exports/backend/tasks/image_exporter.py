@@ -636,9 +636,6 @@ def export_image(
                     exported_asset.team,
                     exported_asset.export_context["source"],
                     execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                    # Same clamp the sharing view will render under. limit_context is part of the
-                    # cache key, so warming under a different one guarantees a miss and validates a
-                    # wider row set than the render actually draws.
                     limit_context=export_limit_context(exported_asset.export_context),
                     # Background render (no request user); attribute the read to the export owner.
                     user=exported_asset.created_by,

@@ -100,9 +100,6 @@ TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
 class FormattedQueryResult:
     formatted: str
     fallback_used: bool
-    # The raw query response, for callers that need the columns and rows rather than the text.
-    # repr=False: this holds customer rows, and a structlog binding or exception capture that
-    # renders locals would otherwise emit them into logs.
     response: dict = field(repr=False)
 
 

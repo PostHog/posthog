@@ -30,7 +30,6 @@ class TestValidateAdhocExportContext(SimpleTestCase):
             ("data_table", {"source": {"kind": "DataTableNode"}}),
             ("non_dict_source", {"source": "SELECT 1"}),
             ("missing_source", {}),
-            # The exporter renders the unwrapped source, so a non-HogQL one is untested territory.
             (
                 "data_visualization_over_trends",
                 {"source": {"kind": "DataVisualizationNode", "source": {"kind": "TrendsQuery"}}},

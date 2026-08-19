@@ -129,18 +129,11 @@ def _validate_step_chart(
     """Validate a step's chart spec, or return nothing when the planner asked for no chart."""
     if spec is None:
         return None, None
-    # The planner's short label when it wrote one, else its rationale sentence cut to the same
-    # length — a caption has to stay label-shaped, and `description` is capped at 500. Both are LLM
-    # output rendered into email and Slack, so both get stripped.
-    # sanitize_user_text, not strip_llm_framing_markers: a caption is a short single-line label that
-    # reaches an email body, a Slack block and the API, and only the former strips tags and newlines.
     title = sanitize_user_text(spec.title or fallback_title, MAX_CHART_TITLE_LENGTH)
     return validate_chart(spec, response, hogql=hogql, title=title, step_index=step_index)
 
 
 def _charts_truncated_footnote(shown: int, total: int) -> str:
-    # Counts the cap, not the renders: a chart lost to a failed render is not something splitting the
-    # prompt would recover, so folding those in would give the reader advice that cannot work.
     return (
         f"\n\n_This report has {total} charts and shows the {shown} most important. "
         "Split this prompt into separate subscriptions to see the rest._"
@@ -172,8 +165,6 @@ class QueryStepDiagnostic:
     error_type: Optional[str]
     # Safe-to-surface failure reason; set only for query-structure errors (see _safe_error_message), else None.
     human_readable_error: Optional[str] = None
-    # Why this step's chart was dropped, when the planner asked for one. None when it charted, or
-    # when the planner asked for no chart.
     chart_dropped_reason: Optional[str] = None
 
 
@@ -181,7 +172,6 @@ class QueryStepDiagnostic:
 class StepOutcome:
     rendered: str
     diagnostic: QueryStepDiagnostic
-    # None when the planner asked for no chart, or the spec failed validation.
     chart: Optional[ValidatedChart] = None
 
 
@@ -190,7 +180,6 @@ class PlanExecution:
     rendered: list[str]
     failed_count: int
     diagnostics: list[QueryStepDiagnostic]
-    # Every validated candidate, uncapped. generate_ai_report ranks and selects from these.
     charts: list[ValidatedChart]
 
 
@@ -202,7 +191,6 @@ class AiReportResult:
     window_end_utc: str
     # Set only when the run planned from scratch; the caller freezes it onto the subscription.
     plan_to_persist: Optional[dict] = None
-    # ExportedAsset ids only — PNG bytes would blow Temporal's ~2 MiB payload cap.
     charts: tuple[RenderedChart, ...] = ()
 
 
@@ -248,17 +236,12 @@ async def generate_ai_report(
             else:
                 spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
                 freshly_planned = True
-            # Resolved before the steps run: with charts off, no spec is validated, so an
-            # unflagged team can never be blocked from freezing by a chart it will never receive.
             charts_on = await database_sync_to_async(charts_enabled, thread_sensitive=False)(team, user)
             execution = await _execute_plan(spec, team, user, window, trace_correlation_id, charts_on=charts_on)
             failed_count, diagnostics, charts = execution.failed_count, execution.diagnostics, execution.charts
             chart_spec_failures = sum(
                 1 for diagnostic in diagnostics if diagnostic.chart_dropped_reason in SPEC_INVALID_DROP_REASONS
             )
-            # Rank before rendering: a render costs a browserless worker and a second query
-            # execution, so charts that lose the ranking must never be built. Python's sort is
-            # stable, so equal importance keeps plan order.
             ranked = sorted(charts, key=lambda chart: chart.spec.importance, reverse=True)
             selected, dropped = ranked[:MAX_CHARTS_PER_REPORT], ranked[MAX_CHARTS_PER_REPORT:]
             if dropped:
@@ -268,10 +251,6 @@ async def generate_ai_report(
                     requested=len(charts),
                     selected=len(selected),
                 )
-            # Synthesis and rendering read disjoint halves of the execution (the formatted text vs
-            # the validated charts), so running them together keeps the render off the critical
-            # path. Serially they added their full budget to an activity whose timeout, once hit,
-            # discards the planner and synthesis spend and retries all of it.
             synthesis_task = asyncio.ensure_future(
                 _synthesize(spec, execution.rendered, team, user, trace_correlation_id)
             )
@@ -279,9 +258,6 @@ async def generate_ai_report(
             try:
                 report = await synthesis_task
             except BaseException:
-                # gather() would leave the render running after the activity failed, holding
-                # browserless workers and writing assets nothing references — then Temporal retries
-                # and starts another set. Tear it down with the report.
                 render_task.cancel()
                 with contextlib.suppress(BaseException):
                     await render_task
@@ -294,8 +270,6 @@ async def generate_ai_report(
             raise
 
         total_steps = len(spec.plan.steps)
-        # A render failure is as diagnosable as a validation failure: both mean the reader got no
-        # picture, and only the diagnostic says which.
         for step_index, reason in chart_failures:
             if 0 <= step_index < len(diagnostics):
                 diagnostics[step_index] = dataclasses.replace(diagnostics[step_index], chart_dropped_reason=reason)
@@ -306,8 +280,6 @@ async def generate_ai_report(
             failed_steps=failed_count,
             query_coverage=(total_steps - failed_count) / total_steps if total_steps else 0.0,
             degraded=bool(failed_count),
-            # Keeps "the planner chose no charts" distinguishable from "every render failed", which
-            # look identical in the delivered report.
             charts_requested=len(charts),
             charts_rendered=len(rendered_charts),
             chart_failures=len(chart_failures),
@@ -320,8 +292,6 @@ async def generate_ai_report(
                 failed_steps=failed_count,
                 total_steps=total_steps,
             )
-        # Only when charts actually shipped: a report with none would otherwise describe pictures the
-        # reader cannot see and tell them to split a prompt that would not bring them back.
         if dropped and rendered_charts:
             report = report + _charts_truncated_footnote(len(rendered_charts), len(charts))
         if total_steps and failed_count == total_steps:
@@ -366,9 +336,7 @@ def _capture_charts_truncated(
                 "subscription_id": trace_correlation_id,
                 "team_id": team.id,
                 "charts_requested": requested,
-                # Selected by the ranking, not rendered — the SLO tag carries the render count.
                 "charts_selected": selected,
-                # system signal keyed by team, not a person
                 "$process_person_profile": False,
             },
         )
@@ -406,10 +374,6 @@ def _plan_to_freeze(
             total_steps=total_steps,
         )
         return None
-    # A chart spec the result couldn't support would replay every run, leaving the subscription
-    # silently chart-degraded forever. Re-plan instead — the same trade the failed-step guard makes.
-    # Render failures are deliberately excluded: those are transient infrastructure, and re-planning
-    # every subscription through a browserless outage would burn a planner call per delivery.
     if chart_failure_count:
         logger.warning(
             "ai_report.plan_had_chart_failures_not_frozen",
@@ -575,9 +539,6 @@ async def _run_steps(
                 # the step so `_plan_to_freeze` freezes what actually ran — a no-op unless the fix LLM
                 # rewrote it. A failed step keeps the planner's original, never a broken rewrite.
                 step.hogql = current_hogql
-                # Guarded separately from the query: an exception on the chart path must not be
-                # reported as a failed query, and must never trigger a HogQL fix retry for SQL
-                # that already ran.
                 try:
                     chart, chart_dropped_reason = _validate_step_chart(
                         step.chart if charts_on else None,

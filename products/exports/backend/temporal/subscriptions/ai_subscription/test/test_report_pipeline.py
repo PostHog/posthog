@@ -48,14 +48,11 @@ _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_gene
 _SLO_CAPTURE = "posthog.slo.events.posthoganalytics.capture"
 
 _WINDOW_END = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
-# The raw query response the executor now hands back alongside the formatted text. Steps without a
-# chart spec never read it, so the shape only has to be a dict.
 _RESPONSE: dict = {"results": [], "columns": []}
 
 
 @pytest.fixture(autouse=True)
 def _charts_flag_on():
-    # These tests exercise chart behavior, not the rollout gate, which has its own test.
     with patch(f"{_RP}.charts_enabled", return_value=True):
         yield
 
@@ -810,15 +807,12 @@ async def test_a_charted_step_yields_a_chart_over_the_executed_sql(mock_executor
     assert len(execution.charts) == 1
     assert execution.charts[0].title == "s0"
     assert execution.charts[0].step_index == 0
-    # The chart must render the SQL that ran, not the planner's window-agnostic template.
     assert "{{date_range}}" not in execution.charts[0].hogql
     assert execution.diagnostics[0].chart_dropped_reason is None
 
 
 @parameterized.expand(
     [
-        # The planner writes a short label; without one the caption falls back to its rationale
-        # sentence, which is the only other text describing that step.
         ("planner_title", "New signups per day", "New signups per day"),
         ("no_title_falls_back_to_description", None, "s0"),
     ]
@@ -850,7 +844,6 @@ async def test_a_failed_step_yields_no_chart(mock_executor_cls: MagicMock) -> No
 
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_a_dropped_chart_records_its_reason_and_keeps_the_step(mock_executor_cls: MagicMock) -> None:
-    # A chart the result can't support must cost the picture, never the numbers.
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
         return_value=FormattedQueryResult(
             formatted="formatted",
@@ -870,7 +863,6 @@ async def test_a_dropped_chart_records_its_reason_and_keeps_the_step(mock_execut
 
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_every_validated_candidate_reaches_the_ranker(mock_executor_cls: MagicMock) -> None:
-    # Selection happens in generate_ai_report, so _run_steps must not truncate first.
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
         return_value=FormattedQueryResult(formatted="formatted", fallback_used=False, response=_CHART_RESPONSE)
     )
@@ -906,7 +898,6 @@ def _charted_run(chart_dropped_reason: str | None = None) -> PlanExecution:
 async def test_a_report_ships_when_every_chart_render_fails(
     mock_bep: MagicMock, mock_run: AsyncMock, mock_render: AsyncMock, mock_chat: MagicMock, _capture: MagicMock
 ) -> None:
-    # Charts are an addition. Losing them must never cost the report.
     mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = _charted_run()
     mock_render.return_value = ([], [(0, "render_failed")])
@@ -916,21 +907,16 @@ async def test_a_report_ships_when_every_chart_render_fails(
 
     assert result.markdown == "# Report"
     assert result.charts == ()
-    # The failure is recorded on the step whose picture went missing, not silently swallowed.
     assert result.diagnostics[0].chart_dropped_reason == "render_failed"
     assert result.diagnostics[0].ok is True
-    # Browserless being down is transient infrastructure, not a bad plan — still freeze.
     assert result.plan_to_persist is not None
 
 
 @parameterized.expand(
     [
-        # Spec-invalid: re-planning can produce a better spec, so don't freeze.
         ("missing_columns", None),
         ("x_and_y_identical", None),
         ("non_numeric_series", None),
-        # Data-shaped: a thin or wide week says nothing about the spec. Freezing anyway is what
-        # keeps the subscription from re-running the planner LLM on every delivery forever.
         ("too_few_rows", "frozen"),
         ("too_many_categories", "frozen"),
         ("no_results", "frozen"),
@@ -971,8 +957,6 @@ async def test_only_a_spec_invalid_chart_drop_blocks_freezing(
 async def test_a_plan_whose_chart_spec_failed_validation_is_not_frozen(
     mock_bep: MagicMock, mock_run: AsyncMock, mock_render: AsyncMock, mock_chat: MagicMock, _capture: MagicMock
 ) -> None:
-    # Freezing it would replay the bad spec every delivery, leaving the subscription permanently
-    # chart-degraded; re-planning gives the planner another attempt at the right column.
     mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = _charted_run(chart_dropped_reason="missing_columns")
     mock_render.return_value = ([], [])
@@ -1001,7 +985,6 @@ async def test_charts_render_only_for_a_flagged_team(
     mock_chat: MagicMock,
     _capture: MagicMock,
 ) -> None:
-    # Charts add a render and a query to every delivery, so an unflagged team must render none.
     mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = _charted_run()
     mock_enabled.return_value = enabled
@@ -1010,9 +993,6 @@ async def test_charts_render_only_for_a_flagged_team(
 
     await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
-    # The gate reaches the step runner, which is where chart specs are validated. An unflagged team
-    # validates none, so a bad spec can never block its plan from freezing — otherwise it would
-    # re-run the planner every delivery for a feature it does not receive.
     assert mock_run.call_args.kwargs["charts_on"] is enabled
 
 
@@ -1035,8 +1015,6 @@ def _candidate(step_index: int, importance: int) -> ValidatedChart:
 async def test_only_the_most_important_charts_are_rendered(
     mock_bep: MagicMock, mock_run: AsyncMock, mock_render: AsyncMock, mock_chat: MagicMock, _capture: MagicMock
 ) -> None:
-    # A render costs a browserless worker and a second query execution, so a chart that loses the
-    # ranking must never be built. Plan order deliberately disagrees with importance here.
     candidates = [_candidate(0, 1), _candidate(1, 5), _candidate(2, 3)]
     mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = PlanExecution(
@@ -1069,7 +1047,6 @@ async def test_a_truncated_report_says_so_and_emits_an_event(
     mock_chat: MagicMock,
     _capture: MagicMock,
 ) -> None:
-    # A dropped chart used to vanish with no trace. The reader gets a footnote, we get an event.
     candidates = [_candidate(0, 5), _candidate(1, 4), _candidate(2, 1)]
     mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = PlanExecution(
@@ -1084,8 +1061,6 @@ async def test_a_truncated_report_says_so_and_emits_an_event(
     with patch(f"{_RP}.MAX_CHARTS_PER_REPORT", 2):
         result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
-    # The footnote counts the cap, not the renders: one chart lost to a failed render is not
-    # something splitting the prompt would recover, so it must not inflate the missing count.
     assert "This report has 3 charts and shows the 1 most important" in result.markdown
     assert "Split this prompt into separate subscriptions" in result.markdown
     assert mock_truncated.call_args.kwargs["requested"] == 3
@@ -1106,8 +1081,6 @@ async def test_a_report_with_no_rendered_charts_says_nothing_about_them(
     mock_chat: MagicMock,
     _capture: MagicMock,
 ) -> None:
-    # Every render failed, so the footnote would describe pictures the reader cannot see and tell
-    # them to split a prompt that would not bring any back.
     mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = PlanExecution(
         rendered=["### s0\n\nok"],

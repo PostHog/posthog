@@ -105,9 +105,6 @@ AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
 # The analysis window's end for this run, as a UTC ISO instant. The next run anchors its window here
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
-# Rendered chart references for this run. ExportedAsset ids, never urls: a delivery image url
-# authenticates anonymously, so it is minted on demand at send time rather than stored where a
-# lower-privileged reader could reach it.
 AI_REPORT_CHARTS_KEY = "ai_report_charts"
 
 

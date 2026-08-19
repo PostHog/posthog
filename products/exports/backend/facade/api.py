@@ -133,8 +133,6 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
     )
 
 
-# Limit contexts an export may pin, by name. An allowlist, not a lookup: export_context is written
-# by server-side callers, and a free-form value here would let one widen its own row limits.
 _EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}
 
 
@@ -203,9 +201,6 @@ def render_png_export(
         raise ValueError("Provide exactly one of export_context or insight_id")
     if export_context is not None:
         _validate_adhoc_export_context(export_context)
-        # The ad-hoc path renders a query the caller supplied rather than a saved insight, so the
-        # object-level check below has nothing to resolve against. Query access is the equivalent
-        # gate, and it is what ee/api/subscription.py already requires to create an AI subscription.
         if not UserAccessControl(user=created_by, team=team).check_access_level_for_resource("query", "viewer"):
             raise ValueError("You need query access to render this export")
     if insight_id is not None:

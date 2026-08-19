@@ -2218,7 +2218,6 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             # must not appear at all (defence-in-depth across content_snapshot and the typed fields).
             assert data[AI_REPORT_SNAPSHOT_KEY] is None
             assert data[AI_REPORT_DIAGNOSTICS_KEY] is None
-            # Charts illustrate the same query-derived numbers, so they are scrubbed with the report.
             assert data[AI_REPORT_CHARTS_KEY] is None
             assert generated_hogql not in str(data)
             assert scrubbed_error_message not in str(data)

@@ -211,11 +211,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     return result
 
 
-# A PNG export lives six months (ExportedAsset.get_expiry_delta), so the delivery url is minted to
-# match: it should not outlive the bytes it points at, and a scheduled report is archival enough that
-# people scroll back to a delivery from two months ago.
 CHART_IMAGE_URL_TTL = timedelta(days=180)
-# Slack truncates an image block title past this, so cut it where we can see the cut.
 SLACK_IMAGE_TITLE_LIMIT = 2000
 
 
@@ -226,8 +222,6 @@ def build_chart_image_urls(charts: Any, *, team_id: int) -> list[dict]:
     out of band can hold anything — including a value that is not a list.
     """
     if not isinstance(charts, list):
-        # Raw JSONB: a row edited out of band can hold anything, and a non-list would iterate
-        # per-character or raise, failing the delivery activity.
         return []
     urls: list[dict] = []
     for chart in charts:
@@ -345,9 +339,7 @@ def _build_ai_slack_message(
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*{title}*"}},
         {"type": "section", "text": {"type": "mrkdwn", "text": first_section}},
     ]
-    # Charts follow the report, matching how insight subscriptions order summary then images.
     for chart in charts or []:
-        # Slack rejects an empty alt_text; the block's own `title` is what readers see.
         caption = chart.get("title") or "Chart"
         image_block: dict = {"type": "image", "image_url": chart["image_url"], "alt_text": caption[:2000]}
         if chart.get("title"):
@@ -416,10 +408,6 @@ async def send_slack_ai_subscription_report(
     try:
         return await deliver_slack_message_data(integration, subscription, build(charts))
     except SlackApiError as exc:
-        # Slack rejects an image block whose url its fetchers cannot reach — an asset past its TTL,
-        # or any install whose SITE_URL is not publicly resolvable. `invalid_blocks` is retryable and
-        # not a user-config error, so it would otherwise retry the identical payload, fail the
-        # activity, and send the recipient nothing. A chart must never cost the report.
         if not charts or exc.response.get("error") != "invalid_blocks":
             raise
         logger.warning(

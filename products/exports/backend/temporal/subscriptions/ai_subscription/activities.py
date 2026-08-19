@@ -119,8 +119,6 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             AI_REPORT_SNAPSHOT_KEY: strip_null_bytes(result.markdown),
             AI_REPORT_DIAGNOSTICS_KEY: strip_null_bytes([dataclasses.asdict(d) for d in result.diagnostics]),
             AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
-            # Titles are planner output, so they go through the same NUL scrub as the markdown —
-            # a NUL here would fail the whole content_snapshot save with a Postgres DataError.
             AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
@@ -344,9 +342,6 @@ async def _deliver_ai_subscription(
             non_retryable=True,
         )
 
-    # Minting a chart url reads ExportedAsset, and the Slack sender below is awaited straight on the
-    # event loop — a sync ORM call inside it raises SynchronousOnlyOperation. Build the list here,
-    # off the loop, and hand both senders a plain list.
     chart_images = await database_sync_to_async(build_chart_image_urls, thread_sensitive=False)(
         (snapshot or {}).get(AI_REPORT_CHARTS_KEY) or [], team_id=subscription.team_id
     )

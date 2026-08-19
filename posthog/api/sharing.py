@@ -1302,9 +1302,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     resource.team,
                     source_query,
                     execution_mode=execution_mode,
-                    # Clamp exactly as the caller that produced this export did. limit_context is
-                    # part of the cache key, so a mismatch guarantees a second full execution and
-                    # can render a wider row set than the caller validated.
                     limit_context=export_limit_context(resource.export_context),
                     # Anonymous render surface; attribute the read to the export owner so
                     # warehouse HogQL access control resolves against their access.

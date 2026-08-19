@@ -115,8 +115,6 @@ export const AdhocQueryExport: Story = {
     parameters: adhocExportParameters,
 }
 
-/** Ad-hoc SQL chart export — what an AI report chart renders as. The chartSettings are load-bearing:
- * without an explicit xAxis every point collapses onto one position. */
 export const AdhocSqlChartExport: Story = {
     args: {
         type: ExportType.Image,

@@ -1267,8 +1267,6 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
 
 class AIReportChartSerializer(serializers.Serializer):
-    # Chart references persisted alongside the report markdown. Query-derived like the report body
-    # they illustrate, so the same scrub applies.
     export_asset_id = serializers.IntegerField(help_text="Id of the rendered PNG export backing this chart.")
     title = serializers.CharField(help_text="Chart caption, taken from the plan step it illustrates.")
     step_index = serializers.IntegerField(help_text="Index of the plan step this chart came from.")

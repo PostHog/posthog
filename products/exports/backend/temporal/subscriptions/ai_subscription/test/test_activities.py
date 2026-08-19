@@ -97,13 +97,10 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     ]
     # The generating prompt is captured so the delivery is reproducible and the viewer can show it.
     assert snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "weekly adoption + reliability report"
-    # Always present, so a reader never has to tell "no charts" apart from "row predates charts".
     assert snapshot[AI_REPORT_CHARTS_KEY] == []
 
 
 async def test_persist_ai_report_writes_chart_references_not_images(team, user) -> None:
-    # Asset ids only: PNG bytes here would blow Temporal's payload cap, and a stored delivery url
-    # would be readable by anyone who can read the delivery.
     delivery = await _create_delivery(team, user)
 
     await _persist_ai_report(
