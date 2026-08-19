@@ -231,6 +231,36 @@ describe('mcpClusteringLogic', () => {
         expect(logic.values.selectedClusterId).toBe(SPREAD_ID)
     })
 
+    // A shared link opened after a recompute (or a hand-edited param) names a cluster the
+    // snapshot no longer carries. Without reconciliation the fallback stays suppressed and
+    // the detail pane lands empty; it should reselect the highest-traffic cluster instead.
+    it('falls back to the top cluster when the url names one the snapshot lacks', async () => {
+        logic.unmount()
+        router.actions.push(urls.mcpAnalyticsIntentClustering(), { cluster: '999' })
+        logic = mcpClusteringLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const top = [...SHAPED_CLUSTERS].sort((a, b) => b.call_count - a.call_count)[0]
+        expect(logic.values.selectedClusterId).toBe(top.id)
+        expect(logic.values.selectedCluster).not.toBeNull()
+    })
+
+    // Polling and recompute swap the whole snapshot, and the backend reassigns cluster ids
+    // per run, so a valid selection can vanish. The pane must not keep pointing at a gone id.
+    it('reselects a top cluster when a reloaded snapshot drops the selected id', async () => {
+        logic.actions.selectCluster(FAILING_ID)
+        expect(logic.values.selectedClusterId).toBe(FAILING_ID)
+
+        const survivors = SHAPED_CLUSTERS.filter((c) => c.id !== FAILING_ID)
+        mockRetrieve.mockResolvedValue({ ...SNAPSHOT, clusters: survivors })
+        logic.actions.loadSnapshot()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(survivors.map((c) => c.id)).toContain(logic.values.selectedClusterId)
+        expect(logic.values.selectedCluster).not.toBeNull()
+    })
+
     it('reports the true cluster count from computed_with when the snapshot is truncated', async () => {
         expect(logic.values.totalClusterCount).toBe(SHAPED_CLUSTERS.length)
 

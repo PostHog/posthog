@@ -588,13 +588,19 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             } else {
                 actions.stopPolling()
             }
-            if (values.selectedClusterId === null && snapshot.clusters.length > 0) {
-                // Auto-select the highest-traffic cluster so the detail pane fills in.
+            // Fill or reconcile the selection: fall back to the highest-traffic cluster
+            // when nothing is selected, and also when the current selection is absent from
+            // this snapshot. A `?cluster=` link or a recompute that reassigned ids would
+            // otherwise leave the detail pane empty with the fallback suppressed.
+            const clusterPresent = snapshot.clusters.some((c) => c.id === values.selectedClusterId)
+            if (!clusterPresent && snapshot.clusters.length > 0) {
                 const top = [...snapshot.clusters].sort((a, b) => b.call_count - a.call_count)[0]
                 actions.selectCluster(top.id)
             }
-            if (values.selectedToolName === null && (snapshot.tools ?? []).length > 0) {
-                const topTool = [...snapshot.tools].sort((a, b) => b.call_count - a.call_count)[0]
+            const tools = snapshot.tools ?? []
+            const toolPresent = tools.some((t) => t.tool === values.selectedToolName)
+            if (!toolPresent && tools.length > 0) {
+                const topTool = [...tools].sort((a, b) => b.call_count - a.call_count)[0]
                 actions.selectTool(topTool.tool)
             }
         },
