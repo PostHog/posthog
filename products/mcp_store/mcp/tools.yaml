@@ -59,8 +59,8 @@ tools:
         list: true
         title: List installed MCP Store servers
         description: >
-            List the third-party MCP servers installed in this PostHog project's MCP Store (the "connections").
-            Each entry returns its `id` (pass it to mcp-connection-tools-list), `display_name`, `url`, status fields
+            List the third-party MCP servers installed in this PostHog project's MCP Store (the "connections"). Each
+            entry returns its `id` (pass it to mcp-connection-tools-list), `display_name`, `url`, status fields
             (`is_enabled`, `needs_reauth`, `pending_oauth`), and `tool_count`. Use it to discover installed servers
             before you load a connection's live tool catalog with mcp-connection-tools-list.
 
