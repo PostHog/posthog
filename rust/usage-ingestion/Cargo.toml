@@ -27,5 +27,9 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 usage-ingestion-proto = { path = "../usage-ingestion-proto" }
 uuid = { workspace = true }
 
+[dev-dependencies]
+reqwest = { workspace = true }
+tokio-stream = { version = "0.1", features = ["net"] }
+
 [lints]
 workspace = true
