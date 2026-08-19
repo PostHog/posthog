@@ -13,6 +13,7 @@ from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
 from .community_publish_services import (
     DISPLAY_NAME_PATTERN,
     MAX_DISPLAY_NAME_LENGTH,
+    MAX_GITHUB_HANDLE_LENGTH,
     MAX_TAG_LENGTH,
     OPTIONAL_GITHUB_HANDLE_PATTERN,
 )
@@ -853,6 +854,9 @@ class LLMSkillPublishToCommunitySerializer(serializers.Serializer):
         OPTIONAL_GITHUB_HANDLE_PATTERN,
         required=False,
         allow_blank=True,
+        # The pattern can't bound the total on its own: each of its repetitions may contribute a
+        # hyphen and a character, so it alone accepts 77 characters — not a username GitHub can hold.
+        max_length=MAX_GITHUB_HANDLE_LENGTH,
         help_text=(
             "The publisher's GitHub username, used for public attribution on the listing and PR. Optional, "
             "and self-reported: it is not verified against the publisher's PostHog account."

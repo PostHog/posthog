@@ -4,13 +4,17 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import yaml
+import requests
 from parameterized import parameterized
 
 from posthog.models.github_integration_base import GitHubIntegrationError
 
 from products.skills.backend.api.community_publish_services import (
     CommunitySkillPublishError,
+    get_community_skills_publisher,
     publish_skill_to_community,
     publisher_branch_key,
     render_community_skill_files,
@@ -72,17 +76,36 @@ class TestRenderSkillMd:
 
     @parameterized.expand(
         [
-            ("blank name", "  ", "d"),
-            ("blank description", "n", ""),
+            ("blank name", "  ", "d", "b"),
+            ("blank description", "n", "", "b"),
+            # install_community_skill refuses a blank body as having no instructions, so publishing
+            # one merges a listing that nobody can ever install.
+            ("blank body", "n", "d", "  \n  "),
             # Longer than CommunitySkill.name: the PR would merge and ingest would then drop the entry.
-            ("name over 64 chars", "x" * 65, "d"),
+            ("name over 64 chars", "x" * 65, "d", "b"),
             # The name becomes the commit message, where a trailer would reattribute the App's commit.
-            ("name spanning two lines", "Make PR\nCo-authored-by: someone <a@b.c>", "d"),
+            ("name spanning two lines", "Make PR\nCo-authored-by: someone <a@b.c>", "d", "b"),
         ]
     )
-    def test_requires_name_and_description(self, _label: str, name: str, description: str) -> None:
+    def test_requires_the_fields_a_listing_cannot_do_without(
+        self, _label: str, name: str, description: str, body: str
+    ) -> None:
         with pytest.raises(CommunitySkillPublishError):
-            render_skill_md(name=name, description=description, body="b")
+            render_skill_md(name=name, description=description, body=body)
+
+    @parameterized.expand(
+        [
+            ("with a space in it", "not a handle"),
+            ("with a double hyphen", "andy--maguire"),
+            # 77 characters: the pattern's repetition can contribute a hyphen and a character each, so
+            # nothing bounds the total unless the length is held beside it, and the listing would
+            # attribute the skill to a handle GitHub cannot hold.
+            ("longer than a GitHub username", "-".join("a" for _ in range(39))),
+        ]
+    )
+    def test_rejects_an_author_handle_that_is_not_a_github_username(self, _label: str, handle: str) -> None:
+        with pytest.raises(CommunitySkillPublishError):
+            render_skill_md(name="n", description="d", body="b", author_handle=handle)
 
     @parameterized.expand(
         [
@@ -184,6 +207,70 @@ class TestPublishableSize:
                     for index in range(file_count)
                 ],
             )
+
+    def test_rejects_a_skill_whose_encoded_payload_blows_the_tree_cap(self) -> None:
+        # 3 MB of newlines clears every raw-byte check, and doubles once escaped into the single JSON
+        # body the tree write inlines it in. Counted raw, this publishes and then fails against
+        # GitHub with a 502 the publisher can do nothing with.
+        with pytest.raises(CommunitySkillPublishError):
+            render_community_skill_files(
+                slug="make-pr",
+                name="n",
+                description="d",
+                body="b",
+                files=[
+                    {
+                        "path": f"references/{index}.md",
+                        "content": "\n" * MAX_SKILL_FILE_BYTES,
+                        "content_type": "text/markdown",
+                    }
+                    for index in range(3)
+                ],
+            )
+
+
+class TestCommunitySkillsPublisher:
+    def _response(self, status_code: int, payload: dict) -> MagicMock:
+        response = MagicMock()
+        response.status_code = status_code
+        response.json.return_value = payload
+        return response
+
+    @override_settings(
+        COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID="4242",
+        COMMUNITY_SKILLS_GITHUB_REPO="community-skills",
+        GITHUB_APP_CLIENT_ID="client",
+        GITHUB_APP_PRIVATE_KEY="key",
+    )
+    @patch("products.skills.backend.api.community_publish_services.GitHubIntegration.client_request")
+    def test_mints_a_token_scoped_to_the_publish_repository(self, mock_request: MagicMock) -> None:
+        mock_request.side_effect = [
+            self._response(200, {"account": {"login": "PostHog", "type": "Organization"}}),
+            self._response(201, {"token": "ghs_x"}),
+        ]
+
+        assert get_community_skills_publisher() is not None
+
+        mint_body = mock_request.call_args.kwargs["json_body"]
+        assert mint_body["repositories"] == ["community-skills"]
+        # A publish writes files and opens a pull request. Anything else the installation holds is
+        # blast radius this transient token has no use for.
+        assert mint_body["permissions"] == {"contents": "write", "pull_requests": "write", "metadata": "read"}
+
+    @override_settings(
+        COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID="4242",
+        COMMUNITY_SKILLS_GITHUB_REPO="community-skills",
+        GITHUB_APP_CLIENT_ID="client",
+        GITHUB_APP_PRIVATE_KEY="key",
+    )
+    @patch("products.skills.backend.api.community_publish_services.GitHubIntegration.client_request")
+    def test_github_being_unreachable_while_minting_raises_a_publish_error(self, mock_request: MagicMock) -> None:
+        # client_request goes to the transport directly, so a timeout arrives raw rather than as the
+        # GitHubIntegrationError api_request would wrap it in. Unhandled, the endpoint answers 500.
+        mock_request.side_effect = requests.ConnectTimeout("boom")
+
+        with pytest.raises(CommunitySkillPublishError):
+            get_community_skills_publisher()
 
 
 TEAM_A = "11111111-1111-1111-1111-111111111111"

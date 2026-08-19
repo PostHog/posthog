@@ -658,6 +658,7 @@ export interface LLMSkillPublishToCommunityApi {
     tags?: string[]
     /**
      * The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account.
+     * @maxLength 39
      * @pattern ^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$
      */
     author_handle?: string

@@ -289,6 +289,8 @@ export const llmSkillsNamePublishCommunityCreateBodyDisplayNameMax = 64
 export const llmSkillsNamePublishCommunityCreateBodyDisplayNameRegExp = new RegExp('^[^\\u0000-\\u001f\\u007f]\*$')
 export const llmSkillsNamePublishCommunityCreateBodyTagsItemMax = 64
 
+export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleMax = 39
+
 export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleRegExp = new RegExp(
     '^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$'
 )
@@ -308,6 +310,7 @@ export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.objec
         .describe("Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage']."),
     author_handle: zod
         .string()
+        .max(llmSkillsNamePublishCommunityCreateBodyAuthorHandleMax)
         .regex(llmSkillsNamePublishCommunityCreateBodyAuthorHandleRegExp)
         .optional()
         .describe(

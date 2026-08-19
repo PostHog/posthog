@@ -8,6 +8,7 @@ powers the Tasks product. This module owns the pure rendering of an `LLMSkill` i
 from __future__ import annotations
 
 import re
+import json
 import hashlib
 from dataclasses import dataclass
 from typing import Any
@@ -15,6 +16,7 @@ from typing import Any
 from django.conf import settings
 
 import yaml
+import requests
 import structlog
 
 from posthog.egress.github.transport import GitHubRateLimitError
@@ -35,13 +37,15 @@ logger = structlog.get_logger(__name__)
 
 MAX_SLUG_LENGTH = 64
 # GitHub caps one create-tree request at 7 MB, and commit_files_to_branch inlines every file's
-# content in that single request, so a skill above the cap can only ever fail with a 502. Held well
-# under it: the content is JSON-escaped on the way out, so the request is larger than the sum of the
-# files.
+# content in that single request, so a skill above the cap can only ever fail with a 502. Measured
+# against the escaped form the request actually carries, and held under the cap for the frontmatter,
+# paths and envelope that ride along with it.
 MAX_PUBLISH_TREE_BYTES = 5_000_000
 # GitHub usernames are alphanumeric with single inner hyphens, up to 39 characters. The handle is
 # self-reported and lands in a public PR body and in the listing, so hold it to the shape of a real
-# username rather than letting free text through.
+# username rather than letting free text through. The pattern alone can't bound the total, since each
+# repetition may contribute a hyphen and a character, so the length is checked beside it.
+MAX_GITHUB_HANDLE_LENGTH = 39
 GITHUB_HANDLE_PATTERN = re.compile(r"^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$")
 # The API field is optional, so the shape it publishes to clients has to accept an empty string too —
 # otherwise generated validators reject the blank the endpoint itself allows.
@@ -65,6 +69,15 @@ class CommunitySkillPublishError(Exception):
 
 class CommunitySkillPublishNotConfiguredError(CommunitySkillPublishError):
     """Raised when the community-skills GitHub App installation isn't configured on this instance."""
+
+
+class CommunitySkillPublishValidationError(CommunitySkillPublishError):
+    """Raised when the skill itself can't be published, before anything is written to GitHub.
+
+    Split from the GitHub failures the base class also carries because the two need opposite advice:
+    this one is fixed by editing the skill, and republishing it unchanged fails the same way, so the
+    endpoint answers it 400 rather than the 502 it answers an unreachable GitHub with.
+    """
 
 
 class _CommunitySkillsPublisher(GitHubIntegration):
@@ -118,11 +131,13 @@ def _validate_slug(slug: str) -> str:
     # that would be dropped on ingest is refused here instead of merging into a catalog that skips
     # it. fullmatch, not match: `$` also matches before a trailing newline.
     if not SKILL_NAME_PATTERN.fullmatch(slug) or "--" in slug or len(slug) > MAX_SLUG_LENGTH:
-        raise CommunitySkillPublishError(
+        raise CommunitySkillPublishValidationError(
             f"'{slug}' is not a valid community skill slug (lowercase letters, numbers, single hyphens)."
         )
     if slug.lower() in RESERVED_SKILL_NAMES:
-        raise CommunitySkillPublishError(f"'{slug}' is a reserved name and can't be published to the community.")
+        raise CommunitySkillPublishValidationError(
+            f"'{slug}' is a reserved name and can't be published to the community."
+        )
     return slug
 
 
@@ -136,11 +151,11 @@ def _validate_allowed_tool(tool: object) -> None:
     appears in the catalog.
     """
     if not isinstance(tool, str):
-        raise CommunitySkillPublishError("Allowed tools must be a list of tool names.")
+        raise CommunitySkillPublishValidationError("Allowed tools must be a list of tool names.")
     try:
         check_allowed_tool_name(tool)
     except ValueError as err:
-        raise CommunitySkillPublishError(f"'{tool}' can't be published as a tool name. {err}") from err
+        raise CommunitySkillPublishValidationError(f"'{tool}' can't be published as a tool name. {err}") from err
 
 
 def render_skill_md(
@@ -161,15 +176,22 @@ def render_skill_md(
     `official`/`verified` on review); optional fields are omitted when empty.
     """
     if not name.strip():
-        raise CommunitySkillPublishError("Skill name is required to publish.")
+        raise CommunitySkillPublishValidationError("Skill name is required to publish.")
     if len(name.strip()) > MAX_DISPLAY_NAME_LENGTH:
-        raise CommunitySkillPublishError(f"Skill name must be {MAX_DISPLAY_NAME_LENGTH} characters or fewer.")
+        raise CommunitySkillPublishValidationError(f"Skill name must be {MAX_DISPLAY_NAME_LENGTH} characters or fewer.")
     if not DISPLAY_NAME_PATTERN.match(name.strip()):
-        raise CommunitySkillPublishError("Skill name must be one line, with no line breaks.")
+        raise CommunitySkillPublishValidationError("Skill name must be one line, with no line breaks.")
     if not description.strip():
-        raise CommunitySkillPublishError("Skill description is required to publish.")
-    if author_handle.strip() and not GITHUB_HANDLE_PATTERN.match(author_handle.strip()):
-        raise CommunitySkillPublishError(f"'{author_handle}' is not a valid GitHub username.")
+        raise CommunitySkillPublishValidationError("Skill description is required to publish.")
+    # The same rule install_community_skill applies on the way back in, where a blank body is refused
+    # as having no instructions. Without it the publish succeeds, the entry merges into the catalog,
+    # and the listing is one nobody can install.
+    if not body.strip():
+        raise CommunitySkillPublishValidationError("Skill instructions are required to publish.")
+    if author_handle.strip() and (
+        len(author_handle.strip()) > MAX_GITHUB_HANDLE_LENGTH or not GITHUB_HANDLE_PATTERN.match(author_handle.strip())
+    ):
+        raise CommunitySkillPublishValidationError(f"'{author_handle}' is not a valid GitHub username.")
     for tool in allowed_tools or []:
         _validate_allowed_tool(tool)
 
@@ -250,7 +272,7 @@ def render_community_skill_files(
         # entry, so the pull request merges and the skill never appears in the catalog. Seeding the
         # set with SKILL.md is also what stops a bundled file from overwriting the rendered one.
         if path.lower() in seen_paths:
-            raise CommunitySkillPublishError(f"Duplicate bundled file path '{file['path']}'.")
+            raise CommunitySkillPublishValidationError(f"Duplicate bundled file path '{file['path']}'.")
         seen_paths.add(path.lower())
         rendered.append(RenderedFile(path=path, content=file["content"]))
 
@@ -262,29 +284,45 @@ def _publishable_file_path(raw_path: str) -> str:
     try:
         return normalize_skill_file_path(raw_path)
     except ValueError as err:
-        raise CommunitySkillPublishError(f"'{raw_path}' can't be published as a file path. {err}") from err
+        raise CommunitySkillPublishValidationError(f"'{raw_path}' can't be published as a file path. {err}") from err
+
+
+def _encoded_payload_bytes(content: str) -> int:
+    """Size this content adds to the one create-tree request GitHub caps at 7 MB.
+
+    What counts against that cap is the escaped form, because commit_files_to_branch inlines every
+    file's content in a single JSON body: a newline costs two bytes there and one here, and a control
+    character costs six. Counting raw bytes instead lets a body of newlines clear a 5 MB check and
+    still blow the limit, which fails the publish with a 502 nobody can act on. `json.dumps` defaults
+    match what `requests` serializes the body with, escaping included.
+    """
+    return len(json.dumps(content).encode("utf-8"))
 
 
 def _validate_publishable_size(*, body: str, files: list[dict[str, str]]) -> None:
     """Hold a publish to the limits the catalog and GitHub will hold it to anyway.
 
     The per-skill limits are ingest's (`community_skill_sync._validate_entry_within_caps`), where
-    breaching one drops the whole entry: the pull request merges and the skill never appears. The
-    aggregate is GitHub's, where breaching it fails the tree write with a 502 nobody can act on.
+    breaching one drops the whole entry: the pull request merges and the skill never appears. They
+    are the stored bytes, which is what ingest measures. The aggregate is GitHub's request cap, where
+    breaching it fails the tree write with a 502 nobody can act on, so it measures the encoded form.
     """
     if len(body.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
-        raise CommunitySkillPublishError(f"The skill body must be under {MAX_SKILL_BODY_BYTES // 1_000_000} MB.")
+        raise CommunitySkillPublishValidationError(
+            f"The skill body must be under {MAX_SKILL_BODY_BYTES // 1_000_000} MB."
+        )
     if len(files) > MAX_SKILL_FILE_COUNT:
-        raise CommunitySkillPublishError(f"A skill can publish at most {MAX_SKILL_FILE_COUNT} files.")
+        raise CommunitySkillPublishValidationError(f"A skill can publish at most {MAX_SKILL_FILE_COUNT} files.")
 
-    total = len(body.encode("utf-8"))
+    total = _encoded_payload_bytes(body)
     for file in files:
-        size = len(file["content"].encode("utf-8"))
-        if size > MAX_SKILL_FILE_BYTES:
-            raise CommunitySkillPublishError(f"'{file['path']}' must be under {MAX_SKILL_FILE_BYTES // 1_000_000} MB.")
-        total += size
+        if len(file["content"].encode("utf-8")) > MAX_SKILL_FILE_BYTES:
+            raise CommunitySkillPublishValidationError(
+                f"'{file['path']}' must be under {MAX_SKILL_FILE_BYTES // 1_000_000} MB."
+            )
+        total += _encoded_payload_bytes(file["content"])
     if total > MAX_PUBLISH_TREE_BYTES:
-        raise CommunitySkillPublishError(
+        raise CommunitySkillPublishValidationError(
             f"This skill is too large to publish. Trim it to under "
             f"{MAX_PUBLISH_TREE_BYTES // 1_000_000} MB of body and files, then publish again."
         )
@@ -299,7 +337,7 @@ def _reject_blob_directory_collisions(paths: set[str]) -> None:
     directories = {parent for path in paths for parent in _parent_directories(path)}
     collisions = sorted(directories & paths)
     if collisions:
-        raise CommunitySkillPublishError(
+        raise CommunitySkillPublishValidationError(
             f"'{collisions[0].split('/', 2)[-1]}' is used as both a file and a folder. Rename one of them."
         )
 
@@ -309,20 +347,54 @@ def _parent_directories(path: str) -> list[str]:
     return ["/".join(parts[:index]) for index in range(1, len(parts))]
 
 
+# The publish only writes files and opens a pull request, in one repository. An unscoped mint would
+# hand this transient token every repository and every optional permission the installation holds, so
+# it is requested down to what a publish uses. A permission the installation lacks fails the mint,
+# which is the same 502 an unusable installation would produce on the first write anyway.
+PUBLISHER_TOKEN_PERMISSIONS = {"contents": "write", "pull_requests": "write", "metadata": "read"}
+
+
+def _publisher_token_request_body() -> dict[str, Any]:
+    # The `repositories` field takes bare names; the setting is normally one already, but accept an
+    # `owner/repo` spelling rather than scoping the token to a repository that doesn't exist.
+    repo = (settings.COMMUNITY_SKILLS_GITHUB_REPO or "").split("/")[-1]
+    body: dict[str, Any] = {"permissions": dict(PUBLISHER_TOKEN_PERMISSIONS)}
+    if repo:
+        body["repositories"] = [repo]
+    return body
+
+
 def get_community_skills_publisher() -> GitHubIntegration | None:
     """Build a GitHubIntegration bound to the central community-skills installation, or None.
 
     Mints a fresh installation token via the GitHub App JWT (the same flow the per-team integration
-    uses) and wraps it in a transient, unsaved Integration — we never persist a teamless central row.
-    Returns None when the App or the community-skills installation isn't configured, so callers can
-    surface a clean "not configured" error instead of failing.
+    uses), downscoped to the publish repository and the permissions a publish needs, and wraps it in a
+    transient, unsaved Integration — we never persist a teamless central row. Returns None when the
+    App or the community-skills installation isn't configured, so callers can surface a clean "not
+    configured" error instead of failing.
+
+    Raises CommunitySkillPublishError when GitHub can't be reached to mint the token: an outage here
+    is the same failure as an outage on the write that follows, and must not read as "not configured".
     """
     installation_id = settings.COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID
     if not installation_id or not settings.GITHUB_APP_CLIENT_ID or not settings.GITHUB_APP_PRIVATE_KEY:
         return None
 
-    info_response = GitHubIntegration.client_request(f"installations/{installation_id}")
-    token_response = GitHubIntegration.client_request(f"installations/{installation_id}/access_tokens", method="POST")
+    try:
+        info_response = GitHubIntegration.client_request(f"installations/{installation_id}")
+        token_response = GitHubIntegration.client_request(
+            f"installations/{installation_id}/access_tokens",
+            method="POST",
+            json_body=_publisher_token_request_body(),
+        )
+    except (requests.RequestException, GitHubIntegrationError, GitHubRateLimitError) as err:
+        # client_request talks to the transport directly, so unlike api_request it hands a timeout
+        # back raw. Without this the publish path answers a GitHub outage with an unhandled 500.
+        logger.warning("community_skills_publisher_unreachable", exc_info=True)
+        raise CommunitySkillPublishError(
+            "Could not reach GitHub to publish this skill. Try again in a few minutes."
+        ) from err
+
     if info_response.status_code != 200 or token_response.status_code != 201:
         logger.warning(
             "community_skills_publisher_unavailable",

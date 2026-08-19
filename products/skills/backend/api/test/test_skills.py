@@ -14,7 +14,11 @@ from posthog.models.organization import OrganizationMembership
 
 from ee.models.rbac.access_control import AccessControl
 
-from ...api.community_publish_services import CommunitySkillPublishError, CommunitySkillPublishNotConfiguredError
+from ...api.community_publish_services import (
+    CommunitySkillPublishError,
+    CommunitySkillPublishNotConfiguredError,
+    CommunitySkillPublishValidationError,
+)
 from ...api.skill_serializers import DEFAULT_BODY_PAGE_LENGTH
 from ...api.skill_services import (
     MAX_SKILL_FILE_COUNT,
@@ -1362,6 +1366,19 @@ class TestLLMSkillAPI(APIBaseTest):
         response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_invalid_skill_returns_400(self, mock_publish, _mock_flag):
+        # Nothing reached GitHub and republishing the same skill fails the same way, so a 502 would
+        # tell the publisher to retry an upstream request that was never the problem.
+        mock_publish.side_effect = CommunitySkillPublishValidationError("that slug is reserved")
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "that slug is reserved"
 
     @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")

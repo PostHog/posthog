@@ -46,6 +46,7 @@ from ..models.skills import LLMSkill, LLMSkillFile
 from .community_publish_services import (
     CommunitySkillPublishError,
     CommunitySkillPublishNotConfiguredError,
+    CommunitySkillPublishValidationError,
     publish_skill_to_community,
     publishable_tags,
 )
@@ -1009,6 +1010,10 @@ class LLMSkillViewSet(
                 {"detail": "Publishing to the community is not available on this instance."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+        except CommunitySkillPublishValidationError as err:
+            # Nothing reached GitHub, and republishing the same skill fails the same way — the
+            # publisher has to edit it. That is a 400, not the 502 an unreachable GitHub gets.
+            return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
         except CommunitySkillPublishError as err:
             # The client sees the reason once; without this the server keeps no record of a publish
             # that failed against GitHub.
