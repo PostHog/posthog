@@ -84,6 +84,18 @@ describe("FeedQueryInput", () => {
     expect(screen.getByRole("status").textContent).toMatch(/^-status:/);
   });
 
+  it("keeps a not: value negation through a completion", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const input = screen.getByRole("textbox");
+
+    await user.type(input, "status:not:f");
+    await user.keyboard("{Enter}");
+
+    // Completing the value must not drop `not:` and flip the filter to positive.
+    expect(screen.getByRole("status")).toHaveTextContent("status:not:failed");
+  });
+
   it("quotes a suggested value that carries spaces", async () => {
     const user = userEvent.setup();
     render(<Harness initial="space:" />);

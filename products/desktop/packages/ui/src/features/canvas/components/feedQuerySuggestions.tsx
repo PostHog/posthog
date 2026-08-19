@@ -42,6 +42,9 @@ export interface FeedQueryEditContext {
   chunk: { start: number; end: number; text: string };
   activeKey: string | null;
   typed: string;
+  // The value carries a `not:` prefix, stripped from `typed` so completion can
+  // match, so the replacement has to restore it or the filter flips.
+  valueNegated: boolean;
 }
 
 function keyIcon(icon: ReactNode): ReactNode {
@@ -294,9 +297,10 @@ export function applyFeedQuerySuggestion(
 ): { next: string; caret: number; completedKey: boolean } {
   const negation = context.chunk.text.startsWith("-") ? "-" : "";
   const isKey = context.activeKey === null;
+  const valuePrefix = context.valueNegated ? "not:" : "";
   const replacement = isKey
     ? `${negation}${suggestion.insert}`
-    : `${negation}${context.activeKey}:${quoteIfNeeded(suggestion.insert)} `;
+    : `${negation}${context.activeKey}:${valuePrefix}${quoteIfNeeded(suggestion.insert)} `;
   const next =
     value.slice(0, context.chunk.start) +
     replacement +
@@ -326,8 +330,9 @@ export function useFeedQuerySuggestions(
   const bare = chunk.text.replace(/^-/, "");
   const colon = bare.indexOf(":");
   const activeKey = colon === -1 ? null : bare.slice(0, colon).toLowerCase();
-  const activeValue =
-    colon === -1 ? "" : bare.slice(colon + 1).replace(/^not:/i, "");
+  const rawValue = colon === -1 ? "" : bare.slice(colon + 1);
+  const valueNegated = /^not:/i.test(rawValue);
+  const activeValue = rawValue.replace(/^not:/i, "");
   const typed = activeKey === null ? bare : activeValue;
 
   const group = useMemo<FeedQuerySuggestionGroup>(() => {
@@ -509,5 +514,5 @@ export function useFeedQuerySuggestions(
     includeType,
   ]);
 
-  return { group, context: { chunk, activeKey, typed } };
+  return { group, context: { chunk, activeKey, typed, valueNegated } };
 }
