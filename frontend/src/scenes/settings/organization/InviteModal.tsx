@@ -302,8 +302,8 @@ export function InviteTeamMatesComponent({
     hideProjectAccessSelector?: boolean
 }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, inviteContainsOwnerLevel } = useValues(inviteLogic)
-    const { appendInviteRow, updateMessage, setIsInviteConfirmed } = useActions(inviteLogic)
+    const { invitesToSend, inviteContainsOwnerLevel, message, inviteConfirmationText } = useValues(inviteLogic)
+    const { appendInviteRow, updateMessage, setInviteConfirmationText } = useActions(inviteLogic)
 
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invitesToSend.length > 1
@@ -363,6 +363,7 @@ export function InviteTeamMatesComponent({
                     <LemonTextArea
                         data-attr="invite-optional-message"
                         placeholder="Tell your teammates why you're inviting them to PostHog"
+                        value={message}
                         onChange={(e) => updateMessage(e)}
                     />
                 </div>
@@ -379,8 +380,9 @@ export function InviteTeamMatesComponent({
                     <LemonInput
                         type="text"
                         placeholder="send invites"
+                        value={inviteConfirmationText}
                         onChange={(value) => {
-                            setIsInviteConfirmed(value.toLowerCase() === 'send invites')
+                            setInviteConfirmationText(value)
                         }}
                     />
                 </div>

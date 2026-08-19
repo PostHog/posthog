@@ -36,7 +36,7 @@ const EMPTY_INVITE: InviteRowState = {
 interface PersistedInviteDraft {
     invitesToSend: InviteRowState[]
     message: string
-    isInviteConfirmed: boolean
+    inviteConfirmationText: string
 }
 
 // Re-authentication can send the user through a full-page OAuth/SAML redirect that resets every kea
@@ -65,6 +65,7 @@ export interface inviteLogicValues {
     preflight: PreflightStatus | null // preflightLogic
     availableProjects: any[]
     canSubmit: boolean
+    inviteConfirmationText: string
     inviteContainsOwnerLevel: boolean
     invitedTeamMembersInternal: OrganizationInviteType[]
     invitedTeamMembersInternalLoading: boolean
@@ -175,8 +176,8 @@ export interface inviteLogicActions {
         inviteIndex: number
         projectId: number
     }
-    setIsInviteConfirmed: (inviteConfirmed: boolean) => {
-        inviteConfirmed: boolean
+    setInviteConfirmationText: (inviteConfirmationText: string) => {
+        inviteConfirmationText: string
     }
     showInviteModal: () => {
         value: true
@@ -197,6 +198,7 @@ export interface inviteLogicActions {
 export interface inviteLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         inviteContainsOwnerLevel: (invitesToSend: InviteRowState[]) => boolean
+        isInviteConfirmed: (inviteConfirmationText: string) => boolean
         canSubmit: (
             invitesToSend: InviteRowState[],
             inviteContainsOwnerLevel: boolean,
@@ -221,7 +223,7 @@ export const inviteLogic = kea<inviteLogicType>([
         deleteInviteAtIndex: (index: number) => ({ index }),
         updateMessage: (message: string) => ({ message }),
         appendInviteRow: true,
-        setIsInviteConfirmed: (inviteConfirmed: boolean) => ({ inviteConfirmed }),
+        setInviteConfirmationText: (inviteConfirmationText: string) => ({ inviteConfirmationText }),
         addProjectAccess: (inviteIndex: number, projectId: number, level: AccessControlLevel) => ({
             inviteIndex,
             projectId,
@@ -364,11 +366,11 @@ export const inviteLogic = kea<inviteLogicType>([
                     inviteTeamMembersSuccess: () => '',
                 },
             ],
-            isInviteConfirmed: [
-                draft?.isInviteConfirmed ?? false,
+            inviteConfirmationText: [
+                draft?.inviteConfirmationText ?? '',
                 {
-                    setIsInviteConfirmed: (_, { inviteConfirmed }) => inviteConfirmed,
-                    inviteTeamMembersSuccess: () => false,
+                    setInviteConfirmationText: (_, { inviteConfirmationText }) => inviteConfirmationText,
+                    inviteTeamMembersSuccess: () => '',
                 },
             ],
         }
@@ -379,6 +381,10 @@ export const inviteLogic = kea<inviteLogicType>([
             (invites: InviteRowState[]) => {
                 return invites.filter(({ level }) => level === OrganizationMembershipLevel.Owner).length > 0
             },
+        ],
+        isInviteConfirmed: [
+            (selectors) => [selectors.inviteConfirmationText],
+            (inviteConfirmationText: string) => inviteConfirmationText.toLowerCase() === 'send invites',
         ],
         canSubmit: [
             (selectors) => [selectors.invitesToSend, selectors.inviteContainsOwnerLevel, selectors.isInviteConfirmed],
@@ -428,12 +434,12 @@ export const inviteLogic = kea<inviteLogicType>([
             writeInviteDraft({
                 invitesToSend: values.invitesToSend,
                 message: values.message,
-                isInviteConfirmed: values.isInviteConfirmed,
+                inviteConfirmationText: values.inviteConfirmationText,
             })
         return {
             invitesToSend: persist,
             message: persist,
-            isInviteConfirmed: persist,
+            inviteConfirmationText: persist,
         }
     }),
     bindModalToUrl({

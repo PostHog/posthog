@@ -32,7 +32,7 @@ describe('inviteLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.updateInviteAtIndex({ target_email: 'sam@example.com', first_name: 'Sam' }, 0)
             logic.actions.updateMessage('join us')
-            logic.actions.setIsInviteConfirmed(true)
+            logic.actions.setInviteConfirmationText('send invites')
         }).toFinishAllListeners()
 
         logic.unmount()
@@ -42,6 +42,7 @@ describe('inviteLogic', () => {
         await expectLogic(logic).toMatchValues({
             invitesToSend: [expect.objectContaining({ target_email: 'sam@example.com', first_name: 'Sam' })],
             message: 'join us',
+            inviteConfirmationText: 'send invites',
             isInviteConfirmed: true,
         })
     })
@@ -50,11 +51,12 @@ describe('inviteLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.updateInviteAtIndex({ target_email: 'sam@example.com' }, 0)
             logic.actions.updateMessage('join us')
-            logic.actions.setIsInviteConfirmed(true)
+            logic.actions.setInviteConfirmationText('send invites')
             logic.actions.inviteTeamMembersSuccess([])
         }).toMatchValues({
             invitesToSend: [expect.objectContaining({ target_email: '' })],
             message: '',
+            inviteConfirmationText: '',
             isInviteConfirmed: false,
         })
     })
