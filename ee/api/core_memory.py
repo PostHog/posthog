@@ -1,5 +1,6 @@
 from django.db import IntegrityError
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers
 from rest_framework.viewsets import GenericViewSet
 
@@ -26,6 +27,7 @@ class MaxCoreMemorySerializer(serializers.ModelSerializer):
             raise Conflict("Core memory already exists for this environment.")
 
 
+@extend_schema(tags=["posthog_ai"])
 class MaxCoreMemoryViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,

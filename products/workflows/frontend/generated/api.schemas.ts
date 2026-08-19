@@ -929,6 +929,54 @@ export interface HogFlowInvocationApi {
     use_draft?: boolean
 }
 
+export type HogFlowInvocationResultApiLogsItem = { [key: string]: unknown }
+
+/**
+ * Workflow variables after execution.
+ */
+export type HogFlowInvocationResultApiVariables = { [key: string]: { [key: string]: unknown } }
+
+/**
+ * Raw result returned by the executed action.
+ */
+export type HogFlowInvocationResultApiExecResult = { [key: string]: unknown }
+
+/**
+ * * `success` - success
+ * * `error` - error
+ * * `skipped` - skipped
+ */
+export type HogFlowInvocationResultStatusEnumApi =
+    (typeof HogFlowInvocationResultStatusEnumApi)[keyof typeof HogFlowInvocationResultStatusEnumApi]
+
+export const HogFlowInvocationResultStatusEnumApi = {
+    Success: 'success',
+    Error: 'error',
+    Skipped: 'skipped',
+} as const
+
+export interface HogFlowInvocationResultApi {
+    /** Outcome of the test invocation.
+     *
+     * * `success` - success
+     * * `error` - error
+     * * `skipped` - skipped */
+    status: HogFlowInvocationResultStatusEnumApi
+    /** Execution log entries emitted by the test invocation. */
+    logs?: HogFlowInvocationResultApiLogsItem[]
+    /**
+     * Next workflow action to execute, or null when execution is complete.
+     * @nullable
+     */
+    nextActionId?: string | null
+    /** Errors produced during execution. */
+    errors?: string[]
+    /** Workflow variables after execution. */
+    variables?: HogFlowInvocationResultApiVariables
+    /** Raw result returned by the executed action. */
+    execResult?: HogFlowInvocationResultApiExecResult
+}
+
 /**
  * Cancel in-flight invocations of a workflow. Provide exactly one selector.
  */
@@ -1191,6 +1239,16 @@ export interface PatchedHogFlowScheduleApi {
     readonly next_run_at?: string | null
     readonly created_at?: string
     readonly updated_at?: string
+}
+
+export interface HogFlowBulkDeleteRequestApi {
+    /** Archived workflow IDs to delete. */
+    ids: string[]
+}
+
+export interface HogFlowBulkDeleteResponseApi {
+    /** Number of workflows deleted. */
+    deleted: number
 }
 
 /**

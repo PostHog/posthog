@@ -14245,6 +14245,28 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
+    /**
+     * * `posthog` - posthog
+     * * `self_managed` - self_managed
+     */
+    export type CdcManagementModeEnum = typeof CdcManagementModeEnum[keyof typeof CdcManagementModeEnum];
+
+
+    export const CdcManagementModeEnum = {
+      Posthog: 'posthog',
+      SelfManaged: 'self_managed',
+    } as const;
+
+    export interface CDCPrerequisitesRequest {
+      source_type: string;
+      cdc_management_mode: CdcManagementModeEnum;
+      tables?: string[];
+      /** @nullable */
+      cdc_slot_name?: string | null;
+      /** @nullable */
+      cdc_publication_name?: string | null;
+    }
+
     export interface CICardSummary {
       /** Count of open pull requests. */
       open_prs: number;
@@ -20777,6 +20799,40 @@ export namespace Schemas {
          * @nullable
          */
       connection_id?: string | null;
+    }
+
+    export interface DataWarehouseManagedView {
+      id: string;
+      name: string;
+      created_at: string;
+      /** @nullable */
+      created_by_id: number | null;
+    }
+
+    export interface DataWarehouseManagedViewSet {
+      enabled: boolean;
+    }
+
+    export interface DataWarehouseManagedViewSetResponse {
+      views: DataWarehouseManagedView[];
+      count: number;
+    }
+
+    /**
+     * * `revenue_analytics` - Revenue Analytics
+     * * `engineering_analytics` - Engineering Analytics
+     */
+    export type DataWarehouseManagedViewSetUpdateResponseKindEnum = typeof DataWarehouseManagedViewSetUpdateResponseKindEnum[keyof typeof DataWarehouseManagedViewSetUpdateResponseKindEnum];
+
+
+    export const DataWarehouseManagedViewSetUpdateResponseKindEnum = {
+      RevenueAnalytics: 'revenue_analytics',
+      EngineeringAnalytics: 'engineering_analytics',
+    } as const;
+
+    export interface DataWarehouseManagedViewSetUpdateResponse {
+      enabled: boolean;
+      kind: DataWarehouseManagedViewSetUpdateResponseKindEnum;
     }
 
     export interface DataWarehouseModelPath {
@@ -29604,14 +29660,78 @@ export namespace Schemas {
       sessions?: number;
     }
 
+    export interface ErrorTrackingIssueActionResponse {
+      /** Whether the action completed successfully. */
+      success: boolean;
+    }
+
     export interface ErrorTrackingIssueAssigneeRead {
       readonly id: number | string | null;
       type: string;
     }
 
+    export interface ErrorTrackingIssueAssigneeWrite {
+      /** Assignee type. Use user for a numeric user ID or role for a role UUID.
+       *
+       * * `user` - user
+       * * `role` - role */
+      type: AssigneeTypeEnum;
+      /** Numeric user ID or role UUID. */
+      id: number | string | null;
+    }
+
+    /**
+     * * `set_status` - set_status
+     * * `assign` - assign
+     */
+    export type ErrorTrackingIssueBulkRequestActionEnum = typeof ErrorTrackingIssueBulkRequestActionEnum[keyof typeof ErrorTrackingIssueBulkRequestActionEnum];
+
+
+    export const ErrorTrackingIssueBulkRequestActionEnum = {
+      SetStatus: 'set_status',
+      Assign: 'assign',
+    } as const;
+
+    /**
+     * * `active` - active
+     * * `resolved` - resolved
+     * * `suppressed` - suppressed
+     */
+    export type ErrorTrackingIssueWritableStatusEnum = typeof ErrorTrackingIssueWritableStatusEnum[keyof typeof ErrorTrackingIssueWritableStatusEnum];
+
+
+    export const ErrorTrackingIssueWritableStatusEnum = {
+      Active: 'active',
+      Resolved: 'resolved',
+      Suppressed: 'suppressed',
+    } as const;
+
+    export interface ErrorTrackingIssueBulkRequest {
+      /** Bulk mutation to perform.
+       *
+       * * `set_status` - set_status
+       * * `assign` - assign */
+      action: ErrorTrackingIssueBulkRequestActionEnum;
+      /** Issue UUIDs to update. */
+      ids: string[];
+      /** Status to set when action is set_status.
+       *
+       * * `active` - active
+       * * `resolved` - resolved
+       * * `suppressed` - suppressed */
+      status?: ErrorTrackingIssueWritableStatusEnum;
+      /** Assignee to set when action is assign, or null to unassign. */
+      assignee?: ErrorTrackingIssueAssigneeWrite | null;
+    }
+
     export interface ErrorTrackingIssueCohortRead {
       id: number;
       name: string;
+    }
+
+    export interface ErrorTrackingIssueCohortRequest {
+      /** ID of the cohort to assign to the issue. */
+      cohortId: number;
     }
 
     export interface ErrorTrackingTopFrame {
@@ -29997,27 +30117,13 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
-    /**
-     * * `active` - active
-     * * `resolved` - resolved
-     * * `suppressed` - suppressed
-     */
-    export type ErrorTrackingIssueWriteStatusEnum = typeof ErrorTrackingIssueWriteStatusEnum[keyof typeof ErrorTrackingIssueWriteStatusEnum];
-
-
-    export const ErrorTrackingIssueWriteStatusEnum = {
-      Active: 'active',
-      Resolved: 'resolved',
-      Suppressed: 'suppressed',
-    } as const;
-
     export interface ErrorTrackingIssueWrite {
       /** Issue status to set. Deprecated archived and pending_release values are rejected.
        *
        * * `active` - active
        * * `resolved` - resolved
        * * `suppressed` - suppressed */
-      status?: ErrorTrackingIssueWriteStatusEnum;
+      status?: ErrorTrackingIssueWritableStatusEnum;
       /** Issue severity to set, or null to remove the assigned severity. */
       severity?: ErrorTrackingIssueSeverity | null;
       /**
@@ -31259,6 +31365,13 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface EvaluationRunEvaluation {
+      /** UUID of the evaluation being run. */
+      id: string;
+      /** Display name of the evaluation being run. */
+      name: string;
+    }
+
     export interface EvaluationRunRequest {
       /** UUID of the evaluation to run. */
       evaluation_id: string;
@@ -31273,6 +31386,17 @@ export namespace Schemas {
          * @nullable
          */
       distinct_id?: string | null;
+    }
+
+    export interface EvaluationRunResponse {
+      /** Temporal workflow ID for the evaluation run. */
+      workflow_id: string;
+      /** Initial workflow status. */
+      status: string;
+      /** Evaluation selected for this run. */
+      evaluation: EvaluationRunEvaluation;
+      /** UUID of the event being evaluated. */
+      target_event_id: string;
     }
 
     export interface EventDefinitionBasic {
@@ -31628,6 +31752,14 @@ export namespace Schemas {
       total: number;
       /** Per-status breakdown of inbox reports. */
       by_status: InboxReportStatusBucket[];
+    }
+
+    export interface ExistingSourceCDCPrerequisitesRequest {
+      cdc_management_mode: CdcManagementModeEnum;
+      /** @nullable */
+      cdc_slot_name?: string | null;
+      /** @nullable */
+      cdc_publication_name?: string | null;
     }
 
     /**
@@ -33489,6 +33621,35 @@ export namespace Schemas {
       force_refresh?: boolean;
     }
 
+    export interface ProbableCause {
+      hypothesis: string;
+      confidence: string;
+      reasoning: string;
+    }
+
+    export interface ImmediateAction {
+      action: string;
+      priority: string;
+      why: string;
+    }
+
+    export interface KeyField {
+      field: string;
+      value: string;
+      significance: string;
+      attribute_type: string;
+    }
+
+    export interface ExplainResponse {
+      headline: string;
+      severity_assessment: string;
+      impact_summary: string;
+      probable_causes: ProbableCause[];
+      immediate_actions: ImmediateAction[];
+      technical_explanation: string;
+      key_fields: KeyField[];
+    }
+
     /**
      * * `image/png` - image/png
      * * `application/pdf` - application/pdf
@@ -33662,6 +33823,71 @@ export namespace Schemas {
     }
 
     /**
+     * * `full_refresh` - full_refresh
+     * * `incremental` - incremental
+     * * `append` - append
+     * * `webhook` - webhook
+     * * `cdc` - cdc
+     * * `xmin` - xmin
+     */
+    export type SyncTypeEnum = typeof SyncTypeEnum[keyof typeof SyncTypeEnum];
+
+
+    export const SyncTypeEnum = {
+      FullRefresh: 'full_refresh',
+      Incremental: 'incremental',
+      Append: 'append',
+      Webhook: 'webhook',
+      Cdc: 'cdc',
+      Xmin: 'xmin',
+    } as const;
+
+    export interface SimpleExternalDataSchema {
+      readonly id: string;
+      /** @maxLength 400 */
+      name: string;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      label?: string | null;
+      should_sync?: boolean;
+      /** @nullable */
+      last_synced_at?: string | null;
+      sync_type?: SyncTypeEnum | BlankEnum | null;
+    }
+
+    export interface ExternalDataJobSerializers {
+      readonly id: string;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly finished_at: string | null;
+      readonly status: string;
+      readonly schema: SimpleExternalDataSchema;
+      /** @nullable */
+      readonly rows_synced: number | null;
+      /**
+         * The latest error that occurred during this run.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /** @nullable */
+      readonly workflow_run_id: string | null;
+      /**
+         * For CDC syncs with `cdc_table_mode='both'`, distinguishes the two ExternalDataJob rows produced per sync: `incremental_merge` (consolidated table) vs `scd2_append` (cdc-only history table). `null` for non-CDC syncs. Read from `schema_snapshot`.
+         * @nullable
+         */
+      readonly cdc_write_mode: string | null;
+      /**
+         * Whether the rows synced by this job count toward billing. `false` for system-initiated runs the customer isn't charged for (e.g. rebuilding a table after an internal issue). `null` on legacy rows and means billable.
+         * @nullable
+         */
+      readonly billable: boolean | null;
+    }
+
+    /**
      * @nullable
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
@@ -33696,26 +33922,6 @@ export namespace Schemas {
       readonly api_version?: string | null;
       readonly supported_api_versions?: string[];
     } | null;
-
-    /**
-     * * `full_refresh` - full_refresh
-     * * `incremental` - incremental
-     * * `append` - append
-     * * `webhook` - webhook
-     * * `cdc` - cdc
-     * * `xmin` - xmin
-     */
-    export type SyncTypeEnum = typeof SyncTypeEnum[keyof typeof SyncTypeEnum];
-
-
-    export const SyncTypeEnum = {
-      FullRefresh: 'full_refresh',
-      Incremental: 'incremental',
-      Append: 'append',
-      Webhook: 'webhook',
-      Cdc: 'cdc',
-      Xmin: 'xmin',
-    } as const;
 
     /**
      * * `integer` - integer
@@ -38823,6 +39029,11 @@ export namespace Schemas {
       math_property?: string | null;
     }
 
+    export interface HandsFreeToken {
+      /** Single-use token for ElevenLabs realtime transcription. */
+      token: string;
+    }
+
     export type HealthCheckSignalExtraPayload = { [key: string]: unknown };
 
     export type HealthCheckSignalExtraSeverityEnum = typeof HealthCheckSignalExtraSeverityEnum[keyof typeof HealthCheckSignalExtraSeverityEnum];
@@ -39576,6 +39787,16 @@ export namespace Schemas {
       done: boolean;
     }
 
+    export interface HogFlowBulkDeleteRequest {
+      /** Archived workflow IDs to delete. */
+      ids: string[];
+    }
+
+    export interface HogFlowBulkDeleteResponse {
+      /** Number of workflows deleted. */
+      deleted: number;
+    }
+
     /**
      * * `update_action` - update_action
      * * `add_action` - add_action
@@ -39634,6 +39855,54 @@ export namespace Schemas {
       current_action_id?: string;
       /** Test the workflow's staged draft instead of its live config. Set this only when workflows-get returns a non-null 'draft'; it can't be combined with an explicit configuration override. */
       use_draft?: boolean;
+    }
+
+    export type HogFlowInvocationResultLogsItem = { [key: string]: unknown };
+
+    /**
+     * Workflow variables after execution.
+     */
+    export type HogFlowInvocationResultVariables = {[key: string]: { [key: string]: unknown }};
+
+    /**
+     * Raw result returned by the executed action.
+     */
+    export type HogFlowInvocationResultExecResult = { [key: string]: unknown };
+
+    /**
+     * * `success` - success
+     * * `error` - error
+     * * `skipped` - skipped
+     */
+    export type HogFlowInvocationResultStatusEnum = typeof HogFlowInvocationResultStatusEnum[keyof typeof HogFlowInvocationResultStatusEnum];
+
+
+    export const HogFlowInvocationResultStatusEnum = {
+      Success: 'success',
+      Error: 'error',
+      Skipped: 'skipped',
+    } as const;
+
+    export interface HogFlowInvocationResult {
+      /** Outcome of the test invocation.
+       *
+       * * `success` - success
+       * * `error` - error
+       * * `skipped` - skipped */
+      status: HogFlowInvocationResultStatusEnum;
+      /** Execution log entries emitted by the test invocation. */
+      logs?: HogFlowInvocationResultLogsItem[];
+      /**
+         * Next workflow action to execute, or null when execution is complete.
+         * @nullable
+         */
+      nextActionId?: string | null;
+      /** Errors produced during execution. */
+      errors?: string[];
+      /** Workflow variables after execution. */
+      variables?: HogFlowInvocationResultVariables;
+      /** Raw result returned by the executed action. */
+      execResult?: HogFlowInvocationResultExecResult;
     }
 
     /**
@@ -44570,6 +44839,25 @@ export namespace Schemas {
       teams: LinearTeam[];
     }
 
+    export interface Link {
+      readonly id: string;
+      /** @maxLength 2048 */
+      redirect_url: string;
+      /**
+         * Domain where the short link is hosted, e.g. hog.gg
+         * @maxLength 255
+         */
+      short_link_domain: string;
+      short_code: string;
+      /** @nullable */
+      description?: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly created_by: UserBasic;
+      _create_in_folder?: string;
+    }
+
     /**
      * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
      * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
@@ -47568,6 +47856,25 @@ export namespace Schemas {
       Value: 'value',
     } as const;
 
+    export interface MaterializationPreviewAggregate {
+      /** Aggregate expression in the transformed query. */
+      expression: string;
+      /**
+         * Function used to aggregate materialized results again, when required.
+         * @nullable
+         */
+      reaggregate_fn: string | null;
+    }
+
+    export interface MaterializationPreviewRangePair {
+      /** Column used for time bucketing. */
+      column: string;
+      /** Query variables associated with this range pair. */
+      variables: string[];
+      /** Bucket function applied to the column. */
+      bucket_fn: string;
+    }
+
     /**
      * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
      * @nullable
@@ -47575,12 +47882,42 @@ export namespace Schemas {
     export type MaterializationPreviewRequestBucketOverrides = {[key: string]: string} | null;
 
     export interface MaterializationPreviewRequest {
+      /** Endpoint version to preview. Defaults to the current version. */
       version?: number;
       /**
          * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
          * @nullable
          */
       bucket_overrides?: MaterializationPreviewRequestBucketOverrides;
+    }
+
+    export interface MaterializationPreviewResponse {
+      /** Whether the endpoint query can be materialized. */
+      can_materialize: boolean;
+      /**
+         * Reason the query cannot be materialized, or null when it can.
+         * @nullable
+         */
+      reason: string | null;
+      /**
+         * Query rewritten for materialization, when available.
+         * @nullable
+         */
+      transformed_query: string | null;
+      /**
+         * Query executed against the materialized table, when available.
+         * @nullable
+         */
+      execution_query: string | null;
+      /**
+         * Human-readable execution query, when available.
+         * @nullable
+         */
+      display_execution_query: string | null;
+      /** Detected range pairs and their bucket functions. */
+      range_pairs: MaterializationPreviewRangePair[];
+      /** Aggregate expressions and their re-aggregation functions. */
+      aggregates: MaterializationPreviewAggregate[];
     }
 
     export interface PropertyDefinition {
@@ -50780,6 +51117,15 @@ export namespace Schemas {
       results: LegalDocumentDTO[];
     }
 
+    export interface PaginatedLinkList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Link[];
+    }
+
     export interface PaginatedListOutputList {
       count: number;
       /** @nullable */
@@ -53113,6 +53459,40 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalSourceConfig[];
+    }
+
+    /**
+     * Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch.
+     */
+    export type SignalTeamConfigAutostartBaseBranches = {[key: string]: string};
+
+    export interface SignalTeamConfig {
+      readonly id: string;
+      /**
+         * Master switch for autonomous inbox PRs. Null (never set) leaves autostart on; set false to opt out, so actionable reports still generate and notify but the team never auto-starts an implementation task or opens a PR — reviewers open PRs manually.
+         * @nullable
+         */
+      autostart_enabled?: boolean | null;
+      default_autostart_priority?: AutonomyPriorityEnum;
+      /**
+         * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
+         * @maxLength 255
+         * @nullable
+         */
+      default_slack_notification_channel?: string | null;
+      /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
+      autostart_base_branches?: SignalTeamConfigAutostartBaseBranches;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedSignalTeamConfigList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalTeamConfig[];
     }
 
     export interface SnapshotHistoryEntry {
@@ -57619,23 +57999,9 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
     }
 
-    /**
-     * Read-only serializer for issue contract types returned by the facade.
-     */
-    export interface PatchedErrorTrackingIssueRead {
-      id?: string;
-      status?: string;
-      /** Issue severity, or null when no severity is assigned. */
-      severity?: ErrorTrackingIssueSeverity | null;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      description?: string | null;
-      /** @nullable */
-      first_seen?: string | null;
-      assignee?: ErrorTrackingIssueAssigneeRead | null;
-      external_issues?: ErrorTrackingExternalReferenceResult[];
-      cohort?: ErrorTrackingIssueCohortRead | null;
+    export interface PatchedErrorTrackingIssueAssignRequest {
+      /** Assignee to set, or null to unassign the issue. */
+      assignee?: ErrorTrackingIssueAssigneeWrite | null;
     }
 
     export interface PatchedErrorTrackingIssueWrite {
@@ -57644,7 +58010,7 @@ export namespace Schemas {
        * * `active` - active
        * * `resolved` - resolved
        * * `suppressed` - suppressed */
-      status?: ErrorTrackingIssueWriteStatusEnum;
+      status?: ErrorTrackingIssueWritableStatusEnum;
       /** Issue severity to set, or null to remove the assigned severity. */
       severity?: ErrorTrackingIssueSeverity | null;
       /**
@@ -59404,6 +59770,25 @@ export namespace Schemas {
          * @maxLength 400
          */
       version_description?: string;
+    }
+
+    export interface PatchedLink {
+      readonly id?: string;
+      /** @maxLength 2048 */
+      redirect_url?: string;
+      /**
+         * Domain where the short link is hosted, e.g. hog.gg
+         * @maxLength 255
+         */
+      short_link_domain?: string;
+      short_code?: string;
+      /** @nullable */
+      description?: string | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+      readonly created_by?: UserBasic;
+      _create_in_folder?: string;
     }
 
     export interface PatchedLiveDebuggerBreakpoint {
@@ -63270,9 +63655,35 @@ export namespace Schemas {
     }
 
     /**
+     * Payload for updating a private note on a ticket.
+     */
+    export interface PatchedTicketNoteUpdateRequest {
+      /**
+         * Updated note content in markdown.
+         * @maxLength 5000
+         */
+      message?: string;
+      /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
+      rich_content?: unknown;
+    }
+
+    export interface PatchedTicketView {
+      readonly id?: string;
+      readonly short_id?: string;
+      /** @maxLength 400 */
+      name?: string;
+      /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
+      filters?: TicketViewFilters;
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
+      is_favorited?: boolean;
+    }
+
+    /**
      * Mixin for serializers to add user access control fields
      */
-    export interface PatchedTicket {
+    export interface PatchedTicketWrite {
       readonly id?: string;
       readonly ticket_number?: number;
       readonly channel_source?: ChannelSourceEnum;
@@ -63293,7 +63704,8 @@ export namespace Schemas {
        * * `high` - High
        * * `critical` - Critical */
       priority?: TicketPriorityEnum | BlankEnum | null;
-      readonly assignee?: TicketAssignment;
+      /** User or role assignment, or null to unassign the ticket. */
+      assignee?: unknown;
       /** Customer-provided traits such as name and email */
       anonymous_traits?: unknown;
       /**
@@ -63361,32 +63773,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
-    }
-
-    /**
-     * Payload for updating a private note on a ticket.
-     */
-    export interface PatchedTicketNoteUpdateRequest {
-      /**
-         * Updated note content in markdown.
-         * @maxLength 5000
-         */
-      message?: string;
-      /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
-      rich_content?: unknown;
-    }
-
-    export interface PatchedTicketView {
-      readonly id?: string;
-      readonly short_id?: string;
-      /** @maxLength 400 */
-      name?: string;
-      /** Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search. */
-      filters?: TicketViewFilters;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      /** Whether the current user has favorited this view. Favorited views sort to the top of the list. Favorites are personal to each user. */
-      is_favorited?: boolean;
     }
 
     /**
@@ -70306,6 +70692,14 @@ export namespace Schemas {
       workflow_id: string;
     }
 
+    export interface RevenueAnalyticsJoin {
+      enabled: boolean;
+    }
+
+    export interface RevenueAnalyticsJoinResponse {
+      detail: string;
+    }
+
     export interface ReviewBlindSpotsConfig {
       /** Name of the `review-hog-blind-spots-*` skill this row represents (the sweep's identity). */
       skill_name: string;
@@ -72076,6 +72470,45 @@ export namespace Schemas {
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;
+    }
+
+    /**
+     * Single entry in a PUT body for a `suggested_reviewers` artefact.
+     *
+     * Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`.
+     * The server canonicalizes to a lowercase `github_login` — if `user_uuid` is supplied,
+     * it must map to an org member on this team with a linked GitHub login.
+     */
+    export interface SuggestedReviewerEntryWrite {
+      /**
+         * GitHub login (case-insensitive). Stored lowercased.
+         * @maxLength 200
+         */
+      github_login?: string;
+      /** PostHog user UUID. Must be an org member on this team with a linked GitHub identity. If supplied together with `github_login`, the server-resolved login from the user wins. */
+      user_uuid?: string;
+      /**
+         * Optional human-readable display name. Not backfilled from GitHub by the server.
+         * @maxLength 200
+         */
+      github_name?: string;
+      /**
+         * Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.
+         * @maxLength 500
+         * @nullable
+         */
+      reason?: string | null;
+    }
+
+    /**
+     * PUT body for replacing a `suggested_reviewers` artefact's content.
+     *
+     * Only `suggested_reviewers` artefacts may be modified via this endpoint;
+     * the viewset enforces the type check before validation runs.
+     */
+    export interface SignalReportArtefactWrite {
+      /** Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries. */
+      content: SuggestedReviewerEntryWrite[];
     }
 
     /**
@@ -80545,6 +80978,109 @@ export namespace Schemas {
       rich_content?: unknown;
     }
 
+    export interface TicketUnreadCountResponse {
+      /**
+         * Unread tickets visible to the current user.
+         * @minimum 0
+         */
+      count: number;
+    }
+
+    /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface TicketWrite {
+      readonly id: string;
+      readonly ticket_number: number;
+      readonly channel_source: ChannelSourceEnum;
+      readonly channel_detail: ChannelDetailEnum | null;
+      readonly distinct_id: string;
+      /** Ticket status: new, open, pending, on_hold, or resolved
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      status?: TicketStatusEnum;
+      /** Ticket priority: low, medium, high, or critical. Null if unset.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `critical` - Critical */
+      priority?: TicketPriorityEnum | BlankEnum | null;
+      /** User or role assignment, or null to unassign the ticket. */
+      assignee?: unknown;
+      /** Customer-provided traits such as name and email */
+      anonymous_traits?: unknown;
+      /**
+         * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
+         * @nullable
+         */
+      readonly identity_verified: boolean | null;
+      ai_resolved?: boolean;
+      /** @nullable */
+      escalation_reason?: string | null;
+      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+      readonly ai_triage: unknown;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly message_count: number;
+      /** @nullable */
+      readonly last_message_at: string | null;
+      /** @nullable */
+      readonly last_message_text: string | null;
+      readonly unread_team_count: number;
+      readonly unread_customer_count: number;
+      /** @nullable */
+      readonly session_id: string | null;
+      readonly session_context: unknown;
+      /**
+         * SLA deadline set via workflows. Null means no SLA.
+         * @nullable
+         */
+      sla_due_at?: string | null;
+      /** @nullable */
+      snoozed_until?: string | null;
+      /** @nullable */
+      readonly slack_channel_id: string | null;
+      /** @nullable */
+      readonly slack_thread_ts: string | null;
+      /** @nullable */
+      readonly slack_team_id: string | null;
+      /** @nullable */
+      readonly email_subject: string | null;
+      /** @nullable */
+      readonly email_from: string | null;
+      /** @nullable */
+      readonly email_to: string | null;
+      readonly cc_participants: unknown;
+      /** @nullable */
+      readonly github_repo: string | null;
+      /** @nullable */
+      readonly github_issue_number: number | null;
+      /** @nullable */
+      readonly zendesk_ticket_id: number | null;
+      /**
+         * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+         * @nullable
+         */
+      readonly organization_id: string | null;
+      /**
+         * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+         * @nullable
+         */
+      readonly organization_id_source: string | null;
+      readonly person: TicketPerson | null;
+      tags?: unknown[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+    }
+
     export interface TopPage {
       /** Host for the page, if recorded. */
       host: string;
@@ -82172,6 +82708,54 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface _LogsQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Order results by timestamp.
+       *
+       * * `latest` - latest
+       * * `earliest` - earliest */
+      orderBy?: OrderByEnum;
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+      /** Max results (1-1000). */
+      limit?: number;
+      /** Pagination cursor from previous response. */
+      after?: string;
+      /** Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false. */
+      excludeAttributes?: boolean;
+      /** Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field. */
+      customColumns?: string[];
+      /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+      personId?: string;
+    }
+
+    export interface _LogsExportRequest {
+      /** The logs query to export. */
+      query: _LogsQueryBody;
+      /** Columns to include in the CSV export. */
+      columns?: string[];
+    }
+
+    export interface _LogsExportResponse {
+      /** Exported asset identifier. */
+      id: number;
+      /** Export file format. */
+      export_format: string;
+      /** Time the export was requested. */
+      created_at: string;
+      /** Whether the exported file is ready to download. */
+      has_content: boolean;
+      /** Generated export filename. */
+      filename: string;
+    }
+
     export interface _LogsFacetValuesBody {
       /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.
        *
@@ -82293,6 +82877,11 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    export interface _LogsHasLogsResponse {
+      /** Whether this project has captured any logs. */
+      hasLogs: boolean;
+    }
+
     export interface _LogsPatternsBody {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
@@ -82362,34 +82951,6 @@ export namespace Schemas {
       sample_coverage_pct: number;
       /** Time buckets that every pattern's `sparkline` aligns to. When the scan was bounded to time slices, the buckets are the slices themselves (evenly spaced, gaps between them were never eligible for sampling); otherwise they divide the window uniformly. */
       sparkline_buckets: _LogsPatternsSparklineBucket[];
-    }
-
-    export interface _LogsQueryBody {
-      /** Date range for the query. Defaults to last hour. */
-      dateRange?: _DateRange;
-      /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
-      /** Filter by service names. */
-      serviceNames?: string[];
-      /** Order results by timestamp.
-       *
-       * * `latest` - latest
-       * * `earliest` - earliest */
-      orderBy?: OrderByEnum;
-      /** Full-text search term to filter log bodies. */
-      searchTerm?: string;
-      /** Property filters for the query. */
-      filterGroup?: _LogPropertyFilter[];
-      /** Max results (1-1000). */
-      limit?: number;
-      /** Pagination cursor from previous response. */
-      after?: string;
-      /** Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false. */
-      excludeAttributes?: boolean;
-      /** Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field. */
-      customColumns?: string[];
-      /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
-      personId?: string;
     }
 
     export interface _LogsQueryRequest {
@@ -83322,6 +83883,10 @@ export namespace Schemas {
       query: _TracingDurationHistogramQueryBody;
     }
 
+    export interface _TracingDurationHistogramResponse {
+      results: unknown[];
+    }
+
     export interface _TracingLatencyHeatmapCell {
       /** ISO 8601 UTC start of the time bucket. */
       time: string;
@@ -83398,6 +83963,17 @@ export namespace Schemas {
       query: _TracingQueryBody;
     }
 
+    export interface _TracingQueryResponse {
+      results: unknown[];
+      hasMore: boolean;
+      /** @nullable */
+      nextCursor: string | null;
+    }
+
+    export interface _TracingServiceNamesResponse {
+      results: string[];
+    }
+
     export interface _TracingSparklineQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -83416,6 +83992,10 @@ export namespace Schemas {
       query: _TracingSparklineQueryBody;
     }
 
+    export interface _TracingSparklineResponse {
+      results: unknown[];
+    }
+
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
@@ -83426,6 +84006,13 @@ export namespace Schemas {
          * @minimum 0
          */
       offset?: number;
+    }
+
+    export interface _TracingTraceResponse {
+      results: unknown[];
+      hasMore: boolean;
+      /** @nullable */
+      nextOffset: number | null;
     }
 
     export interface _TracingTreeQueryBody {
@@ -83446,6 +84033,12 @@ export namespace Schemas {
     export interface _TracingTreeRequest {
       /** The span call-tree aggregation query to execute. */
       query: _TracingTreeQueryBody;
+    }
+
+    export interface _TracingTreeResponse {
+      results: unknown[];
+      /** @nullable */
+      compare: unknown[] | null;
     }
 
     export type CohortsStaffListParams = {
@@ -85163,6 +85756,10 @@ export namespace Schemas {
 
     export type ColumnConfigurationsListParams = {
     /**
+     * Return configurations for this product-defined table context.
+     */
+    context_key?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -86028,6 +86625,10 @@ export namespace Schemas {
 
     export type DataModelingEdgesListParams = {
     /**
+     * Filter edges by DAG ID.
+     */
+    dag?: string;
+    /**
      * A page number within the paginated result set.
      */
     page?: number;
@@ -86050,6 +86651,10 @@ export namespace Schemas {
     };
 
     export type DataModelingNodesListParams = {
+    /**
+     * Filter nodes by DAG ID.
+     */
+    dag?: string;
     /**
      * A page number within the paginated result set.
      */
@@ -86353,6 +86958,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EndpointsRetrieveParams = {
+    /**
+     * Endpoint version. Defaults to the current version.
+     */
+    version?: number;
+    };
+
     export type EndpointsLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
@@ -86383,6 +86995,13 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type EndpointsMaterializationStatusRetrieveParams = {
+    /**
+     * Endpoint version. Defaults to the current version.
+     */
+    version?: number;
     };
 
     export type EndpointsOpenapiSpecRetrieveParams = {
@@ -86988,6 +87607,10 @@ export namespace Schemas {
 
     export type ErrorTrackingFingerprintsListParams = {
     /**
+     * Return fingerprints belonging to this issue UUID.
+     */
+    issue_id?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -87061,6 +87684,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ErrorTrackingIssuesRetrieveParams = {
+    /**
+     * Resolve the issue currently owning this fingerprint before returning the issue.
+     */
+    fingerprint?: string;
+    };
+
     export type ErrorTrackingRecommendationsListParams = {
     /**
      * Number of results to return per page.
@@ -87070,6 +87700,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Skip scheduling a refresh and return the current recommendation state.
+     */
+    poll?: boolean;
+    };
+
+    export type ErrorTrackingRecommendationsRefreshCreateParams = {
+    /**
+     * Recompute the recommendation even when its current result is fresh.
+     */
+    force?: boolean;
     };
 
     export type ErrorTrackingReleasesListParams = {
@@ -87085,6 +87726,18 @@ export namespace Schemas {
 
     export type ErrorTrackingSpikeEventsListParams = {
     /**
+     * Include spike events detected at or after this timestamp.
+     */
+    date_from?: string;
+    /**
+     * Include spike events detected at or before this timestamp.
+     */
+    date_to?: string;
+    /**
+     * Comma-separated issue UUIDs to include.
+     */
+    issue_ids?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -87092,6 +87745,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Field used to order results. Prefix with a hyphen for descending order.
+     */
+    order_by?: string;
     };
 
     export type ErrorTrackingStackFramesListParams = {
@@ -87166,8 +87823,6 @@ export namespace Schemas {
       Valid: 'valid',
       Invalid: 'invalid',
     } as const;
-
-    export type EvaluationRunsCreate200 = { [key: string]: unknown };
 
     export type EvaluationsListParams = {
     /**
@@ -87573,6 +88228,30 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type ExternalDataSourcesCheckCdcPrerequisitesForSourceCreate200 = {
+      valid?: boolean;
+      errors?: string[];
+    };
+
+    export type ExternalDataSourcesJobsListParams = {
+    /**
+     * ISO timestamp — only return jobs created after this date.
+     */
+    after?: string;
+    /**
+     * ISO timestamp — only return jobs created before this date.
+     */
+    before?: string;
+    /**
+     * Filter jobs by table schema names.
+     */
+    schemas?: string[];
     /**
      * A search term.
      */
@@ -89622,6 +90301,17 @@ export namespace Schemas {
 
     export type JsSnippetVersionPartialUpdate200 = { [key: string]: unknown };
 
+    export type LinksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type LiveDebuggerBreakpointsListParams = {
     filename?: string;
     /**
@@ -90176,10 +90866,6 @@ export namespace Schemas {
       Resource: 'resource',
     } as const;
 
-    export type LogsExportCreate201 = { [key: string]: unknown };
-
-    export type LogsHasLogsRetrieve200 = { [key: string]: unknown };
-
     export type LogsMetricRulesListParams = {
     /**
      * Number of results to return per page.
@@ -90464,8 +91150,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
 
     export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
 
@@ -91457,6 +92141,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type QueryTabStateUserRetrieveParams = {
+    /**
+     * User UUID whose saved query-tab state should be returned.
+     */
+    user_id: string;
+    };
+
     export type QuickFiltersListParams = {
     /**
      * Number of results to return per page.
@@ -91697,6 +92388,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SignalsConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
@@ -91777,6 +92479,18 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type SignalsReportsAvailableReviewersRetrieveParams = {
+    /**
+     * Case-insensitive name or email filter.
+     */
+    query?: string;
+    };
+
+    export type SignalsReportsAvailableReviewersRetrieve200 = {[key: string]: {
+      name: string;
+      email: string;
+    }};
 
     export type SignalsScoutConfigListParams = {
     /**
@@ -92563,6 +93277,13 @@ export namespace Schemas {
       Cancelled: 'cancelled',
     } as const;
 
+    export type TasksRetrieveParams = {
+    /**
+     * Local development only. Allow explicit cross-owner task reads for debugging.
+     */
+    ph_debug?: boolean;
+    };
+
     export type TasksCommentsListParams = {
     /**
      * Artifact id returned by the artifacts endpoint.
@@ -92624,6 +93345,13 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    };
+
+    export type TasksRunsRetrieveParams = {
+    /**
+     * Local development only. Allow explicit cross-owner task-run reads for debugging.
+     */
+    ph_debug?: boolean;
     };
 
     export type TasksRunsSessionLogsRetrieveParams = {

@@ -1,3 +1,5 @@
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -34,6 +36,16 @@ class QueryTabStateViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset):
         return queryset.exclude(deleted=True)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="user_id",
+                type=OpenApiTypes.UUID,
+                required=True,
+                description="User UUID whose saved query-tab state should be returned.",
+            )
+        ]
+    )
     @action(detail=False, methods=["get"])
     def user(self, request, *args, **kwargs):
         user_id = request.query_params.get("user_id")

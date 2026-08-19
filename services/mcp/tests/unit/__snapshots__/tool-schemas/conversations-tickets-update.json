@@ -1,6 +1,9 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "assignee": {
+            "description": "User or role assignment, or null to unassign the ticket."
+        },
         "id": {
             "description": "The ticket's UUID or its numeric ticket number.",
             "type": "string"

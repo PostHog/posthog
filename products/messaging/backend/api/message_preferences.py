@@ -358,7 +358,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         ],
         responses={
-            (200, "text/csv"): OpenApiTypes.STR,
+            (200, "text/csv"): OpenApiTypes.BINARY,
             404: OpenApiResponse(response=MessagingErrorSerializer),
         },
         summary="Download the opt-out list as a CSV file",

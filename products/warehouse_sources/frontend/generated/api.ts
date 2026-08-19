@@ -9,10 +9,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CDCPrerequisitesRequestApi,
     DatabaseSchemaRequestApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
+    ExistingSourceCDCPrerequisitesRequestApi,
+    ExternalDataJobSerializersApi,
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSchemasLogsRetrieveParams,
@@ -22,7 +25,9 @@ import type {
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
+    ExternalDataSourcesCheckCdcPrerequisitesForSourceCreate200,
     ExternalDataSourcesConnectLinkRetrieveParams,
+    ExternalDataSourcesJobsListParams,
     ExternalDataSourcesListParams,
     ExternalDataSourcesOauthAccountsRetrieveParams,
     ExternalDataSourcesRepairCdcCreate200,
@@ -484,15 +489,18 @@ export const getExternalDataSourcesCheckCdcPrerequisitesForSourceCreateUrl = (pr
 export const externalDataSourcesCheckCdcPrerequisitesForSourceCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    existingSourceCDCPrerequisitesRequestApi: ExistingSourceCDCPrerequisitesRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesCheckCdcPrerequisitesForSourceCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
-    })
+): Promise<ExternalDataSourcesCheckCdcPrerequisitesForSourceCreate200> => {
+    return apiMutator<ExternalDataSourcesCheckCdcPrerequisitesForSourceCreate200>(
+        getExternalDataSourcesCheckCdcPrerequisitesForSourceCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(existingSourceCDCPrerequisitesRequestApi),
+        }
+    )
 }
 
 export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, id: string) => {
@@ -597,19 +605,36 @@ export const externalDataSourcesEnableCdcCreate = async (
     })
 }
 
-export const getExternalDataSourcesJobsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/external_data_sources/${id}/jobs/`
+export const getExternalDataSourcesJobsListUrl = (
+    projectId: string,
+    id: string,
+    params?: ExternalDataSourcesJobsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/${id}/jobs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/${id}/jobs/`
 }
 
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const externalDataSourcesJobsRetrieve = async (
+export const externalDataSourcesJobsList = async (
     projectId: string,
     id: string,
+    params?: ExternalDataSourcesJobsListParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesJobsRetrieveUrl(projectId, id), {
+): Promise<ExternalDataJobSerializersApi[]> => {
+    return apiMutator<ExternalDataJobSerializersApi[]>(getExternalDataSourcesJobsListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -808,6 +833,7 @@ export const getExternalDataSourcesCheckCdcPrerequisitesCreateUrl = (projectId: 
  */
 export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
     projectId: string,
+    cDCPrerequisitesRequestApi: CDCPrerequisitesRequestApi,
     options?: RequestInit
 ): Promise<ExternalDataSourcesCheckCdcPrerequisitesCreate200> => {
     return apiMutator<ExternalDataSourcesCheckCdcPrerequisitesCreate200>(
@@ -815,6 +841,8 @@ export const externalDataSourcesCheckCdcPrerequisitesCreate = async (
         {
             ...options,
             method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(cDCPrerequisitesRequestApi),
         }
     )
 }

@@ -1,5 +1,6 @@
 from typing import cast
 
+from drf_spectacular.utils import extend_schema
 from posthoganalytics import capture_exception
 from rest_framework import serializers, status
 from rest_framework.decorators import action
@@ -106,12 +107,17 @@ class RevenueAnalyticsJoinSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(required=True)
 
 
+class RevenueAnalyticsJoinResponseSerializer(serializers.Serializer):
+    detail = serializers.CharField()
+
+
 class RevenueAnalyticsJoinViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
 
-    def create(self, request: Request, **kwargs):
+    @extend_schema(request=RevenueAnalyticsJoinSerializer, responses=RevenueAnalyticsJoinResponseSerializer)
+    def create(self, request: Request, **kwargs) -> Response:
         _assert_revenue_analytics_access(self.team, cast(User, request.user), "editor")
 
         serializer = RevenueAnalyticsJoinSerializer(data=request.data)

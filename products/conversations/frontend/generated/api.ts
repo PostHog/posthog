@@ -28,15 +28,17 @@ import type {
     PaginatedTicketMessageListApi,
     PaginatedTicketViewListApi,
     PatchedConversationApi,
-    PatchedTicketApi,
     PatchedTicketNoteUpdateRequestApi,
     PatchedTicketViewApi,
+    PatchedTicketWriteApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
     TicketMessageApi,
     TicketReplyRequestApi,
+    TicketUnreadCountResponseApi,
     TicketViewApi,
+    TicketWriteApi,
     ZendeskImportJobApi,
     ZendeskImportStartApi,
 } from './api.schemas'
@@ -350,14 +352,14 @@ export const getConversationsTicketsUpdateUrl = (projectId: string, id: string) 
 export const conversationsTicketsUpdate = async (
     projectId: string,
     id: string,
-    ticketApi?: NonReadonly<TicketApi>,
+    ticketWriteApi?: NonReadonly<TicketWriteApi>,
     options?: RequestInit
 ): Promise<TicketApi> => {
     return apiMutator<TicketApi>(getConversationsTicketsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(ticketApi),
+        body: JSON.stringify(ticketWriteApi),
     })
 }
 
@@ -368,14 +370,14 @@ export const getConversationsTicketsPartialUpdateUrl = (projectId: string, id: s
 export const conversationsTicketsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedTicketApi?: NonReadonly<PatchedTicketApi>,
+    patchedTicketWriteApi?: NonReadonly<PatchedTicketWriteApi>,
     options?: RequestInit
 ): Promise<TicketApi> => {
     return apiMutator<TicketApi>(getConversationsTicketsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTicketApi),
+        body: JSON.stringify(patchedTicketWriteApi),
     })
 }
 
@@ -624,8 +626,8 @@ export const getConversationsTicketsUnreadCountRetrieveUrl = (projectId: string)
 export const conversationsTicketsUnreadCountRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<TicketApi> => {
-    return apiMutator<TicketApi>(getConversationsTicketsUnreadCountRetrieveUrl(projectId), {
+): Promise<TicketUnreadCountResponseApi> => {
+    return apiMutator<TicketUnreadCountResponseApi>(getConversationsTicketsUnreadCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

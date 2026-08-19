@@ -414,11 +414,11 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # notification channel) would 404.
         return get_or_create_team_extension(self.team, SignalTeamConfig)
 
-    @extend_schema(exclude=True)
+    @extend_schema(responses={200: SignalTeamConfigSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:
         return Response(SignalTeamConfigSerializer(self._get_config()).data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(request=SignalTeamConfigSerializer, responses={200: SignalTeamConfigSerializer})
     def create(self, request: Request, *args, **kwargs) -> Response:
         config = self._get_config()
         serializer = SignalTeamConfigSerializer(config, data=request.data, partial=True)
@@ -1572,7 +1572,28 @@ class SignalReportViewSet(
             return self.get_paginated_response(data)
         return Response(data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="query",
+                type=str,
+                required=False,
+                description="Case-insensitive name or email filter.",
+            )
+        ],
+        responses={
+            200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {"name": {"type": "string"}, "email": {"type": "string"}},
+                        "required": ["name", "email"],
+                    },
+                }
+            )
+        },
+    )
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
     def available_reviewers(self, request, **kwargs):
         with tracer.start_as_current_span("signals.available_reviewers") as span:
@@ -1635,7 +1656,7 @@ class SignalReportViewSet(
 
             return Response(reviewers)
 
-    @extend_schema(exclude=True)
+    @extend_schema(request=SignalReportArtefactWriteSerializer, responses=SignalReportArtefactSerializer)
     @action(detail=True, methods=["put"], url_path="reviewers", required_scopes=["task:write"])
     def reviewers(self, request, **kwargs):
         """Set a report's suggested reviewers (full-replacement PUT), whether or not the report already

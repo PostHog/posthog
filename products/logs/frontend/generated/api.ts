@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ExplainRequestApi,
+    ExplainResponseApi,
     LogsAlertConfigurationApi,
     LogsAlertCreateDestinationApi,
     LogsAlertDeleteDestinationApi,
@@ -21,8 +22,6 @@ import type {
     LogsAnomalyScanRequestApi,
     LogsAnomalyScanResponseApi,
     LogsAttributesRetrieveParams,
-    LogsExportCreate201,
-    LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
     LogsMetricRulesListParams,
     LogsRetentionRuleApi,
@@ -55,10 +54,13 @@ import type {
     _LogsCountRangesResponseApi,
     _LogsCountRequestApi,
     _LogsCountResponseApi,
+    _LogsExportRequestApi,
+    _LogsExportResponseApi,
     _LogsFacetValuesRequestApi,
     _LogsFacetValuesResponseApi,
     _LogsGroupByRequestApi,
     _LogsGroupByResponseApi,
+    _LogsHasLogsResponseApi,
     _LogsPatternsDiffRequestApi,
     _LogsPatternsDiffResponseApi,
     _LogsPatternsRequestApi,
@@ -401,8 +403,8 @@ export const logsExplainLogWithAICreate = async (
     projectId: string,
     explainRequestApi: ExplainRequestApi,
     options?: RequestInit
-): Promise<ExplainRequestApi> => {
-    return apiMutator<ExplainRequestApi>(getLogsExplainLogWithAICreateUrl(projectId), {
+): Promise<ExplainResponseApi> => {
+    return apiMutator<ExplainResponseApi>(getLogsExplainLogWithAICreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -414,10 +416,16 @@ export const getLogsExportCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/export/`
 }
 
-export const logsExportCreate = async (projectId: string, options?: RequestInit): Promise<LogsExportCreate201> => {
-    return apiMutator<LogsExportCreate201>(getLogsExportCreateUrl(projectId), {
+export const logsExportCreate = async (
+    projectId: string,
+    _logsExportRequestApi: _LogsExportRequestApi,
+    options?: RequestInit
+): Promise<_LogsExportResponseApi> => {
+    return apiMutator<_LogsExportResponseApi>(getLogsExportCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsExportRequestApi),
     })
 }
 
@@ -462,8 +470,8 @@ export const getLogsHasLogsRetrieveUrl = (projectId: string) => {
 export const logsHasLogsRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<LogsHasLogsRetrieve200> => {
-    return apiMutator<LogsHasLogsRetrieve200>(getLogsHasLogsRetrieveUrl(projectId), {
+): Promise<_LogsHasLogsResponseApi> => {
+    return apiMutator<_LogsHasLogsResponseApi>(getLogsHasLogsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -1116,25 +1124,5 @@ export const logsViewsDestroy = async (projectId: string, shortId: string, optio
     return apiMutator<void>(getLogsViewsDestroyUrl(projectId, shortId), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/logs/`
-}
-
-/**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history and can find the most recent git_checkpoint event regardless of which run emitted it.
- * @summary Get task run logs
- */
-export const tasksRunsLogsRetrieve = async (
-    projectId: string,
-    taskId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTasksRunsLogsRetrieveUrl(projectId, taskId, id), {
-        ...options,
-        method: 'GET',
     })
 }

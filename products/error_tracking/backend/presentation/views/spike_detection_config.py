@@ -1,4 +1,4 @@
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -8,6 +8,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from products.error_tracking.backend.facade import api as error_tracking_api
 
 
+@extend_schema_serializer(many=False)
 class ErrorTrackingSpikeDetectionConfigSerializer(serializers.Serializer):
     snooze_duration_minutes = serializers.IntegerField(
         min_value=1,
@@ -27,7 +28,7 @@ class ErrorTrackingSpikeDetectionConfigViewSet(TeamAndOrgViewSetMixin, viewsets.
     scope_object = "error_tracking"
     scope_object_write_actions = ["update_config"]
 
-    @extend_schema(responses={200: ErrorTrackingSpikeDetectionConfigSerializer})
+    @extend_schema(responses={200: ErrorTrackingSpikeDetectionConfigSerializer(many=False)})
     def list(self, request, *args, **kwargs):
         config = error_tracking_api.get_spike_detection_config(self.team.id)
         return Response(ErrorTrackingSpikeDetectionConfigSerializer(config).data)

@@ -5,7 +5,6 @@ from datetime import timedelta
 from django.conf import settings
 
 import structlog
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -58,11 +57,23 @@ class EvaluationRunRequestSerializer(serializers.Serializer):
     )
 
 
+class EvaluationRunEvaluationSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="UUID of the evaluation being run.")
+    name = serializers.CharField(help_text="Display name of the evaluation being run.")
+
+
+class EvaluationRunResponseSerializer(serializers.Serializer):
+    workflow_id = serializers.CharField(help_text="Temporal workflow ID for the evaluation run.")
+    status = serializers.CharField(help_text="Initial workflow status.")
+    evaluation = EvaluationRunEvaluationSerializer(help_text="Evaluation selected for this run.")
+    target_event_id = serializers.UUIDField(help_text="UUID of the event being evaluated.")
+
+
 class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]
 
-    @extend_schema(request=EvaluationRunRequestSerializer, responses={200: OpenApiTypes.OBJECT})
+    @extend_schema(request=EvaluationRunRequestSerializer, responses={202: EvaluationRunResponseSerializer})
     @llma_track_latency("llma_evaluation_runs_create")
     @monitor(feature=None, endpoint="llma_evaluation_runs_create", method="POST")
     def create(self, request: Request, **kwargs) -> Response:

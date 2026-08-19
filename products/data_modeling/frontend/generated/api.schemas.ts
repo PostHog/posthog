@@ -210,6 +210,10 @@ export type DataModelingDagsListParams = {
 
 export type DataModelingEdgesListParams = {
     /**
+     * Filter edges by DAG ID.
+     */
+    dag?: string
+    /**
      * A page number within the paginated result set.
      */
     page?: number
@@ -220,6 +224,10 @@ export type DataModelingEdgesListParams = {
 }
 
 export type DataModelingNodesListParams = {
+    /**
+     * Filter nodes by DAG ID.
+     */
+    dag?: string
     /**
      * A page number within the paginated result set.
      */

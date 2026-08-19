@@ -566,6 +566,3 @@ tools:
         response:
             include:
                 - results
-    tasks-runs-logs-retrieve:
-        operation: tasks_runs_logs_retrieve
-        enabled: false

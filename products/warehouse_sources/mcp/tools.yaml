@@ -366,8 +366,8 @@ tools:
     external-data-sources-enable-cdc-create:
         operation: external_data_sources_enable_cdc_create
         enabled: false
-    external-data-sources-jobs:
-        operation: external_data_sources_jobs_retrieve
+    external-data-sources-jobs-list:
+        operation: external_data_sources_jobs_list
         enabled: false
     external-data-sources-list:
         operation: external_data_sources_list

@@ -255,6 +255,9 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._require_warehouse_access(level="viewer", message=_READ_DENIED)
         return super().retrieve(request, *args, **kwargs)
 
+    @extend_schema(
+        parameters=[OpenApiParameter(name="dag", type=UUID, required=False, description="Filter nodes by DAG ID.")]
+    )
     def list(self, request, *args, **kwargs):
         from products.data_modeling.backend.facade.models import Graph
 
