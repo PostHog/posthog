@@ -50,6 +50,7 @@ ninja.pkg-path = "ninja"
 emscripten = { pkg-path = "emscripten", pkg-group = "emscripten", version = "4.0.23" }
 libpthread-stubs = { pkg-path = "libpthread-stubs", pkg-group = "emscripten" }
 watchman = { pkg-path = "watchman" } # Fast file watching for Django/Celery autoreload (uses pywatchman)
+trunk-io = { pkg-path = "trunk-io", version = "^1.3.4" } # Launcher for the Trunk merge queue CLI; the CLI version itself is pinned in .trunk/trunk.yaml
 
 # Set environment variables in the `[vars]` section. These variables may not
 # reference one another, and are added to the environment without first
