@@ -83,6 +83,7 @@ depends_on = [
     "products.analytics_platform",
     "products.approvals",
     "products.batch_exports",
+    "products.billing_alerts",
     "products.business_knowledge",
     "products.canvas",
     "products.cdp",
@@ -332,6 +333,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
+    "products.data_quality",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
     "products.warehouse_sources_queue",
@@ -491,6 +493,16 @@ depends_on = [
     "products.cdp",
     "products.exports",
     "products.signals",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.billing_alerts"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.alerts",
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -691,6 +703,7 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "ee",
+    "products.canvas",
     "products.cohorts",
     "posthog",
     "products.actions",
@@ -835,6 +848,14 @@ from = [
 
 [[interfaces]]
 expose = [
+    "backend\\.report_canvas.*",
+]
+from = [
+    "products.canvas",
+]
+
+[[interfaces]]
+expose = [
     "backend\\.artifacts.*",
     "backend\\.tasks.*",
 ]
@@ -917,6 +938,9 @@ depends_on = [
     "products.feature_flags",
     "products.messaging",
     "products.notifications",
+    # Facade-only: the AI task action's endpoint creates tasks through
+    # products.tasks.backend.facade.workflow_tasks.
+    "products.tasks",
 ]
 layer = "modules"
 
@@ -942,6 +966,18 @@ expose = [
 ]
 from = [
     "products.experiments",
+]
+
+# Billing alerts registers product-owned workflows and a schedule with the shared billing worker.
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.schedule\\.create_schedule_due_billing_alert_checks_schedule",
+]
+from = [
+    "products.billing_alerts",
 ]
 
 # Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
@@ -1270,6 +1306,7 @@ path = "products.data_quality"
 depends_on = [
     "posthog",
     "products.data_modeling",
+    "products.notifications",
     "products.warehouse_sources",
 ]
 layer = "modules"
@@ -1286,6 +1323,7 @@ from = [
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
+    "backend\\.presentation\\.serializers.*",
     "backend\\.presentation\\.views.*",
 ]
 from = [

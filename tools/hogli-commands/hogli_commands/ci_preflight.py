@@ -5,7 +5,8 @@ you what's broken on master, preflight stops you from being the one who breaks
 it. It scopes a curated set of checks to the files your branch actually touched,
 each mapped to a CI failure class we've seen take master down, plus an always-on
 branch-freshness check that flags concrete merge risks (textual conflicts,
-migration collisions, generated-file drift, CI changes on master).
+migration collisions, generated-file drift, CI changes on master), plus
+companion-file checks that fail when a mirrored file moves without its pair.
 
     hogli ci:preflight            # report what your diff could break in CI
     hogli ci:preflight --fix      # auto-remediate what's safe, report the rest
@@ -203,6 +204,31 @@ DIFF_CHECKS: list[DiffCheck] = [
 ]
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class CompanionCheck:
+    """Two files a CI gate requires to move together. The diff is the evidence, so
+    unlike a ``DiffCheck`` there is nothing to run."""
+
+    key: str
+    label: str
+    source: str
+    companion: str
+    escape_hatch: str  # what to do when the change is deliberately one-sided
+
+
+# Duplicated from .github/workflows/ci-backend-shadow-drift.yml so the failure lands
+# pre-push instead of a CI round-trip. A test binds the two so they cannot drift.
+COMPANION_CHECKS: list[CompanionCheck] = [
+    CompanionCheck(
+        key="shadow-drift",
+        label="depot shadow drift (.depot mirror of ci-backend.yml)",
+        source=".github/workflows/ci-backend.yml",
+        companion=".depot/workflows/ci-backend.yml",
+        escape_hatch="document it as an intentional delta in that file's header",
+    ),
+]
+
+
 def _has_node_modules() -> bool:
     return (REPO_ROOT / "node_modules" / ".pnpm").exists()
 
@@ -328,6 +354,12 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
         return "pass", "fixed" if do_fix else "ok"
     lines = (result.stdout or result.stderr).strip().splitlines()
     return "fail", " · ".join(lines[:3]) if lines else f"exit {result.returncode}"
+
+
+def _run_companion_check(chk: CompanionCheck, files: list[str]) -> tuple[Status, str]:
+    if chk.companion in files:
+        return "pass", "both files updated"
+    return "fail", f"mirror the change into {chk.companion}, or {chk.escape_hatch}"
 
 
 # Branch-freshness backstop thresholds. The risk signals in ``_staleness_risks``
@@ -555,6 +587,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         chk.matched = [f for f in files if matches_globs(f, chk.triggers)]
         if chk.matched:
             triggered.append(chk)
+    triggered_companions = [c for c in COMPANION_CHECKS if c.source in files]
 
     results: list[dict[str, Any]] = []
     failures = 0
@@ -571,6 +604,14 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         click.secho(f"   {_ICON[stale_status]} [staleness] branch freshness vs master", fg=_COLOR[stale_status])
         click.echo(f"       {stale_detail}")
 
+    for companion in triggered_companions:
+        status, detail = _run_companion_check(companion, files)
+        failures += status == "fail"
+        results.append({"check": companion.key, "status": status, "files": 1, "detail": detail})
+        if not as_json:
+            click.secho(f"   {_ICON[status]} [{companion.key}] {companion.label}", fg=_COLOR[status])
+            click.echo(f"       {detail}")
+
     for chk in triggered:
         status, detail = _run_diff_check(chk, do_fix)
         failures += status == "fail"
@@ -584,7 +625,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
 
     summary = {
         "changed_files": len(files),
-        "triggered": [c.key for c in triggered],
+        "triggered": [c.key for c in triggered_companions] + [c.key for c in triggered],
         "failures": failures,
         "advisories": advisories,
         "mode": "fix" if do_fix else ("strict" if strict else "advisory"),
@@ -594,7 +635,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     if as_json:
         click.echo(json.dumps(summary))
     else:
-        if not triggered:
+        if not triggered and not triggered_companions:
             click.secho("   ✓ Nothing in this diff maps to a known CI failure class.", fg="green")
         click.echo()
         click.echo(

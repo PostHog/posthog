@@ -137,6 +137,10 @@ class ExperimentExposureLinkage:
     # through their own async or batch pipelines run under those pipelines' limits and may
     # ignore it.
     live_scan_max_memory_bytes: int | None = None
+    # True when the exposure criteria apply the team's test-account filters, so the exposed
+    # population is already test-filtered at the person level. Queries that restrict their rows
+    # to this population can skip re-applying the same filters to their own rows.
+    population_filters_test_accounts: bool = False
 
 
 def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | None) -> ExperimentExposureLinkage:
@@ -208,6 +212,7 @@ def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | N
         requested_variants=requested_variants,
         preaggregation_job_ids=read.preaggregation_job_ids,
         live_scan_max_memory_bytes=read.live_scan_max_memory_bytes,
+        population_filters_test_accounts=exposure_params.filter_test_accounts,
     )
 
 

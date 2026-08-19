@@ -881,3 +881,16 @@ class TestObserveQuotaEnforcement(_VisionQuotaTestCase):
             assert "observations running" in resp.json()["detail"]
             # Blocked before any workflow start.
             mock_sync_connect.assert_not_called()
+
+
+class TestBillingPeriodValidation(SimpleTestCase):
+    START = datetime(2026, 7, 1, tzinfo=UTC)
+
+    def test_accepts_ordered_bounds(self) -> None:
+        period = BillingPeriod(start=self.START, end=self.START + timedelta(days=31))
+        assert period.end - period.start == timedelta(days=31)
+
+    @parameterized.expand([("empty", timedelta(0)), ("reversed", timedelta(seconds=-1))])
+    def test_rejects_empty_or_reversed_window(self, _name: str, delta: timedelta) -> None:
+        with self.assertRaisesRegex(ValueError, "start"):
+            BillingPeriod(start=self.START, end=self.START + delta)

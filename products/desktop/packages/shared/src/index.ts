@@ -95,6 +95,7 @@ export {
   isCloudflareModel,
   isCloudflareModelId,
   isDeepseekModelId,
+  isGlm53ModelId,
   isGlmModelId,
   isModalModel,
   isModalModelId,
@@ -337,23 +338,14 @@ export type {
 } from "./skills";
 export {
   DISABLE_MODEL_INVOCATION_METADATA_KEY,
+  isIgnoredSkillEntry,
+  isIgnoredSkillPath,
   SKILL_EXISTS_MARKER,
   serializeSkillMarkdown,
   stripFrontmatter,
 } from "./skills";
+export { leadingSlashCommand } from "./slash-commands";
 export type { PostHogAPIConfig } from "./task";
-export {
-  type CreateTaskAutomationOptions,
-  createTaskAutomationSchema,
-  type TaskAutomation,
-  type TaskAutomationList,
-  type TaskAutomationValidationErrorDetails,
-  taskAutomationListSchema,
-  taskAutomationSchema,
-  taskAutomationValidationErrorSchema,
-  type UpdateTaskAutomationOptions,
-  updateTaskAutomationSchema,
-} from "./task-automation";
 export type {
   TaskCreationInput,
   TaskCreationOutput,

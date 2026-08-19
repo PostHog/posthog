@@ -2,7 +2,7 @@
 name: querying-canvas-data
 description: >
   Get PostHog data into a canvas correctly: the host-injected `ph` SDK (loadInsight, query,
-  capture, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes
+  capture, state, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes
   second, inline HogQL last), per-insight-type result shapes, date-range wiring, and event capture
   from a canvas. Use whenever a canvas shows metrics, charts, tables, or any PostHog data, or
   needs to send analytics events.
@@ -12,7 +12,9 @@ description: >
 
 The global `ph` object (injected by the host — never imported, never initialized) is the only way
 a canvas talks to PostHog. Credentials stay in the host; `fetch()`, posthog-js, and hand-rolled
-clients fail in the sandbox.
+clients cannot reach PostHog from the sandbox. The one sanctioned use of `fetch()` is a non-PostHog
+origin declared in `capabilities.network.origins`, and only in the published canvas — the
+edit-mode preview blocks all direct network access.
 
 ## Data hierarchy — back every metric with a saved insight
 
@@ -35,6 +37,14 @@ Whatever tier you use, **declare it in the project's `capabilities`** before pub
 `ph.loadInsight` short id in `capabilities.posthog.insights`, every `ph.capture` event name in
 `captureEvents`, and `inlineQueries: true` for any `ph.query` use. The host rejects undeclared
 calls at runtime, and validation fails on undeclared literals.
+
+For a status board, set `refresh` to the cache lifetime in seconds. Use a whole number from 30 to
+86400 (one day); values outside that range, or fractional ones, fail at runtime:
+
+```js
+await ph.loadInsight(shortId, { refresh: 30 })
+await ph.query(queryNode, {}, { refresh: 30 })
+```
 
 ## Result shapes — read them correctly or every value renders 0
 
@@ -89,6 +99,51 @@ product — rather than every tile resolving the insight's saved default.
   returning every product as rows over the same insight loaded N times, and slice it client-side.
 - Values are typed by the variable's definition in PostHog (String / Number / Boolean / Date / List);
   pass the same shape the insight expects, and an array for a multi-select List variable.
+
+## Live Tasks data
+
+For a task inbox, queue, or status board, query `system.tasks` and `system.task_runs` through
+`ph.query`. Do not call `posthog:tasks-list` while authoring and embed its response: that produces a
+snapshot, while the system tables keep the rendered canvas live.
+
+The tables run as the signed-in viewer. They are project-scoped and require access to the Tasks
+resource. `system.tasks` includes only non-internal tasks filed in live public spaces; it excludes
+private, personal, unfiled, and internal tasks. Always exclude soft-deleted tasks explicitly.
+
+Join a task to its latest run when the canvas needs current status:
+
+```tsx
+const data = await ph.query(`
+  SELECT
+    t.id,
+    t.task_number,
+    t.title,
+    t.repository,
+    t.created_by_id,
+    t.created_at,
+    t.updated_at,
+    latest.status AS latest_run_status
+  FROM system.tasks AS t
+  LEFT JOIN (
+    SELECT
+      task_id,
+      argMax(status, tuple(created_at, id)) AS status
+    FROM system.task_runs
+    GROUP BY task_id
+  ) AS latest ON latest.task_id = t.id
+  WHERE t.deleted = 0
+  ORDER BY t.updated_at DESC
+  LIMIT 100
+`)
+```
+
+This is inline HogQL, so declare `capabilities.posthog.inlineQueries: true`. Render links with
+`ph.navigate.toTask(id)` rather than constructing task URLs.
+
+Do not promise filters the tables cannot express. `channel_id` is not queryable, so a canvas cannot
+currently restrict this query to its own space. Filtering to the current viewer also requires a
+known numeric user id; the canvas runtime does not inject one. State these limits when the request
+depends on “this space” or “my tasks” instead of silently showing project-wide public tasks.
 
 ## Runtime memory — ph.state
 

@@ -22,7 +22,7 @@ import uniqBy from 'lodash.uniqby'
 import { ResponsiveLayouts } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 
-import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import {
@@ -45,6 +45,7 @@ import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -98,6 +99,7 @@ import {
     DashboardTemplateEditorType,
     DashboardTile,
     DashboardTileBasicType,
+    DashboardTileSpacing,
     DashboardType,
     DashboardWidgetType,
     InsightColor,
@@ -279,6 +281,7 @@ export interface dashboardLogicValues {
     dashboardLoading: boolean
     dashboardMode: DashboardMode | null
     dashboardStreaming: boolean
+    dashboardTileSpacingSaving: boolean
     dashboardWidgetsEnabled: boolean
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
@@ -666,6 +669,9 @@ export interface dashboardLogicActions {
             variables?: unknown
         } | null
     }
+    saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => {
+        tileSpacing: DashboardTileSpacing
+    }
     saveEditModeChanges: () => boolean
     saveEditModeChangesFailure: (
         error: string,
@@ -735,6 +741,12 @@ export interface dashboardLogicActions {
     }
     setDashboardStreamFailed: () => {
         value: true
+    }
+    setDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => {
+        tileSpacing: DashboardTileSpacing
+    }
+    setDashboardTileSpacingSaving: (saving: boolean) => {
+        saving: boolean
     }
     setDataColorThemeId: (dataColorThemeId: number | null) => {
         dataColorThemeId: number | null
@@ -1298,6 +1310,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAccessDeniedToDashboard: true,
         /** Update the dashboard in dashboardsModel with given payload. */
         triggerDashboardUpdate: (payload) => ({ payload }),
+        saveDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
         updateDashboardTags: (tags: string[]) => ({ tags }),
         /** Update page visibility for virtualized rendering. */
         setPageVisibility: (visible: boolean) => ({ visible }),
@@ -1369,6 +1382,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
          */
         setBreakdownColorConfig: (config: BreakdownColorConfig) => ({ config }),
         setDataColorThemeId: (dataColorThemeId: number | null) => ({ dataColorThemeId }),
+        setDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
+        setDashboardTileSpacingSaving: (saving: boolean) => ({ saving }),
         restoreTemporaryColorState: (colors: BreakdownColorConfig[], themeId: { themeId: number | null } | null) => ({
             colors,
             themeId,
@@ -1775,6 +1790,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 tileStreamingFailure: () => false,
             },
         ],
+        dashboardTileSpacingSaving: [
+            false,
+            {
+                setDashboardTileSpacingSaving: (_, { saving }) => saving,
+            },
+        ],
         loadingPreview: [
             false,
             {
@@ -1901,6 +1922,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tiles: state?.tiles?.map((tile) => (tile.id === tileId ? { ...tile, ...properties } : tile)),
                     } as DashboardType<QueryBasedInsightModel>
                 },
+                setDashboardTileSpacing: (state, { tileSpacing }) =>
+                    state
+                        ? {
+                              ...state,
+                              customization: { ...state.customization, tile_spacing: tileSpacing },
+                          }
+                        : state,
                 removeTile: (state, { tile }) => {
                     // Optimistically drop the tile so the grid reflows immediately; the loader rolls back on failure.
                     return {
@@ -2704,8 +2732,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         inlineTileInsertionEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
+                const experimentVariant = featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION_EXPERIMENT]
+                if (experimentVariant === 'control') {
+                    return false
+                }
+                if (experimentVariant === 'test') {
+                    return true
+                }
+                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION]
+            },
         ],
         insightTiles: [
             (s) => [s.tiles],
@@ -3312,7 +3348,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                   : newTile.widget
                     ? 'widget'
                     : 'insight'
-            eventUsageLogic.actions.reportDashboardTileInsertedInline(insertedTileType, slot.x, slot.y, slot.w != null)
+            eventUsageLogic.actions.reportDashboardTileInsertedInline(
+                insertedTileType,
+                props.id,
+                newTile.id,
+                slot.x,
+                slot.y,
+                slot.w != null
+            )
 
             // In edit mode the change is saved with the rest of the edit session.
             if (values.layoutEditMode) {
@@ -3371,6 +3414,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
+        [insightsModel.actionTypes.renameInsightSuccess]: ({ item }: { item: QueryBasedInsightModel }) => {
+            const targetDashboards = (item.dashboard_tiles || []).map((tile) => tile.dashboard_id)
+            if (!targetDashboards.includes(props.id)) {
+                // this update is not for this dashboard
+                return
+            }
+
+            const tileIndex = values.tiles.findIndex((t) => !!t.insight && t.insight.short_id === item.short_id)
+
+            if (tileIndex === -1) {
+                // the rename landed before this dashboard had the tile in state, so the reducer
+                // could not patch it and the tile would show the stale name forever - reload instead
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+            }
+        },
         duplicateTile: () => {
             cache.widgetTileIdsBeforeDuplicate = new Set(values.widgetTiles.map((tile) => tile.id))
         },
@@ -3407,47 +3465,166 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const isWidgetTile = !!tile.widget
             const removedMessage = isWidgetTile ? 'widget removed' : 'has been removed from the dashboard'
             const toastId = `remove-tile-${tile.id}`
+            const otherDashboardIds = new Set(
+                (
+                    tile.insight?.dashboard_tiles
+                        ?.filter((dashboardTile) => !dashboardTile.deleted)
+                        .map((dashboardTile) => dashboardTile.dashboard_id) ??
+                    tile.insight?.dashboards ??
+                    []
+                ).filter((dashboardId) => dashboardId !== props.id)
+            )
+            const canDeleteInsight =
+                tile.insight?.user_access_level !== AccessControlLevel.Viewer &&
+                (!tile.insight?.user_access_level ||
+                    accessLevelSatisfied(
+                        AccessControlResourceType.Insight,
+                        tile.insight.user_access_level,
+                        AccessControlLevel.Editor
+                    ))
+            const deleteInsight = (): void => {
+                if (!tile.insight) {
+                    return
+                }
 
-            lemonToast.info(
-                <>
-                    <b>{tileName}</b> {removedMessage}
-                </>,
-                {
-                    toastId,
-                    button: {
-                        label: 'Undo',
-                        dataAttr: 'undo-remove-tile-from-dashboard',
-                        action: async () => {
-                            try {
-                                await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
-                                    tiles: [{ id: tile.id, deleted: false }],
-                                })
+                const otherDashboards = Array.from(otherDashboardIds).map((dashboardId) => ({
+                    id: dashboardId,
+                    name: dashboardsModel.values.rawDashboards[dashboardId]?.name || `Dashboard ${dashboardId}`,
+                }))
+                const dashboardIds = [props.id, ...otherDashboardIds]
+                const otherDashboardCount = otherDashboards.length
 
-                                if (tile.insight) {
-                                    const insight = tile.insight
-                                    const nextDashboards = insight.dashboards?.includes(props.id)
-                                        ? insight.dashboards
-                                        : [...(insight.dashboards || []), props.id]
-                                    dashboardsModel.actions.updateDashboardInsight(
-                                        { ...insight, dashboards: nextDashboards },
-                                        [props.id]
-                                    )
-                                }
-
-                                actions.loadDashboard({ action: DashboardLoadAction.Update })
-
-                                lemonToast.success(
-                                    <>
-                                        <b>{tileName}</b> {isWidgetTile ? 'widget restored' : 'has been restored'}
-                                    </>,
-                                    { toastId }
-                                )
-                            } catch (e) {
-                                lemonToast.error('Could not restore tile: ' + String(e))
-                            }
+                LemonDialog.open({
+                    title: 'Delete insight everywhere?',
+                    shouldAwaitSubmit: true,
+                    description: (
+                        <div className="pt-2 space-y-4">
+                            {otherDashboards.length > 0 && (
+                                <div>
+                                    <div>This insight is also used on:</div>
+                                    <ul className="list-inside list-disc">
+                                        {otherDashboards.map((dashboard) => (
+                                            <li key={dashboard.id}>
+                                                <Link to={urls.dashboard(dashboard.id)}>{dashboard.name}</Link>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                            <div>
+                                This deletes the insight and removes it from every dashboard. You can undo this action.
+                            </div>
+                        </div>
+                    ),
+                    primaryButton: {
+                        children: 'Delete insight everywhere',
+                        status: 'danger',
+                        onClick: () => {
+                            eventUsageLogic.actions.reportDashboardInsightDeleteAfterRemovalConfirmed(
+                                otherDashboardCount
+                            )
+                            return deleteInsightWithUndo({
+                                object: { ...tile.insight!, dashboards: dashboardIds },
+                                endpoint: `projects/${values.currentTeamId}/insights`,
+                                callback: (undo, insight) => {
+                                    const updatedInsight = {
+                                        ...insight,
+                                        deleted: !undo,
+                                        dashboards: undo ? insight.dashboards : [],
+                                    }
+                                    dashboardsModel.actions.updateDashboardInsight(updatedInsight, dashboardIds)
+                                    if (!undo) {
+                                        lemonToast.dismiss(toastId)
+                                    }
+                                },
+                            })
                         },
                     },
+                    secondaryButton: { children: 'Cancel' },
+                })
+            }
+            const undoTileRemoval = async (): Promise<void> => {
+                try {
+                    await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
+                        tiles: [{ id: tile.id, deleted: false }],
+                    })
+
+                    if (tile.insight) {
+                        const insight = tile.insight
+                        const nextDashboards = insight.dashboards?.includes(props.id)
+                            ? insight.dashboards
+                            : [...(insight.dashboards || []), props.id]
+                        dashboardsModel.actions.updateDashboardInsight({ ...insight, dashboards: nextDashboards }, [
+                            props.id,
+                        ])
+                    }
+
+                    actions.loadDashboard({ action: DashboardLoadAction.Update })
+
+                    lemonToast.success(
+                        <>
+                            <b>{tileName}</b> {isWidgetTile ? 'widget restored' : 'has been restored'}
+                        </>,
+                        { toastId }
+                    )
+                } catch (e) {
+                    lemonToast.error('Could not restore tile: ' + String(e))
                 }
+            }
+
+            lemonToast.info(
+                tile.insight ? (
+                    <span className="flex flex-col gap-2">
+                        <span>
+                            <b>{tileName}</b> {removedMessage}
+                        </span>
+                        <span className="flex items-center gap-2">
+                            {canDeleteInsight && (
+                                <LemonButton
+                                    type="primary"
+                                    status="danger"
+                                    size="small"
+                                    data-attr="delete-removed-insight"
+                                    className="!m-0"
+                                    onClick={() => {
+                                        eventUsageLogic.actions.reportDashboardInsightDeleteAfterRemovalClicked(
+                                            otherDashboardIds.size
+                                        )
+                                        deleteInsight()
+                                    }}
+                                >
+                                    Delete insight everywhere
+                                </LemonButton>
+                            )}
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                data-attr="undo-remove-tile-from-dashboard"
+                                className="!m-0"
+                                onClick={() => {
+                                    void undoTileRemoval()
+                                    lemonToast.dismiss(toastId)
+                                }}
+                            >
+                                Undo
+                            </LemonButton>
+                        </span>
+                    </span>
+                ) : (
+                    <>
+                        <b>{tileName}</b> {removedMessage}
+                    </>
+                ),
+                tile.insight
+                    ? { toastId }
+                    : {
+                          toastId,
+                          button: {
+                              label: 'Undo',
+                              dataAttr: 'undo-remove-tile-from-dashboard',
+                              action: undoTileRemoval,
+                          },
+                      }
             )
         },
         moveToDashboardSuccess: ({ payload }) => {
@@ -3524,6 +3701,48 @@ export const dashboardLogic = kea<dashboardLogicType>([
         triggerDashboardUpdate: ({ payload }) => {
             if (values.dashboard) {
                 dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
+            }
+        },
+        saveDashboardTileSpacing: async ({ tileSpacing }, breakpoint) => {
+            await breakpoint(750)
+
+            if (cache.dashboardTileSpacingSaveInFlight) {
+                cache.pendingDashboardTileSpacing = tileSpacing
+                return
+            }
+
+            const persistedDashboard = dashboardsModel.values.rawDashboards[props.id]
+            const persistedTileSpacing =
+                persistedDashboard && 'customization' in persistedDashboard
+                    ? (persistedDashboard.customization?.tile_spacing ?? 'standard')
+                    : 'standard'
+            cache.dashboardTileSpacingSaveInFlight = true
+            actions.setDashboardTileSpacingSaving(true)
+            try {
+                const dashboard = await api.update<DashboardType<QueryBasedInsightModel>>(
+                    `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
+                    { grid_spacing: tileSpacing }
+                )
+                dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard))
+                if (tileSpacing !== 'standard') {
+                    eventUsageLogic.actions.reportDashboardTileDensityConfigured(tileSpacing)
+                }
+            } catch {
+                if (!cache.pendingDashboardTileSpacing) {
+                    actions.setDashboardTileSpacing(persistedTileSpacing)
+                    actions.loadDashboard({ action: DashboardLoadAction.Update })
+                    lemonToast.error("Couldn't update tile density. Try again.")
+                }
+            } finally {
+                cache.dashboardTileSpacingSaveInFlight = false
+                const pendingTileSpacing = cache.pendingDashboardTileSpacing as DashboardTileSpacing | undefined
+                cache.pendingDashboardTileSpacing = undefined
+                if (pendingTileSpacing) {
+                    actions.setDashboardTileSpacing(pendingTileSpacing)
+                    actions.saveDashboardTileSpacing(pendingTileSpacing)
+                } else {
+                    actions.setDashboardTileSpacingSaving(false)
+                }
             }
         },
         forceRefreshIfStale: () => {

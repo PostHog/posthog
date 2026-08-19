@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-14 10:21:15 UTC
+// Generated at: 2026-08-19 10:06:27 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -12,7 +12,6 @@ export type CanonicalProvider =
     | 'alibaba-fp8'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
-    | 'amazon-bedrock-claude-on-aws'
     | 'amazon-bedrock-eu-west-1'
     | 'amazon-bedrock-global'
     | 'amazon-bedrock-us'
@@ -22,8 +21,6 @@ export type CanonicalProvider =
     | 'ambient-fp4'
     | 'ambient-fp8'
     | 'anthropic'
-    | 'anthropic-2'
-    | 'anthropic-claude-on-aws'
     | 'arcee-ai'
     | 'atlas-cloud-fp4'
     | 'atlas-cloud-fp8'
@@ -32,6 +29,7 @@ export type CanonicalProvider =
     | 'azure-eu'
     | 'azure-global'
     | 'azure-swedencentral'
+    | 'azure-us'
     | 'baidu-fp4'
     | 'baidu-fp8'
     | 'baseten-fast'
@@ -66,7 +64,6 @@ export type CanonicalProvider =
     | 'deepinfra-turbo'
     | 'deepinfra-ultra'
     | 'deepseek'
-    | 'deepseek-fp8'
     | 'digitalocean'
     | 'fireworks'
     | 'fireworks-fast'
@@ -183,7 +180,6 @@ export type CanonicalProvider =
     | 'venice-int4'
     | 'wafer'
     | 'wafer-fast'
-    | 'wafer-fp4'
     | 'xai'
     | 'xai-priority'
     | 'xai-zdr'

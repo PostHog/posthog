@@ -18,6 +18,7 @@ from posthog.temporal.ai.slack_app.activities.messaging import (
     post_posthog_code_no_repos_activity,
     post_posthog_code_picker_timeout_activity,
     post_posthog_code_repo_picker_activity,
+    request_untagged_followup_confirmation_activity,
 )
 from posthog.temporal.ai.slack_app.activities.onboarding import (
     run_posthog_slack_inbox_onboarding,
@@ -38,10 +39,7 @@ from posthog.temporal.ai.slack_app.activities.task_creation import (
     forward_posthog_code_followup_activity,
 )
 from posthog.temporal.ai.slack_app.activities.thread import collect_posthog_code_thread_messages_activity
-from posthog.temporal.ai.slack_app.activities.user_resolution import (
-    resolve_posthog_code_slack_command_user_activity,
-    resolve_posthog_code_slack_user_activity,
-)
+from posthog.temporal.ai.slack_app.activities.user_resolution import resolve_posthog_code_slack_command_user_activity
 
 __all__ = [
     "CLASSIFIER_THREAD_HISTORY_MESSAGES",
@@ -70,8 +68,8 @@ __all__ = [
     "post_posthog_code_no_repos_activity",
     "post_posthog_code_picker_timeout_activity",
     "post_posthog_code_repo_picker_activity",
+    "request_untagged_followup_confirmation_activity",
     "resolve_posthog_code_slack_command_user_activity",
-    "resolve_posthog_code_slack_user_activity",
     "run_posthog_slack_inbox_onboarding",
     "run_posthog_slack_inbox_onboarding_activity",
 ]

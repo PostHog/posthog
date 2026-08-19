@@ -45,7 +45,6 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
-    CustomOAuth2Integration,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -54,13 +53,17 @@ from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
 )
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
+from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
     ExternalDataSourceViewSet,
+    get_declared_field_names,
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
     get_oauth_integration_kinds,
+    has_preserved_credentials,
+    restore_declared_field_names,
     strip_sensitive_from_dict,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
@@ -397,7 +400,7 @@ class TestExternalDataSource(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_create_external_data_source_delete_on_missing_schemas(self, _mock_validate):
+    def test_create_external_data_source_delete_on_non_list_schemas(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -412,6 +415,28 @@ class TestExternalDataSource(APIBaseTest):
 
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
+
+    @parameterized.expand([("omitted", {}), ("empty_list", {"schemas": []})])
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_defaults_schemas(self, _name, extra_payload, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    **extra_payload,
+                },
+            },
+        )
+
+        assert response.status_code == 201
+        source = ExternalDataSource.objects.get()
+        assert source.schemas.filter(should_sync=True).exists()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -857,6 +882,40 @@ class TestExternalDataSource(APIBaseTest):
         schema_two.refresh_from_db()
         assert schema_one.should_sync is False
         assert schema_two.should_sync is False
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_sets_primary_key_columns(self, _mock_workflow_exists):
+        # A keyless incremental table fails its sync until someone picks a primary key, and a source
+        # can land hundreds of them at once. Undeclared fields are dropped in validation, so without
+        # primary_key_columns on this serializer the batch returns 200 having changed nothing.
+        source = self._create_external_data_source()
+        schemas = [
+            ExternalDataSchema.objects.create(
+                name=name,
+                team_id=self.team.pk,
+                source=source,
+                should_sync=True,
+                sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+                sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "datetime"},
+            )
+            for name in ("Customers", "Invoices")
+        ]
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+            data={"schemas": [{"id": str(schema.id), "primary_key_columns": ["id"]} for schema in schemas]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [schema["primary_key_columns"] for schema in response.json()] == [["id"], ["id"]]
+
+        for schema in schemas:
+            schema.refresh_from_db()
+            assert schema.sync_type_config.get("primary_key_columns") == ["id"]
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -2012,7 +2071,6 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 201
 
     def test_create_external_data_source_bigquery_removes_project_id_prefix(self):
-        """Test we remove the `project_id` prefix of a `dataset_id`."""
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.get_schemas",
@@ -2068,7 +2126,6 @@ class TestExternalDataSource(APIBaseTest):
         assert source_model.job_inputs["dataset_id"] == "my_project.my_dataset"
 
     def test_create_external_data_source_missing_required_bigquery_job_input(self):
-        """Test we fail source creation when missing inputs."""
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -2303,6 +2360,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Snowflake",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "is_builtin_managed_warehouse": False,
                     "description": None,
                 },
                 {
@@ -2312,6 +2370,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "Postgres",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "is_builtin_managed_warehouse": False,
                     "description": "Prod Postgres replica",
                 },
                 {
@@ -2321,6 +2380,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source_type": "MySQL",
                     "access_method": "direct",
                     "supports_hogql": True,
+                    "is_builtin_managed_warehouse": False,
                     "description": None,
                 },
             ],
@@ -5758,7 +5818,6 @@ class TestExternalDataSource(APIBaseTest):
         return_value=(True, None),
     )
     def test_update_with_new_password_updates_password(self, mock_validate_credentials):
-        """Test that explicitly providing a new password does update it."""
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -7603,7 +7662,6 @@ class TestExternalDataSource(APIBaseTest):
         mock_validate_credentials.assert_called_once()
 
     def test_snowflake_auth_type_create_and_update(self):
-        """Test that we can create and update the auth type for a Snowflake source"""
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
@@ -7721,7 +7779,6 @@ class TestExternalDataSource(APIBaseTest):
         assert job_inputs["auth_type"]["private_key"] == "my_private_key"
 
     def test_bigquery_create_and_update(self):
-        """Test that we can create and update the config for a BigQuery source"""
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
@@ -8005,7 +8062,6 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json()["message"] != limit_message
 
     def test_revenue_analytics_config_created_automatically(self):
-        """Test that revenue analytics config is created automatically when external data source is created."""
         source = self._create_external_data_source()
 
         # Config should be created automatically
@@ -8017,7 +8073,6 @@ class TestExternalDataSource(APIBaseTest):
         assert config.include_invoiceless_charges is True
 
     def test_revenue_analytics_config_safe_property(self):
-        """Test that the safe property always returns a config even if it doesn't exist."""
         source = self._create_external_data_source()
 
         # Delete the config to test fallback
@@ -8030,7 +8085,6 @@ class TestExternalDataSource(APIBaseTest):
         assert config.enabled is True  # Stripe should be enabled by default
 
     def test_revenue_analytics_config_in_api_response(self):
-        """Test that revenue analytics config is included in API responses."""
         source = self._create_external_data_source()
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
@@ -8043,7 +8097,6 @@ class TestExternalDataSource(APIBaseTest):
         assert config_data["include_invoiceless_charges"] is True
 
     def test_update_revenue_analytics_config(self):
-        """Test updating revenue analytics config via PATCH endpoint."""
         source = self._create_external_data_source()
 
         response = self.client.patch(
@@ -8070,7 +8123,6 @@ class TestExternalDataSource(APIBaseTest):
         assert config.include_invoiceless_charges is False
 
     def test_revenue_analytics_config_partial_update(self):
-        """Test partial update of revenue analytics config."""
         source = self._create_external_data_source()
 
         response = self.client.patch(
@@ -8087,7 +8139,6 @@ class TestExternalDataSource(APIBaseTest):
         assert config.include_invoiceless_charges is True  # Should remain unchanged
 
     def test_revenue_analytics_config_queryset_optimization(self):
-        """Test that the manager uses select_related for efficient queries."""
         self._create_external_data_source()
         self._create_external_data_source()
 
@@ -8137,7 +8188,6 @@ class TestExternalDataSource(APIBaseTest):
         assert DataWarehouseJoin.objects.filter(team=self.team, source_table_name=view_name, deleted=True).exists()
 
     def test_create_external_data_source_rejects_invalid_prefix(self):
-        """Test that invalid characters in prefix are rejected."""
         invalid_prefixes = [
             ("email@domain.com", "@"),
             ("test-prefix", "hyphen"),
@@ -8185,7 +8235,6 @@ class TestExternalDataSource(APIBaseTest):
         return_value=(True, None),
     )
     def test_create_external_data_source_accepts_valid_prefix(self, _mock_validate):
-        """Test that valid prefixes are accepted."""
         valid_prefixes = [
             "valid_prefix",
             "_starts_with_underscore",
@@ -8220,6 +8269,8 @@ class TestExternalDataSource(APIBaseTest):
                     [200, 201],
                     f"Expected acceptance for valid prefix '{prefix}'",
                 )
+                source = ExternalDataSource.objects.get(id=response.json()["id"])
+                self.assertEqual(source.prefix, prefix)
 
 
 class TestCreateWebhook(APIBaseTest):
@@ -8990,6 +9041,40 @@ class TestSensitiveFieldClassification(APIBaseTest):
         assert "temporary_dataset" in result
         assert result["temporary_dataset"]["enabled"] is True
         assert result["temporary_dataset"]["temporary_dataset_id"] == "tmp-dataset"
+
+    def test_restore_prefers_the_declared_name_when_both_spellings_are_stored(self):
+        fields: list[FieldType] = [
+            SourceFieldSwitchGroupConfig(
+                name="temporary-dataset",
+                label="Temporary dataset",
+                default=False,
+                fields=cast(
+                    list[FieldType],
+                    [
+                        SourceFieldInputConfig(
+                            name="temporary_dataset_id",
+                            label="Dataset ID",
+                            placeholder="",
+                            required=True,
+                            type=SourceFieldInputConfigType.TEXT,
+                            secret=False,
+                        ),
+                    ],
+                ),
+            ),
+        ]
+        declared = get_declared_field_names(fields)
+
+        result = restore_declared_field_names(
+            {
+                "temporary-dataset": {"temporary_dataset_id": "declared"},
+                "temporary_dataset": {"temporary_dataset_id": "persisted"},
+            },
+            declared.hyphenated,
+        )
+
+        assert result["temporary-dataset"]["temporary_dataset_id"] == "declared"
+        assert "temporary_dataset" not in result
 
     def test_all_registered_sources_have_valid_classification(self):
         for source in SourceRegistry.get_all_sources().values():
@@ -13118,6 +13203,22 @@ class TestGetDirectConnectionMetadata(SimpleTestCase):
         mock_capture.assert_called_once_with(error)
 
 
+class TestHasPreservedCredentials(SimpleTestCase):
+    # A group declared with a hyphen is persisted under its underscore variant, so a gate that
+    # only looked up the declared spelling would miss the stored secret and let a host change
+    # through without forcing re-entry.
+    @parameterized.expand([("temporary-dataset",), ("temporary_dataset",)])
+    def test_finds_a_secret_stored_under_either_spelling(self, stored_key: str) -> None:
+        preserved = has_preserved_credentials(
+            {stored_key: {"enabled": True, "api_key": "stored"}},
+            {"host": "new-host"},
+            {"api_key"},
+            nested_containers=("temporary-dataset",),
+        )
+
+        assert preserved is True
+
+
 class TestGithubMultiRepoPatch(APIBaseTest):
     def _create_github_source(self, job_inputs: dict) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
@@ -13264,6 +13365,118 @@ class TestGithubMultiRepoPatch(APIBaseTest):
 
         removed_webhook_row.refresh_from_db()
         assert removed_webhook_row.deleted is True or removed_webhook_row.should_sync is False
+
+
+class TestBigQuerySwitchGroups(APIBaseTest):
+    def _create_bigquery_source(self, job_inputs: dict[str, Any]) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="BigQuery",
+            created_by=self.user,
+            prefix="bq",
+            job_inputs={
+                "key_file": {
+                    "project_id": "project_id",
+                    "private_key_id": "private_key_id",
+                    "private_key": "private_key",
+                    "client_email": "client_email",
+                    "token_uri": "token_uri",
+                },
+                "dataset_id": "my_dataset",
+                **job_inputs,
+            },
+        )
+
+    # A source saved since migration 0807 stores "temporary_dataset"; one untouched since stores
+    # "temporary-dataset". The settings form only looks for the declared, hyphenated name.
+    @parameterized.expand([("temporary-dataset",), ("temporary_dataset",)])
+    def test_temporary_dataset_reads_back_under_the_declared_name(self, stored_key: str) -> None:
+        source = self._create_bigquery_source({stored_key: {"enabled": True, "temporary_dataset_id": "tmp_dataset"}})
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/")
+        assert response.status_code == status.HTTP_200_OK
+
+        job_inputs = response.json()["job_inputs"]
+        assert job_inputs["temporary-dataset"]["temporary_dataset_id"] == "tmp_dataset"
+        assert job_inputs["temporary-dataset"]["enabled"] == "True"
+        # A leftover second spelling would win the settings form's merge and blank the field.
+        assert "temporary_dataset" not in job_inputs
+
+    @parameterized.expand(
+        [
+            ("temporary-dataset", "temporary_dataset", False, "temporary_dataset_id", "tmp_dataset"),
+            ("use_custom_region", "use_custom_region", False, "region", "us-east1"),
+            ("dataset_project", "dataset_project", True, "dataset_project_id", "other_project"),
+        ]
+    )
+    def test_toggling_a_switch_group_keeps_its_stored_value(
+        self, group_key: str, stored_key: str, enabled: bool, nested_key: str, nested_value: str
+    ) -> None:
+        source = self._create_bigquery_source(
+            {
+                "temporary_dataset": {"enabled": True, "temporary_dataset_id": "tmp_dataset"},
+                "use_custom_region": {"enabled": True, "region": "us-east1"},
+                "dataset_project": {"enabled": False, "dataset_project_id": "other_project"},
+            }
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+            return_value=(True, None),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={"job_inputs": {group_key: {"enabled": enabled}}},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        source.refresh_from_db()
+        config = BigQuerySourceConfig.from_dict(source.job_inputs)
+        group = getattr(config, stored_key)
+        assert group is not None
+        assert group.enabled is enabled
+        assert getattr(group, nested_key) == nested_value
+
+    def test_enabling_a_group_the_source_never_stored_keeps_the_submitted_value(self) -> None:
+        source = self._create_bigquery_source({})
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+            return_value=(True, None),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={"job_inputs": {"temporary-dataset": {"enabled": True, "temporary_dataset_id": "first_dataset"}}},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        source.refresh_from_db()
+        config = BigQuerySourceConfig.from_dict(source.job_inputs)
+        assert config.temporary_dataset is not None
+        assert config.temporary_dataset.enabled is True
+        assert config.temporary_dataset.temporary_dataset_id == "first_dataset"
+
+    # Merging a non-dict group would raise a TypeError and surface as a 500.
+    def test_a_switch_group_that_is_not_an_object_is_rejected(self) -> None:
+        source = self._create_bigquery_source(
+            {"temporary_dataset": {"enabled": True, "temporary_dataset_id": "tmp_dataset"}}
+        )
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+            return_value=(True, None),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={"job_inputs": {"temporary-dataset": "not-an-object"}},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 class TestFanoutParentCreation(APIBaseTest):

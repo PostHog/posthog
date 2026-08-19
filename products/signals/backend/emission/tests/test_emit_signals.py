@@ -74,14 +74,16 @@ def _make_llm_response(content: str | None, stop_reason: str = "end_turn") -> Ma
     return response
 
 
-def _make_output(source_id: str = "1", description: str = "test signal") -> SignalEmitterOutput:
+def _make_output(
+    source_id: str = "1", description: str = "test signal", extra: dict[str, Any] | None = None
+) -> SignalEmitterOutput:
     return SignalEmitterOutput(
         source_product="test_product",
         source_type="test",
         source_id=source_id,
         description=description,
         weight=0.5,
-        extra={},
+        extra=extra or {},
     )
 
 
@@ -274,6 +276,57 @@ class TestCheckActionability:
         is_actionable = await _check_actionability(mock_client, 1, output, "Is this actionable? {description}")
 
         assert is_actionable is expected
+
+    @pytest.mark.asyncio
+    async def test_declared_context_fields_reach_an_unsteered_gate(self):
+        # The gate decides before a signal exists, so anything it needs beyond the description has to
+        # be threaded from the source config. Without this the GitHub gate can't see who filed an
+        # issue, and a bot's dependency bump is indistinguishable from a maintainer's bug report.
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        output = _make_output(extra={"author_login": "dependabot[bot]", "state": "open"})
+
+        await _check_actionability(mock_client, 1, output, "prompt {description}", context_fields=("author_login",))
+
+        prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert '"author_login": "dependabot[bot]"' in prompt
+        # Undeclared keys stay out, so a source widens its prompt only where it asked to.
+        assert "state" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_declared_context_field_without_a_value_is_omitted(self):
+        # A rendered `"author_login": null` reads to the model as a fact about the author rather than
+        # as an absent field, so an unknown author must leave the block out entirely.
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        output = _make_output(extra={"author_login": None, "author_association": None})
+
+        await _check_actionability(
+            mock_client, 1, output, "prompt {description}", context_fields=("author_login", "author_association")
+        )
+
+        prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert "<record_metadata>" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_declared_context_survives_the_steered_metadata_cap(self):
+        # A steered gate serializes all of `extra` and truncates it, so declared keys have to lead
+        # the block. Ordered behind a record's labels they fall off the end and the gate goes blind.
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        output = _make_output(extra={"labels": ["x" * 100] * 40, "author_login": "octocat"})
+
+        await _check_actionability(
+            mock_client,
+            1,
+            output,
+            "prompt {description}",
+            include_record_metadata=True,
+            context_fields=("author_login",),
+        )
+
+        prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert '"author_login": "octocat"' in prompt
 
     @pytest.mark.asyncio
     async def test_assumes_actionable_after_retries_exhausted(self):

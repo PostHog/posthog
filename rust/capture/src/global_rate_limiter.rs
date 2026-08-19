@@ -66,6 +66,10 @@ struct LimiterSpec<'a> {
     /// already carries per-window values.
     custom_key_scale: u64,
     local_cache_max_entries: u64,
+    /// Minimum local level before a key earns a Redis sync. The unit is
+    /// whatever the limiter counts, so an event limiter's floor is in events
+    /// and the AI byte limiter's is in bytes.
+    min_sync_floor: u64,
     redis_key_prefix: &'a str,
     metrics_scope: &'a str,
     /// Whether to wire the Redis-backed dynamic threshold source.
@@ -101,6 +105,7 @@ impl GlobalRateLimiter {
                 custom_key_scale: 1,
                 local_cache_max_entries: config
                     .global_rate_limit_token_distinctid_local_cache_max_entries,
+                min_sync_floor: config.global_rate_limit_min_sync_floor,
                 redis_key_prefix: &prefix,
                 metrics_scope: &metrics_scope,
                 enable_dynamic_source: config.global_rate_limit_custom_threshold_key.is_some(),
@@ -125,6 +130,7 @@ impl GlobalRateLimiter {
                 custom_keys_csv: config.global_rate_limit_token_overrides_csv.as_ref(),
                 custom_key_scale: 1,
                 local_cache_max_entries: config.global_rate_limit_token_local_cache_max_entries,
+                min_sync_floor: config.global_rate_limit_min_sync_floor,
                 redis_key_prefix: &prefix,
                 metrics_scope: &metrics_scope,
                 // The token-only limiter is not wired to the dynamic refresh
@@ -162,6 +168,9 @@ impl GlobalRateLimiter {
                 custom_keys_csv: config.ai_byte_limit_overrides_csv.as_ref(),
                 custom_key_scale: window_secs,
                 local_cache_max_entries: config.ai_byte_limit_local_cache_max_entries,
+                // Shared knob, but this limiter counts bytes: any real event
+                // clears an event-scaled floor, so this is effectively unfloored.
+                min_sync_floor: config.global_rate_limit_min_sync_floor,
                 redis_key_prefix: AI_BYTES_REDIS_KEY_PREFIX,
                 metrics_scope: &metrics_scope,
                 // Thresholds come from config only; the Django-written blob
@@ -269,6 +278,18 @@ impl GlobalRateLimiter {
             ),
             local_cache_max_entries: spec.local_cache_max_entries,
             metrics_scope: spec.metrics_scope.to_string(),
+            min_sync_floor: spec.min_sync_floor,
+            max_sync_keys_per_tick: config.global_rate_limit_max_sync_keys_per_tick,
+            max_keys_per_command: config.global_rate_limit_max_keys_per_command,
+            max_concurrent_commands: config.global_rate_limit_max_concurrent_commands,
+            max_write_batch_entries: config.global_rate_limit_max_write_batch_entries,
+            max_pending_sync_entries: config.global_rate_limit_max_pending_sync_entries,
+            global_read_timeout: Duration::from_millis(config.global_rate_limit_read_timeout_ms),
+            global_write_timeout: Duration::from_millis(config.global_rate_limit_write_timeout_ms),
+            local_cache_ttl: Duration::from_secs(config.global_rate_limit_local_cache_ttl_secs),
+            local_cache_idle_timeout: Duration::from_secs(
+                config.global_rate_limit_local_cache_idle_timeout_secs,
+            ),
             ..Default::default()
         };
 

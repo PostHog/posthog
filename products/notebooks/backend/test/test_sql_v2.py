@@ -48,6 +48,7 @@ from products.notebooks.backend.sandbox.kernel.data_plane import (
 )
 from products.notebooks.backend.sql_v2 import (
     RESULT_CACHE_ROWS,
+    DataPlaneClaims,
     SQLV2KernelNotRunning,
     SQLV2PageError,
     build_callback_url,
@@ -1616,8 +1617,8 @@ class TestSQLV2Activities(APIBaseTest):
         # Dropping cache_limit silently degrades every page fetch into a ClickHouse re-query.
         self.assertGreater(payload["cache_limit"], payload["page_limit"])
         # The kernel needs both legs to complete a run: the data plane to fetch, the callback to report.
-        short_id, team_id, _user_id = verify_data_plane_token(payload["data_plane_token"])
-        self.assertEqual((short_id, team_id), (self.notebook.short_id, self.team.id))
+        claims = verify_data_plane_token(payload["data_plane_token"])
+        self.assertEqual((claims.notebook_short_id, claims.team_id), (self.notebook.short_id, self.team.id))
         self.assertIn("/internal/notebooks/data_plane/query/", payload["data_plane_url"])
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.RUNNING)
 
@@ -1651,7 +1652,9 @@ class TestSQLV2CommandToken(SimpleTestCase):
 class TestSQLV2DataPlaneToken(SimpleTestCase):
     def test_round_trip(self):
         token = mint_data_plane_token("nb123", 7, 42)
-        self.assertEqual(verify_data_plane_token(token), ("nb123", 7, 42))
+        self.assertEqual(
+            verify_data_plane_token(token), DataPlaneClaims(notebook_short_id="nb123", team_id=7, user_id=42)
+        )
 
     @parameterized.expand(
         [

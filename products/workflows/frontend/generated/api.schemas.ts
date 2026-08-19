@@ -723,7 +723,7 @@ export interface PatchedHogFlowActionEmailUpdateApi {
     base_updated_at?: string
     /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
     operations?: DesignOperationApi[]
-    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it. */
+    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. The design is edited via operations, and html is always re-rendered from it. */
     email_patch?: unknown
 }
 
@@ -794,6 +794,29 @@ export interface HogFlowBatchJobApi {
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
+}
+
+/**
+ * Response from the batch job cancel endpoint. Stopping is asynchronous: this call flags the
+ * run's audience fan-out and its in-flight child runs, and the workflow workers terminate
+ * them shortly after. Messages already sent are not recalled.
+ */
+export interface HogFlowBatchJobCancelResponseApi {
+    /** The batch run's status after this request. 'cancelled' once every in-flight run is flagged; a completion that raced the stop wins and is reported instead.
+     *
+     * * `waiting` - Waiting
+     * * `queued` - Queued
+     * * `active` - Active
+     * * `completed` - Completed
+     * * `cancelled` - Cancelled
+     * * `failed` - Failed */
+    status: HogFlowBatchJobStatusEnumApi
+    /** In-flight runs newly flagged for cancellation by this request. */
+    marked: number
+    /** In-flight runs of this batch not yet flagged. Non-zero on very large runs; call again. */
+    remaining: number
+    /** True when no in-flight runs of this batch remain unflagged. */
+    done: boolean
 }
 
 /**
@@ -888,6 +911,11 @@ export interface HogInvocationResultDetailApi {
     is_retry: boolean
 }
 
+export interface HogInvocationResultsCountApi {
+    /** Number of invocations matching the filters, without the list endpoint's 500-row cap. */
+    count: number
+}
+
 /**
  * Test trigger payload, typically {event, person, groups}.
  */
@@ -904,6 +932,34 @@ export interface HogFlowInvocationApi {
     current_action_id?: string
     /** Test the workflow's staged draft instead of its live config. Set this only when workflows-get returns a non-null 'draft'; it can't be combined with an explicit configuration override. */
     use_draft?: boolean
+}
+
+/**
+ * Cancel in-flight invocations of a workflow. Provide exactly one selector.
+ */
+export interface HogInvocationCancelRequestApi {
+    /**
+     * Cancel these specific invocations. Capped at 10000 per request. Invocations that already finished are skipped rather than failing the request.
+     * @minItems 1
+     * @maxItems 10000
+     */
+    invocation_ids?: string[]
+    /** Cancel every in-flight invocation of this workflow, including parked delays and waits. */
+    all?: boolean
+}
+
+/**
+ * Response from the cancel endpoint. Cancellation is asynchronous: this call flags runs, and
+ * the workflow workers terminate them shortly after (immediately for parked runs, at the next
+ * step boundary for runs mid-execution). A run stays 'running' in listings until that happens.
+ */
+export interface HogInvocationCancelResponseApi {
+    /** In-flight runs newly flagged for cancellation by this request. */
+    marked: number
+    /** Matching in-flight runs not yet flagged. Non-zero on very large workflows; call again. */
+    remaining: number
+    /** True when no matching in-flight runs remain unflagged. */
+    done: boolean
 }
 
 export interface AppMetricSeriesApi {
@@ -1013,6 +1069,7 @@ export interface HogFlowPublishResponseApi {
  * * `running` - running
  * * `succeeded` - succeeded
  * * `failed` - failed
+ * * `canceled` - canceled
  */
 export type HogInvocationRerunFilterStatusEnumApi =
     (typeof HogInvocationRerunFilterStatusEnumApi)[keyof typeof HogInvocationRerunFilterStatusEnumApi]
@@ -1021,6 +1078,7 @@ export const HogInvocationRerunFilterStatusEnumApi = {
     Running: 'running',
     Succeeded: 'succeeded',
     Failed: 'failed',
+    Canceled: 'canceled',
 } as const
 
 /**
@@ -1035,6 +1093,11 @@ export interface HogInvocationRerunFilterApi {
     status?: HogInvocationRerunFilterStatusEnumApi[]
     /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
     error_kind?: string[]
+    /**
+     * Restrict to invocations whose error_message contains this substring (case-insensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind).
+     * @maxLength 200
+     */
+    error_message_contains?: string
     /**
      * Skip invocations that have already been attempted this many times or more.
      * @minimum 1
@@ -1522,11 +1585,46 @@ export type HogFlowsInvocationResultsRetrieveParams = {
      */
     distinct_id?: string
     /**
+     * Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target.
+     * @minLength 1
+     * @maxLength 200
+     */
+    error_message_contains?: string
+    /**
      * Maximum number of invocations to return (1-500, default 50).
      * @minimum 1
      * @maximum 500
      */
     limit?: number
+    /**
+     * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
+     * @minLength 1
+     */
+    status?: string
+}
+
+export type HogFlowsInvocationResultsCountRetrieveParams = {
+    /**
+     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Only return invocations triggered for this distinct_id (the person the run executed for).
+     * @minLength 1
+     */
+    distinct_id?: string
+    /**
+     * Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target.
+     * @minLength 1
+     * @maxLength 200
+     */
+    error_message_contains?: string
     /**
      * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
      * @minLength 1
