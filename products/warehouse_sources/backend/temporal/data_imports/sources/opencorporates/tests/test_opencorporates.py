@@ -256,7 +256,7 @@ class TestRequestParams:
 
 
 class TestPageCap:
-    def test_maximum_page_cap_stops_pagination(self) -> None:
+    def test_maximum_page_cap_stops_pagination(self, caplog: pytest.LogCaptureFixture) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.sources.opencorporates.opencorporates import (
             OpencorporatesPaginator,
         )
@@ -264,11 +264,15 @@ class TestPageCap:
         paginator = OpencorporatesPaginator()
         paginator.page = 100
 
-        paginator.update_state(
-            _companies_page([{"company_number": "1", "jurisdiction_code": "gb"}], page=100, total_pages=500), data=[{}]
-        )
+        with caplog.at_level("INFO"):
+            paginator.update_state(
+                _companies_page([{"company_number": "1", "jurisdiction_code": "gb"}], page=100, total_pages=500),
+                data=[{}],
+            )
 
         assert paginator._has_next_page is False
+        # Hitting the documented page cap should be surfaced, not fail silently.
+        assert any("page cap" in record.message for record in caplog.records)
 
 
 class TestHttpErrors:
