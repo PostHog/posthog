@@ -83917,9 +83917,13 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
-     * Optional. Restrict results by whether the alert uses anomaly detection.
+     * Optional. Restrict results by whether the alert uses anomaly detection. A forecast alert has no detector, so has_detector=false includes forecast alerts as well as plain threshold alerts. Use has_forecast to separate the two.
      */
     has_detector?: boolean;
+    /**
+     * Optional. Restrict results by whether the alert uses a forecast.
+     */
+    has_forecast?: boolean;
     /**
      * Optional. Restrict results to alerts on this insight ID.
      */

@@ -180,6 +180,14 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 
         try:
             insight = alert.insight
+            # Before validating: a target alert whose date has arrived is finished, not
+            # misconfigured. Validating first would reject its own saved date as "in the past" and
+            # auto-disable it with an email, which reads to the user as a broken alert.
+            finished_fields = disable_if_target_date_passed(alert, datetime.now(UTC).date())
+            if finished_fields:
+                alert.save(update_fields=finished_fields)
+                return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.TARGET_DATE_PASSED)
+
             with upgrade_query(insight):
                 if insight.query is None:
                     raise ValueError("Alert's insight has no valid query")
@@ -245,13 +253,6 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             alert_calculation_interval=alert.calculation_interval,
             alert_config_type=(alert.config or {}).get("type"),
         )
-
-        # A target alert is finished once its date arrives: stop checking rather than keep
-        # forecasting past the date it was asked about.
-        finished_fields = disable_if_target_date_passed(alert, datetime.now(UTC).date())
-        if finished_fields:
-            alert.save(update_fields=finished_fields)
-            return EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState(alert.state))
 
         breaches: list[str] | None = None
         error: dict | None = None

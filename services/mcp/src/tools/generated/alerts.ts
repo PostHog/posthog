@@ -226,6 +226,7 @@ const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.
             query: {
                 created_by: params.created_by,
                 has_detector: params.has_detector,
+                has_forecast: params.has_forecast,
                 insight_id: params.insight_id,
                 insight_tag: params.insight_tag,
                 limit: params.limit,

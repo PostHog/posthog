@@ -218,7 +218,9 @@ def _validate_metrics_alert_config(ctx: _AlertConfigValidationContext) -> None:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
-def _validate_target_by_date(parsed: ForecastConfig, interval: IntervalType | None) -> None:
+def _validate_target_by_date(
+    parsed: ForecastConfig, interval: IntervalType | None, *, require_future_date: bool
+) -> None:
     """A target alert turns on three fields the other conditions don't use, so reject a half-filled
     one at save rather than at the first check."""
     if parsed.target is None:
@@ -232,11 +234,19 @@ def _validate_target_by_date(parsed: ForecastConfig, interval: IntervalType | No
     except ValueError:
         raise ValueError(f"Target date isn't a valid date: {parsed.target_date}")
     # Reuses the horizon derivation so the date bounds can't drift from what evaluation accepts.
-    horizon_for_target_date(target_date, interval, datetime.now(UTC).date())
+    # A date already in the past is only rejected when this request is setting it. Re-rejecting an
+    # inherited one would make a finished alert uneditable, including turning it off.
+    today = datetime.now(UTC).date()
+    if require_future_date or target_date > today:
+        horizon_for_target_date(target_date, interval, today)
 
 
 def _validate_forecast_config(
-    forecast_config: dict, kind: str | None, query: dict, threshold_config: dict | None
+    forecast_config: dict,
+    kind: str | None,
+    query: dict,
+    threshold_config: dict | None,
+    require_future_target_date: bool,
 ) -> None:
     if kind not in FORECAST_EXTRACTORS:
         raise ValueError(f"Forecast alerts aren't supported for {kind} insights")
@@ -252,7 +262,7 @@ def _validate_forecast_config(
         raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
     validate_forecast_horizon_and_width(parsed, trends_query.interval)
     if parsed.condition == ForecastConditionType.TARGET_BY_DATE:
-        _validate_target_by_date(parsed, trends_query.interval)
+        _validate_target_by_date(parsed, trends_query.interval, require_future_date=require_future_target_date)
     if is_non_time_series_trend(trends_query):
         raise ValueError("Forecast alerts require a time series trends insight")
     if _has_breakdown(trends_query):
@@ -386,6 +396,7 @@ def validate_alert_config(
     detector_config: dict | None = None,
     require_threshold_bounds: bool = True,
     forecast_config: dict | None = None,
+    require_future_target_date: bool = False,
 ) -> None:
     """Validate alert configuration dicts. Raises ValueError on failure.
 
@@ -419,7 +430,7 @@ def validate_alert_config(
     if forecast_config is not None:
         if detector_config is not None:
             raise ValueError("An alert can't have both anomaly detection and forecast configured")
-        _validate_forecast_config(forecast_config, kind, query, threshold_config)
+        _validate_forecast_config(forecast_config, kind, query, threshold_config, require_future_target_date)
 
     validator = _ALERT_CONFIG_VALIDATORS.get(config_type) if isinstance(config_type, str) else None
     if validator is None:

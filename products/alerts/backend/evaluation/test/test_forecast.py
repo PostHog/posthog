@@ -25,7 +25,9 @@ from products.alerts.backend.evaluation.contract import (
 from products.alerts.backend.evaluation.forecast import (
     _evaluate_future_breach_values,
     _evaluate_target_by_date_values,
+    _index_for_target_date,
     _latest_deviation,
+    _required_points,
     _resolve_sensitivity,
     evaluate_with_forecast,
 )
@@ -267,3 +269,35 @@ class TestFutureBreachSensitivity:
         assert _resolve_sensitivity({"condition": condition}) == expected
         # An explicit choice always wins over the per-condition default.
         assert _resolve_sensitivity({"condition": condition, "sensitivity": "forecast"}) == "forecast"
+
+
+class TestPreviewMatchesEvaluation:
+    @parameterized.expand(
+        [
+            # band_deviation holds out the latest point, so it needs one more than the others.
+            ("band_deviation needs one extra", "band_deviation", IntervalType.DAY, 15),
+            ("future_breach does not", "future_breach", IntervalType.DAY, 14),
+            ("target_by_date does not", "target_by_date", IntervalType.DAY, 14),
+            ("hourly needs two days of points", "future_breach", IntervalType.HOUR, 48),
+            ("hourly band_deviation needs one more", "band_deviation", IntervalType.HOUR, 49),
+        ]
+    )
+    def test_required_points_is_shared_by_preview_and_evaluation(self, _name, condition, interval, expected) -> None:
+        # The preview used to require one fewer point than evaluation for band_deviation, so an
+        # alert at exactly the minimum previewed clean and then errored on its first real check.
+        assert _required_points(condition, interval) == expected
+
+
+class TestTargetDateIndex:
+    @parameterized.expand(
+        [
+            # Prophet extends from the last completed bucket, so the run can end on or past the
+            # date. Picking [-1] evaluated the day before the one the user asked about.
+            ("lands exactly", ["2026-03-29", "2026-03-30", "2026-03-31"], "2026-03-31", 2),
+            ("overshoots", ["2026-03-30", "2026-03-31", "2026-04-01"], "2026-03-31", 1),
+            ("iso timestamps", ["2026-03-30T00:00:00", "2026-03-31T00:00:00"], "2026-03-31", 1),
+            ("falls short, takes the last", ["2026-03-28", "2026-03-29"], "2026-03-31", 1),
+        ]
+    )
+    def test_index_for_target_date(self, _name, forecast_dates, target, expected) -> None:
+        assert _index_for_target_date(forecast_dates, target) == expected

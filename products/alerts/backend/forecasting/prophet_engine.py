@@ -14,6 +14,13 @@ logging.getLogger("prophet").setLevel(logging.WARNING)
 
 logger = structlog.get_logger(__name__)
 
+# Prophet draws its uncertainty interval through numpy's global RNG, so two identical fits return
+# different band edges: measured at 3.7% of band width, with fit_coverage swinging 0.95 to 1.00.
+# That is enough to flip a band_deviation firing decision and a fit-quality verdict between checks.
+# An alert has to decide the same way twice on the same data, so the draw is pinned. The global
+# state is restored afterwards, because it belongs to the worker rather than to this fit.
+_UNCERTAINTY_SEED = 20260818
+
 _FREQ: dict[IntervalType, str] = {
     IntervalType.HOUR: "h",
     IntervalType.DAY: "D",
@@ -22,7 +29,9 @@ _FREQ: dict[IntervalType, str] = {
 }
 
 # Validation rejects anything outside this set, so a missing key here would be a silent daily fit.
-assert set(_FREQ) == set(SUPPORTED_FORECAST_INTERVALS)
+# Raised rather than asserted because python -O strips asserts, and this invariant is load-bearing.
+if set(_FREQ) != set(SUPPORTED_FORECAST_INTERVALS):
+    raise RuntimeError(f"Prophet frequency map {set(_FREQ)} does not match {set(SUPPORTED_FORECAST_INTERVALS)}")
 
 
 class ProphetEngine:
@@ -35,6 +44,7 @@ class ProphetEngine:
         interval: IntervalType | None,
         include_history: bool = False,
     ) -> ForecastResult:
+        import numpy as np  # noqa: PLC0415 — keeps the heavy dep off the django.setup() path
         import pandas as pd  # noqa: PLC0415 — keeps the heavy dep off the django.setup() path
         from prophet import Prophet  # noqa: PLC0415 — keeps the heavy dep off the django.setup() path
 
@@ -43,10 +53,15 @@ class ProphetEngine:
         model = Prophet(interval_width=interval_width, mcmc_samples=0)
 
         start = time.monotonic()
-        model.fit(df)
-        freq = _FREQ.get(interval or IntervalType.DAY, "D")
-        future = model.make_future_dataframe(periods=horizon, freq=freq, include_history=include_history)
-        prediction = model.predict(future)
+        rng_state = np.random.get_state()
+        try:
+            np.random.seed(_UNCERTAINTY_SEED)
+            model.fit(df)
+            freq = _FREQ.get(interval or IntervalType.DAY, "D")
+            future = model.make_future_dataframe(periods=horizon, freq=freq, include_history=include_history)
+            prediction = model.predict(future)
+        finally:
+            np.random.set_state(rng_state)
         duration_ms = (time.monotonic() - start) * 1000
         logger.info(
             "forecast_fit_completed", engine="prophet", horizon=horizon, n_points=len(values), duration_ms=duration_ms

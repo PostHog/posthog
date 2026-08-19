@@ -26,10 +26,26 @@ _INTERVAL_DAYS: dict[IntervalType, float] = {
     IntervalType.MONTH: 30.4,
 }
 
+# Two ceilings on the training window, because it blows up in two independent ways. A point count
+# bounds the fit: Prophet draws 1000 uncertainty samples per predicted row, so 17k rows is not a
+# slower fit, it is a different order of cost. A duration bounds the query: 90 points is three days
+# of hourly data and seven and a half years of monthly data.
+MAX_FORECAST_TRAINING_POINTS = 1000
+MAX_FORECAST_LOOKBACK_DAYS = 730
+
+
 # Intervals an engine can map to a series frequency. An unmapped interval would fit at the wrong
 # cadence, and because the lookback is a point count it would also widen the query by that unit:
 # 90 quarters is 22 years of events per check.
 SUPPORTED_FORECAST_INTERVALS = frozenset({IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH})
+
+
+def bounded_training_points(requested: int, interval: IntervalType | None) -> int:
+    """Clamp a requested training window so no scheduled check can scan years of events or fit tens
+    of thousands of rows. Never returns fewer points than the interval needs to fit at all."""
+    per_interval = _INTERVAL_DAYS.get(interval or IntervalType.DAY, 1)
+    by_duration = int(MAX_FORECAST_LOOKBACK_DAYS / per_interval)
+    return max(min_forecast_points(interval), min(requested, MAX_FORECAST_TRAINING_POINTS, by_duration))
 
 
 def forecast_reach_days(horizon: int, interval: IntervalType | None) -> float:

@@ -46,7 +46,7 @@ from posthog.models import User
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
-from posthog.rate_limit import AlertTestDeliveryThrottle
+from posthog.rate_limit import AlertTestDeliveryThrottle, ForecastSimulateThrottle
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
@@ -828,6 +828,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 detector_config=detector_config,
                 require_threshold_bounds=require_threshold_bounds,
                 forecast_config=forecast_config,
+                # Only this request's own date has to be in the future. An inherited one was
+                # legitimate when it was saved, and re-rejecting it would lock the alert.
+                require_future_target_date="forecast_config" in attrs,
             )
         except ValueError as e:
             if str(e) == THRESHOLD_BOUNDS_REQUIRED_MESSAGE:
@@ -1031,6 +1034,7 @@ class AlertTestDeliveryResponseSerializer(serializers.Serializer):
 class AlertListFiltersSerializer(serializers.Serializer):
     insight_tag = serializers.CharField(required=False, max_length=255)
     has_detector = OptionalBooleanField(required=False)
+    has_forecast = OptionalBooleanField(required=False)
 
 
 class ForecastSimulateRequestSerializer(serializers.Serializer):
@@ -1191,7 +1195,15 @@ class ForecastSimulateResponseSerializer(serializers.Serializer):
                 "has_detector",
                 OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
-                description="Optional. Restrict results by whether the alert uses anomaly detection.",
+                description="Optional. Restrict results by whether the alert uses anomaly detection. "
+                "A forecast alert has no detector, so has_detector=false includes forecast alerts as well as "
+                "plain threshold alerts. Use has_forecast to separate the two.",
+            ),
+            OpenApiParameter(
+                "has_forecast",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results by whether the alert uses a forecast.",
             ),
         ],
     ),
@@ -1234,6 +1246,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         has_detector = list_filters.validated_data.get("has_detector")
         if has_detector is not None:
             queryset = queryset.filter(detector_config__isnull=not has_detector)
+
+        has_forecast = list_filters.validated_data.get("has_forecast")
+        if has_forecast is not None:
+            queryset = queryset.filter(forecast_config__isnull=not has_forecast)
 
         created_by = filters.get("created_by")
         if created_by:
@@ -1516,7 +1532,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # alert read — an alert-scoped token must not read insight/query data it isn't scoped for.
     # (Object-level insight viewer access is enforced separately in ForecastSimulateRequestSerializer.)
     @action(
-        detail=False, methods=["POST"], url_path="simulate_forecast", required_scopes=["alert:read", "insight:read"]
+        detail=False,
+        methods=["POST"],
+        url_path="simulate_forecast",
+        required_scopes=["alert:read", "insight:read"],
+        # Synchronous Prophet fit with request-controlled cost, so it is throttled like test-delivery.
+        throttle_classes=[ForecastSimulateThrottle],
     )
     def simulate_forecast(self, request, *args, **kwargs):
         serializer = ForecastSimulateRequestSerializer(data=request.data, context=self.get_serializer_context())
