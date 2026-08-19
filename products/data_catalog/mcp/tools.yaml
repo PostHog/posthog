@@ -181,6 +181,12 @@ tools:
         rename_params:
             name: new_name
         feature_flag: product-data-catalog
+    data-catalog-metrics-bulk-approve-create:
+        operation: data_catalog_metrics_bulk_approve_create
+        enabled: false
+    data-catalog-metrics-bulk-delete-create:
+        operation: data_catalog_metrics_bulk_delete_create
+        enabled: false
     data-catalog-metrics-destroy:
         operation: data_catalog_metrics_destroy
         enabled: false

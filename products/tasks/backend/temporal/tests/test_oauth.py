@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task
@@ -345,3 +346,79 @@ def test_non_loop_run_keeps_loop_write_scope(mock_create: MagicMock) -> None:
         application="array",
         sandbox_task_id=task.id,
     )
+
+
+@pytest.mark.django_db
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_workflow_run_fails_closed_when_owner_is_not_a_current_org_member(mock_create: MagicMock) -> None:
+    from posthog.models.organization import OrganizationMembership
+
+    organization = Organization.objects.create(name="wf-cred-org")
+    team = Team.objects.create(organization=organization, name="wf-cred-team")
+    owner = User.objects.create(email="wf-owner-cred@example.com")
+    task = Task.objects.create(
+        team=team, title="Workflow run", created_by=owner, origin_product=Task.OriginProduct.WORKFLOW
+    )
+
+    # Same guard as loop runs: an owner offboarded after task creation must not mint
+    # credentials for a later run of it.
+    with pytest.raises(TaskInvalidStateError):
+        create_oauth_access_token_for_run(task, {})
+    mock_create.assert_not_called()
+
+    OrganizationMembership.objects.create(organization=organization, user=owner)
+    assert create_oauth_access_token_for_run(task, {}) == "token"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("requested", "snapshot"),
+    [
+        ("full", "read_only"),
+        ("read_only", "full"),
+    ],
+)
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_workflow_run_scopes_never_exceed_request_or_snapshot(
+    mock_create: MagicMock, requested: PosthogMcpScopes, snapshot: str
+) -> None:
+    from posthog.models.organization import OrganizationMembership
+    from posthog.temporal.oauth import resolve_scopes
+
+    organization = Organization.objects.create(name="wf-scope-org")
+    team = Team.objects.create(organization=organization, name="wf-scope-team")
+    owner = User.objects.create(email="wf-scope-owner@example.com")
+    OrganizationMembership.objects.create(organization=organization, user=owner)
+    task = Task.objects.create(
+        team=team, title="Workflow run", created_by=owner, origin_product=Task.OriginProduct.WORKFLOW
+    )
+    state = {"config_snapshot": {"connectors": {"posthog_mcp_scopes": snapshot}}}
+
+    create_oauth_access_token_for_run(task, state, scopes=requested)
+
+    granted = set(mock_create.call_args.kwargs["scopes"])
+    read_only = set(resolve_scopes("read_only", include_internal_scopes=True))
+    # Whichever side is narrower wins: a teammate rerun requesting full cannot exceed the
+    # workflow's snapshot, and a narrow request is never widened to the snapshot.
+    assert granted <= read_only
+
+
+@pytest.mark.django_db
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_workflow_fired_run_excludes_loop_write_scope(mock_create: MagicMock) -> None:
+    from posthog.models.organization import OrganizationMembership
+
+    organization = Organization.objects.create(name="wf-strip-org")
+    team = Team.objects.create(organization=organization, name="wf-strip-team")
+    owner = User.objects.create(email="wf-strip-owner@example.com")
+    OrganizationMembership.objects.create(organization=organization, user=owner)
+    task = Task.objects.create(
+        team=team, title="Workflow run", created_by=owner, origin_product=Task.OriginProduct.WORKFLOW
+    )
+    state = {"config_snapshot": {"connectors": {"posthog_mcp_scopes": "full"}}}
+
+    create_oauth_access_token_for_run(task, state, scopes="full")
+
+    granted = mock_create.call_args.kwargs["scopes"]
+    assert "loop:write" not in granted
+    assert "loop:read" in granted

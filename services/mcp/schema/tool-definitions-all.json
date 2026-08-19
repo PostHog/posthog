@@ -135,7 +135,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, `churned_at` (null if not churned), and creation/update metadata. User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields only; teams also define their own typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab. Churned accounts are hidden by default. Set `include_churned` to true to include them.",
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, `churned_at` (null if not churned), `ignored_at` (null if tracked), and creation/update metadata. User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields only; teams also define their own typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab. Churned and ignored accounts are hidden by default. Set `include_churned` or `include_ignored` to true to include them.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List accounts",
@@ -270,7 +270,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
-        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers), `tags`, and `churned_at` (null if the account has not churned). User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. These are the built-in fields only; a team's own typed attributes are custom properties and are not returned here. Call `custom-property-definitions-list` to see what the team tracks, then `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).",
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers), `tags`, `churned_at` (null if the account has not churned), and `ignored_at` (null if tracked). User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. These are the built-in fields only; a team's own typed attributes are custom properties and are not returned here. Call `custom-property-definitions-list` to see what the team tracks, then `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get account",
@@ -935,6 +935,51 @@
             "readOnlyHint": false
         },
         "feature_flag": "billing-alerts"
+    },
+    "billing-overview-get": {
+        "description": "Fetch the organization's current billing state: subscribed products and addons, available features, plan tier, usage summary against limits, spending limits, and trial status. Use this to understand what the customer is paying for, which features they have access to, or aggregate usage for the current billing period. For time-series breakdowns of usage call billing-usage-get; for cost (spend) breakdowns call billing-spend-get. To check whether the customer has access to a specific feature (e.g. group analytics, white-labelling), inspect `available_product_features` in the response.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get billing overview",
+        "title": "Get billing overview",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "billing-mcp-read-tools"
+    },
+    "billing-spend-get": {
+        "description": "Fetch time-series spend (cost in USD) breakdowns for the organization across a date range. Same dimensional parameters as billing-usage-get, but values are dollar amounts rather than usage volumes. Requires org admin-level access. Use this to investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get spend breakdown",
+        "title": "Get spend breakdown",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "billing-mcp-read-tools"
+    },
+    "billing-usage-get": {
+        "description": "Fetch time-series usage breakdowns for the organization across a date range. Supports per-team (project) and per-usage-type dimensions. Requires org admin-level access. Use this to investigate usage spikes, compare periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-overview-get; for cost (spend) breakdowns call billing-spend-get.",
+        "category": "Billing",
+        "feature": "billing",
+        "summary": "Get usage breakdown",
+        "title": "Get usage breakdown",
+        "required_scopes": ["billing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "billing-mcp-read-tools"
     },
     "business-knowledge-document-window-retrieve": {
         "description": "Returns a window of content chunks from a business knowledge document, centered around a specific ordinal. Use after searching knowledge to get more surrounding context for a specific result.",
