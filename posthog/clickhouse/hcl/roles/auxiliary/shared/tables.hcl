@@ -648,6 +648,21 @@ database "posthog" {
       version_column = "computed_at"
     }
   }
+  table "sharded_web_retention_preaggregated" {
+    order_by     = ["team_id", "job_id", "time_window_start", "cohort_week_start"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_web_retention_preaggregated_columns"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.web_retention_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
   table "sharded_web_vitals_paths_preaggregated" {
     order_by     = ["team_id", "job_id", "time_window_start", "path"]
     partition_by = "toYYYYMMDD(expires_at)"

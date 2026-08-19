@@ -8510,6 +8510,38 @@ database "posthog" {
     }
   }
 
+  table "web_retention_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "cohort_week_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "retained_users_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_web_retention_preaggregated"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
+
   table "web_stats_dimensional_preaggregated" {
     column "team_id" {
       type = "Int64"

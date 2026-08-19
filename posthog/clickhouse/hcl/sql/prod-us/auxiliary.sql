@@ -519,6 +519,15 @@ CREATE TABLE posthog.sharded_web_overview_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_overview_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, time_window_start) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.sharded_web_retention_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  cohort_week_start DateTime64(6, 'UTC'),
+  retained_users_state AggregateFunction(uniq, UUID),
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_retention_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, time_window_start, cohort_week_start) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_web_stats_dimensional_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -662,6 +671,15 @@ CREATE TABLE posthog.web_goals_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_web_goals_preaggregated', sipHash64(job_id));
+CREATE TABLE posthog.web_retention_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  cohort_week_start DateTime64(6, 'UTC'),
+  retained_users_state AggregateFunction(uniq, UUID),
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_web_retention_preaggregated', sipHash64(job_id));
 CREATE TABLE posthog.web_stats_dimensional_preaggregated (
   team_id Int64,
   job_id UUID,

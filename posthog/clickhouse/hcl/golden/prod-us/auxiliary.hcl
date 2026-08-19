@@ -2581,6 +2581,44 @@ database "posthog" {
     }
   }
 
+  table "sharded_web_retention_preaggregated" {
+    order_by     = ["team_id", "job_id", "time_window_start", "cohort_week_start"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "cohort_week_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "retained_users_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.web_retention_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
+
   table "sharded_web_stats_dimensional_preaggregated" {
     order_by     = ["team_id", "job_id", "period_bucket", "host", "device_type", "pathname", "entry_pathname", "end_pathname", "browser", "os", "viewport_width", "viewport_height", "referring_domain", "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "country_code", "city_name", "region_code", "region_name", "has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_backend", "mat_metadata_loggedIn"]
     partition_by = "toYYYYMMDD(expires_at)"
@@ -3086,6 +3124,38 @@ database "posthog" {
       cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_web_goals_preaggregated"
+      sharding_key    = "sipHash64(job_id)"
+    }
+  }
+
+  table "web_retention_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "time_window_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "cohort_week_start" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "retained_users_state" {
+      type = "AggregateFunction(uniq, UUID)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_web_retention_preaggregated"
       sharding_key    = "sipHash64(job_id)"
     }
   }

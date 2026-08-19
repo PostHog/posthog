@@ -1888,6 +1888,15 @@ CREATE TABLE posthog.web_pre_aggregated_teams (
   enabled_by String DEFAULT 'system',
   version UInt32 DEFAULT toUnixTimestamp(now())
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.web_analytics_team_selection', '{replica}-{shard}', version) ORDER BY (team_id) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.web_retention_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  cohort_week_start DateTime64(6, 'UTC'),
+  retained_users_state AggregateFunction(uniq, UUID),
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC') DEFAULT now() + toIntervalDay(7)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_web_retention_preaggregated', sipHash64(job_id));
 CREATE TABLE posthog.web_stats_dimensional_preaggregated (
   team_id Int64,
   job_id UUID,
