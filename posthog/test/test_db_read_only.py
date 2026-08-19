@@ -41,15 +41,26 @@ class TestIsReadOnlyTransactionError:
 
 
 class TestReadOnlyTransactionEvent:
-    def test_drops_read_only_exception_event(self) -> None:
-        event = {
-            "event": "$exception",
-            "properties": {
-                "$exception_list": [
-                    {"type": "InternalError", "value": "cannot execute UPDATE in a read-only transaction"}
-                ]
-            },
-        }
+    @parameterized.expand(
+        [
+            # Raw psycopg error: a single ReadOnlySqlTransaction entry.
+            (
+                "raw_psycopg",
+                [{"type": "ReadOnlySqlTransaction", "value": "cannot execute UPDATE in a read-only transaction"}],
+            ),
+            # Django-wrapped error: the SDK chains the psycopg cause, so the wire event carries the
+            # InternalError wrapper and the ReadOnlySqlTransaction as separate entries.
+            (
+                "django_wrapped",
+                [
+                    {"type": "InternalError", "value": "cannot execute UPDATE in a read-only transaction"},
+                    {"type": "ReadOnlySqlTransaction", "value": "cannot execute UPDATE in a read-only transaction"},
+                ],
+            ),
+        ]
+    )
+    def test_drops_read_only_exception_event(self, _name: str, exception_list: list[dict]) -> None:
+        event = {"event": "$exception", "properties": {"$exception_list": exception_list}}
         assert is_read_only_transaction_event(event) is True
         assert drop_read_only_transaction_exceptions(event) is None
 
@@ -58,6 +69,19 @@ class TestReadOnlyTransactionEvent:
             (
                 "other_exception",
                 {"event": "$exception", "properties": {"$exception_list": [{"type": "ValueError", "value": "boom"}]}},
+            ),
+            # An unrelated exception whose value merely mentions a read-only transaction is kept:
+            # detection is by type, not by message text.
+            (
+                "unrelated_value_mentions_read_only",
+                {
+                    "event": "$exception",
+                    "properties": {
+                        "$exception_list": [
+                            {"type": "ValueError", "value": "source database is in a read-only transaction"}
+                        ]
+                    },
+                },
             ),
             ("not_an_exception", {"event": "$pageview", "properties": {}}),
         ]

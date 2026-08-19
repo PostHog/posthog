@@ -13,10 +13,6 @@ logger = structlog.get_logger(__name__)
 
 READ_ONLY_SQLSTATE = "25006"
 
-# Stable fragment of the SQLSTATE 25006 message ("cannot execute UPDATE in a read-only
-# transaction"). Present in both the psycopg value and the Django wrapper's value.
-_READ_ONLY_MESSAGE = "read-only transaction"
-
 
 def is_read_only_transaction_error(exc: BaseException | None) -> bool:
     """Return True when ``exc`` or a cause in its chain is a read-only transaction error."""
@@ -32,16 +28,16 @@ def is_read_only_transaction_error(exc: BaseException | None) -> bool:
 def is_read_only_transaction_event(event: dict) -> bool:
     """Return True when a captured ``$exception`` event describes a read-only transaction error.
 
-    Exception autocapture passes ``before_send`` the wire event, not the exception object, so
-    match on the exception list: the psycopg ``ReadOnlySqlTransaction`` type, or the stable
-    SQLSTATE 25006 message fragment that the Django wrapper's value carries too.
+    Exception autocapture passes ``before_send`` the wire event, not the exception object. The SDK
+    walks the exception chain into ``$exception_list``, so a Django-wrapped error carries both the
+    ``InternalError`` wrapper and the chained psycopg ``ReadOnlySqlTransaction`` as its own entry.
+    Match on that type alone — matching the message text would also drop unrelated exceptions that
+    merely mention a read-only transaction.
     """
     if event.get("event") != "$exception":
         return False
     for entry in (event.get("properties") or {}).get("$exception_list") or []:
         if entry.get("type") == "ReadOnlySqlTransaction":
-            return True
-        if _READ_ONLY_MESSAGE in (entry.get("value") or ""):
             return True
     return False
 
