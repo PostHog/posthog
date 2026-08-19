@@ -1297,3 +1297,184 @@ class TestTruncateForCapture:
             assert props["$ai_total_cost_usd"] == 1.23
             assert props["$ai_latency"] == 2.5
             assert len(json.dumps(props)) < _MAX_SIZE
+
+    @pytest.mark.asyncio
+    async def test_on_success_with_oversized_custom_metadata_remains_under_max_size_and_retains_billing_fields(
+        self,
+    ) -> None:
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        auth_user = AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", distinct_id="user-123")
+
+        # Construct >900 KB of custom metadata (90 fields of 12 KB strings each)
+        large_metadata = {f"custom_field_{i}": "M" * (12 * 1024) for i in range(90)}
+
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-3-opus",
+                "custom_llm_provider": "anthropic",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "response_time": 1.5,
+                "response_cost": 0.05,
+                "cost_breakdown": {
+                    "input_cost": 0.01,
+                    "output_cost": 0.04,
+                },
+                "metadata": large_metadata,
+            },
+            "litellm_params": {},
+        }
+
+        mock_loop = MagicMock()
+        mock_loop.run_in_executor.side_effect = _run_sync
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+            patch("llm_gateway.callbacks.posthog.asyncio") as mock_asyncio,
+        ):
+            mock_asyncio.get_running_loop.return_value = mock_loop
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert len(json.dumps(props)) <= _MAX_SIZE
+            assert props["$ai_model"] == "claude-3-opus"
+            assert props["$ai_provider"] == "anthropic"
+            assert props["$ai_total_cost_usd"] == 0.05
+            assert props["$ai_input_cost_usd"] == 0.01
+            assert props["$ai_output_cost_usd"] == 0.04
+            assert props["$ai_billable"] is True
+            assert props["ai_product"] == "wizard"
+            assert props["team_id"] == 456
+
+    @pytest.mark.asyncio
+    async def test_custom_metadata_security_and_namespace_isolation(self) -> None:
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        auth_user = AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", distinct_id="user-123")
+
+        malicious_metadata = {
+            "team_id": 999999,
+            "TEAM_ID": 888888,
+            "ai_product": "malicious_product",
+            "$ai_model": "hacked_model",
+            "$feature/secret_flag": True,
+            "$group_1": "https://attacker.com",
+            "Authorization": "Bearer sensitive_token",
+            "api_key": "sk-secret123",
+            "nested_secrets": {
+                "AUTH": "Basic secret",
+                "safe_field": "valid_value",
+                "nested_password": "super_secret_password",
+            },
+            "valid_custom_key": "valid_custom_value",
+        }
+
+        kwargs = {
+            "standard_logging_object": {
+                "model": "gpt-4o",
+                "custom_llm_provider": "openai",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "metadata": malicious_metadata,
+            },
+            "litellm_params": {},
+        }
+
+        mock_loop = MagicMock()
+        mock_loop.run_in_executor.side_effect = _run_sync
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+            patch("llm_gateway.callbacks.posthog.asyncio") as mock_asyncio,
+        ):
+            mock_asyncio.get_running_loop.return_value = mock_loop
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert props["team_id"] == 456
+            assert props["ai_product"] == "wizard"
+            assert props["$ai_model"] == "gpt-4o"
+            assert "$feature/secret_flag" not in props
+            assert props["$group_1"] == "https://us.posthog.com"
+            assert "Authorization" not in props
+            assert "api_key" not in props
+            assert props["valid_custom_key"] == "valid_custom_value"
+            assert "AUTH" not in props["nested_secrets"]
+            assert "nested_password" not in props["nested_secrets"]
+            assert props["nested_secrets"]["safe_field"] == "valid_value"
+
+    @pytest.mark.asyncio
+    async def test_custom_metadata_recursion_depth_guard(self) -> None:
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        auth_user = AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", distinct_id="user-123")
+
+        # Build deeply nested dictionary (> 10 levels)
+        deep_metadata: dict[str, Any] = {"leaf": "deep_val"}
+        for _ in range(10):
+            deep_metadata = {"nest": deep_metadata}
+
+        kwargs = {
+            "standard_logging_object": {
+                "model": "gpt-4o",
+                "custom_llm_provider": "openai",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "metadata": {"deep": deep_metadata},
+            },
+            "litellm_params": {},
+        }
+
+        mock_loop = MagicMock()
+        mock_loop.run_in_executor.side_effect = _run_sync
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+            patch("llm_gateway.callbacks.posthog.asyncio") as mock_asyncio,
+        ):
+            mock_asyncio.get_running_loop.return_value = mock_loop
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert "deep" in props
+            # The deep nesting should be safely truncated without causing a RecursionError
+
+    @pytest.mark.asyncio
+    async def test_on_failure_truncates_oversized_metadata(self) -> None:
+        mock_client = MagicMock()
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        auth_user = AuthenticatedUser(user_id=123, team_id=456, auth_method="personal_api_key", distinct_id="user-123")
+
+        large_metadata = {f"error_custom_field_{i}": "E" * (12 * 1024) for i in range(90)}
+
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-3-opus",
+                "custom_llm_provider": "anthropic",
+                "error_str": "Internal Server Error",
+                "metadata": large_metadata,
+            },
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+        ):
+            await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert len(json.dumps(props)) <= _MAX_SIZE
+            assert props["$ai_is_error"] is True
+            assert props["$ai_error"] == "Internal Server Error"
+            assert props["team_id"] == 456
+            assert props["ai_product"] == "wizard"
+
+

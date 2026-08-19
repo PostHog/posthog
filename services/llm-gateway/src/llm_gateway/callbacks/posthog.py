@@ -120,6 +120,101 @@ def _apply_owned_event_properties(
 # to the same trace UUID across runs and processes.
 _TRACE_ID_NAMESPACE = UUID("8d4f6b7e-6a3e-4f3a-9f3b-3b6f4d2e8a1a")
 
+_LITELLM_INTERNAL_METADATA_KEYS = frozenset({
+    "usage_object",
+    "model_group",
+    "endpoint",
+    "user_api_key",
+    "user_api_key_hash",
+    "user_api_key_alias",
+    "user_api_key_team_id",
+    "user_api_key_org_id",
+    "user_api_key_user_id",
+    "user_api_key_end_user_id",
+    "user_id",
+    "headers",
+    "authorization",
+    "auth",
+    "api_key",
+    "team_id",
+    "ai_product",
+    "secret",
+    "token",
+    "password",
+    "session",
+    "cookie",
+})
+
+_MAX_CUSTOM_METADATA_VALUE_SIZE = 10 * 1024
+_MAX_RECURSION_DEPTH = 5
+_MAX_CONTAINER_ITEMS = 100
+_GATEWAY_OWNED_FIELDS = frozenset({"ai_product", "team_id"})
+
+
+def _is_gateway_owned_property(key: str) -> bool:
+    key_lower = key.lower()
+    return (
+        key in _GATEWAY_OWNED_FIELDS
+        or key_lower in _GATEWAY_OWNED_FIELDS
+        or key_lower.startswith("$ai_")
+        or key_lower.startswith("$feature/")
+        or key_lower.startswith("$group_")
+    )
+
+
+def _is_sensitive_key(key: str) -> bool:
+    key_lower = key.lower()
+    if key_lower in _LITELLM_INTERNAL_METADATA_KEYS:
+        return True
+    if any(secret in key_lower for secret in ("authorization", "api_key", "bearer", "password", "secret", "token")):
+        return True
+    return False
+
+
+def _sanitize_custom_metadata_value(value: Any, depth: int = 0) -> Any:
+    if depth > _MAX_RECURSION_DEPTH:
+        return "[truncated: max depth exceeded]"
+    if isinstance(value, dict):
+        sanitized_dict: dict[str, Any] = {}
+        for i, (k, v) in enumerate(value.items()):
+            if i >= _MAX_CONTAINER_ITEMS:
+                break
+            if not isinstance(k, str):
+                continue
+            if _is_sensitive_key(k):
+                continue
+            sanitized_dict[k] = _sanitize_custom_metadata_value(v, depth + 1)
+        return sanitized_dict
+    elif isinstance(value, list):
+        sanitized_list: list[Any] = []
+        for i, item in enumerate(value):
+            if i >= _MAX_CONTAINER_ITEMS:
+                break
+            sanitized_list.append(_sanitize_custom_metadata_value(item, depth + 1))
+        return sanitized_list
+    else:
+        clean = _replace_binary_content(value)
+        if isinstance(clean, str) and len(clean) > _MAX_CUSTOM_METADATA_VALUE_SIZE:
+            return clean[:_MAX_CUSTOM_METADATA_VALUE_SIZE] + " [truncated: metadata value exceeds size cap]"
+        return clean
+
+
+def _merge_custom_metadata(properties: dict[str, Any], metadata: Any) -> None:
+    if not isinstance(metadata, dict):
+        return
+    for key, value in metadata.items():
+        if not isinstance(key, str):
+            continue
+        key_lower = key.lower()
+        if (
+            key_lower not in _LITELLM_INTERNAL_METADATA_KEYS
+            and not key_lower.startswith(("$ai_", "$feature/", "$group_"))
+            and not _is_gateway_owned_property(key)
+            and not _is_sensitive_key(key)
+        ):
+            clean_value = _sanitize_custom_metadata_value(value)
+            properties.setdefault(key, clean_value)
+
 
 def _normalize_trace_id(raw: Any) -> str:
     """Normalize an incoming trace identifier into a UUID string.
@@ -143,19 +238,53 @@ def _normalize_trace_id(raw: Any) -> str:
 
 def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
     serialized = json.dumps(properties, default=str)
-    if len(serialized) <= _MAX_CAPTURE_SIZE:
+    current_size = len(serialized)
+    if current_size <= _MAX_CAPTURE_SIZE:
         return properties
 
     result = dict(properties)
+
+    # First phase: Truncate truncatable AI fields ($ai_input, $ai_output_choices)
     for field in _TRUNCATABLE_FIELDS:
-        if field not in result:
-            continue
-        field_size = len(json.dumps(result[field], default=str))
-        if field_size < _MIN_FIELD_SIZE_TO_TRUNCATE:
-            continue
-        result[field] = _TRUNCATION_MARKER
-        if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
-            break
+        if field in result and result[field] != _TRUNCATION_MARKER:
+            field_raw = json.dumps(result[field], default=str)
+            if len(field_raw) >= _MIN_FIELD_SIZE_TO_TRUNCATE:
+                saved = len(field_raw) - len(json.dumps(_TRUNCATION_MARKER))
+                result[field] = _TRUNCATION_MARKER
+                current_size -= max(0, saved)
+                if current_size <= _MAX_CAPTURE_SIZE:
+                    if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
+                        return result
+
+    # Second phase: If still over limit, inspect non-gateway-owned fields in a single O(N) pass
+    if current_size > _MAX_CAPTURE_SIZE or len(json.dumps(result, default=str)) > _MAX_CAPTURE_SIZE:
+        non_owned_sizes: list[tuple[str, int]] = []
+        for key, val in list(result.items()):
+            if not _is_gateway_owned_property(key):
+                val_size = len(json.dumps(val, default=str))
+                non_owned_sizes.append((key, val_size))
+
+        non_owned_sizes.sort(key=lambda item: item[1], reverse=True)
+
+        for key, val_size in non_owned_sizes:
+            if val_size >= _MIN_FIELD_SIZE_TO_TRUNCATE:
+                saved = val_size - len(json.dumps(_TRUNCATION_MARKER))
+                result[key] = _TRUNCATION_MARKER
+                current_size -= max(0, saved)
+            else:
+                result.pop(key, None)
+                current_size -= val_size
+
+            if current_size <= _MAX_CAPTURE_SIZE:
+                if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
+                    return result
+
+        if len(json.dumps(result, default=str)) > _MAX_CAPTURE_SIZE:
+            for key, _ in non_owned_sizes:
+                result.pop(key, None)
+                if len(json.dumps(result, default=str)) <= _MAX_CAPTURE_SIZE:
+                    return result
+
     return result
 
 
@@ -282,6 +411,7 @@ class PostHogCallback(InstrumentedCallback):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
+        _merge_custom_metadata(properties, metadata)
         _apply_owned_event_properties(properties, product, auth_user)
 
         response_cost = standard_logging_object.get("response_cost")
@@ -370,7 +500,9 @@ class PostHogCallback(InstrumentedCallback):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
+        _merge_custom_metadata(properties, metadata)
         _apply_owned_event_properties(properties, product, auth_user)
+        properties = _truncate_for_capture(properties)
 
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,
