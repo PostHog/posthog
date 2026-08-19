@@ -253,7 +253,7 @@ export function FullscreenModeActions(): JSX.Element {
 export function ViewModeActions(): JSX.Element {
     const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
     const { setDashboardMode } = useActions(dashboardLogic)
-    const tileSpacingEnabled = useFeatureFlag('DASHBOARD_TILE_SPACING')
+    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
     const { push } = useActions(router)
     if (!dashboard) {
         return <></>
@@ -302,7 +302,7 @@ export function ViewModeActions(): JSX.Element {
                             tiles.length === 0 ? 'Add at least one tile to customize this dashboard' : undefined
                         }
                         sideAction={
-                            tileSpacingEnabled
+                            dashboardCustomizationEnabled
                                 ? {
                                       'data-attr': 'dashboard-edit-layout-customize-dropdown',
                                       disabledReason:

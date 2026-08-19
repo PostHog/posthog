@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 DASHBOARD_WIDGETS_FLAG = "dashboard-widgets"
-DASHBOARD_TILE_SPACING_FLAG = "dashboard-tile-spacing"
+DASHBOARD_CUSTOMIZATION_FLAG = "dashboard-customization"
 
 
 def widget_flag_enabled(flag: str, *, team: Team, user: User | None = None) -> bool:
@@ -39,5 +39,5 @@ def dashboard_widgets_enabled(*, team: Team, user: User | None = None) -> bool:
     return widget_flag_enabled(DASHBOARD_WIDGETS_FLAG, team=team, user=user)
 
 
-def dashboard_tile_spacing_enabled(*, team: Team, user: User | None = None) -> bool:
-    return widget_flag_enabled(DASHBOARD_TILE_SPACING_FLAG, team=team, user=user)
+def dashboard_customization_enabled(*, team: Team, user: User | None = None) -> bool:
+    return widget_flag_enabled(DASHBOARD_CUSTOMIZATION_FLAG, team=team, user=user)

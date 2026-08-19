@@ -19,9 +19,9 @@ const TILE_SPACING_OPTIONS: { value: DashboardTileSpacing; label: string }[] = [
 export function DashboardCustomizeMenu(): JSX.Element | null {
     const { dashboard, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardTileSpacing, saveDashboardTileSpacing } = useActions(dashboardLogic)
-    const tileSpacingEnabled = useFeatureFlag('DASHBOARD_TILE_SPACING')
+    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
 
-    if (!dashboard || !canEditDashboard || !tileSpacingEnabled) {
+    if (!dashboard || !canEditDashboard || !dashboardCustomizationEnabled) {
         return null
     }
 
