@@ -817,8 +817,8 @@ def get_hogql_autocomplete(
                                             )
                                         )
 
-                                    response.incomplete_list = len(properties) > PROPERTY_DEFINITION_LIMIT
-                                    del properties[PROPERTY_DEFINITION_LIMIT:]
+response.incomplete_list = len(properties) > PROPERTY_DEFINITION_LIMIT
+properties = properties[:PROPERTY_DEFINITION_LIMIT]
 
                                     extend_responses(
                                         keys=[prop["name"] for prop in properties],
