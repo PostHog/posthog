@@ -35,8 +35,8 @@ pub struct CoordinatorConfig {
     pub keepalive_interval: Duration,
     /// How long a standby waits on its leader-key watch before
     /// re-reading the key — the bound on how long a stalled watch can
-    /// hide an opening, and the base of the blind retry ladder
-    /// (`observation_retry_pace`).
+    /// hide an opening, and the retry pace when the election cannot be
+    /// observed at all.
     pub standby_poll_interval: Duration,
 
     pub run_retry_backoff: Duration,
@@ -172,83 +172,13 @@ fn jittered(wait: Duration, name: &str) -> Duration {
     wait.mul_f64(1.0 - JITTER_FRACTION * jitter_offset(name))
 }
 
-/// How much a blind candidate's retry may grow past the standby poll
-/// interval. Sized by fleet arithmetic: an outage blinds every candidate
-/// at once, so the fleet's read rate against a recovering etcd is
-/// candidates divided by this cap — a couple hundred candidates settle
-/// near seven reads a second at the default interval, where a flat
-/// retry would hold forty. The price is recovery detection when reads
-/// themselves fail, bounded at six intervals in the worst case; a
-/// candidate that can still read keeps the fallback cadence through
-/// the pace (`read_through_pace`), so a paced watch never detects an
-/// opening slower than a stalled one.
-const OBSERVATION_BACKOFF_FACTOR: u32 = 6;
-
-/// The wait before re-reading the election after failing to observe it
-/// — a failed read, a failed watch creation, or a watch lost before it
-/// proved itself; all three climb this one ladder. Grows from the
-/// standby poll interval (a rate etcd was already serving) to
-/// `OBSERVATION_BACKOFF_FACTOR` times it, jittered downward so a fleet
-/// blinded together does not re-read in lockstep. Deliberately not
-/// `pace_after_ending`: a blind candidate held nothing and spent only
-/// reads, so its cap answers to read load rather than the lease TTL.
-fn observation_retry_pace(config: &CoordinatorConfig, consecutive: u32) -> Duration {
-    let cap = config
-        .standby_poll_interval
-        .saturating_mul(OBSERVATION_BACKOFF_FACTOR);
-    let paced = config
-        .standby_poll_interval
-        .saturating_mul(2u32.saturating_pow(consecutive.saturating_sub(1).min(16)))
-        .min(cap);
-    jittered(paced, &config.name)
-}
-
-/// A blind spell's position on the observation-retry ladder. Its own
-/// type so the contract — a completed observation starts the ladder
-/// over — is a method a unit test can hold, not a line a refactor can
-/// silently drop.
-pub struct BlindSpell(u32);
-
-impl Default for BlindSpell {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl BlindSpell {
-    pub fn new() -> Self {
-        Self(0)
-    }
-
-    /// A completed observation ends the spell: a delivered opening, an
-    /// open-election read, or a watch surviving its whole window —
-    /// survival proves only that the churn stopped (a stalled watch
-    /// survives too; the fallback re-read bounds that). Creation never
-    /// counts; see the reset sites in `await_election_opening`.
-    pub fn observed(&mut self) {
-        self.0 = 0;
-    }
-
-    /// Another failure to observe the election — a read or watch-create
-    /// error, or a watch lost before proving itself; returns how long
-    /// to wait before the next attempt.
-    pub fn failed(&mut self, config: &CoordinatorConfig) -> Duration {
-        self.0 = self.0.saturating_add(1);
-        observation_retry_pace(config, self.0)
-    }
-
-    pub fn consecutive(&self) -> u32 {
-        self.0
-    }
-}
-
 /// The wait before campaigning again after a term ended badly, growing
 /// while endings keep arriving. A free function so the invariant below
 /// is checkable without a store.
 ///
 /// Every bad ending shares this one pace — the etcd writes a campaign
 /// spends are what it restrains. A candidate that could not observe the
-/// election climbs `observation_retry_pace` instead, having spent only
+/// election retries at the poll cadence instead, having spent only
 /// reads.
 ///
 /// INVARIANT: the wait never exceeds `leader_lease_ttl` — pacing past
@@ -359,38 +289,33 @@ impl Coordinator {
         // isolated failure long after a bad spell still costs the base.
         let mut consecutive_endings = 0u32;
         let mut last_ending: Option<Instant> = None;
-        // Blind spells are counted separately from endings: a candidate
-        // that cannot read the election held nothing, so it must not
-        // spend the ending pace — but at fleet scale its retries are
-        // still load, so they grow on their own ladder.
-        let mut blind = BlindSpell::new();
         loop {
             if cancel.is_cancelled() {
                 return;
             }
             // Campaign only into an opening: a campaign costs etcd
             // writes whether or not it wins, and every standby pays it.
-            let attempt = match self.await_election_opening(&cancel, &mut blind).await {
+            let attempt = match self.await_election_opening(&cancel).await {
                 Ok(()) if cancel.is_cancelled() => return,
                 // Awaited to completion, never raced: dropping try_lead
                 // mid-cleanup would strand the election lease until TTL
                 // expiry. It observes `cancel` internally.
                 Ok(()) => self.try_lead(cancel.clone()).await,
                 // Not a failed term — this candidate held nothing — so
-                // no ending pace and no run-failure sample; it climbs
-                // `observation_retry_pace`'s ladder instead. Shutdown
-                // first: exit teardown errors here before losing the
-                // race against `cancel`, and counting that would put a
-                // sample on every rollout.
+                // no ending pace and no run-failure sample; it retries
+                // at the poll cadence, which is the load a healthy
+                // standby already costs. Shutdown first: exit teardown
+                // errors here before losing the race against `cancel`,
+                // and counting that would put a sample on every
+                // rollout.
                 Err(_) if cancel.is_cancelled() => return,
                 Err(e) => {
                     counter!("personhog_coordination_election_observation_failures_total")
                         .increment(1);
-                    let wait = blind.failed(&self.config);
+                    let wait = jittered(self.config.standby_poll_interval, &self.config.name);
                     tracing::warn!(
                         name = %self.config.name,
                         error = %e,
-                        consecutive = blind.consecutive(),
                         wait = ?wait,
                         "could not observe the election; retrying"
                     );
@@ -471,14 +396,11 @@ impl Coordinator {
     ///
     /// Standing by costs one read and one idle watch per fallback
     /// interval, in place of a campaign per retry interval. The
-    /// fallback re-read bounds the leaderless window whether a watch
-    /// stalls or is lost — a lost watch keeps the read cadence while
-    /// the ladder paces its re-creation.
-    pub async fn await_election_opening(
-        &self,
-        cancel: &CancellationToken,
-        blind: &mut BlindSpell,
-    ) -> Result<()> {
+    /// fallback re-read bounds the leaderless window whether the watch
+    /// stalls or is lost, and a lost watch waits out its window before
+    /// re-creating, so no failure mode costs more than the healthy
+    /// cadence.
+    pub async fn await_election_opening(&self, cancel: &CancellationToken) -> Result<()> {
         loop {
             // The revision this read returns anchors the watch, so a
             // leader that vanishes before the watch attaches is still
@@ -491,11 +413,6 @@ impl Coordinator {
             };
             let (leader, revision) = read?;
             let Some(leader) = leader else {
-                // An open election is a completed observation — without
-                // the reset, a write-path-only outage would carry a
-                // stale count into the next read blip. Campaign
-                // failures pace on the ending ladder.
-                blind.observed();
                 return Ok(());
             };
             tracing::debug!(
@@ -509,11 +426,6 @@ impl Coordinator {
                 stream = self.store.watch_leader_from(revision + 1) => stream,
             };
             let mut stream = stream?;
-            // Deliberately no reset here: watcher pressure accepts the
-            // create and cancels with the first response, so a reset at
-            // creation would zero the ladder every cycle of exactly the
-            // mode it paces.
-            //
             // A deadline for the whole wait: per-message construction
             // would restart it on every response and bound nothing.
             let fallback_at = tokio::time::Instant::now() + self.config.standby_poll_interval;
@@ -564,23 +476,10 @@ impl Coordinator {
                 }
             };
             match woke {
-                // Both are completed observations; survival's weaker
-                // claim is argued at `BlindSpell::observed`.
-                Woke::Opened => {
-                    blind.observed();
-                    return Ok(());
-                }
-                Woke::Fallback => {
-                    blind.observed();
-                }
-                // Counted: without a series, a flapping etcd is
-                // indistinguishable from a healthy fleet. A loss climbs
-                // the same ladder as read and create errors, but the
-                // pace delays only watch re-creation — reads keep the
-                // fallback cadence (`read_through_pace`), so a
-                // cancelled watch never detects an opening slower than
-                // a stalled one. A first loss re-reads at the original
-                // deadline; survival above resets.
+                Woke::Opened => return Ok(()),
+                // The fallback re-read: loop to a fresh look and a
+                // fresh watch.
+                Woke::Fallback => {}
                 Woke::StreamLost => {
                     // Shutdown first, as at the run-level arm: exit
                     // teardown errors the stream before the cancel race
@@ -589,66 +488,18 @@ impl Coordinator {
                     if cancel.is_cancelled() {
                         return Ok(());
                     }
+                    // Counted: without a series, a flapping etcd is
+                    // indistinguishable from a healthy fleet.
                     counter!("personhog_coordination_election_watch_interruptions_total")
                         .increment(1);
-                    let pace = blind.failed(&self.config);
-                    if blind.consecutive() <= 1 {
-                        tokio::select! {
-                            _ = cancel.cancelled() => return Ok(()),
-                            _ = tokio::time::sleep_until(fallback_at) => {}
-                        }
-                    } else {
-                        tracing::warn!(
-                            name = %self.config.name,
-                            consecutive = blind.consecutive(),
-                            pace = ?pace,
-                            "leader watch lost again; pacing its re-creation"
-                        );
-                        if self.read_through_pace(cancel, blind, pace).await? {
-                            return Ok(());
-                        }
+                    // Wait out the window before re-creating, so a
+                    // flapping watcher costs the healthy cadence — one
+                    // read and one create per interval — and never more.
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Ok(()),
+                        _ = tokio::time::sleep_until(fallback_at) => {}
                     }
                 }
-            }
-        }
-    }
-
-    /// Park for `pace` while still reading the leader key at the
-    /// fallback cadence — the pace delays only watch re-creation — and
-    /// take an opening the moment a read finds one. Returns whether the
-    /// caller should stop waiting (opening observed or cancelled);
-    /// `false` means the pace ran out and the watch should be
-    /// re-created.
-    async fn read_through_pace(
-        &self,
-        cancel: &CancellationToken,
-        blind: &mut BlindSpell,
-        pace: Duration,
-    ) -> Result<bool> {
-        let pace_deadline = tokio::time::Instant::now() + pace;
-        loop {
-            let next_read = tokio::time::Instant::now() + self.config.standby_poll_interval;
-            if next_read >= pace_deadline {
-                tokio::select! {
-                    _ = cancel.cancelled() => return Ok(true),
-                    _ = tokio::time::sleep_until(pace_deadline) => return Ok(false),
-                }
-            }
-            tokio::select! {
-                _ = cancel.cancelled() => return Ok(true),
-                _ = tokio::time::sleep_until(next_read) => {}
-            }
-            let read = tokio::select! {
-                _ = cancel.cancelled() => return Ok(true),
-                read = self.store.get_leader() => read,
-            };
-            // An empty read is a completed observation. Finding the
-            // incumbent is not: those reads succeed every interval of a
-            // flap, and a reset would hold the ladder at zero for the
-            // whole episode.
-            if read?.is_none() {
-                blind.observed();
-                return Ok(true);
             }
         }
     }
@@ -2250,70 +2101,6 @@ mod tests {
         assert_eq!(
             after_quiet, first,
             "an ending after a quiet window must cost the base pace again"
-        );
-    }
-
-    /// A blind candidate's retry has to grow, because at fleet scale the
-    /// standby interval is real load: two hundred candidates re-reading
-    /// a recovering etcd every interval is forty reads a second held for
-    /// the whole outage. And it has to stop growing at the cap, because
-    /// every doubling past it buys nothing but slower recovery
-    /// detection.
-    #[test]
-    fn the_blind_retry_grows_to_its_cap_and_no_further() {
-        let config = paced_config("coordinator-0");
-        let cap = config
-            .standby_poll_interval
-            .saturating_mul(OBSERVATION_BACKOFF_FACTOR);
-
-        let first = observation_retry_pace(&config, 1);
-        assert!(
-            first <= config.standby_poll_interval,
-            "the first blind retry must cost no more than a healthy standby's poll"
-        );
-        let mut previous = first;
-        // Strict growth up to the attempt that reaches the cap (1x, 2x,
-        // 4x, then 8x clamps to the 6x cap); beyond it the pace holds.
-        for consecutive in 2..=4 {
-            let wait = observation_retry_pace(&config, consecutive);
-            assert!(
-                wait > previous,
-                "attempt {consecutive} must pace harder than the one before"
-            );
-            previous = wait;
-        }
-        for consecutive in [5, 7, 10, 100, u32::MAX] {
-            let wait = observation_retry_pace(&config, consecutive);
-            assert!(
-                wait <= cap,
-                "attempt {consecutive} paced {wait:?}, past the {cap:?} cap"
-            );
-        }
-    }
-
-    /// A completed observation must start the ladder over, or a
-    /// candidate that was ever blind pays the capped pace for the rest
-    /// of its life — the safe-but-wasteful degradation nothing else
-    /// would catch, since every retry still works.
-    #[test]
-    fn an_observed_election_starts_the_blind_ladder_over() {
-        let config = paced_config("coordinator-0");
-        let mut blind = BlindSpell::new();
-
-        let first = blind.failed(&config);
-        for _ in 0..5 {
-            blind.failed(&config);
-        }
-        assert!(
-            blind.failed(&config) > first,
-            "a long spell must be pacing above the base before the reset means anything"
-        );
-
-        blind.observed();
-        assert_eq!(
-            blind.failed(&config),
-            first,
-            "the first failure after an observed election must cost the base pace again"
         );
     }
 

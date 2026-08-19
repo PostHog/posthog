@@ -31,7 +31,7 @@ use common::{
     FlakyProxy, HandoffEvent, MockCutoverHandler, MockHandoffHandler, ETCD_ENDPOINT, POLL_INTERVAL,
     WAIT_TIMEOUT,
 };
-use personhog_coordination::coordinator::{BlindSpell, Coordinator, CoordinatorConfig};
+use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::error::Result;
 use personhog_coordination::protocol::freeze_quorum_met;
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
@@ -4371,13 +4371,10 @@ async fn a_standby_waits_on_the_leader_key_rather_than_campaigning() {
 
     // With no leader recorded, the election is open and the wait is over
     // before it starts.
-    tokio::time::timeout(
-        WAIT_TIMEOUT,
-        standby.await_election_opening(&cancel, &mut BlindSpell::new()),
-    )
-    .await
-    .expect("an unheld election must not make a candidate wait")
-    .expect("reading the leader key must succeed");
+    tokio::time::timeout(WAIT_TIMEOUT, standby.await_election_opening(&cancel))
+        .await
+        .expect("an unheld election must not make a candidate wait")
+        .expect("reading the leader key must succeed");
 
     // The lease only serves to take the key. The test drives the key
     // directly from there, because revoking the lease can only produce a
@@ -4400,11 +4397,7 @@ async fn a_standby_waits_on_the_leader_key_rather_than_campaigning() {
     let waiting = {
         let standby = Arc::clone(&standby);
         let cancel = cancel.clone();
-        tokio::spawn(async move {
-            standby
-                .await_election_opening(&cancel, &mut BlindSpell::new())
-                .await
-        })
+        tokio::spawn(async move { standby.await_election_opening(&cancel).await })
     };
     // Generous, because the point of the window is to let the wait
     // reach its read and park: a runner slow enough to still be reading
@@ -5076,11 +5069,7 @@ async fn a_standby_stops_promptly_when_etcd_is_dark() {
 
     let cancel = CancellationToken::new();
     let token = cancel.clone();
-    let waiting = tokio::spawn(async move {
-        standby
-            .await_election_opening(&token, &mut BlindSpell::new())
-            .await
-    });
+    let waiting = tokio::spawn(async move { standby.await_election_opening(&token).await });
 
     // Long enough to be inside the call, short enough that the assertion
     // window below is still well under the transport's own bound.
@@ -5093,115 +5082,18 @@ async fn a_standby_stops_promptly_when_etcd_is_dark() {
         .expect("cancellation is not an error");
 }
 
-/// A standby whose watch proves itself resets the blind ladder.
+/// A standby whose watch is severed still takes an open election at
+/// the next fallback deadline.
 ///
-/// The reset lines inside `await_election_opening` are what this holds;
-/// the unit test pins only the type's methods, not their wiring.
-/// Dropped, every suite stays green while every candidate that ever had
-/// a blind spell pays the capped pace for the rest of its life — the
-/// exact degradation the type exists to prevent. A watch merely
-/// *created* must not reset — etcd under watcher pressure accepts the
-/// create and cancels immediately — so the poll interval here is short
-/// enough that the watch reaches its fallback, which is what survival
-/// means.
+/// A lost watch waits out its window and then re-reads rather than
+/// trusting the stream further. The proxy severs the live connection
+/// so the stream errors while etcd itself stays healthy for the
+/// re-read; a loss path that wedged on the dead stream, or surfaced it
+/// as a run failure, fails the bound here.
 #[tokio::test]
-async fn a_parked_standby_resets_its_blind_ladder() {
-    let prefix = format!("/test-blind-reset-{}/", uuid::Uuid::new_v4());
-    let store = store_at(ETCD_ENDPOINT, &prefix).await;
-
-    // An incumbent holds the election so the candidate parks — reads,
-    // establishes its watch, and waits — rather than returning.
-    let lease_id = store.grant_lease(60).await.expect("lease");
-    assert!(
-        store
-            .try_acquire_leadership("incumbent", lease_id)
-            .await
-            .expect("acquire"),
-        "the test's own leader must take the key"
-    );
-
-    let standby = Coordinator::new(
-        Arc::clone(&store),
-        CoordinatorConfig {
-            name: "blind-standby".to_string(),
-            // Short, so the parked watch lives out several whole windows
-            // — survivals — inside the assertion span.
-            standby_poll_interval: Duration::from_millis(300),
-            ..Default::default()
-        },
-        Arc::new(StickyBalancedStrategy),
-        None,
-    );
-    let config_for_seeding = CoordinatorConfig {
-        name: "blind-standby".to_string(),
-        ..Default::default()
-    };
-
-    // A spell already well up the ladder, as an outage would leave it.
-    let mut blind = BlindSpell::new();
-    for _ in 0..4 {
-        blind.failed(&config_for_seeding);
-    }
-    assert!(blind.consecutive() >= 4, "the spell must be seeded");
-
-    let cancel = CancellationToken::new();
-    let canceller = {
-        let cancel = cancel.clone();
-        tokio::spawn(async move {
-            // Generous, because a slow runner must not turn this into a
-            // false failure: the reset fires once the watch survives a
-            // 300ms window, and this span holds several of them.
-            tokio::time::sleep(Duration::from_secs(2)).await;
-            cancel.cancel();
-        })
-    };
-    standby
-        .await_election_opening(&cancel, &mut blind)
-        .await
-        .expect("standing by must not error");
-    drop(canceller.await);
-
-    assert_eq!(
-        blind.consecutive(),
-        0,
-        "reaching the watch must end the blind spell"
-    );
-
-    // The open-election return is the other wiring line: a read that
-    // finds no leader is also a completed observation, and carrying a
-    // stale count through it would charge the next blip the capped pace.
-    store
-        .revoke_lease(lease_id)
-        .await
-        .expect("depose incumbent");
-    let mut blind = BlindSpell::new();
-    for _ in 0..4 {
-        blind.failed(&config_for_seeding);
-    }
-    standby
-        .await_election_opening(&CancellationToken::new(), &mut blind)
-        .await
-        .expect("an open election must return at once");
-    assert_eq!(
-        blind.consecutive(),
-        0,
-        "an open election must end the blind spell too"
-    );
-}
-
-/// A standby pacing a lost watch still takes an open election at the
-/// read cadence.
-///
-/// The pace applies to watch re-creation only: while it runs, the
-/// candidate keeps reading the leader key each poll interval and
-/// campaigns the moment a read finds the election open. Replaced by a
-/// plain sleep on the pace, the opening goes unobserved for the whole
-/// pace — a graceful abdication during a watcher-pressure episode
-/// would cost the cap where it should cost one interval.
-#[tokio::test]
-async fn a_paced_standby_still_takes_an_open_election_at_the_read_cadence() {
+async fn a_standby_with_a_severed_watch_still_takes_an_open_election() {
     let proxy = FlakyProxy::start("127.0.0.1:2379").await;
-    let prefix = format!("/test-paced-opening-{}/", uuid::Uuid::new_v4());
+    let prefix = format!("/test-severed-watch-{}/", uuid::Uuid::new_v4());
     let direct = store_at(ETCD_ENDPOINT, &prefix).await;
     let watched = store_at(&proxy.endpoint, &prefix).await;
 
@@ -5214,120 +5106,41 @@ async fn a_paced_standby_still_takes_an_open_election_at_the_read_cadence() {
         "the test's own leader must take the key"
     );
 
-    let config = CoordinatorConfig {
-        name: "paced-standby".to_string(),
-        // Wide enough that the sever lands between the read and the
-        // fallback, and that the first in-park read fits well inside
-        // the assertion window below.
-        standby_poll_interval: Duration::from_secs(2),
-        ..Default::default()
-    };
-    // Seeded past one, so the sever below lands in the paced park: at
-    // three consecutive failures the pace is four intervals, jittered
-    // no lower than six seconds.
-    let mut blind = BlindSpell::new();
-    blind.failed(&config);
-    blind.failed(&config);
     let standby = Coordinator::new(
         Arc::clone(&watched),
-        config,
+        CoordinatorConfig {
+            name: "severed-standby".to_string(),
+            standby_poll_interval: Duration::from_secs(2),
+            ..Default::default()
+        },
         Arc::new(StickyBalancedStrategy),
         None,
     );
     let cancel = CancellationToken::new();
     let waiting = {
         let cancel = cancel.clone();
-        tokio::spawn(async move {
-            let outcome = standby.await_election_opening(&cancel, &mut blind).await;
-            (outcome, blind.consecutive())
-        })
+        tokio::spawn(async move { standby.await_election_opening(&cancel).await })
     };
 
-    // Let the standby read and establish its watch, then cut it.
+    // Let the standby read and establish its watch, then cut it and
+    // open the election. Only a re-read can observe the opening: the
+    // severed watch is gone, and its successor is created only after
+    // the re-read below runs.
     tokio::time::sleep(Duration::from_millis(500)).await;
     proxy.sever();
-    // The loss parks the standby on its pace; open the election.
     tokio::time::sleep(Duration::from_millis(300)).await;
     direct
         .revoke_lease(lease_id)
         .await
         .expect("depose incumbent");
 
-    // The first in-park read — one poll interval into the park — must
-    // observe the opening, well inside the six-second floor a blind
-    // sleep would spend.
-    let (outcome, consecutive) = tokio::time::timeout(Duration::from_secs(4), waiting)
+    // The lost watch waits out its ~2s window, re-reads, and finds the
+    // election open — well inside this bound.
+    tokio::time::timeout(Duration::from_secs(5), waiting)
         .await
-        .expect("a paced standby must observe the opening at the read cadence")
-        .expect("the standby task must not panic");
-    outcome.expect("an open election is not an error");
-    assert_eq!(
-        consecutive, 0,
-        "reading the election open must end the blind spell"
-    );
-}
-
-/// The park's reads never end the spell while the incumbent holds on.
-///
-/// In a watcher-pressure episode those reads succeed every interval, so
-/// a reset on them would hold the ladder at zero for the whole episode
-/// and the fleet would never back its watcher churn off. Only an open
-/// election — or the re-created watch proving itself — ends the spell.
-#[tokio::test]
-async fn a_park_read_that_finds_the_incumbent_leaves_the_spell_standing() {
-    let proxy = FlakyProxy::start("127.0.0.1:2379").await;
-    let prefix = format!("/test-park-no-reset-{}/", uuid::Uuid::new_v4());
-    let direct = store_at(ETCD_ENDPOINT, &prefix).await;
-    let watched = store_at(&proxy.endpoint, &prefix).await;
-
-    let lease_id = direct.grant_lease(60).await.expect("lease");
-    assert!(
-        direct
-            .try_acquire_leadership("incumbent", lease_id)
-            .await
-            .expect("acquire"),
-        "the test's own leader must take the key"
-    );
-
-    let config = CoordinatorConfig {
-        name: "park-no-reset".to_string(),
-        standby_poll_interval: Duration::from_secs(2),
-        ..Default::default()
-    };
-    let mut blind = BlindSpell::new();
-    blind.failed(&config);
-    blind.failed(&config);
-    let standby = Coordinator::new(
-        Arc::clone(&watched),
-        config,
-        Arc::new(StickyBalancedStrategy),
-        None,
-    );
-    let cancel = CancellationToken::new();
-    let waiting = {
-        let cancel = cancel.clone();
-        tokio::spawn(async move {
-            let outcome = standby.await_election_opening(&cancel, &mut blind).await;
-            (outcome, blind.consecutive())
-        })
-    };
-
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    proxy.sever();
-    // Far enough into the park that a read has run and found the
-    // incumbent, well short of the six-second pace floor.
-    tokio::time::sleep(Duration::from_secs(4)).await;
-    cancel.cancel();
-
-    let (outcome, consecutive) = tokio::time::timeout(Duration::from_secs(2), waiting)
-        .await
-        .expect("a cancelled park must return promptly")
-        .expect("the standby task must not panic");
-    outcome.expect("cancellation is not an error");
-    assert_eq!(
-        consecutive, 3,
-        "a read that finds the incumbent must not end the spell"
-    );
+        .expect("a standby with a severed watch must re-read at its deadline")
+        .expect("the standby task must not panic")
+        .expect("an open election is not an error");
 }
 
 /// A pod asked to shut down while etcd hangs exits inside its bounds
