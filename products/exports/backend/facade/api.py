@@ -10,6 +10,8 @@ import structlog
 from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.storage import object_storage
@@ -131,6 +133,23 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
     )
 
 
+# Limit contexts an export may pin, by name. An allowlist, not a lookup: export_context is written
+# by server-side callers, and a free-form value here would let one widen its own row limits.
+_EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}
+
+
+def export_limit_context(export_context: dict | None) -> LimitContext:
+    """The row clamp an export pinned, defaulting to the ordinary query limits.
+
+    Every execution of an export's query — the cache warm and the render — must pass this, or they
+    key different cache entries and the render runs a wider clamp than the caller validated.
+    """
+    requested = (export_context or {}).get("limit_context")
+    if isinstance(requested, str):
+        return _EXPORT_LIMIT_CONTEXTS.get(requested, LimitContext.QUERY)
+    return LimitContext.QUERY
+
+
 def _validate_adhoc_export_context(export_context: dict) -> None:
     """The ad-hoc render pipeline (viewport sizing, the exporter page's Query dispatch) draws a
     chart for an InsightVizNode-wrapped source, or for a DataVisualizationNode over HogQL. Anything
@@ -184,6 +203,11 @@ def render_png_export(
         raise ValueError("Provide exactly one of export_context or insight_id")
     if export_context is not None:
         _validate_adhoc_export_context(export_context)
+        # The ad-hoc path renders a query the caller supplied rather than a saved insight, so the
+        # object-level check below has nothing to resolve against. Query access is the equivalent
+        # gate, and it is what ee/api/subscription.py already requires to create an AI subscription.
+        if not UserAccessControl(user=created_by, team=team).check_access_level_for_resource("query", "viewer"):
+            raise ValueError("You need query access to render this export")
     if insight_id is not None:
         insight = Insight.objects.filter(id=insight_id, team_id=team.id, deleted=False).first()
         # Object-level access matters here: created_by may not be allowed to view the insight.

@@ -24,8 +24,6 @@ from rest_framework.request import Request
 
 from posthog.schema import SharingConfigurationSettings
 
-from posthog.hogql.constants import LimitContext
-
 from posthog.api.data_color_theme import DataColorTheme, PublicDataColorThemeSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
@@ -69,6 +67,7 @@ from products.dashboards.backend.access import dashboard_access_method, record_d
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.api.exports import ExportedAssetCreateSerializer
+from products.exports.backend.facade.api import export_limit_context
 from products.exports.backend.models.exported_asset import (
     EXPORTED_ASSET_PURPOSE_RENDER,
     EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
@@ -286,18 +285,6 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
     serializer.is_valid(raise_exception=True)
     export_asset = serializer.synthetic_create("opengraph image")
     return export_asset
-
-
-# Limit contexts an export may pin, by name. An allowlist, not a lookup: export_context is written
-# by server-side callers, and a free-form value here would let one widen its own row limits.
-_EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}
-
-
-def _export_limit_context(export_context: dict | None) -> LimitContext:
-    requested = (export_context or {}).get("limit_context")
-    return (
-        _EXPORT_LIMIT_CONTEXTS.get(requested, LimitContext.QUERY) if isinstance(requested, str) else LimitContext.QUERY
-    )
 
 
 def get_themes_for_team(team: Team):
@@ -1318,7 +1305,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     # Clamp exactly as the caller that produced this export did. limit_context is
                     # part of the cache key, so a mismatch guarantees a second full execution and
                     # can render a wider row set than the caller validated.
-                    limit_context=_export_limit_context(resource.export_context),
+                    limit_context=export_limit_context(resource.export_context),
                     # Anonymous render surface; attribute the read to the export owner so
                     # warehouse HogQL access control resolves against their access.
                     user=resource.created_by,
