@@ -48,7 +48,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, Integration
 from posthog.models.user import User
-from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import GitHubInstallRequest, UserGitHubIntegration, UserIntegration
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle
 from posthog.user_permissions import UserPermissions
@@ -127,6 +127,40 @@ class UserGitHubLinkStartResponseSerializer(serializers.Serializer):
     )
     connect_flow = serializers.CharField(
         help_text="OAuth or install flow used for this GitHub connection.",
+    )
+
+
+class GitHubInstallRequestItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="PostHog GitHubInstallRequest row id.")
+    github_login = serializers.CharField(
+        allow_blank=True,
+        help_text="GitHub login the install was requested under. Blank if it could not be resolved.",
+    )
+    status = serializers.ChoiceField(
+        choices=GitHubInstallRequest.Status.choices,
+        help_text=(
+            "`pending` while waiting on an org owner's approval, `approved` once the installation webhook "
+            "confirms it, `unidentified` when the requesting GitHub account could not be resolved. Approval "
+            "can't be detected for an unidentified request, so the user has to start the connect flow again."
+        ),
+    )
+    installation_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="GitHub App installation id, set once the request is approved.",
+    )
+    requested_at = serializers.DateTimeField(help_text="When the install approval was requested.")
+    resolved_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When an org owner approved the request.",
+    )
+
+
+class GitHubInstallRequestListResponseSerializer(serializers.Serializer):
+    results = GitHubInstallRequestItemSerializer(
+        many=True,
+        help_text="The user's GitHub App install-approval requests, newest first.",
     )
 
 
@@ -214,6 +248,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "retrieve",
         "github_repos",
         "github_branches",
+        "github_install_requests",
         "slack_linkable",
     ]
     scope_object_write_actions = [
@@ -428,6 +463,33 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         )
 
         return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
+
+    @extend_schema(
+        summary="List the user's GitHub install-approval requests",
+        responses={200: GitHubInstallRequestListResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="github/install_requests")
+    def github_install_requests(self, request: Request, **_kwargs) -> Response:
+        """Return the requesting user's GitHub App install-approval requests, newest first.
+
+        This is the durable server-side "awaiting org owner approval" state (see
+        ``posthog.models.user_integration.GitHubInstallRequest``), distinct from the in-flight
+        connect spinner, which never touches this table.
+        """
+        user = self._get_user()
+        install_requests = GitHubInstallRequest.objects.filter(user=user).order_by("-requested_at")
+        results = [
+            {
+                "id": install_request.id,
+                "github_login": install_request.github_login,
+                "status": install_request.status,
+                "installation_id": install_request.installation_id,
+                "requested_at": install_request.requested_at,
+                "resolved_at": install_request.resolved_at,
+            }
+            for install_request in install_requests
+        ]
+        return Response({"results": results})
 
     @extend_schema(
         summary="Start GitHub personal integration linking",
