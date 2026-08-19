@@ -45,7 +45,7 @@ describe('CI report section builders', () => {
             name: 'describes the universal lane',
             input: { impactedTargets: ['py:core', 'fe:core'], isUniversal: true },
             expected: {
-                status: 'fail',
+                status: 'warn',
                 summary: 'universal lane',
                 body: 'This PR is assigned to the universal lane. It cannot merge in parallel with other PRs, so it can take longer to merge. Ask dev-ex if you think this is wrong.',
             },
