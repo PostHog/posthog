@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile tsconfig.tsbuildinfo",
     "test:e2e": "playwright test --config=tests/e2e/playwright.config.ts",
     "test:e2e:ui": "playwright test --config=tests/e2e/playwright.config.ts --ui"
   },

@@ -11,7 +11,7 @@
     ]
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile tsconfig.tsbuildinfo",
     "test": "vitest run",
     "generate-routes": "node scripts/generate-routes.mjs",
     "clean": "node ../../scripts/rimraf.mjs dist .turbo"

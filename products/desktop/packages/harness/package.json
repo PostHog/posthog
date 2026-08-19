@@ -98,7 +98,7 @@
     "build:types": "tsc --emitDeclarationOnly --declaration --noEmit false --outDir dist --rootDir src",
     "dev": "tsup --watch",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile tsconfig.tsbuildinfo",
     "clean": "node ../../scripts/rimraf.mjs dist .turbo"
   },
   "dependencies": {

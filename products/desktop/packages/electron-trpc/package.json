@@ -23,7 +23,7 @@
     "build": "vite build -c src/main/vite.config.ts && vite build -c src/renderer/vite.config.ts && pnpm build:types",
     "build:types": "tsc -p tsconfig.build.json",
     "dev": "pnpm build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile tsconfig.tsbuildinfo",
     "test": "vitest run -c vitest.config.ts",
     "test:ci": "vitest run -c vitest.config.ts --coverage",
     "clean": "node ../../scripts/rimraf.mjs dist .turbo"

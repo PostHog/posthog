@@ -23,7 +23,7 @@
     "publish": "electron-vite build && electron-builder build --publish always --config electron-builder.ts",
     "build": "pnpm package",
     "build-icons": "bash scripts/generate-icns.sh",
-    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit --incremental --tsBuildInfoFile tsconfig.node.tsbuildinfo && tsc -p tsconfig.web.json --noEmit --incremental --tsBuildInfoFile tsconfig.web.tsbuildinfo",
     "generate-client": "tsx scripts/update-openapi-client.ts",
     "test": "vitest run",
     "test:e2e": "playwright test --config=tests/e2e/playwright.config.ts",

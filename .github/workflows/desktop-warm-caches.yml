@@ -73,6 +73,17 @@ jobs:
                   pnpm run build:deps
                   pnpm run typecheck
 
+            # PR typecheck jobs restore these so tsc runs incrementally. Keyed per
+            # commit; PRs read the newest via the desktop-tsbuildinfo- prefix.
+            - name: Save TypeScript incremental cache
+              uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: |
+                      products/desktop/apps/*/*.tsbuildinfo
+                      products/desktop/packages/*/*.tsbuildinfo
+                      products/desktop/tools/*/*.tsbuildinfo
+                  key: desktop-tsbuildinfo-${{ runner.os }}-${{ github.sha }}
+
     macos:
         runs-on: macos-latest
         timeout-minutes: 30

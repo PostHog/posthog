@@ -12,7 +12,7 @@
     ]
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile tsconfig.tsbuildinfo",
     "test": "vitest run",
     "clean": "node ../../scripts/rimraf.mjs .turbo"
   },

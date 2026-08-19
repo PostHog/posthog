@@ -104,7 +104,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile tsconfig.tsbuildinfo",
     "clean": "node ../../scripts/rimraf.mjs dist .turbo"
   },
   "devDependencies": {

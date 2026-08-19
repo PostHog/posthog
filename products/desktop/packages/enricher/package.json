@@ -12,7 +12,7 @@
   "scripts": {
     "build": "node ../../scripts/rimraf.mjs dist && tsup",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile tsconfig.tsbuildinfo",
     "clean": "node ../../scripts/rimraf.mjs dist .turbo",
     "fetch-grammars": "node scripts/fetch-grammars.cjs",
     "test": "vitest run"

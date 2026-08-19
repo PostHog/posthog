@@ -11,7 +11,7 @@
     ]
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile tsconfig.tsbuildinfo",
     "clean": "node ../../scripts/rimraf.mjs .turbo"
   },
   "dependencies": {

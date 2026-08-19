@@ -67,7 +67,11 @@ jobs:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
         if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
-        runs-on: ubuntu-latest
+        # Depot for the expensive job: near-zero queue and faster than ubuntu-latest.
+        # Forks stay GitHub-hosted, matching ci-frontend.yml: this job runs
+        # `pnpm install`, so a fork controls lifecycle scripts, and Depot injects
+        # shared cache credentials ambiently.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         timeout-minutes: 30
         permissions:
             contents: read
@@ -104,9 +108,21 @@ jobs:
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
                   restore-keys: desktop-pnpm-${{ runner.os }}-
 
-            # Only dependency builds are cached, the typecheck itself always runs.
             - name: Restore turbo cache
               uses: ./.github/actions/desktop-restore-turbo-cache
+
+            # tsc reads these to type-check only the files a PR changed instead of
+            # the whole tree. desktop-warm-caches.yml seeds them on master pushes;
+            # PRs restore-only, so per-PR state never pollutes the cache store.
+            - name: Restore TypeScript incremental cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      products/desktop/apps/*/*.tsbuildinfo
+                      products/desktop/packages/*/*.tsbuildinfo
+                      products/desktop/tools/*/*.tsbuildinfo
+                  key: desktop-tsbuildinfo-${{ runner.os }}-${{ github.sha }}
+                  restore-keys: desktop-tsbuildinfo-${{ runner.os }}-
 
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
