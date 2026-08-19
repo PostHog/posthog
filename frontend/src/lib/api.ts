@@ -4582,13 +4582,10 @@ const api = {
             params: SessionRecordingSnapshotParams,
             headers: Record<string, string> = {}
         ): Promise<string[] | Uint8Array> {
+            const request = new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params)
             let response: Response
             try {
-                response = await new ApiRequest()
-                    .recording(recordingId)
-                    .withAction('snapshots')
-                    .withQueryString(params)
-                    .getResponse({ headers })
+                response = await request.getResponse({ headers })
             } catch (e) {
                 if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
                     throw new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
@@ -4596,7 +4593,9 @@ const api = {
                 throw e
             }
 
-            const contentBuffer = new Uint8Array(await response.arrayBuffer())
+            const contentBuffer = new Uint8Array(
+                await readResponseBody(request.assembleFullUrl(), 'GET', () => response.arrayBuffer())
+            )
 
             // If client requested uncompressed data (decompress=false), return binary data
             if (params.decompress === false) {
@@ -7564,6 +7563,34 @@ async function handleFetch(
     }
 
     return response
+}
+
+/**
+ * Reads a response body through the same failure classification `handleFetch` gives the fetch call
+ * itself. A connection that drops part way through a download, or a tab torn down mid-read, rejects
+ * the body read with the same bare `TypeError` a failed `fetch` produces. Without this the reject
+ * escapes unclassified and files its own error tracking issue, while a failed `fetch` on the same
+ * endpoint becomes a `NetworkError` that `dropUnactionableNetworkExceptions` can drop.
+ */
+async function readResponseBody<T>(url: string, method: string, read: () => Promise<T>): Promise<T> {
+    const startTime = new Date().getTime()
+    try {
+        return await read()
+    } catch (error) {
+        if (error instanceof TypeError) {
+            const reason = classifyNetworkFailure()
+            captureClientRequestFailure({
+                pathname: requestPathname(url),
+                method,
+                duration: new Date().getTime() - startTime,
+                status: 0,
+                is_shared_view: isSharedView(),
+                failure_reason: reason,
+            })
+            throw new NetworkError(reason, error)
+        }
+        throw error
+    }
 }
 
 export default api
