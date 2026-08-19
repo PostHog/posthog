@@ -158,6 +158,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
+import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
 import {
   AgentService,
   buildAutoApproveOutcome,
@@ -1034,6 +1035,10 @@ describe("AgentService", () => {
         true,
       ).append;
     }
+
+    it("uses the shared object-reference prompt", () => {
+      expect(buildChannelPrompt()).toContain(RICH_OUTPUT_TAGS_PROMPT);
+    });
 
     it("requires a task-specific clone instead of an existing checkout", () => {
       const prompt = buildChannelPrompt();
