@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 from .backends.base import ExecutionBackend
 from .backends.local import LocalClickhouseBackend
 from .backends.metabase import MetabaseBackend
+from .formatting import format_bytes, format_duration_ms
 from .server import ServerInfo, generate_token, make_server, serve_forever_in_thread
 from .slow_queries import SlowQuery, fetch_available_columns, fetch_available_dictionaries, fetch_slow_queries
 
@@ -567,7 +568,8 @@ def _print_only(args: argparse.Namespace) -> int:
     print()  # noqa: T201 — print-only mode emits structured output to stdout
     for i, q in enumerate(queries, start=1):
         print(f"[{i}/{len(queries)}] query_id={q.query_id}")  # noqa: T201
-        print(f"        team_id={q.team_id} duration={q.query_duration_ms}ms read_bytes={q.read_bytes}")  # noqa: T201
+        duration = format_duration_ms(q.query_duration_ms)
+        print(f"        team_id={q.team_id} duration={duration} read={format_bytes(q.read_bytes)}")  # noqa: T201
         print(f"        event_time={q.event_time}")  # noqa: T201
         preview = q.clickhouse_query.replace("\n", " ")[:200]
         print(f"        sql_preview: {preview}{'…' if len(q.clickhouse_query) > 200 else ''}")  # noqa: T201
