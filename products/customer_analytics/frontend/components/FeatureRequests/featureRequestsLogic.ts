@@ -579,7 +579,7 @@ export interface featureRequestsLogicMeta {
         activeRequestAccountLinks: (activeRequest: FeatureRequestApi | null) => FeatureRequestAccountLinkApi[]
         visibleActiveRequestAccountLinks: (
             activeRequestAccountLinks: FeatureRequestAccountLinkApi[],
-            requestAccountsShowingAll: any
+            requestAccountsShowingAll: boolean
         ) => FeatureRequestAccountLinkApi[]
         activeRequestEvidenceCount: (activeRequestAccountLinks: FeatureRequestAccountLinkApi[]) => number
         productAreaOptions: (activeProductAreas: FeatureRequestProductAreaApi[]) => {
