@@ -885,3 +885,31 @@ class TestChartCardBlockBuilders(SimpleTestCase):
         self.assertEqual(slack.chat_postMessage.call_count, 1 if card_count == 1 else card_count)
         for call in slack.chat_postMessage.call_args_list:
             self.assertEqual(call.kwargs["text"], "&lt;!channel&gt; spike")
+
+    @parameterized.expand(
+        [
+            ("composed", 1),
+            ("per_card", _SLACK_MESSAGE_BLOCK_LIMIT // 2 + 1),
+        ]
+    )
+    def test_deleted_prompt_skips_delivery_without_marking_cards_delivered(self, _name, card_count):
+        # A prompt deleted mid-delivery makes the reply funnel skip the post and return None.
+        # A skipped post must not read as delivered: the chart never reached the thread, and
+        # marking it delivered would drop it from every later relay pass.
+        slack = MagicMock()
+        slack.conversations_history.return_value = {"messages": []}  # the message is gone
+        delivered: list[_SlackImageCard] = []
+        cards = [_SlackImageCard(TaskArtifact(name="Chart"), {}, file_id=f"F{index}") for index in range(card_count)]
+
+        answer_posted = _post_composed_answer_message(
+            slack,
+            mapping=MagicMock(channel="C_DELETED", thread_ts="8888.1"),
+            image_cards=cards,
+            answer_sections=[],
+            mark_delivered=delivered.append,
+            deadline=time.monotonic() + 30,
+        )
+
+        self.assertEqual(delivered, [])
+        slack.chat_postMessage.assert_not_called()
+        self.assertFalse(answer_posted)
