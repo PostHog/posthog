@@ -26,11 +26,13 @@ import json
 import shutil
 import hashlib
 import subprocess
+import unicodedata
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, NoReturn
+from urllib.parse import ParseResult, urlparse
 
 import click
 import requests
@@ -97,10 +99,35 @@ _CAVEATS = (
 )
 
 
+def _terminal_text(value: object) -> str:
+    return "".join(character for character in str(value) if unicodedata.category(character) not in {"Cc", "Cf"})
+
+
+def _parse_http_origin(host: str) -> ParseResult | None:
+    try:
+        parsed = urlparse(host)
+        hostname = parsed.hostname
+    except ValueError:
+        return None
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not hostname
+        or parsed.username
+        or parsed.password
+        or parsed.path
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+    return parsed
+
+
 class _ApiError(Exception):
     def __init__(self, message: str, *, exit_code: int = 1) -> None:
-        super().__init__(message)
-        self.message = message
+        safe_message = "\n".join(_terminal_text(line) for line in message.splitlines())
+        super().__init__(safe_message)
+        self.message = safe_message
         self.exit_code = exit_code
 
 
@@ -144,12 +171,12 @@ def _explain(response: requests.Response, action: str, *, host: str, project_id:
     if status == 401:
         return _ApiError(
             f"{host} rejected the credential. It may be revoked, or issued for a different region.\n"
-            "  Run `hogli auth:posthog:logout` then `hogli auth:posthog:login` to re-authorize.",
+            "  Run `hogli posthog:logout` then `hogli posthog:login` to re-authorize.",
             exit_code=_EXIT_NOT_CONFIGURED,
         )
     if status == 403 and "scope" in detail:
         return _ApiError(
-            "The credential lacks 'engineering_analytics:read'.\n  Run `hogli auth:posthog:login` to authorize it.",
+            "The credential lacks 'engineering_analytics:read'.\n  Run `hogli posthog:login` to authorize it.",
             exit_code=_EXIT_NOT_CONFIGURED,
         )
     if status == 403:
@@ -281,6 +308,7 @@ def _spark(counts: list[int]) -> str:
 
 
 def _short(text: str, width: int) -> str:
+    text = _terminal_text(text)
     return text if len(text) <= width else f"{text[: width - 1]}…"
 
 
@@ -319,8 +347,9 @@ def _render_rows(rows: list[dict[str, Any]]) -> None:
     test_width = max(24, _term_width() - 74)
     click.echo(f"  {'REF':<10}{'STATE':<22}{'OCC':>4}{'BR':>4}{'MSTR':>6}{'LAST':>7}  {'24H':<24}  TEST")
     for row in rows:
+        state = _terminal_text(row.get("state", "-"))
         click.echo(
-            f"  {_ref(row['fingerprint']):<10}{row.get('state', '-'):<22}"
+            f"  {_ref(row['fingerprint']):<10}{state:<22}"
             f"{row.get('occurrences', 0):>4}{row.get('branches', 0):>4}{row.get('master_hits', 0):>6}"
             f"{_ago(row.get('last_seen')):>7}  {_spark(row.get('trend_24h') or []):<24}  "
             f"{_short(str(row.get('test_id', '')), test_width)}"
@@ -330,7 +359,8 @@ def _render_rows(rows: list[dict[str, Any]]) -> None:
 def _render_master(health: dict[str, Any]) -> None:
     failing = health.get("failing_workflows") or 0
     settled = health.get("settled_workflows") or 0
-    label = f"{health.get('default_branch') or 'default branch':<20}"
+    branch = _terminal_text(health.get("default_branch") or "default branch")
+    label = f"{branch:<20}"
     # A read that succeeded with nothing behind it is not a green default branch. Rendering it as
     # OK claims every workflow passed, when the truth is that none has settled to be counted.
     if not settled:
@@ -339,7 +369,7 @@ def _render_master(health: dict[str, Any]) -> None:
     verdict = click.style("RED", fg="red", bold=True) if failing else click.style("OK", fg="green", bold=True)
     click.echo(f"{label}{verdict}    {failing} of {settled} workflows failing on their latest run")
     for name in health.get("failing_workflow_names") or []:
-        click.echo(f"{'':<20}  {name}")
+        click.echo(f"{'':<20}  {_terminal_text(name)}")
 
 
 def _render_broken(broken: dict[str, Any], *, limit: int) -> None:
@@ -357,11 +387,11 @@ def _render_broken(broken: dict[str, Any], *, limit: int) -> None:
         click.echo(f"\n  Showing {len(shown)} of {len(rows)}{cap}. `hogli ci:insights view <REF>` shows one failure.")
     jobs = broken.get("breaking_master_jobs") or []
     if jobs:
-        click.echo(f"\n  Jobs red on the default branch now: {', '.join(str(job) for job in jobs[:4])}")
+        click.echo(f"\n  Jobs red on the default branch now: {', '.join(_terminal_text(job) for job in jobs[:4])}")
 
 
 def _render_master_failures(groups: list[dict[str, Any]]) -> None:
-    click.echo(f"{'master failures':<20}grouped, last 24h, covering the runners fingerprinting cannot group yet")
+    click.echo(f"{'master failures':<20}grouped over 24h, including runners without fingerprinting")
     if not groups:
         click.echo(f"{'':<20}none")
         return
@@ -374,12 +404,15 @@ def _render_master_failures(groups: list[dict[str, Any]]) -> None:
 
 
 def _render_branch(branch: str, matches: list[dict[str, Any]]) -> None:
-    click.echo(f"{'your branch':<20}{branch}")
+    click.echo(f"{'your branch':<20}{_terminal_text(branch)}")
     if not matches:
-        click.echo(f"{'':<20}no PR found: not pushed yet, or a fork")
+        click.echo(f"{'':<20}no open PR found: not pushed yet, no open PR, or a fork")
         return
     for match in matches[:3]:
-        click.echo(f"{'':<20}PR #{match.get('number')} ({match.get('state') or 'unknown'}) {match.get('title') or ''}")
+        number = _terminal_text(match.get("number"))
+        state = _terminal_text(match.get("state") or "unknown")
+        title = _terminal_text(match.get("title") or "")
+        click.echo(f"{'':<20}PR #{number} ({state}) {title}")
 
 
 def _state_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
@@ -458,6 +491,19 @@ class _Options:
 
     def api(self) -> _Api:
         host = self.host.rstrip("/")
+        parsed_host = _parse_http_origin(host)
+        if parsed_host is None:
+            raise _ApiError("--host must be an HTTP(S) origin without credentials, a path, a query, or a fragment.")
+        hostname = parsed_host.hostname or ""
+        is_posthog_cloud = parsed_host.scheme == "https" and (
+            hostname == "posthog.com" or hostname.endswith(".posthog.com")
+        )
+        if (environment_key := posthog_auth.key_in_env()) and not is_posthog_cloud:
+            raise _ApiError(
+                f"Refusing to send {environment_key.variable} to {host}.\n"
+                f"  Unset it, then run `hogli posthog:login --host {host}` to use a host-bound credential.",
+                exit_code=_EXIT_NOT_CONFIGURED,
+            )
         try:
             token = posthog_auth.token(scopes=_SCOPES, host=host)
         except posthog_auth.AuthError as exc:
@@ -510,7 +556,13 @@ def _common_options(func: Callable[..., None]) -> Callable[..., None]:
             default=lambda: os.environ.get("POSTHOG_CI_INSIGHTS_HOST") or _DEFAULT_HOST,
             help="PostHog host to read from.",
         ),
-        click.option("--timeout", default=30.0, show_default=True, help="Per-request timeout in seconds."),
+        click.option(
+            "--timeout",
+            type=click.FloatRange(min=0, min_open=True),
+            default=30.0,
+            show_default=True,
+            help="Per-request timeout in seconds.",
+        ),
         click.option("--json", "as_json", is_flag=True, help="Shorthand for --format json."),
         click.option(
             "--format",
@@ -520,7 +572,13 @@ def _common_options(func: Callable[..., None]) -> Callable[..., None]:
             show_default=True,
             help="'auto' emits JSON when stdout is not a terminal.",
         ),
-        click.option("--limit", default=_DIGEST_ROWS, show_default=True, help="Failures to show; 0 for every row."),
+        click.option(
+            "--limit",
+            type=click.IntRange(min=0),
+            default=_DIGEST_ROWS,
+            show_default=True,
+            help="Failures to show; 0 for every row.",
+        ),
     ]
     for option in reversed(options):
         func = option(func)
@@ -603,7 +661,7 @@ def _digest(options: _Options) -> NoReturn:
     raise SystemExit(0)
 
 
-@ci_insights.command(name="search", help="Match a failure by test name or error text.")
+@ci_insights.command(name="search", help="Match a failure by test name or stable error text.")
 @click.argument("query")
 @click.option(
     "--days",
@@ -636,60 +694,82 @@ def search(ctx: click.Context, query: str, days: int, **kwargs: Any) -> NoReturn
     except _ApiError as exc:
         _fail(exc)
 
+    broken_payload = sections["broken"].data or {}
+    flaky_payload = sections["flaky"].data or {}
     broken = [
         row
-        for row in (sections["broken"].data or {}).get("rows") or []
+        for row in broken_payload.get("rows") or []
         if any(needle in str(row.get(field, "")).lower() for field in ("test_id", "error_signature", "job_name"))
     ]
     flaky = [
         item
-        for item in (sections["flaky"].data or {}).get("items") or []
+        for item in flaky_payload.get("items") or []
         if any(needle in str(item.get(field, "")).lower() for field in ("nodeid", "selector"))
     ]
     shown_broken, shown_flaky = _capped(broken, options.limit), _capped(flaky, options.limit)
+    source_truncated = {
+        "broken_tests": bool(broken_payload.get("truncated")),
+        "flaky_tests": bool(flaky_payload.get("truncated")),
+    }
+    truncated_sections = [
+        name
+        for name, truncated in source_truncated.items()
+        if truncated
+        or (name == "broken_tests" and len(shown_broken) < len(broken))
+        or (name == "flaky_tests" and len(shown_flaky) < len(flaky))
+    ]
     if options.emits_json():
         _emit_json(
             {
                 "query": query,
                 "unavailable": _unavailable(sections, _SEARCH_SECTION_KEYS),
-                "broken_tests": [_summarize_row(row) for row in shown_broken],
-                "flaky_tests": shown_flaky,
-                "truncated": len(shown_broken) < len(broken) or len(shown_flaky) < len(flaky),
+                "broken_tests": None
+                if sections["broken"].error is not None
+                else [_summarize_row(row) for row in shown_broken],
+                "flaky_tests": None if sections["flaky"].error is not None else shown_flaky,
+                "truncated": bool(truncated_sections),
+                "truncated_sections": truncated_sections,
             }
         )
 
     # Two sections, never one merged ranking: these are different grains (failure lines from Logs
     # versus CI runs from Traces) over different windows, so fusing them would invent a
     # flaky-versus-broken verdict neither endpoint made.
-    click.secho("broken tests        live failures, last 2 days", bold=True)
-    if broken:
+    click.secho("broken tests        recent failure fingerprints, last 2 days", bold=True)
+    if sections["broken"].error is not None:
+        click.secho(f"{'':<20}unavailable: {sections['broken'].error.message}", fg="yellow")
+    elif broken:
         _render_rows(shown_broken)
-        _note_truncation(len(shown_broken), len(broken))
+        _note_truncation(len(shown_broken), len(broken), source_truncated=source_truncated["broken_tests"])
     else:
-        click.echo(f"{'':<20}no match")
+        suffix = " in returned rows" if source_truncated["broken_tests"] else ""
+        click.echo(f"{'':<20}no match{suffix}")
+        _note_truncation(0, 0, source_truncated=source_truncated["broken_tests"])
     click.echo("")
     click.secho(f"test health         ranked by blast radius, last {days} days", bold=True)
-    if flaky:
+    if sections["flaky"].error is not None:
+        click.secho(f"{'':<20}unavailable: {sections['flaky'].error.message}", fg="yellow")
+    elif flaky:
         _render_flaky(shown_flaky)
-        _note_truncation(len(shown_flaky), len(flaky))
+        _note_truncation(len(shown_flaky), len(flaky), source_truncated=source_truncated["flaky_tests"])
     else:
-        click.echo(f"{'':<20}no match")
-    for name, section in sections.items():
-        if section.error is not None:
-            click.secho(f"\n{_SEARCH_SECTION_KEYS[name]} unavailable: {section.error.message}", fg="yellow")
-    if not broken and not flaky:
+        suffix = " in returned rows" if source_truncated["flaky_tests"] else ""
+        click.echo(f"{'':<20}no match{suffix}")
+        _note_truncation(0, 0, source_truncated=source_truncated["flaky_tests"])
+    if not broken and not flaky and not errors:
         click.echo(
-            "\nError text is only searchable over the last 2 days, and only for pytest failures. For older or\n"
-            "non-pytest text, use the investigating-ci-failures skill's SQL over engineering_analytics_ci_failures."
+            "\nError signatures normalize volatile numbers and hashes. Search stable text or a test name.\n"
+            "Only pytest error text from the last 2 days is searchable here; for older or non-pytest text, use\n"
+            "the investigating-ci-failures skill's SQL over engineering_analytics_ci_failures."
         )
     raise SystemExit(0)
 
 
-def _note_truncation(shown: int, total: int) -> None:
-    """Say what was dropped. Text capping silently while ``--json`` returns everything leaves the two
-    output shapes disagreeing on how many matches exist."""
+def _note_truncation(shown: int, total: int, *, source_truncated: bool) -> None:
     if shown < total:
         click.echo(f"{'':<20}Showing {shown} of {total}. Raise --limit, or 0 for every row.")
+    if source_truncated:
+        click.echo(f"{'':<20}Endpoint cap reached; more matches may exist.")
 
 
 def _render_flaky(items: list[dict[str, Any]]) -> None:
@@ -720,8 +800,8 @@ def view(ctx: click.Context, ref: str, with_logs: bool, **kwargs: Any) -> NoRetu
     if options.emits_json():
         _emit_json({**_summarize_row(row), "logs": logs})
 
-    state = str(row.get("state", ""))
-    click.secho(f"{_ref(row['fingerprint'])}  {row.get('test_id')}", bold=True)
+    state = _terminal_text(row.get("state", ""))
+    click.secho(f"{_ref(row['fingerprint'])}  {_terminal_text(row.get('test_id'))}", bold=True)
     click.echo(f"\n  {'state':<18}{state}: {_STATE_MEANINGS.get(state, 'unclassified')}")
     for label, key in (
         ("error", "error_signature"),
@@ -735,7 +815,7 @@ def view(ctx: click.Context, ref: str, with_logs: bool, **kwargs: Any) -> NoRetu
         ("latest run", "latest_run_id"),
         ("latest branch", "latest_branch"),
     ):
-        click.echo(f"  {label:<18}{row.get(key)}")
+        click.echo(f"  {label:<18}{_terminal_text(row.get(key))}")
     trend = row.get("trend_24h") or []
     click.echo(f"  {'last 24h':<18}{_spark(trend)}  ({sum(trend)} failures, oldest hour first)")
     if with_logs:
@@ -756,11 +836,14 @@ def _render_logs(logs: dict[str, Any]) -> None:
         click.echo("\n  No failure logs: the run did not fail, or its logs aged out of the short Logs retention.")
         return
     for job in logs.get("jobs") or []:
-        click.echo(
-            f"\n  job {job.get('job_id')} · run {job.get('run_id')} · {job.get('conclusion')} · {job.get('branch')}"
-        )
+        job_id = _terminal_text(job.get("job_id"))
+        run_id = _terminal_text(job.get("run_id"))
+        conclusion = _terminal_text(job.get("conclusion"))
+        branch = _terminal_text(job.get("branch"))
+        click.echo(f"\n  job {job_id} · run {run_id} · {conclusion} · {branch}")
         for line in job.get("lines") or []:
             number = line.get("original_line")
-            click.echo(f"    {str(number) if number else '·':>7}  {line.get('text', '')}")
+            text = _terminal_text(line.get("text", ""))
+            click.echo(f"    {str(number) if number else '·':>7}  {text}")
         if job.get("truncated"):
             click.echo("    (per-job line cap reached)")

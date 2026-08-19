@@ -112,8 +112,6 @@ _PAYLOADS: dict[str, Any] = {
 
 
 class _Response:
-    """The slice of ``requests.Response`` the module reads."""
-
     def __init__(self, status_code: int, payload: Any) -> None:
         self.status_code = status_code
         self._payload = payload
@@ -126,8 +124,6 @@ class _Response:
 
 
 class _Recorder:
-    """Replaces ``_request``, recording every call and replaying canned payloads."""
-
     def __init__(
         self,
         *,
@@ -212,7 +208,7 @@ def test_an_unauthenticated_caller_exits_not_configured_with_the_hint_on_stderr(
     with patch.object(posthog_auth, "load", return_value=None):
         result = CliRunner(mix_stderr=False).invoke(ci_insights.ci_insights, [])
     assert result.exit_code == posthog_auth.EXIT_NOT_CONFIGURED
-    assert "auth:posthog:login" in result.stderr
+    assert "posthog:login" in result.stderr
     # Diagnostics stay off stdout so `--format json` consumers never parse them.
     assert result.stdout == ""
 
@@ -235,6 +231,24 @@ def test_request_shape_and_no_key_in_output(runner: CliRunner) -> None:
     assert recorder.params_for("master_failures")["date_from"] == "-24h"
     # A leaked key would land in every agent transcript that ran this command.
     assert _TOKEN not in result.output
+
+
+def test_environment_key_is_not_sent_to_a_non_posthog_host(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    recorder = _Recorder()
+    monkeypatch.setenv("POSTHOG_CI_INSIGHTS_HOST", "https://attacker.example")
+    result = _invoke(runner, ["--format", "text"], recorder)
+    assert result.exit_code == posthog_auth.EXIT_NOT_CONFIGURED
+    assert recorder.calls == []
+    assert "Refusing to send POSTHOG_PERSONAL_API_KEY" in result.output
+    assert "hogli posthog:login --host https://attacker.example" in result.output
+
+
+def test_host_must_be_an_origin(runner: CliRunner) -> None:
+    recorder = _Recorder()
+    result = _invoke(runner, ["--host", "https://us.posthog.com/api", "--format", "text"], recorder)
+    assert result.exit_code == 1
+    assert recorder.calls == []
+    assert "must be an HTTP(S) origin" in result.output
 
 
 @pytest.mark.parametrize(
@@ -373,7 +387,31 @@ def test_search_keeps_one_section_when_the_other_fails(runner: CliRunner) -> Non
     assert result.exit_code == 0
     # The ref, not the test id: the id is truncated to the terminal width when rendered.
     assert ci_insights._ref(_ROWS[0]["fingerprint"]) in result.output
-    assert "flaky_tests unavailable" in result.output
+    assert "test health" in result.output
+    assert "unavailable: flaky_tests failed" in result.output
+
+
+def test_search_json_marks_a_failed_section_as_unavailable(runner: CliRunner) -> None:
+    result = _invoke(runner, ["search", "test_event", "--json"], _Recorder(fail="flaky_tests"))
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["broken_tests"]
+    assert payload["flaky_tests"] is None
+    assert "flaky_tests" in payload["unavailable"]
+
+
+def test_search_discloses_when_the_endpoint_could_have_omitted_matches(runner: CliRunner) -> None:
+    broken = {**_BROKEN, "rows": [], "truncated": True}
+    recorder = _Recorder(overrides={"broken_tests": broken})
+    text_result = _invoke(runner, ["search", "not_returned", "--format", "text"], recorder)
+    assert text_result.exit_code == 0
+    assert "no match in returned rows" in text_result.output
+    assert "Endpoint cap reached; more matches may exist" in text_result.output
+
+    json_result = _invoke(runner, ["search", "not_returned", "--json"], _Recorder(overrides={"broken_tests": broken}))
+    payload = json.loads(json_result.output)
+    assert payload["truncated"] is True
+    assert payload["truncated_sections"] == ["broken_tests"]
 
 
 # The endpoint writes `latest_run_id or 0`, so 0 means no run id was recorded. Treating it as absent
@@ -473,6 +511,27 @@ def test_view_logs_reads_the_rows_latest_run(runner: CliRunner) -> None:
     assert result.exit_code == 0
     assert recorder.params_for("run_failure_logs")["run_id"] == _ROWS[0]["latest_run_id"]
     assert "FAILED x::y" in result.output
+
+
+def test_view_logs_strips_terminal_control_characters(runner: CliRunner) -> None:
+    logs = {
+        **_PAYLOADS["run_failure_logs"],
+        "jobs": [
+            {
+                **_PAYLOADS["run_failure_logs"]["jobs"][0],
+                "lines": [{"original_line": 42, "text": "\x1b]52;c;payload\x07\nFAILED x::y"}],
+            }
+        ],
+    }
+    result = _invoke(
+        runner,
+        ["view", "test_capture", "--logs", "--format", "text"],
+        _Recorder(overrides={"run_failure_logs": logs}),
+    )
+    assert result.exit_code == 0
+    assert "\x1b" not in result.output
+    assert "\x07" not in result.output
+    assert "]52;c;payloadFAILED x::y" in result.output
 
 
 # Merging failure lines with the test-health queue would invent a verdict neither made.

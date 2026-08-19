@@ -98,7 +98,7 @@ Caveats to carry into whatever you report:
 
 If nobody has signed in on this machine, `hogli ci:insights` exits `78`. Treat
 exit `78` as "no CI insights available" and fall back to the `gh`-based
-inspection below — then tell the user they can run `hogli auth:posthog:login`
+inspection below — then tell the user they can run `hogli posthog:login`
 once, which opens a browser and needs no API key. Do not run it yourself: it
 waits on a consent screen you cannot see. Surface what you find per the Safety
 rules — do not auto-apply a fix.
