@@ -901,6 +901,8 @@ tools:
             Get a specific LLM prompt by name. Requires `prompt_name`, which takes either the prompt's exact name or
             the `id` UUID from any llma-prompt-list or llma-prompt-get response. Call llma-prompt-list to discover
             valid names; a guessed name that matches nothing returns a 404.
+            An id identifies the prompt, not the version it came from, so passing a specific version's id still
+            returns the latest version. Pass `version` or `label` to pin one.
             Uses the cached endpoint for fast retrieval.
             Pass `label` (e.g. 'production') to fetch the version that label currently points to, or `version` for an
             exact version number — not both. With neither, the latest version is returned.

@@ -137,6 +137,8 @@ class LLMPromptViewSet(
         """Map the path segment onto a prompt name, accepting the `id` UUID of any of the prompt's
         versions as well as the name itself. Both identify one prompt, and every list and get
         response carries the id, so a caller holding one should not have to look the name up.
+        An id resolves to the prompt, never to the version it came from, so callers pin a version
+        with `version` or `label` rather than by holding that version's id.
         Returns None when the segment is a UUID matching no prompt in this project."""
         try:
             version_id = UUID(prompt_name)
@@ -297,13 +299,23 @@ class LLMPromptViewSet(
                 return Response(
                     {
                         "detail": (
-                            f"No prompt matching '{resolved_name}' with label '{label}'. "
+                            f"No prompt matching '{prompt_name}' with label '{label}'. "
                             "Fetch it without a label to see which labels it has."
                         )
                     },
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            return self._prompt_not_found_response(resolved_name)
+            if version is not None:
+                return Response(
+                    {
+                        "detail": (
+                            f"No prompt matching '{prompt_name}' at version {version}. "
+                            "Fetch it without a version to see which versions it has."
+                        )
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            return self._prompt_not_found_response(prompt_name)
 
         self._track_prompt_fetch(prompt)
         return Response(self._apply_content_mode(prompt, content_mode))
@@ -317,6 +329,11 @@ class LLMPromptViewSet(
         if auth_error is not None:
             return auth_error
 
+        # PATCH shares the GET's route, so the segment has to mean the same thing on both verbs.
+        resolved_name = self._resolve_prompt_name(prompt_name)
+        if resolved_name is None:
+            return self._prompt_not_found_response(prompt_name)
+
         payload = LLMPromptPublishSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
@@ -324,7 +341,7 @@ class LLMPromptViewSet(
             published_prompt = publish_prompt_version(
                 self.team,
                 user=cast(User, request.user),
-                prompt_name=prompt_name,
+                prompt_name=resolved_name,
                 prompt_payload=payload.validated_data.get("prompt"),
                 edits=payload.validated_data.get("edits"),
                 config=payload.validated_data.get("config"),
