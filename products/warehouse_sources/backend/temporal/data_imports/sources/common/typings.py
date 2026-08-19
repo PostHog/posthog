@@ -43,7 +43,7 @@ class _Dataclass(Protocol):
 ResumableData = TypeVar("ResumableData", bound=_Dataclass)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)  # callers mutate `name` after construction
 class SourceResponse:
     name: str
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]]

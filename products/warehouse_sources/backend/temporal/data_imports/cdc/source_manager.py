@@ -21,11 +21,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    BufferFileSpan,
     get_buffer_prefix,
     parse_buffer_file_name,
 )
@@ -108,6 +110,13 @@ def consolidated_resource_name(schema: ExternalDataSchema) -> str:
     return resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name).folder_name
 
 
+@frozen
+class _BufferFile:
+    span: BufferFileSpan
+    key: str
+    modified: dt.datetime | None
+
+
 class CDCSourceManager:
     """Reads one schema's buffered change events in position order."""
 
@@ -177,7 +186,7 @@ class CDCSourceManager:
         )
         return listed_at if completed else None
 
-    async def _list_buffer_files(self) -> list[tuple[tuple[int, int, int], str, dt.datetime | None]]:
+    async def _list_buffer_files(self) -> list[_BufferFile]:
         """Buffer files under this schema's prefix, in position order.
 
         Sorted by the filename's `(start, end, index)` and never by S3 mtime: the position range is
@@ -197,7 +206,7 @@ class CDCSourceManager:
 
         ls_values = ls_res.values() if isinstance(ls_res, dict) else ls_res
 
-        files: list[tuple[tuple[int, int, int], str, dt.datetime | None]] = []
+        files: list[_BufferFile] = []
         for entry in ls_values:
             if entry["type"] == "directory":
                 continue
@@ -206,9 +215,11 @@ class CDCSourceManager:
             if parsed is None:
                 continue
             modified = entry.get("LastModified")
-            files.append((parsed, key, modified if isinstance(modified, dt.datetime) else None))
+            files.append(
+                _BufferFile(span=parsed, key=key, modified=modified if isinstance(modified, dt.datetime) else None)
+            )
 
-        files.sort(key=lambda f: f[0])
+        files.sort(key=lambda f: (f.span.start_seq, f.span.end_seq, f.span.file_index))
         await self._logger.adebug("cdc_buffer_files_listed", prefix=prefix, file_count=len(files))
         return files
 
@@ -255,9 +266,10 @@ class CDCSourceManager:
         batch_bytes = 0
 
         async with aget_s3_client() as s3:
-            for (_start_seq, end_seq, _file_index), key, modified in files:
+            for file in files:
+                key = file.key
                 # The only place a buffer file is deleted — see _is_consumed for the proof.
-                if self._is_consumed(end_seq, modified, floor, proof_time):
+                if self._is_consumed(file.span.end_seq, file.modified, floor, proof_time):
                     await s3._rm(key)
                     continue
 

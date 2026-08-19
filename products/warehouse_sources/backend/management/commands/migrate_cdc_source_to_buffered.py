@@ -303,7 +303,7 @@ class Command(BaseCommand):
                     continue
                 for key in keys:
                     parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
-                    if parsed is not None and parsed[1] > floor:
+                    if parsed is not None and parsed.end_seq > floor:
                         behind.append(schema.name)
                         break
             if not behind:
