@@ -574,6 +574,8 @@ def _print_only(args: argparse.Namespace) -> int:
         preview = q.clickhouse_query.replace("\n", " ")[:200]
         print(f"        sql_preview: {preview}{'…' if len(q.clickhouse_query) > 200 else ''}")  # noqa: T201
         print()  # noqa: T201
+    total_read = format_bytes(sum(q.read_bytes for q in queries))
+    print(f"{len(queries)} queries would be replayed, {total_read} read between them")  # noqa: T201
     return 0
 
 
