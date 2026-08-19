@@ -2,9 +2,11 @@ import json
 import base64
 import hashlib
 import secrets
+import dataclasses
 from urllib.parse import quote_plus
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -65,10 +67,6 @@ def patched_budget(view_cls, method: str, endpoint: str, budget, *, multipliers=
     ``multipliers`` (e.g. FLAT_MULTIPLIERS) when the test partner's tier would
     otherwise scale the patched budget back up.
     """
-    import dataclasses
-
-    from unittest.mock import patch
-
     budgets = getattr(view_cls, method)._provisioning_budgets
     changes: dict = {"budget": budget}
     if multipliers is not None:

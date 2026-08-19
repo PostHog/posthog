@@ -263,6 +263,11 @@ def resolve_budget(declaration: BudgetDeclaration, partner: OAuthApplication) ->
     return Budget(burst=declaration.budget.burst * multiplier, per_hour=declaration.budget.per_hour * multiplier)
 
 
+def _bucket_key(endpoint: str, partner: OAuthApplication, key_suffix: str = "") -> str:
+    key = f"{BUCKET_KEY_PREFIX}{endpoint}:{partner.id}"
+    return f"{key}:{key_suffix}" if key_suffix else key
+
+
 def charge_partner(
     declaration: BudgetDeclaration,
     partner: OAuthApplication,
@@ -282,9 +287,7 @@ def charge_partner(
     if budget is None:
         return
 
-    bucket_key = f"{BUCKET_KEY_PREFIX}{declaration.endpoint}:{partner.id}"
-    if key_suffix:
-        bucket_key = f"{bucket_key}:{key_suffix}"
+    bucket_key = _bucket_key(declaration.endpoint, partner, key_suffix)
 
     decision = consume(bucket_key, budget)
     if isinstance(decision, BucketUnavailable):
@@ -354,6 +357,24 @@ def charge_partner_by_name(
     charge_partner(declaration, partner, request=request, resource_id=resource_id)
 
 
+def refund_partner_by_name(endpoint: str, partner: OAuthApplication, error_code: str) -> None:
+    """Give back a manual charge whose failure proves it did no work.
+
+    ``refund_no_work`` only reaches charges recorded on the request being handled.
+    A charge taken by a shared helper is not on one: the bundled account-request
+    wizard block reports its failure as a payload rather than raising, so nothing
+    ever reaches ``handle_exception`` to refund it.
+    """
+    declaration = _REGISTRY.get(endpoint)
+    if declaration is None or not _did_no_work(error_code, declaration.refund_on):
+        return
+    budget = resolve_budget(declaration, partner)
+    if budget is None:
+        return
+    refund(_bucket_key(endpoint, partner), budget)
+    DECISIONS_COUNTER.labels(endpoint=endpoint, tier=partner.partner_tier, outcome="refunded").inc()
+
+
 def _did_no_work(error_code: str, refund_on: frozenset[str]) -> bool:
     # invalid_* is the convention every validation rejection follows, including
     # per-endpoint serializer codes (invalid_label_prefix, invalid_path, ...), so
@@ -389,6 +410,9 @@ def account_creation_daily_ceiling(partner: OAuthApplication, budget: Budget) ->
     eviction or failover, this Postgres count of accounts the partner actually
     created in the last day does not. Sized to the bucket's own daily
     throughput, so it only bites when the bucket lost state."""
+    # Not serialized: locking the partner row would put every account request behind
+    # one writer to hold a cap that is already coarse (a day of bucket throughput), and
+    # overshoot is bounded by how many requests one partner has in flight at once.
     cap = budget.per_hour * 24 + budget.burst
     since = timezone.now() - timedelta(days=1)
     created = TeamProvisioningConfig.objects.filter(application=partner, created_at__gte=since).count()

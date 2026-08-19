@@ -20,7 +20,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from ee.api.agentic_provisioning import github_grants
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
-from ee.api.agentic_provisioning.ratelimits import charge_partner_by_name
+from ee.api.agentic_provisioning.ratelimits import charge_partner_by_name, refund_partner_by_name
 from ee.api.agentic_provisioning.throttling import enforce_wizard_run_user_rate_limit
 
 
@@ -163,6 +163,16 @@ def create_wizard_run(
     # runs outside any view dispatch.
     charge_partner_by_name("wizard_runs", partner, resource_id=str(team.id))
 
+    try:
+        return _start_wizard_run(partner=partner, user_id=user_id, team=team, repository=repository, branch=branch)
+    except ProvisioningError as exc:
+        refund_partner_by_name("wizard_runs", partner, exc.code)
+        raise
+
+
+def _start_wizard_run(
+    *, partner: OAuthApplication, user_id: int, team: Team, repository: str, branch: str | None
+) -> dict[str, str]:
     # Verifying the grant user owns the installation doesn't prove the installation can
     # reach the requested repo — a valid grant for one installation could otherwise report
     # wizard success for an owner/repo it can't operate on. Fail fast instead (after the
