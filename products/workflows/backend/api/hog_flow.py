@@ -64,6 +64,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
+    cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
     create_hog_flow_invocation_test,
     create_hog_flow_scheduled_invocation,
@@ -93,7 +94,10 @@ from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
-from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
+from products.workflows.backend.api.hog_flow_batch_job import (
+    HogFlowBatchJobCancelResponseSerializer,
+    HogFlowBatchJobSerializer,
+)
 from products.workflows.backend.api.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
@@ -2728,6 +2732,7 @@ class HogFlowViewSet(
         "bulk_delete",
         "rerun",
         "cancel_invocations",
+        "cancel_batch_job",
         "graph",
         "action_email",
         "publish",
@@ -4283,6 +4288,80 @@ class HogFlowViewSet(
             batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                "batch_job_id",
+                OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="ID of the batch run to stop.",
+            ),
+        ],
+        responses={200: HogFlowBatchJobCancelResponseSerializer},
+    )
+    @action(detail=True, methods=["POST"], url_path="batch_jobs/(?P<batch_job_id>[^/.]+)/cancel")
+    def cancel_batch_job(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Stop a batch run: no more of its audience is enrolled, and every run of it
+        still in flight is canceled.
+
+        Stopping is asynchronous: runs are flagged here, then terminated by the
+        workflow workers. Steps that already executed, like sent messages, are not
+        undone. Already-finished batch runs are left untouched.
+        """
+        hog_flow = self.get_object()
+
+        try:
+            batch_job = HogFlowBatchJob.objects.get(id=kwargs["batch_job_id"], hog_flow=hog_flow, team_id=self.team_id)
+        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
+            # DjangoValidationError fires when the id is not a parseable UUID — surface
+            # as 404 rather than a 500 reported to error tracking.
+            raise exceptions.NotFound("Batch job not found")
+
+        non_terminal = {
+            HogFlowBatchJob.State.WAITING,
+            HogFlowBatchJob.State.QUEUED,
+            HogFlowBatchJob.State.ACTIVE,
+        }
+        if batch_job.status not in non_terminal:
+            return Response({"status": batch_job.status, "marked": 0, "remaining": 0, "done": True})
+
+        # One CDP call flags a bounded chunk of rows; a large batch needs several. Same
+        # shape as cancel_invocations — `done: false` after the cap tells the caller to
+        # request again for the rest.
+        data: dict = {"marked": 0, "remaining": 0, "done": False}
+        for _ in range(5):
+            res = cancel_hog_flow_batch_job(
+                team_id=self.team_id, hog_flow_id=str(hog_flow.id), batch_job_id=str(batch_job.id)
+            )
+            if res.status_code != 200:
+                raise exceptions.APIException(detail=res.text, code="cancel_failed")
+            page = res.json()
+            data = {
+                "marked": data["marked"] + page.get("marked", 0),
+                "remaining": page.get("remaining", 0),
+                "done": page.get("done", False),
+            }
+            if data["done"]:
+                break
+
+        if data["done"]:
+            # Conditional so a completion that landed mid-cancel wins over the flip; the
+            # resolver's own terminal write absorbs the reverse race. `.update()` bypasses
+            # auto_now, so stamp updated_at explicitly.
+            HogFlowBatchJob.objects.filter(id=batch_job.id, status__in=non_terminal).update(
+                status=HogFlowBatchJob.State.CANCELLED, updated_at=timezone.now()
+            )
+
+        batch_job.refresh_from_db()
+        self._report_workflow_action(
+            "hog_flow_batch_job_cancel_requested",
+            hog_flow,
+            {"batch_job_id": str(batch_job.id), "marked": data["marked"], "done": data["done"]},
+        )
+        return Response({"status": batch_job.status, **data})
 
     @extend_schema(methods=["GET"], responses=HogFlowScheduleSerializer(many=True))
     @extend_schema(methods=["POST"], request=HogFlowScheduleSerializer, responses=HogFlowScheduleSerializer)

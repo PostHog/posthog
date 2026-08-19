@@ -13049,6 +13049,12 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
+    export interface Billing {
+      /** @maxLength 100 */
+      plan: string;
+      billing_limit: number;
+    }
+
     /**
      * * `check` - Check
      * * `firing` - Firing
@@ -13455,6 +13461,60 @@ export namespace Schemas {
       PosthogSystem: 'posthog_system',
     } as const;
 
+    export type BillingOverviewResponseProductsItem = {[key: string]: unknown};
+
+    export interface BillingOverviewResponse {
+      /** @nullable */
+      customer_id?: string | null;
+      /** @nullable */
+      billing_plan?: string | null;
+      /** @nullable */
+      subscription_level?: string | null;
+      has_active_subscription?: boolean;
+      deactivated?: boolean;
+      is_annual_plan_customer?: boolean;
+      /** @nullable */
+      free_trial_until?: string | null;
+      /** @nullable */
+      current_total_amount_usd?: string | null;
+      /** @nullable */
+      current_total_amount_usd_after_discount?: string | null;
+      /** @nullable */
+      projected_total_amount_usd?: string | null;
+      /** @nullable */
+      projected_total_amount_usd_after_discount?: string | null;
+      /** @nullable */
+      projected_total_amount_usd_with_limit?: string | null;
+      /** @nullable */
+      projected_total_amount_usd_with_limit_after_discount?: string | null;
+      /** @nullable */
+      discount_amount_usd?: string | null;
+      /** @nullable */
+      discount_percent?: number | null;
+      /** @nullable */
+      amount_off_expires_at?: string | null;
+      /** @nullable */
+      startup_program_label?: string | null;
+      /** @nullable */
+      startup_program_label_previous?: string | null;
+      /** @nullable */
+      stripe_portal_url?: string | null;
+      /** @nullable */
+      external_billing_provider_invoices_url?: string | null;
+      /** Subscribed and available products/addons with pricing, plan, limit, usage, and entitlement metadata. */
+      products?: BillingOverviewResponseProductsItem[];
+      available_product_features?: string[];
+      usage_summary?: unknown;
+      billing_period?: unknown;
+      custom_limits_usd?: unknown;
+      next_period_custom_limits_usd?: unknown;
+      trial?: unknown;
+      license?: unknown;
+      account_owner?: unknown;
+      customer_trust_scores?: unknown;
+      never_drop_data?: boolean;
+    }
+
     /**
      * * `excluded` - Excluded
      * * `credited` - Credited
@@ -13466,6 +13526,19 @@ export namespace Schemas {
       Excluded: 'excluded',
       Credited: 'credited',
     } as const;
+
+    export interface BillingPeriodResponse {
+      /**
+         * Start of the organization's current billing period, or null when billing has not synced a period.
+         * @nullable
+         */
+      current_period_start: string | null;
+      /**
+         * End of the organization's current billing period, or null when billing has not synced a period.
+         * @nullable
+         */
+      current_period_end: string | null;
+    }
 
     /**
      * * `team_retention` - team_retention
@@ -14788,16 +14861,97 @@ export namespace Schemas {
     }
 
     /**
+     * * `freeform` - freeform
+     * * `grid` - grid
+     * * `component` - component
+     */
+    export type CanvasKindEnum = typeof CanvasKindEnum[keyof typeof CanvasKindEnum];
+
+
+    export const CanvasKindEnum = {
+      Freeform: 'freeform',
+      Grid: 'grid',
+      Component: 'component',
+    } as const;
+
+    /**
+     * A component's grid-size contract, in grid units.
+     */
+    export interface CanvasComponentSize {
+      /**
+         * Width a new placement starts at, in grid columns.
+         * @minimum 1
+         * @maximum 12
+         */
+      defaultW: number;
+      /**
+         * Height a new placement starts at, in grid rows.
+         * @minimum 1
+         * @maximum 40
+         */
+      defaultH: number;
+      /**
+         * Narrowest width the component renders usefully at.
+         * @minimum 1
+         * @maximum 12
+         */
+      minW: number;
+      /**
+         * Shortest height the component renders usefully at.
+         * @minimum 1
+         * @maximum 40
+         */
+      minH: number;
+      /**
+         * Widest allowed width; omit for no cap below the grid's width.
+         * @minimum 1
+         * @maximum 12
+         */
+      maxW?: number;
+      /**
+         * Tallest allowed height; omit for no cap.
+         * @minimum 1
+         * @maximum 40
+         */
+      maxH?: number;
+    }
+
+    /**
+     * JSON Schema ("type": "object") for a placement's config. The host validates each placement's config against it and passes the validated object to the widget at mount.
+     */
+    export type CanvasComponentMetaConfigSchema = { [key: string]: unknown };
+
+    /**
+     * A component's placement contract: how grid canvases may place and configure it.
+     */
+    export interface CanvasComponentMeta {
+      /** Grid-size contract for placements of this component. */
+      size: CanvasComponentSize;
+      /** JSON Schema ("type": "object") for a placement's config. The host validates each placement's config against it and passes the validated object to the widget at mount. */
+      configSchema?: CanvasComponentMetaConfigSchema;
+    }
+
+    /**
      * A canvas document. Version/build content hangs off the source and build endpoints.
      */
     export interface Canvas {
       readonly id: string;
       readonly name: string;
+      /** What the canvas is: 'freeform' (a standalone app), 'component' (a reusable widget grids place), or 'grid' (a composition of components).
+       *
+       * * `freeform` - freeform
+       * * `grid` - grid
+       * * `component` - component */
+      readonly kind: CanvasKindEnum;
+      /** Short prose describing the canvas. For components, the store-search text. */
+      readonly description: string;
       readonly channel: string;
       readonly template_id: string;
       readonly context: string;
       /** @nullable */
       readonly generation_task_id: string | null;
+      /** @nullable */
+      readonly discussion_task_id: string | null;
       /** Whether the canvas is pinned to its channel. */
       readonly pinned: boolean;
       /** @nullable */
@@ -14812,6 +14966,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly published_build_id: string | null;
+      /** For component-kind canvases: the head version's placement contract (size, optional configSchema). Null for other kinds and unpublished components. */
+      readonly component_meta: CanvasComponentMeta | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -14939,6 +15095,12 @@ export namespace Schemas {
     export type CanvasArtifactManifestCapabilities = { [key: string]: unknown };
 
     /**
+     * For component artifacts: the placement contract (size, configSchema) frozen into the build.
+     * @nullable
+     */
+    export type CanvasArtifactManifestComponent = { [key: string]: unknown } | null;
+
+    /**
      * The manifest frozen into a ready build: entry, assets, versions, capabilities.
      */
     export interface CanvasArtifactManifest {
@@ -14962,6 +15124,11 @@ export namespace Schemas {
       legacyCode?: string | null;
       /** Declared PostHog/network capabilities the artifact is held to at runtime. */
       capabilities: CanvasArtifactManifestCapabilities;
+      /**
+         * For component artifacts: the placement contract (size, configSchema) frozen into the build.
+         * @nullable
+         */
+      component?: CanvasArtifactManifestComponent;
     }
 
     /**
@@ -15147,6 +15314,14 @@ export namespace Schemas {
       name: string;
       /** Id of the channel the canvas belongs to. */
       channel_id: string;
+      /** What to create: 'freeform' (a standalone app), 'component' (a reusable widget for grids — its published project must declare a `component` placement contract), or 'grid' (a composition of components, edited through the layout endpoints).
+       *
+       * * `freeform` - freeform
+       * * `grid` - grid
+       * * `component` - component */
+      kind?: CanvasKindEnum;
+      /** Short prose describing the canvas. For components this is the store-search text agents match against — say what the widget shows and what its config controls. */
+      description?: string;
       /**
          * Canvas template identifier.
          * @maxLength 64
@@ -15239,6 +15414,355 @@ export namespace Schemas {
       dispatch_outcome: DispatchOutcomeEnum;
       /** The authoring task the fix was routed to. */
       task_id: string;
+    }
+
+    /**
+     * * `4` - 4
+     * * `6` - 6
+     * * `8` - 8
+     * * `10` - 10
+     * * `12` - 12
+     */
+    export type CanvasGridColumnsEnum = typeof CanvasGridColumnsEnum[keyof typeof CanvasGridColumnsEnum];
+
+
+    export const CanvasGridColumnsEnum = {
+      Number4: 4,
+      Number6: 6,
+      Number8: 8,
+      Number10: 10,
+      Number12: 12,
+    } as const;
+
+    /**
+     * The grid a grid canvas lays its placements out on.
+     */
+    export interface CanvasGrid {
+      /** Grid width in columns. One of 4, 6, 8, 10, or 12.
+       *
+       * * `4` - 4
+       * * `6` - 6
+       * * `8` - 8
+       * * `10` - 10
+       * * `12` - 12 */
+      columns: CanvasGridColumnsEnum;
+      /**
+         * Height of one grid row, in pixels.
+         * @minimum 24
+         * @maximum 400
+         */
+      rowHeight: number;
+      /**
+         * Gap between placements, in pixels.
+         * @minimum 0
+         * @maximum 48
+         */
+      gap: number;
+    }
+
+    /**
+     * * `1` - 1
+     */
+    export type CanvasLayoutSchemaVersionEnum = typeof CanvasLayoutSchemaVersionEnum[keyof typeof CanvasLayoutSchemaVersionEnum];
+
+
+    export const CanvasLayoutSchemaVersionEnum = {
+      Number1: 1,
+    } as const;
+
+    /**
+     * * `pending` - pending
+     * * `generating` - generating
+     * * `live` - live
+     * * `failed` - failed
+     */
+    export type CanvasPlacementStatusEnum = typeof CanvasPlacementStatusEnum[keyof typeof CanvasPlacementStatusEnum];
+
+
+    export const CanvasPlacementStatusEnum = {
+      Pending: 'pending',
+      Generating: 'generating',
+      Live: 'live',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Per-placement settings, validated against the component's configSchema.
+     * @nullable
+     */
+    export type CanvasPlacementConfig = { [key: string]: unknown } | null;
+
+    /**
+     * One placed widget on a grid canvas.
+     */
+    export interface CanvasPlacement {
+      /**
+         * Stable placement id, unique within the layout. 1-64 characters of letters, digits, '_', or '-'.
+         * @maxLength 64
+         * @pattern ^[A-Za-z0-9_-]{1,64}$
+         */
+      id: string;
+      /** Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), 'live' (renders its component), 'failed' (generation failed; re-prompt or remove).
+       *
+       * * `pending` - pending
+       * * `generating` - generating
+       * * `live` - live
+       * * `failed` - failed */
+      status: CanvasPlacementStatusEnum;
+      /**
+         * Id of the component canvas this placement renders. Required once the placement is live.
+         * @nullable
+         */
+      component?: string | null;
+      /**
+         * Component version to render: "latest" (the default — follows the component's published build) or a pinned source version id.
+         * @nullable
+         */
+      version?: string | null;
+      /**
+         * Left edge, in grid columns (0-based).
+         * @minimum 0
+         */
+      x: number;
+      /**
+         * Top edge, in grid rows (0-based).
+         * @minimum 0
+         */
+      y: number;
+      /**
+         * Width, in grid columns.
+         * @minimum 1
+         */
+      w: number;
+      /**
+         * Height, in grid rows.
+         * @minimum 1
+         */
+      h: number;
+      /**
+         * Per-placement settings, validated against the component's configSchema.
+         * @nullable
+         */
+      config?: CanvasPlacementConfig;
+      /**
+         * For pending/generating/failed placements: what the user asked this box to become.
+         * @maxLength 10000
+         * @nullable
+         */
+      prompt?: string | null;
+      /**
+         * Id of the agent task currently filling this placement, when one is running.
+         * @nullable
+         */
+      generationTaskId?: string | null;
+    }
+
+    /**
+     * A grid canvas's layout document — its entire 'source'.
+     */
+    export interface CanvasLayout {
+      /** Layout schema version. Currently always 1.
+       *
+       * * `1` - 1 */
+      schemaVersion: CanvasLayoutSchemaVersionEnum;
+      /** The grid placements are laid out on. */
+      grid: CanvasGrid;
+      /** The placed widgets, at most 24. Placements may not overlap or extend past the grid. */
+      placements: CanvasPlacement[];
+    }
+
+    /**
+     * * `set_grid` - set_grid
+     * * `add_placement` - add_placement
+     * * `update_placement` - update_placement
+     * * `remove_placement` - remove_placement
+     */
+    export type CanvasLayoutOpEnum = typeof CanvasLayoutOpEnum[keyof typeof CanvasLayoutOpEnum];
+
+
+    export const CanvasLayoutOpEnum = {
+      SetGrid: 'set_grid',
+      AddPlacement: 'add_placement',
+      UpdatePlacement: 'update_placement',
+      RemovePlacement: 'remove_placement',
+    } as const;
+
+    /**
+     * Per-placement settings, validated against the component's configSchema.
+     * @nullable
+     */
+    export type CanvasPlacementChangesConfig = { [key: string]: unknown } | null;
+
+    /**
+     * Fields to merge into an existing placement (all optional; id cannot change).
+     */
+    export interface CanvasPlacementChanges {
+      /** Placement lifecycle: 'pending' (box drawn, no prompt yet), 'generating' (an agent task is filling it), 'live' (renders its component), 'failed' (generation failed; re-prompt or remove).
+       *
+       * * `pending` - pending
+       * * `generating` - generating
+       * * `live` - live
+       * * `failed` - failed */
+      status?: CanvasPlacementStatusEnum;
+      /**
+         * Id of the component canvas this placement renders. Required once the placement is live.
+         * @nullable
+         */
+      component?: string | null;
+      /**
+         * Component version to render: "latest" (the default — follows the component's published build) or a pinned source version id.
+         * @nullable
+         */
+      version?: string | null;
+      /**
+         * Left edge, in grid columns (0-based).
+         * @minimum 0
+         */
+      x?: number;
+      /**
+         * Top edge, in grid rows (0-based).
+         * @minimum 0
+         */
+      y?: number;
+      /**
+         * Width, in grid columns.
+         * @minimum 1
+         */
+      w?: number;
+      /**
+         * Height, in grid rows.
+         * @minimum 1
+         */
+      h?: number;
+      /**
+         * Per-placement settings, validated against the component's configSchema.
+         * @nullable
+         */
+      config?: CanvasPlacementChangesConfig;
+      /**
+         * For pending/generating/failed placements: what the user asked this box to become.
+         * @maxLength 10000
+         * @nullable
+         */
+      prompt?: string | null;
+      /**
+         * Id of the agent task currently filling this placement, when one is running.
+         * @nullable
+         */
+      generationTaskId?: string | null;
+    }
+
+    /**
+     * One surgical layout operation.
+     */
+    export interface CanvasLayoutPatchOperation {
+      /** The operation to apply.
+       *
+       * * `set_grid` - set_grid
+       * * `add_placement` - add_placement
+       * * `update_placement` - update_placement
+       * * `remove_placement` - remove_placement */
+      op: CanvasLayoutOpEnum;
+      /** For set_grid: the new grid definition. */
+      grid?: CanvasGrid;
+      /** For add_placement: the placement to add. */
+      placement?: CanvasPlacement;
+      /**
+         * For update_placement/remove_placement: the target placement id.
+         * @maxLength 64
+         */
+      id?: string;
+      /** For update_placement: the fields to merge into the placement. */
+      changes?: CanvasPlacementChanges;
+    }
+
+    /**
+     * Payload for applying surgical operations to the canvas's current layout.
+     */
+    export interface CanvasLayoutPatch {
+      /** Operations applied in order to the canvas's current layout, at most 64. */
+      operations: CanvasLayoutPatchOperation[];
+      /** Short description of the change, stored on the appended version history entry. */
+      prompt?: string;
+      /**
+         * Required optimistic-concurrency guard: the current_version_id the operations are based on (null when the canvas has no layout versions yet). A moved head is rejected with 409 version_conflict — patches cannot apply unguarded.
+         * @nullable
+         */
+      expected_current_version_id: string | null;
+    }
+
+    /**
+     * Payload for publishing a complete layout document.
+     */
+    export interface CanvasLayoutPublish {
+      /** The complete layout document to publish. */
+      layout: CanvasLayout;
+      /** Short description of the change, stored on the appended version history entry. */
+      prompt?: string;
+      /**
+         * Optimistic-concurrency guard: the current_version_id the layout was based on (null when the canvas has no versions yet). A moved head is rejected with 409 version_conflict. Omit to publish unguarded.
+         * @nullable
+         */
+      expected_current_version_id?: string | null;
+    }
+
+    /**
+     * Identity and version pointers for one canvas.
+     */
+    export interface CanvasSummary {
+      /** The canvas's id. */
+      id: string;
+      /** Display name of the canvas. */
+      name: string;
+      /** The canvas's kind (freeform, component, or grid).
+       *
+       * * `freeform` - freeform
+       * * `grid` - grid
+       * * `component` - component */
+      kind: CanvasKindEnum;
+      /** Id of the channel the canvas belongs to. */
+      channel_id: string;
+      /**
+         * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /**
+         * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
+         * @nullable
+         */
+      published_build_id: string | null;
+      /** When the canvas was created. */
+      created_at: string;
+      /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+      readonly url: string;
+    }
+
+    /**
+     * Result of a successful layout publish or patch. The new version is live immediately — no build runs.
+     */
+    export interface CanvasLayoutPublishResponse {
+      /** The canvas after the publish, including the new version pointer. */
+      canvas: CanvasSummary;
+      /** The layout document as published. */
+      layout: CanvasLayout;
+      /** Id of the layout version this publish created. */
+      current_version_id: string;
+    }
+
+    /**
+     * A grid canvas's layout plus the version pointer edits must be based on.
+     */
+    export interface CanvasLayoutResponse {
+      /** Identity and version pointers for the canvas. */
+      canvas: CanvasSummary;
+      /** The layout document. A grid canvas with no versions yet returns the default empty layout. */
+      layout: CanvasLayout;
+      /**
+         * The live layout version this document reflects — pass as expected_current_version_id when publishing or patching. Null before the first layout publish.
+         * @nullable
+         */
+      current_version_id: string | null;
     }
 
     /**
@@ -15390,6 +15914,8 @@ export namespace Schemas {
       dependencies?: CanvasSourceProjectDependencies;
       /** Version of the host-injected `ph` canvas SDK the project targets. */
       canvasSdkVersion?: string;
+      /** Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config. */
+      component?: CanvasComponentMeta;
       /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins. */
       capabilities?: CanvasCapabilities;
     }
@@ -15481,32 +16007,6 @@ export namespace Schemas {
          * @nullable
          */
       expected_current_version_id?: string | null;
-    }
-
-    /**
-     * Identity and version pointers for one canvas.
-     */
-    export interface CanvasSummary {
-      /** The canvas's id. */
-      id: string;
-      /** Display name of the canvas. */
-      name: string;
-      /** Id of the channel the canvas belongs to. */
-      channel_id: string;
-      /**
-         * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
-         * @nullable
-         */
-      current_version_id: string | null;
-      /**
-         * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
-         * @nullable
-         */
-      published_build_id: string | null;
-      /** When the canvas was created. */
-      created_at: string;
-      /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
-      readonly url: string;
     }
 
     /**
@@ -17068,6 +17568,18 @@ export namespace Schemas {
       /** Other cohorts that include this cohort as a criterion, with truncation metadata */
       cohorts: CohortUsedInCohortsBlock;
     }
+
+    /**
+     * * `managed` - Managed
+     * * `collaborative` - Collaborative
+     */
+    export type CollaborationModeEnum = typeof CollaborationModeEnum[keyof typeof CollaborationModeEnum];
+
+
+    export const CollaborationModeEnum = {
+      Managed: 'managed',
+      Collaborative: 'collaborative',
+    } as const;
 
     /**
      * * `private` - Private (only visible to creator)
@@ -18926,21 +19438,22 @@ export namespace Schemas {
     }
 
     /**
-     * Binds a data-warehouse source to a custom property definition. Account sources read a
-     * materialized view column and sync onto matching accounts; person and group sources read a
-     * warehouse schema and sync onto matching persons or groups on each warehouse sync.
+     * Binds warehouse columns to a custom property definition. Account sources read a materialized
+     * view column and sync onto matching accounts; person and group sources read either an imported
+     * warehouse table or a materialized view, and sync onto matching persons or groups on every
+     * warehouse run of what they read.
      */
     export interface CustomPropertySource {
       readonly id: string;
       /** UUID of the custom property definition this source feeds. One source per definition. */
       definition: string;
       /**
-         * Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.
+         * UUID of the data-warehouse saved query to read from. Required for an account source. For a person or group source it must be a materialized view, and is one of the two binding options. Mutually exclusive with external_data_schema.
          * @nullable
          */
       saved_query?: string | null;
       /**
-         * Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+         * Person and group sources only: UUID of the warehouse schema (an imported table) to read from. Mutually exclusive with saved_query; a person or group source sets exactly one.
          * @nullable
          */
       external_data_schema?: string | null;
@@ -18952,7 +19465,7 @@ export namespace Schemas {
       source_column?: string | null;
       /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
       column_property_map?: unknown;
-      /** Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+      /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
       column_descriptions?: unknown;
       /**
          * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
@@ -18979,27 +19492,32 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
       /**
-         * Person and group sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+         * Person and group sources only: how often the bound table or view runs, in seconds. Null for account sources, or when the schedule is unavailable — including a view whose frequency is set on its data-modeling DAG.
          * @nullable
          */
       readonly sync_frequency_interval_seconds: number | null;
       /**
-         * Person and group sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+         * Person and group sources only: approximate time of the next scheduled run (last run + interval). Approximate — drifts if the schedule was paused. Null for account sources, if never run, or when the interval is unavailable.
          * @nullable
          */
       readonly next_sync_at: string | null;
       /** Person and group sources only: the most recent sync/backfill run, or null if none yet. */
       readonly latest_run: CustomPropertySyncRun | null;
       /**
-         * Person and group sources only: UUID of the warehouse source owning the schema, so the UI can link to the table. Null for account sources or when unavailable.
+         * Table-bound person and group sources only: UUID of the warehouse source owning the schema, so the UI can link to the table. Null for account sources, view-bound sources, or when unavailable.
          * @nullable
          */
       readonly external_data_source: string | null;
       /**
-         * Person and group sources only: the bound warehouse table as it is named in HogQL. Null for account sources or when unavailable.
+         * Person and group sources only: what this source reads, as it is named in HogQL — the imported table, or the view. Null for account sources or when unavailable.
          * @nullable
          */
       readonly table_name: string | null;
+      /**
+         * View-bound person and group sources only: the materialized view's name, so the UI can tell a view-backed source from a table-backed one. Null for account and table-bound sources.
+         * @nullable
+         */
+      readonly saved_query_name: string | null;
     }
 
     /**
@@ -22459,6 +22977,8 @@ export namespace Schemas {
      * * `Hootsuite` - Hootsuite
      * * `WisprFlow` - WisprFlow
      * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -23762,6 +24282,8 @@ export namespace Schemas {
       Hootsuite: 'Hootsuite',
       WisprFlow: 'WisprFlow',
       SamCart: 'SamCart',
+      IronSourceAds: 'IronSourceAds',
+      MicrosoftExcel: 'MicrosoftExcel',
     } as const;
 
     /**
@@ -25078,7 +25600,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -27089,7 +27613,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -28982,6 +29508,7 @@ export namespace Schemas {
     export interface ErrorTrackingBreakdownsQuery {
       breakdownProperties: string[];
       dateRange?: DateRange | null;
+      filterGroup?: PropertyGroupFilter | null;
       filterTestAccounts?: boolean | null;
       issueId: string;
       kind?: 'ErrorTrackingBreakdownsQuery';
@@ -30525,13 +31052,6 @@ export namespace Schemas {
       readonly evaluation_count: number;
     }
 
-    export interface EvaluationPattern {
-      title: string;
-      description: string;
-      frequency: string;
-      example_generation_ids: string[];
-    }
-
     /**
      * * `scheduled` - Scheduled
      * * `every_n` - Every N
@@ -30695,10 +31215,10 @@ export namespace Schemas {
      * * `completed` - completed
      * * `metrics_unavailable` - metrics_unavailable
      */
-    export type GenerationStatusEnum = typeof GenerationStatusEnum[keyof typeof GenerationStatusEnum];
+    export type EvaluationReportRunContentGenerationStatusEnum = typeof EvaluationReportRunContentGenerationStatusEnum[keyof typeof EvaluationReportRunContentGenerationStatusEnum];
 
 
-    export const GenerationStatusEnum = {
+    export const EvaluationReportRunContentGenerationStatusEnum = {
       Completed: 'completed',
       MetricsUnavailable: 'metrics_unavailable',
     } as const;
@@ -30720,7 +31240,7 @@ export namespace Schemas {
        *
        * * `completed` - completed
        * * `metrics_unavailable` - metrics_unavailable */
-      generation_status?: GenerationStatusEnum;
+      generation_status?: EvaluationReportRunContentGenerationStatusEnum;
       /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
       metrics?: EvaluationReportMetrics | null;
     }
@@ -30833,74 +31353,6 @@ export namespace Schemas {
          * @nullable
          */
       distinct_id?: string | null;
-    }
-
-    /**
-     * * `all` - all
-     * * `pass` - pass
-     * * `fail` - fail
-     * * `na` - na
-     */
-    export type FilterEnum = typeof FilterEnum[keyof typeof FilterEnum];
-
-
-    export const FilterEnum = {
-      All: 'all',
-      Pass: 'pass',
-      Fail: 'fail',
-      Na: 'na',
-    } as const;
-
-    /**
-     * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
-     */
-    export interface EvaluationSummaryRequest {
-      /** UUID of the evaluation config to summarize */
-      evaluation_id: string;
-      /** Filter type to apply ('all', 'pass', 'fail', or 'na')
-       *
-       * * `all` - all
-       * * `pass` - pass
-       * * `fail` - fail
-       * * `na` - na */
-      filter?: FilterEnum;
-      /**
-         * Optional: specific generation IDs to include in summary (max 250)
-         * @maxItems 250
-         */
-      generation_ids?: string[];
-      /** If true, bypass cache and generate a fresh summary */
-      force_refresh?: boolean;
-    }
-
-    export interface EvaluationSummaryStatistics {
-      total_analyzed: number;
-      pass_count: number;
-      fail_count: number;
-      na_count: number;
-    }
-
-    export interface EvaluationSummaryResponse {
-      overall_assessment: string;
-      pass_patterns: EvaluationPattern[];
-      fail_patterns: EvaluationPattern[];
-      na_patterns: EvaluationPattern[];
-      recommendations: string[];
-      statistics: EvaluationSummaryStatistics;
-    }
-
-    export interface EvaluationSummaryThrottleResponse {
-      /** Error category */
-      type: string;
-      /** Machine-readable error code */
-      code: string;
-      /** Why the request was throttled */
-      detail: string;
-      /**
-         * Related request field, when applicable
-         * @nullable
-         */
-      attr: string | null;
     }
 
     export interface EventDefinitionBasic {
@@ -34902,7 +35354,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -36239,7 +36693,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -37534,6 +37990,8 @@ export namespace Schemas {
       authored_report_count: number;
       /** Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists) and excluding reports also authored within that set (authoring supersedes an edit; a report whose authoring run falls outside the cap counts as edited). */
       edited_report_count: number;
+      /** Number of scout runs created in the window, whether or not they produced output. Unlike the report tallies it is not capped, so it is the fleet's activity over the same span the output counts describe. */
+      run_count: number;
       /**
          * ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back to run creation), or null when nothing was produced in the window.
          * @nullable
@@ -38021,6 +38479,50 @@ export namespace Schemas {
       default_branch?: string | null;
       /** Whether more branches exist beyond the returned page */
       has_more: boolean;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `approved` - Approved
+     * * `unidentified` - Unidentified
+     */
+    export type GitHubInstallRequestItemStatusEnum = typeof GitHubInstallRequestItemStatusEnum[keyof typeof GitHubInstallRequestItemStatusEnum];
+
+
+    export const GitHubInstallRequestItemStatusEnum = {
+      Pending: 'pending',
+      Approved: 'approved',
+      Unidentified: 'unidentified',
+    } as const;
+
+    export interface GitHubInstallRequestItem {
+      /** PostHog GitHubInstallRequest row id. */
+      id: string;
+      /** GitHub login the install was requested under. Blank if it could not be resolved. */
+      github_login: string;
+      /** `pending` while waiting on an org owner's approval, `approved` once the installation webhook confirms it, `unidentified` when the requesting GitHub account could not be resolved. Approval can't be detected for an unidentified request, so the user has to start the connect flow again.
+       *
+       * * `pending` - Pending
+       * * `approved` - Approved
+       * * `unidentified` - Unidentified */
+      status: GitHubInstallRequestItemStatusEnum;
+      /**
+         * GitHub App installation id, set once the request is approved.
+         * @nullable
+         */
+      installation_id?: string | null;
+      /** When the install approval was requested. */
+      requested_at: string;
+      /**
+         * When an org owner approved the request.
+         * @nullable
+         */
+      resolved_at?: string | null;
+    }
+
+    export interface GitHubInstallRequestListResponse {
+      /** The user's GitHub App install-approval requests, newest first. */
+      results: GitHubInstallRequestItem[];
     }
 
     export interface GitHubLinkExistingRequest {
@@ -39131,6 +39633,29 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
+    }
+
+    /**
+     * Response from the batch job cancel endpoint. Stopping is asynchronous: this call flags the
+     * run's audience fan-out and its in-flight child runs, and the workflow workers terminate
+     * them shortly after. Messages already sent are not recalled.
+     */
+    export interface HogFlowBatchJobCancelResponse {
+      /** The batch run's status after this request. 'cancelled' once every in-flight run is flagged; a completion that raced the stop wins and is reported instead.
+       *
+       * * `waiting` - Waiting
+       * * `queued` - Queued
+       * * `active` - Active
+       * * `completed` - Completed
+       * * `cancelled` - Cancelled
+       * * `failed` - Failed */
+      status: HogFlowBatchJobStatusEnum;
+      /** In-flight runs newly flagged for cancellation by this request. */
+      marked: number;
+      /** In-flight runs of this batch not yet flagged. Non-zero on very large runs; call again. */
+      remaining: number;
+      /** True when no in-flight runs of this batch remain unflagged. */
+      done: boolean;
     }
 
     /**
@@ -49034,7 +49559,6 @@ export namespace Schemas {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -49058,7 +49582,6 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
-      Automation: 'automation',
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
@@ -52333,6 +52856,33 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `pending` - Pending
+     * * `generating` - Generating
+     * * `ready` - Ready
+     * * `failed` - Failed
+     */
+    export type SignalReportCanvasGenerationStatusEnum = typeof SignalReportCanvasGenerationStatusEnum[keyof typeof SignalReportCanvasGenerationStatusEnum];
+
+
+    export const SignalReportCanvasGenerationStatusEnum = {
+      Pending: 'pending',
+      Generating: 'generating',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    export interface SignalReportCanvas {
+      readonly canvas_id: string;
+      readonly discussion_task_id: string;
+      /** @nullable */
+      readonly generation_task_id: string | null;
+      readonly generation_status: SignalReportCanvasGenerationStatusEnum;
+      readonly collaboration_mode: CollaborationModeEnum;
+      readonly failure_reason: string;
+      readonly updated_at: string;
+    }
+
+    /**
      * * `pr_incorrect` - PR incorrect
      * * `pr_not_useful` - PR not useful
      * * `duplicate` - Duplicate
@@ -52407,6 +52957,8 @@ export namespace Schemas {
       readonly artefact_count: number;
       /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
       readonly charts: readonly ReportChart[];
+      /** The persistent canvas and shared discussion created for this report, when available. */
+      readonly canvas_session: SignalReportCanvas | null;
       /**
          * P0–P4 from the latest priority judgment artefact (when present).
          * @nullable
@@ -53500,44 +54052,6 @@ export namespace Schemas {
     }
 
     /**
-     * Detail/create/update/run response for a task automation.
-     */
-    export interface TaskAutomationDTO {
-      id: string;
-      name: string;
-      prompt: string;
-      /** @nullable */
-      repository: string | null;
-      /** @nullable */
-      github_integration: number | null;
-      cron_expression: string;
-      timezone: string;
-      /** @nullable */
-      template_id: string | null;
-      enabled: boolean;
-      /** @nullable */
-      last_run_at: string | null;
-      /** @nullable */
-      last_run_status: string | null;
-      last_task_id: string;
-      /** @nullable */
-      last_task_run_id: string | null;
-      /** @nullable */
-      last_error: string | null;
-      created_at: string;
-      updated_at: string;
-    }
-
-    export interface PaginatedTaskAutomationDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskAutomationDTO[];
-    }
-
-    /**
      * * `anthropic` - anthropic
      * * `openai` - openai
      */
@@ -53770,6 +54284,8 @@ export namespace Schemas {
       created_at?: string | null;
       /** @nullable */
       updated_at?: string | null;
+      /** @nullable */
+      last_activity_at?: string | null;
       created_by?: TaskUserBasicInfo | null;
       /** @nullable */
       ci_prompt: string | null;
@@ -54755,7 +55271,7 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types: readonly string[];
       readonly pending_invites: readonly PendingInvite[];
-      /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review: boolean;
     }
 
@@ -55707,6 +56223,12 @@ export namespace Schemas {
       readonly import_config?: unknown;
     }
 
+    export interface PatchedBilling {
+      /** @maxLength 100 */
+      plan?: string;
+      billing_limit?: number;
+    }
+
     export interface PatchedBillingAlertConfiguration {
       /** Unique identifier for this billing alert. */
       readonly id?: string;
@@ -55882,6 +56404,8 @@ export namespace Schemas {
       name?: string;
       /** Updated author context markdown. */
       context?: string;
+      /** Updated canvas description (for components, the store-search text). */
+      description?: string;
       /** Whether the canvas is pinned in its channel. */
       pinned?: boolean;
       /**
@@ -62372,47 +62896,6 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
-    /**
-     * Request body for creating or updating a task automation.
-     */
-    export interface PatchedTaskAutomationWrite {
-      /**
-         * Display name (stored as the backing task's title).
-         * @maxLength 255
-         */
-      name?: string;
-      /** The automation prompt (stored as the backing task's description). */
-      prompt?: string;
-      /**
-         * Target repository in the format organization/repository.
-         * @maxLength 255
-         */
-      repository?: string;
-      /**
-         * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-         * @nullable
-         */
-      github_integration?: number | null;
-      /**
-         * Standard 5-field cron expression (minute hour day month weekday).
-         * @maxLength 100
-         */
-      cron_expression?: string;
-      /**
-         * IANA timezone the schedule runs in.
-         * @maxLength 128
-         */
-      timezone?: string;
-      /**
-         * Optional template identifier this automation was created from.
-         * @maxLength 255
-         * @nullable
-         */
-      template_id?: string | null;
-      /** Whether the schedule is active; paused when false. */
-      enabled?: boolean;
-    }
-
     export interface PatchedTaskRunSetOutputRequest {
       /** Output data from the run. Validated against the task's json_schema if one is set. */
       output?: unknown;
@@ -62488,7 +62971,6 @@ export namespace Schemas {
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
-       * * `automation` - Automation
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
@@ -62532,14 +63014,12 @@ export namespace Schemas {
          */
       signal_report?: string | null;
       /**
-         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
          * @maxLength 200
          */
       signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
       /** If true, the task is hidden from default list responses. */
       archived?: boolean;
       /**
@@ -63198,7 +63678,7 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types?: readonly string[];
       readonly pending_invites?: readonly PendingInvite[];
-      /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
       readonly requires_credential_review?: boolean;
     }
 
@@ -69716,6 +70196,18 @@ export namespace Schemas {
       password: string;
     }
 
+    /**
+     * * `resolving` - resolving
+     * * `stopped` - stopped
+     */
+    export type ResolutionStatusEnum = typeof ResolutionStatusEnum[keyof typeof ResolutionStatusEnum];
+
+
+    export const ResolutionStatusEnum = {
+      Resolving: 'resolving',
+      Stopped: 'stopped',
+    } as const;
+
     export type RetrieveBasicOutputStatus = typeof RetrieveBasicOutputStatus[keyof typeof RetrieveBasicOutputStatus];
 
 
@@ -69872,6 +70364,22 @@ export namespace Schemas {
          * @nullable
          */
       total: number | null;
+    }
+
+    export interface ReviewResolutionStatus {
+      /** Where the run stands: `resolving` while threads are being settled, `stopped` when the run died partway (went quiet with no closing summary).
+       *
+       * * `resolving` - resolving
+       * * `stopped` - stopped */
+      resolution_status: ResolutionStatusEnum;
+      /** Queued threads settled so far this run. */
+      done: number;
+      /** Threads queued for this run. */
+      total: number;
+      /** Settled threads that were fixed with a commit to the branch. */
+      fixed: number;
+      /** Settled threads left for the author: judged worth doing but not safe to fix unattended. */
+      needs_attention: number;
     }
 
     export interface ReviewSelectionChunk {
@@ -70041,10 +70549,12 @@ export namespace Schemas {
       last_run_at: string | null;
       /** Whether a review has been published back to GitHub. */
       published: boolean;
-      /** Whether a review turn is running on this report right now (activity within the last 30 minutes). */
+      /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
       in_progress: boolean;
-      /** The in-flight turn's stage and counters; null unless `in_progress`. */
+      /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
       progress: ReviewProgress | null;
+      /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
+      resolution: ReviewResolutionStatus | null;
       /** The latest turn's valid findings at must_fix effective priority. */
       must_fix_count: number;
       /** The latest turn's valid findings at should_fix effective priority. */
@@ -70196,10 +70706,12 @@ export namespace Schemas {
       last_run_at: string | null;
       /** Whether a review has been published back to GitHub. */
       published: boolean;
-      /** Whether a review turn is running on this report right now (activity within the last 30 minutes). */
+      /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
       in_progress: boolean;
-      /** The in-flight turn's stage and counters; null unless `in_progress`. */
+      /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
       progress: ReviewProgress | null;
+      /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
+      resolution: ReviewResolutionStatus | null;
       /** The latest turn's valid findings at must_fix effective priority. */
       must_fix_count: number;
       /** The latest turn's valid findings at should_fix effective priority. */
@@ -73827,7 +74339,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -75172,7 +75686,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -76507,7 +77023,9 @@ export namespace Schemas {
        * * `Dokploy` - Dokploy
        * * `Hootsuite` - Hootsuite
        * * `WisprFlow` - WisprFlow
-       * * `SamCart` - SamCart */
+       * * `SamCart` - SamCart
+       * * `IronSourceAds` - IronSourceAds
+       * * `MicrosoftExcel` - MicrosoftExcel */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -77855,6 +78373,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `desktop_canvas` - desktop_canvas
+     */
+    export type TargetScopeEnum = typeof TargetScopeEnum[keyof typeof TargetScopeEnum];
+
+
+    export const TargetScopeEnum = {
+      DesktopCanvas: 'desktop_canvas',
+    } as const;
+
+    /**
      * Response shape for one task in the requester's activity feed (one row per task).
      */
     export interface TaskActivityDTO {
@@ -77888,6 +78416,15 @@ export namespace Schemas {
       latest_comment_scope?: string | null;
       /** @nullable */
       latest_comment_item_id?: string | null;
+      /** The non-task surface this activity opens, when the task backs another shared artifact.
+       *
+       * * `desktop_canvas` - desktop_canvas */
+      target_scope?: TargetScopeEnum | null;
+      /**
+         * Identifier of the activity target. Present together with target_scope.
+         * @nullable
+         */
+      target_id?: string | null;
       /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
       is_unread: boolean;
     }
@@ -77966,47 +78503,6 @@ export namespace Schemas {
     export interface TaskArtifactsResponse {
       /** Artifacts and canvases linked to this task. */
       artifacts: TaskArtifact[];
-    }
-
-    /**
-     * Request body for creating or updating a task automation.
-     */
-    export interface TaskAutomationWrite {
-      /**
-         * Display name (stored as the backing task's title).
-         * @maxLength 255
-         */
-      name: string;
-      /** The automation prompt (stored as the backing task's description). */
-      prompt: string;
-      /**
-         * Target repository in the format organization/repository.
-         * @maxLength 255
-         */
-      repository: string;
-      /**
-         * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-         * @nullable
-         */
-      github_integration?: number | null;
-      /**
-         * Standard 5-field cron expression (minute hour day month weekday).
-         * @maxLength 100
-         */
-      cron_expression: string;
-      /**
-         * IANA timezone the schedule runs in.
-         * @maxLength 128
-         */
-      timezone?: string;
-      /**
-         * Optional template identifier this automation was created from.
-         * @maxLength 255
-         * @nullable
-         */
-      template_id?: string | null;
-      /** Whether the schedule is active; paused when false. */
-      enabled?: boolean;
     }
 
     export interface TaskCommentAnchor {
@@ -78162,7 +78658,6 @@ export namespace Schemas {
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
-       * * `automation` - Automation
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
@@ -78206,14 +78701,12 @@ export namespace Schemas {
          */
       signal_report?: string | null;
       /**
-         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
          * @maxLength 200
          */
       signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
       /** If true, the task is hidden from default list responses. */
       archived?: boolean;
       /**
@@ -79326,7 +79819,6 @@ export namespace Schemas {
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
-       * * `automation` - Automation
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
@@ -79370,14 +79862,12 @@ export namespace Schemas {
          */
       signal_report?: string | null;
       /**
-         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
          * @maxLength 200
          */
       signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
       /** If true, the task is hidden from default list responses. */
       archived?: boolean;
       /**
@@ -81958,11 +82448,11 @@ export namespace Schemas {
     }
 
     export interface _LogsServicesResponse {
-      /** Per-service aggregates, ordered by log_count descending. Capped at 1000 services. */
+      /** Per-service aggregates, ordered by log_count descending. Capped at 10000 services. */
       services: _LogsServiceAggregate[];
       /** Time-bucketed counts broken down by service, for plotting volume over time. Covers only the top 25 services in this response; re-request with `serviceNames` to get sparklines for specific services. */
       sparkline: _LogsServicesSparklineBucket[];
-      /** True distinct service count for the window and filters, unaffected by the 1000-service cap on `services`. Greater than the length of `services` when the response is truncated. */
+      /** True distinct service count for the window and filters, unaffected by the 10000-service cap on `services`. Greater than the length of `services` when the response is truncated. */
       total_services: number;
       /** Roll-up stats for the Services tab header. */
       summary?: _LogsServicesSummary;
@@ -84482,6 +84972,10 @@ export namespace Schemas {
      */
     channel?: string;
     /**
+     * Only return canvases of this kind. kind=component lists the component store.
+     */
+    kind?: CanvasesListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -84489,7 +84983,20 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only return canvases whose name or description contains this text (case-insensitive).
+     */
+    search?: string;
     };
+
+    export type CanvasesListKind = typeof CanvasesListKind[keyof typeof CanvasesListKind];
+
+
+    export const CanvasesListKind = {
+      Component: 'component',
+      Freeform: 'freeform',
+      Grid: 'grid',
+    } as const;
 
     export type CanvasesBuildsRetrieveParams = {
     /**
@@ -84507,6 +85014,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type CanvasesLayoutRetrieveParams = {
+    /**
+     * Read this historical layout version instead of the head (for version browsing).
+     */
+    version_id?: string;
     };
 
     export type CanvasesSourceRetrieveParams = {
@@ -86956,6 +87470,10 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ExternalDataSchemasCancelCreate200 = {
+      detail?: string;
+    };
+
     export type ExternalDataSchemasCancelCreate400 = {
       detail?: string;
     };
@@ -86990,6 +87508,14 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type ExternalDataSchemasReloadCreate400 = {
+      detail?: string;
+    };
+
+    export type ExternalDataSchemasResyncCreate400 = {
+      detail?: string;
     };
 
     export type ExternalDataSourcesListParams = {
@@ -89144,14 +89670,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
 
     export type LlmAnalyticsModelsRetrieveParams = {
     /**
@@ -91786,17 +92304,6 @@ export namespace Schemas {
     limit?: number;
     };
 
-    export type TaskAutomationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type TaskChannelsListParams = {
     /**
      * Number of results to return per page.
@@ -91855,6 +92362,20 @@ export namespace Schemas {
      */
     channel?: string;
     /**
+     * Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.
+     *
+     * * `passing` - passing
+     * * `failing` - failing
+     * * `pending` - pending
+     * * `none` - none
+     * @minLength 1
+     */
+    ci_status?: TasksListCiStatus;
+    /**
+     * Filter to tasks carrying a thread comment written by this user ID.
+     */
+    commented_by?: number;
+    /**
      * Filter by creator user ID
      */
     created_by?: number;
@@ -91874,10 +92395,22 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Filter to tasks whose thread mentions this user ID.
+     */
+    mentions?: number;
+    /**
      * The initial index from which to return the results.
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.
+     *
+     * * `-created_at` - -created_at
+     * * `-last_activity_at` - -last_activity_at
+     * @minLength 1
+     */
+    ordering?: TasksListOrdering;
     /**
      * Filter by repository organization
      * @minLength 1
@@ -91888,6 +92421,20 @@ export namespace Schemas {
      * @minLength 1
      */
     origin_product?: string;
+    /**
+     * With true, only tasks the requesting user has pinned.
+     */
+    pinned?: boolean;
+    /**
+     * Filter tasks by the state of their most recent run's pull request, as last observed from GitHub (webhooks plus the CI follow-up snapshot).
+     *
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * @minLength 1
+     */
+    pr_state?: TasksListPrState;
     /**
      * Filter by repository name (can include org/repo format)
      * @minLength 1
@@ -91925,6 +92472,16 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
+    export type TasksListCiStatus = typeof TasksListCiStatus[keyof typeof TasksListCiStatus];
+
+
+    export const TasksListCiStatus = {
+      Passing: 'passing',
+      Failing: 'failing',
+      Pending: 'pending',
+      None: 'none',
+    } as const;
+
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
 
 
@@ -91932,6 +92489,24 @@ export namespace Schemas {
       True: 'true',
       False: 'false',
       All: 'all',
+    } as const;
+
+    export type TasksListOrdering = typeof TasksListOrdering[keyof typeof TasksListOrdering];
+
+
+    export const TasksListOrdering = {
+      CreatedAt: '-created_at',
+      LastActivityAt: '-last_activity_at',
+    } as const;
+
+    export type TasksListPrState = typeof TasksListPrState[keyof typeof TasksListPrState];
+
+
+    export const TasksListPrState = {
+      Open: 'open',
+      Draft: 'draft',
+      Merged: 'merged',
+      Closed: 'closed',
     } as const;
 
     export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];

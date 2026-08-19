@@ -19,6 +19,7 @@ from llm_gateway.products.config import (
     POSTHOG_CODE_US_APP_ID,
     PRODUCT_ALIASES,
     PRODUCTS,
+    SIGNALS_DEV_APP_ID,
     TWIG_EU_APP_ID,
     TWIG_US_APP_ID,
     WIZARD_EU_APP_ID,
@@ -734,3 +735,24 @@ class TestModelAccessFlag:
             assert suffixed not in BASETEN_MODELS
             assert not is_modal_served_model(suffixed)
             assert suffixed not in CLOUDFLARE_ALLOWED_MODELS
+
+
+class TestSignalsApplicationIsolation:
+    @pytest.mark.parametrize(
+        ("product", "expected_allowed"),
+        [
+            ("signals", True),
+            ("posthog_code", False),
+            ("background_agents", False),
+            ("slack_app", False),
+        ],
+    )
+    @patch("llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False))
+    def test_signals_app_reaches_only_the_signals_product(
+        self, mock_get_settings: MagicMock, product: str, expected_allowed: bool
+    ):
+        # The point of the separate application: a Signals run's token must not be spendable as
+        # posthog_code (which bills the customer) or as background_agents (a looser budget), both
+        # of which it could reach while Signals shared the Desktop app.
+        allowed, _ = check_product_access(product, "oauth_access_token", SIGNALS_DEV_APP_ID, None)
+        assert allowed is expected_allowed

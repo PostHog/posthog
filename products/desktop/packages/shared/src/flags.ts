@@ -47,3 +47,5 @@ export const TASK_COST_FLAG = "posthog-code-task-cost";
 export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";
 /** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
 export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";
+/** Gates replacing Inbox report navigation with generated report canvases. */
+export const REPORT_CANVAS_INBOX_FLAG = "posthog-desktop-report-canvases";

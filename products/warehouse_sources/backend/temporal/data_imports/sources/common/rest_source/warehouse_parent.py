@@ -89,7 +89,7 @@ def _row_filter_expression(
     """
     physical = _physical_columns_by_api_name(delta_table, parent_name, [row_filter.field])[row_filter.field]
     field_type = pyarrow_schema_from_arrow_exportable(delta_table.schema()).field(physical).type
-    cutoff = dt.datetime.now(dt.UTC) - row_filter.not_older_than
+    cutoff = row_filter.floor(dt.datetime.now(dt.UTC))
 
     cutoff_scalar: pa.Scalar
     if pa.types.is_timestamp(field_type):
