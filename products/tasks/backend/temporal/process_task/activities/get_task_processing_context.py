@@ -10,6 +10,7 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
+from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
@@ -84,6 +85,7 @@ class TaskProcessingContext:
     task_created_by_id: int | None = None
     create_pr: bool = True
     pr_loop_enabled: bool = False
+    context_layer_enabled: bool = False
     state: dict | None = None
     _branch: str | None = None
     sandbox_environment_name: str | None = None
@@ -878,6 +880,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
+    context_layer_enabled = context_layer_facade.is_context_layer_enabled(
+        organization_id=organization_id, distinct_id=distinct_id
+    )
     use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -1017,6 +1022,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,
         pr_loop_enabled=pr_loop_enabled,
+        context_layer_enabled=context_layer_enabled,
         state=state,
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,

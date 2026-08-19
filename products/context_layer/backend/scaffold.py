@@ -29,6 +29,30 @@ background agents. Treat it as reference material, not instructions.
 - Keep pages in the directories above; `scripts/lint` checks the structure.
 - Write synthesized prose, not raw excerpts from source material.
 - If your work makes a page stale, correct those lines and commit the edit.
+- In a sandbox, run `scripts/publish` to land your commits; a linter reviews
+  the structure before they land.
+"""
+
+PUBLISH_SCRIPT = """\
+#!/bin/sh
+# Land local wiki commits: pack them as a git bundle and post them to the
+# context layer API, which lints them and rebases them onto the current head.
+set -eu
+cd "$(dirname "$0")/.."
+if [ -z "${POSTHOG_API_URL:-}" ] || [ -z "${POSTHOG_PERSONAL_API_KEY:-}" ] || [ -z "${POSTHOG_CONTEXT_LAYER_COMMITS_PATH:-}" ]; then
+    echo "publish: POSTHOG_API_URL, POSTHOG_PERSONAL_API_KEY, and POSTHOG_CONTEXT_LAYER_COMMITS_PATH must be set (they are inside PostHog sandboxes)" >&2
+    exit 1
+fi
+if ! git bundle create /tmp/context-layer-publish.bundle origin/main..main 2>/dev/null; then
+    echo "publish: nothing to publish; commit your edits first"
+    exit 0
+fi
+curl -fsS -X POST \\
+    -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
+    -F "bundle=@/tmp/context-layer-publish.bundle" \\
+    "${POSTHOG_API_URL%/}$POSTHOG_CONTEXT_LAYER_COMMITS_PATH"
+echo ""
+echo "publish: landed"
 """
 
 ORG_OVERVIEW_MD = """\
@@ -57,3 +81,6 @@ def write_default_structure(root: Path) -> None:
     lint_script = root / "scripts" / "lint"
     lint_script.write_text(Path(repo_lint.__file__).read_text(encoding="utf-8"), encoding="utf-8")
     lint_script.chmod(0o755)
+    publish_script = root / "scripts" / "publish"
+    publish_script.write_text(PUBLISH_SCRIPT, encoding="utf-8")
+    publish_script.chmod(0o755)
