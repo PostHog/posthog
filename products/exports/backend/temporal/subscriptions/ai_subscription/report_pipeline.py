@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+import contextlib
 import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -15,8 +16,8 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.ph_client import ph_scoped_capture
-from posthog.security.llm_prompt_sanitization import strip_llm_framing_markers
+from posthog.ph_client import ph_background_capture
+from posthog.security.llm_prompt_sanitization import sanitize_user_text, strip_llm_framing_markers
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
@@ -131,7 +132,9 @@ def _validate_step_chart(
     # The planner's short label when it wrote one, else its rationale sentence cut to the same
     # length — a caption has to stay label-shaped, and `description` is capped at 500. Both are LLM
     # output rendered into email and Slack, so both get stripped.
-    title = strip_llm_framing_markers(spec.title or fallback_title, max_len=MAX_CHART_TITLE_LENGTH)
+    # sanitize_user_text, not strip_llm_framing_markers: a caption is a short single-line label that
+    # reaches an email body, a Slack block and the API, and only the former strips tags and newlines.
+    title = sanitize_user_text(spec.title or fallback_title, MAX_CHART_TITLE_LENGTH)
     return validate_chart(spec, response, hogql=hogql, title=title, step_index=step_index)
 
 
@@ -245,7 +248,10 @@ async def generate_ai_report(
             else:
                 spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
                 freshly_planned = True
-            execution = await _execute_plan(spec, team, user, window, trace_correlation_id)
+            # Resolved before the steps run: with charts off, no spec is validated, so an
+            # unflagged team can never be blocked from freezing by a chart it will never receive.
+            charts_on = await database_sync_to_async(charts_enabled, thread_sensitive=False)(team, user)
+            execution = await _execute_plan(spec, team, user, window, trace_correlation_id, charts_on=charts_on)
             failed_count, diagnostics, charts = execution.failed_count, execution.diagnostics, execution.charts
             chart_spec_failures = sum(
                 1 for diagnostic in diagnostics if diagnostic.chart_dropped_reason in SPEC_INVALID_DROP_REASONS
@@ -253,8 +259,6 @@ async def generate_ai_report(
             # Rank before rendering: a render costs a browserless worker and a second query
             # execution, so charts that lose the ranking must never be built. Python's sort is
             # stable, so equal importance keeps plan order.
-            if not await database_sync_to_async(charts_enabled, thread_sensitive=False)(team, user):
-                charts = []
             ranked = sorted(charts, key=lambda chart: chart.spec.importance, reverse=True)
             selected, dropped = ranked[:MAX_CHARTS_PER_REPORT], ranked[MAX_CHARTS_PER_REPORT:]
             if dropped:
@@ -268,10 +272,21 @@ async def generate_ai_report(
             # the validated charts), so running them together keeps the render off the critical
             # path. Serially they added their full budget to an activity whose timeout, once hit,
             # discards the planner and synthesis spend and retries all of it.
-            report, (rendered_charts, chart_failures) = await asyncio.gather(
-                _synthesize(spec, execution.rendered, team, user, trace_correlation_id),
-                render_charts(selected, team=team, user=user),
+            synthesis_task = asyncio.ensure_future(
+                _synthesize(spec, execution.rendered, team, user, trace_correlation_id)
             )
+            render_task = asyncio.ensure_future(render_charts(selected, team=team, user=user))
+            try:
+                report = await synthesis_task
+            except BaseException:
+                # gather() would leave the render running after the activity failed, holding
+                # browserless workers and writing assets nothing references — then Temporal retries
+                # and starts another set. Tear it down with the report.
+                render_task.cancel()
+                with contextlib.suppress(BaseException):
+                    await render_task
+                raise
+            rendered_charts, chart_failures = await render_task
         except PromptRejectedError:
             # A rejected prompt is the input guard doing its job, not a service failure — keep it out of
             # the error budget so user-supplied bad input doesn't burn the SLO.
@@ -305,8 +320,10 @@ async def generate_ai_report(
                 failed_steps=failed_count,
                 total_steps=total_steps,
             )
-        if dropped:
-            report = report + _charts_truncated_footnote(len(selected), len(charts))
+        # Only when charts actually shipped: a report with none would otherwise describe pictures the
+        # reader cannot see and tell them to split a prompt that would not bring them back.
+        if dropped and rendered_charts:
+            report = report + _charts_truncated_footnote(len(rendered_charts), len(charts))
         if total_steps and failed_count == total_steps:
             # Every query failed, so the body is all "could not be computed" placeholders. Lead with a
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
@@ -335,25 +352,26 @@ def _capture_charts_truncated(
 ) -> None:
     """Record that the planner asked for more charts than a report renders.
 
-    Best-effort: losing this event must never cost the report. ph_scoped_capture, not
-    posthoganalytics.capture, because this runs inside a Temporal activity.
+    Best-effort: losing this event must never cost the report. ph_background_capture, not
+    ph_scoped_capture, because this is called from an async activity and a scoped capture flushes
+    synchronously on the worker's shared event loop.
     """
     try:
-        with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=f"team_{team.id}",
-                event="ai_report_charts_truncated",
-                properties={
-                    "feature": "ai_subscription",
-                    "subscription_id": trace_correlation_id,
-                    "team_id": team.id,
-                    "charts_requested": requested,
-                    # Selected by the ranking, not rendered — the SLO tag carries the render count.
-                    "charts_selected": selected,
-                    # system signal keyed by team, not a person
-                    "$process_person_profile": False,
-                },
-            )
+        capture = ph_background_capture()
+        capture(
+            distinct_id=f"team_{team.id}",
+            event="ai_report_charts_truncated",
+            properties={
+                "feature": "ai_subscription",
+                "subscription_id": trace_correlation_id,
+                "team_id": team.id,
+                "charts_requested": requested,
+                # Selected by the ranking, not rendered — the SLO tag carries the render count.
+                "charts_selected": selected,
+                # system signal keyed by team, not a person
+                "$process_person_profile": False,
+            },
+        )
     except Exception:
         logger.warning(
             "ai_report.charts_truncated_capture_failed", trace_correlation_id=trace_correlation_id, exc_info=True
@@ -450,9 +468,10 @@ async def _execute_plan(
     user: User,
     window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]],
+    charts_on: bool = False,
 ) -> PlanExecution:
     try:
-        return await _run_steps(spec, team, user, window, trace_correlation_id)
+        return await _run_steps(spec, team, user, window, trace_correlation_id, charts_on=charts_on)
     except Exception as exc:
         # per-step failures degrade to placeholders in run_step; this catches orchestration failure
         raise AiReportStageError(ReportStage.QUERY, exc) from exc
@@ -520,6 +539,7 @@ async def _run_steps(
     user: User,
     window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]],
+    charts_on: bool = False,
 ) -> PlanExecution:
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
     # Cap simultaneous ClickHouse scans per report; excess steps queue until a slot frees.
@@ -560,7 +580,7 @@ async def _run_steps(
                 # that already ran.
                 try:
                     chart, chart_dropped_reason = _validate_step_chart(
-                        step.chart,
+                        step.chart if charts_on else None,
                         query_result.response,
                         hogql=executable_hogql,
                         fallback_title=safe_description,
