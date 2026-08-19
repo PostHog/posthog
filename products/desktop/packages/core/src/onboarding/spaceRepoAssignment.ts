@@ -34,25 +34,35 @@ export function resolveRepoIntegrationId(
   return integrations.length === 1 ? integrations[0].id : null;
 }
 
+export interface SpaceRepoAssignmentFlags {
+  personalCreated: boolean;
+  generalCreated: boolean;
+}
+
 /**
- * Which spaces the onboarding repo pick becomes the default for: the personal
- * space always, and the shared #general space only when this onboarding's
- * provisioning call just created it (the server's general_created flag). An
- * inherited #general is team state, even when its repository list is empty:
- * someone may have emptied it on purpose. The empty check guards the race
- * where a teammate configures the just-created space first.
+ * Which spaces the onboarding repo pick becomes the default for. A space that
+ * existed before this onboarding and carries repositories keeps its config: a
+ * re-run of onboarding (wiped local storage) must not clobber what the user or
+ * their team set up. An empty pre-existing personal space is still safe to
+ * fill; an inherited #general is not, because a teammate may have emptied it
+ * on purpose.
  */
 export function planSpaceRepoAssignments(
   channels: AssignableChannel[],
-  generalJustCreated: boolean,
+  flags: SpaceRepoAssignmentFlags,
 ): string[] {
   const targets: string[] = [];
   const personal = channels.find((channel) => isPersonalChannel(channel));
-  if (personal) targets.push(personal.id);
+  if (
+    personal &&
+    (flags.personalCreated || (personal.repositories ?? []).length === 0)
+  ) {
+    targets.push(personal.id);
+  }
   const general = channels.find((channel) => isGeneralChannel(channel));
   if (
     general &&
-    generalJustCreated &&
+    flags.generalCreated &&
     (general.repositories ?? []).length === 0
   ) {
     targets.push(general.id);
