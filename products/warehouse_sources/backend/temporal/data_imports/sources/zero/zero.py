@@ -77,7 +77,11 @@ def get_resource(
 
     if is_incremental:
         advertised = {incremental["field"] for incremental in config.incremental_fields}
-        cursor = incremental_field if incremental_field in advertised else config.incremental_fields[0]["field"]
+        cursor = (
+            incremental_field
+            if incremental_field is not None and incremental_field in advertised
+            else config.incremental_fields[0]["field"]
+        )
         sort_field = cursor
         params["where"] = {
             "type": "incremental",

@@ -98,47 +98,81 @@ class TestGetResource:
     def test_endpoint_name_maps_to_table_and_path(self, endpoint: str, table_name: str, path: str) -> None:
         resource = get_resource(endpoint, WORKSPACE_ID, should_use_incremental_field=False, incremental_field=None)
         assert resource["table_name"] == table_name
-        assert resource["endpoint"]["path"] == path  # type: ignore[index,typeddict-item]
+        endpoint_config = resource["endpoint"]
+        assert isinstance(endpoint_config, dict)
+        assert endpoint_config["path"] == path
         assert resource["primary_key"] == ["id"]
 
     def test_full_refresh_scoped_endpoint_filters_by_workspace_only(self) -> None:
         resource = get_resource("Companies", WORKSPACE_ID, should_use_incremental_field=False, incremental_field=None)
-        params = resource["endpoint"]["params"]  # type: ignore[index,typeddict-item]
-        assert json.loads(params["where"]) == {"workspaceId": WORKSPACE_ID}
-        assert json.loads(params["orderBy"]) == {"createdAt": "asc"}
+        endpoint_config = resource["endpoint"]
+        assert isinstance(endpoint_config, dict)
+        params = endpoint_config["params"]
+        assert isinstance(params, dict)
+        where = params["where"]
+        order_by = params["orderBy"]
+        assert isinstance(where, str)
+        assert isinstance(order_by, str)
+        assert json.loads(where) == {"workspaceId": WORKSPACE_ID}
+        assert json.loads(order_by) == {"createdAt": "asc"}
         assert resource["write_disposition"] == "replace"
 
     def test_full_refresh_users_endpoint_has_no_workspace_filter(self) -> None:
         resource = get_resource("Users", WORKSPACE_ID, should_use_incremental_field=False, incremental_field=None)
-        params = resource["endpoint"]["params"]  # type: ignore[index,typeddict-item]
+        endpoint_config = resource["endpoint"]
+        assert isinstance(endpoint_config, dict)
+        params = endpoint_config["params"]
+        assert isinstance(params, dict)
         assert "where" not in params
 
     def test_incremental_uses_chosen_field_for_filter_and_sort(self) -> None:
         resource = get_resource(
             "Companies", WORKSPACE_ID, should_use_incremental_field=True, incremental_field="createdAt"
         )
-        params = resource["endpoint"]["params"]  # type: ignore[index,typeddict-item]
-        assert params["where"]["cursor_path"] == "createdAt"  # ty: ignore[invalid-key]
-        assert json.loads(params["orderBy"]) == {"createdAt": "asc"}
+        endpoint_config = resource["endpoint"]
+        assert isinstance(endpoint_config, dict)
+        params = endpoint_config["params"]
+        assert isinstance(params, dict)
+        where = params["where"]
+        order_by = params["orderBy"]
+        assert isinstance(where, dict)
+        assert isinstance(order_by, str)
+        assert where["cursor_path"] == "createdAt"  # ty: ignore[invalid-key]
+        assert json.loads(order_by) == {"createdAt": "asc"}
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
     def test_incremental_field_falls_back_to_first_advertised_option(self) -> None:
         resource = get_resource(
             "Companies", WORKSPACE_ID, should_use_incremental_field=True, incremental_field="not_a_real_field"
         )
-        params = resource["endpoint"]["params"]  # type: ignore[index,typeddict-item]
-        assert params["where"]["cursor_path"] == "updatedAt"  # ty: ignore[invalid-key]
+        endpoint_config = resource["endpoint"]
+        assert isinstance(endpoint_config, dict)
+        params = endpoint_config["params"]
+        assert isinstance(params, dict)
+        where = params["where"]
+        assert isinstance(where, dict)
+        assert where["cursor_path"] == "updatedAt"  # ty: ignore[invalid-key]
 
     def test_incremental_convert_omits_workspace_for_users(self) -> None:
         resource = get_resource("Users", WORKSPACE_ID, should_use_incremental_field=True, incremental_field="updatedAt")
-        convert = resource["endpoint"]["params"]["where"]["convert"]  # type: ignore[index,typeddict-item]  # ty: ignore[invalid-key]
+        endpoint_config = resource["endpoint"]
+        assert isinstance(endpoint_config, dict)
+        params = endpoint_config["params"]
+        assert isinstance(params, dict)
+        where = params["where"]
+        assert isinstance(where, dict)
+        convert = where["convert"]  # ty: ignore[invalid-key]
+        assert convert is not None
         assert json.loads(convert(None)) == {}
 
     def test_workspaces_endpoint_never_goes_incremental(self) -> None:
         # Workspaces declares no incremental_fields, so should_use_incremental_field=True must
         # still fall through to a plain, full-refresh where filter.
         resource = get_resource("Workspaces", WORKSPACE_ID, should_use_incremental_field=True, incremental_field=None)
-        params = resource["endpoint"]["params"]  # type: ignore[index,typeddict-item]
+        endpoint_config = resource["endpoint"]
+        assert isinstance(endpoint_config, dict)
+        params = endpoint_config["params"]
+        assert isinstance(params, dict)
         assert "where" not in params
         assert resource["write_disposition"] == "replace"
 
@@ -148,7 +182,9 @@ class TestGetResource:
         )
 
         resource = get_resource("Companies", WORKSPACE_ID, should_use_incremental_field=False, incremental_field=None)
-        paginator = resource["endpoint"]["paginator"]  # type: ignore[index,typeddict-item]
+        endpoint_config = resource["endpoint"]
+        assert isinstance(endpoint_config, dict)
+        paginator = endpoint_config["paginator"]
         assert isinstance(paginator, OffsetPaginator)
         assert paginator.limit == 100
         assert paginator.total_path == "total"
