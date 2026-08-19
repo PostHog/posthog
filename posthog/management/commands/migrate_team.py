@@ -21,9 +21,11 @@ logger.setLevel(logging.INFO)
 
 EXPORT_NAME = "PostHog HTTP Migration"
 VALID_INTERVALS = {i[0] for i in BATCH_EXPORT_INTERVALS}
+# Keys are the `--dest-region` choices; values must stay members of ALLOWED_HTTP_BATCH_EXPORT_URLS,
+# the allowlist the API and the Temporal activity enforce.
 REGION_URLS = {
-    "us": "https://app.posthog.com/batch",
-    "eu": "https://eu.posthog.com/batch",
+    "us": "https://us.i.posthog.com/batch/",
+    "eu": "https://eu.i.posthog.com/batch/",
 }
 
 

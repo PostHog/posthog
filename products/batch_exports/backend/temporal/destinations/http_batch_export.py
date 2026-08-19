@@ -26,6 +26,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     iter_records,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.destinations.constants import ALLOWED_HTTP_BATCH_EXPORT_URLS
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
@@ -157,7 +158,7 @@ async def post_json_file_to_url(url, batch_file, session: aiohttp.ClientSession)
 
     # be strict about which URLs we allow
     # (we do have this validation now at the API level, but we'll be extra careful here)
-    if url not in ("https://us.i.posthog.com/batch/", "https://eu.i.posthog.com/batch/"):
+    if url not in ALLOWED_HTTP_BATCH_EXPORT_URLS:
         raise InvalidDestinationURLError(url)
 
     # Disable redirects to prevent SSRF via redirect bypass
