@@ -101,14 +101,14 @@ jobs:
               run: node scripts/check-host-boundaries.mjs
 
     # Collation job for the required status check; must be registered as the
-    # required check instead of the individual jobs. A direct master push has no
-    # PR or merge queue to gate, so it skips this job and runs `quality` alone.
+    # required check instead of the individual jobs. The gate stays unconditional
+    # `always()` (WF007) so it always emits a verdict.
     desktop-quality-pass:
         needs: [changes, quality]
         name: Desktop Quality Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always() && github.event_name != 'push'
+        if: always()
         steps:
             - name: Check results
               run: |
