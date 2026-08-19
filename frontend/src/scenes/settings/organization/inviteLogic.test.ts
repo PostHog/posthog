@@ -4,6 +4,16 @@ import { initKeaTests } from '~/test/init'
 
 import { inviteLogic } from './inviteLogic'
 
+const INVITE_DRAFT_STORAGE_KEY = 'posthog_invite_draft'
+
+const EMPTY_ROW = {
+    target_email: '',
+    first_name: '',
+    level: 1,
+    isValid: true,
+    private_project_access: [],
+}
+
 describe('inviteLogic', () => {
     let logic: ReturnType<typeof inviteLogic.build>
 
@@ -63,6 +73,28 @@ describe('inviteLogic', () => {
             invitesToSend: [expect.objectContaining({ target_email: '' })],
             message: '',
             inviteConfirmationText: '',
+        })
+    })
+
+    it('does not restore a draft left by a different organization', async () => {
+        sessionStorage.setItem(
+            INVITE_DRAFT_STORAGE_KEY,
+            JSON.stringify({
+                userUuid: 'someone-else',
+                organizationId: 'another-org',
+                invitesToSend: [{ ...EMPTY_ROW, target_email: 'stale@example.com' }],
+                message: 'from another org',
+                inviteConfirmationText: '',
+            })
+        )
+
+        logic.unmount()
+        logic = inviteLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            invitesToSend: [expect.objectContaining({ target_email: '' })],
+            message: '',
         })
     })
 

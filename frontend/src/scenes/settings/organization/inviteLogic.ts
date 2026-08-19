@@ -10,6 +10,7 @@ import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, OrganizationInviteType } from '~/types'
 
@@ -34,27 +35,48 @@ const EMPTY_INVITE: InviteRowState = {
 }
 
 interface PersistedInviteDraft {
+    userUuid: string | undefined
+    organizationId: string | null
     invitesToSend: InviteRowState[]
     message: string
     inviteConfirmationText: string
 }
 
+type InviteDraftContent = Omit<PersistedInviteDraft, 'userUuid' | 'organizationId'>
+
 // Re-authentication can send the user through a full-page OAuth/SAML redirect that resets every kea
 // reducer. We keep the draft in session storage so the returning user finds their typed rows again.
 const INVITE_DRAFT_STORAGE_KEY = 'posthog_invite_draft'
 
+function draftScope(): { userUuid: string | undefined; organizationId: string | null } {
+    return {
+        userUuid: userLogic.findMounted()?.values.user?.uuid,
+        organizationId: organizationLogic.values.currentOrganizationId,
+    }
+}
+
+// Scoped to the current user and organization so an organization switch, or a shared tab after a
+// logout, never rehydrates someone else's draft or the wrong organization's recipients.
 function readInviteDraft(): PersistedInviteDraft | null {
     try {
         const raw = window.sessionStorage.getItem(INVITE_DRAFT_STORAGE_KEY)
-        return raw ? (JSON.parse(raw) as PersistedInviteDraft) : null
+        if (!raw) {
+            return null
+        }
+        const draft = JSON.parse(raw) as PersistedInviteDraft
+        const scope = draftScope()
+        if (draft.userUuid !== scope.userUuid || draft.organizationId !== scope.organizationId) {
+            return null
+        }
+        return draft
     } catch {
         return null
     }
 }
 
-function writeInviteDraft(draft: PersistedInviteDraft): void {
+function writeInviteDraft(draft: InviteDraftContent): void {
     try {
-        window.sessionStorage.setItem(INVITE_DRAFT_STORAGE_KEY, JSON.stringify(draft))
+        window.sessionStorage.setItem(INVITE_DRAFT_STORAGE_KEY, JSON.stringify({ ...draftScope(), ...draft }))
     } catch {
         // Session storage can be unavailable (private mode, quota). A lost draft is acceptable.
     }
