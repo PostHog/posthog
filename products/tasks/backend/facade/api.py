@@ -6331,6 +6331,21 @@ def _ensure_general_channel(team_id: int, user_id: int | None) -> tuple[Channel,
     )
 
 
+def find_general_channel_id(team_id: int) -> UUID | None:
+    """The team's general space, or ``None`` when nobody has provisioned one. Read-only, so
+    a product filing work into that space can gate on its existence instead of bringing the
+    team's default spaces into being as a side effect."""
+    channels = _team_channels(team_id).filter(deleted=False)
+    channel = channels.filter(system_role=Channel.SystemRole.GENERAL).first()
+    if channel is None:
+        channel = channels.filter(
+            system_role__isnull=True,
+            channel_type=Channel.ChannelType.PUBLIC,
+            name=Channel.GENERAL_CHANNEL_NAME,
+        ).first()
+    return channel.id if channel is not None else None
+
+
 def _is_general_channel(channel: Channel) -> bool:
     """Must match ``isGeneralChannel`` in ``channelName.ts``: a row with no role but the
     general name is still the team's general space."""
