@@ -64,7 +64,7 @@ MAX_SHARDS = 3
 FULL_RUN_DURATION_FRACTION = 0.8
 
 
-@dataclass
+@dataclass(frozen=True)
 class Selection:
     mode: str
     tests: list[str] = field(default_factory=list)
@@ -166,13 +166,18 @@ def full_run_reasons(changed_files: list[str]) -> list[str]:
     return sorted(reasons)
 
 
+@dataclass(frozen=True)
+class SelectedTests:
+    tests: set[str]
+    fallback_trees: set[str]
+
+
 def select_tests(
     changed_files: list[str],
     trees: list[str],
     universe: set[str],
     snob_fn=snob_tests,
-) -> tuple[set[str], set[str]]:
-    """Return (selected test files, dags trees needing a whole-tree fallback)."""
+) -> SelectedTests:
     selected: set[str] = set()
     fallback_trees: set[str] = set()
     outside_py: list[str] = []
@@ -206,7 +211,7 @@ def select_tests(
     for tree in fallback_trees:
         selected |= {test for test in universe if test.startswith(tree + "/")}
     selected = {test for test in selected if (REPO_ROOT / test).is_file()}
-    return selected, fallback_trees
+    return SelectedTests(tests=selected, fallback_trees=fallback_trees)
 
 
 def shard_count(selected_seconds: float, test_file_count: int) -> int:
@@ -233,7 +238,8 @@ def build_selection(changed_files: list[str], snob_fn=snob_tests) -> Selection:
             suite_seconds=suite_seconds,
         )
 
-    selected, fallback_trees = select_tests(changed_files, trees, universe, snob_fn=snob_fn)
+    picked = select_tests(changed_files, trees, universe, snob_fn=snob_fn)
+    selected = picked.tests
     selected_seconds = round(estimate_seconds(selected, durations))
 
     if not selected:
@@ -254,7 +260,7 @@ def build_selection(changed_files: list[str], snob_fn=snob_tests) -> Selection:
         mode="selected",
         tests=sorted(selected),
         shards=shard_count(selected_seconds, len(selected)),
-        fallback_trees=sorted(fallback_trees),
+        fallback_trees=sorted(picked.fallback_trees),
         changed_file_count=len(changed_files),
         selected_seconds=selected_seconds,
         suite_seconds=suite_seconds,
