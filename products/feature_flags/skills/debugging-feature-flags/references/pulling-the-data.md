@@ -36,8 +36,13 @@ Pull these fields; they are inputs to almost every cause:
   holdout format change still carries a legacy `holdout_groups` array alongside it — the backfill added
   the new key without removing the old one, so read `filters.holdout` and don't quote the stale
   percentage from `holdout_groups`.)
-- `filters.aggregation_group_type_index` — if set, the flag is **group-aggregated**: every SDK
-  evaluation must pass the matching `groups`, or it returns false (`no_group_type`).
+- `filters.aggregation_group_type_index` — the **flag-level** aggregation, and only a summary:
+  aggregation is set **per release condition**, so each entry in `filters.groups[]` carries its own
+  `aggregation_group_type_index`. This flag-level field is `null` when the conditions are **mixed**
+  (some group-aggregated, some person-aggregated) even though group conditions exist, so read the
+  per-condition field on each group, not just this one. A group condition evaluated without its
+  `groups` passed is skipped (`no_group_type`) while the **other** conditions still evaluate — a
+  mixed flag doesn't wholesale return false, so a person condition can still decide the value.
 - Flag dependencies — a property of type `flag` in `filters.groups[].properties` means this flag
   gates on another flag and fails **closed** (`missing_dependency`) when the parent is absent (deleted
   or part of a cycle). The `"type": "flag"` entry holds the parent's numeric ID — pass it to
@@ -163,10 +168,16 @@ PostHog's flag hash, verified against `rust/feature-flags/src/flags/flag_matchin
   **not** in this one — that's what makes a holdout consistent across every flag in it. Empty salt.
   The user is **in** the holdout if `h <= filters.holdout.exclusion_percentage / 100`.
 
-`identifier` is the `distinct_id`, the group key for a group-aggregated flag, or the **device ID** when
-the flag sets `bucketing_identifier: "device_id"` — read that field with the rest of the config in §1.
-SHA1 isn't in HogQL's whitelist, so this runs outside the database. `ensure_experience_continuity = true`
-makes it unreliable (assignment hashes a stored override key).
+For the rollout and variant hashes, `identifier` is resolved **per release condition**: the group key
+when that condition is group-aggregated (read its own `aggregation_group_type_index` in
+`filters.groups[]`, which falls back to the flag-level field when absent), otherwise the `distinct_id`
+— or the **device ID** when the flag sets `bucketing_identifier: "device_id"`. A **mixed** flag hashes a
+group key for one condition and a `distinct_id` for another, so don't read only the flag-level
+`aggregation_group_type_index` (it's `null` on a mixed flag) — read each condition's, with the rest of
+the config in §1. The **holdout** hash is the exception: it uses the **flag-level** aggregation, so on a
+mixed flag the holdout hashes by `distinct_id`. SHA1 isn't in HogQL's whitelist, so this runs outside the
+database. `ensure_experience_continuity = true` makes it unreliable (assignment hashes a stored override
+key).
 
 ## Handing off
 
