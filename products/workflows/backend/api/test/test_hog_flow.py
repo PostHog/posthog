@@ -4815,6 +4815,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert "LEGACY-SECRET" not in stored
         assert "DRAFT-SECRET" not in stored
 
+
 def _create_task_template() -> dict:
     template = deepcopy(webhook_template)
     template["id"] = "template-posthog-create-task"
