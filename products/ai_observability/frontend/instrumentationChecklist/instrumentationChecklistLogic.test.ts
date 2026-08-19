@@ -136,7 +136,27 @@ describe('instrumentationChecklistLogic', () => {
         expect(logic.values.checks).toEqual([])
         expect(logic.values.checklistCardState).toBe('hidden')
         expect(logic.values.warningForCheck(AIObservabilityInstrumentationCheckEnumApi.Sessions)).toBeNull()
+        expect(logic.values.refreshFailed).toBe(false)
         expect(toastError).not.toHaveBeenCalled()
+    })
+
+    it('flags a failed refresh, and clears the flag once a later load answers', async () => {
+        logic = instrumentationChecklistLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
+        expect(logic.values.refreshFailed).toBe(false)
+
+        mockRetrieve.mockRejectedValue({ status: 500 })
+        logic.actions.loadInstrumentationChecklist()
+        await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistFailure'])
+        expect(logic.values.refreshFailed).toBe(true)
+        expect(logic.values.checklistCardState).toBe('passing')
+
+        mockRetrieve.mockResolvedValue(ALL_OK)
+        logic.actions.loadInstrumentationChecklist()
+        expect(logic.values.refreshFailed).toBe(false)
+        await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
+        expect(logic.values.refreshFailed).toBe(false)
     })
 
     const cardStateCases: [string, InstrumentationCheckStatusEnumApi[], InstrumentationChecklistCardState][] = [

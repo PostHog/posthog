@@ -39,7 +39,9 @@ export interface instrumentationChecklistLogicValues {
     checklistEnabled: boolean
     checklistLoading: boolean
     checks: InstrumentationCheckApi[]
+    lastLoadFailed: boolean
     pendingCheckKey: AIObservabilityInstrumentationCheckEnumApi | null
+    refreshFailed: boolean
     warningForCheck: (key: AIObservabilityInstrumentationCheckEnumApi) => InstrumentationCheckApi | null
     windowDays: number | null
 }
@@ -93,6 +95,7 @@ export interface instrumentationChecklistLogicMeta {
         warningForCheck: (
             checks: InstrumentationCheckApi[]
         ) => (key: AIObservabilityInstrumentationCheckEnumApi) => InstrumentationCheckApi | null
+        refreshFailed: (checklist: InstrumentationChecklistApi | null, lastLoadFailed: boolean) => boolean
     }
 }
 
@@ -154,6 +157,14 @@ export const instrumentationChecklistLogic = kea<instrumentationChecklistLogicTy
                 setPendingCheck: (_, { check }) => check,
             },
         ],
+        lastLoadFailed: [
+            false,
+            {
+                loadInstrumentationChecklist: () => false,
+                loadInstrumentationChecklistSuccess: () => false,
+                loadInstrumentationChecklistFailure: () => true,
+            },
+        ],
     }),
     selectors({
         checklistEnabled: [
@@ -199,6 +210,14 @@ export const instrumentationChecklistLogic = kea<instrumentationChecklistLogicTy
                         (check) => check.key === key && check.status === InstrumentationCheckStatusEnumApi.Warning
                     ) ?? null
             },
+        ],
+        // A failed first read stays invisible, so a retry is offered only for a refresh that
+        // failed under a checklist already on screen. kea-loaders keeps the previous value on
+        // failure, which is what makes the two cases distinguishable.
+        refreshFailed: [
+            (s) => [s.checklist, s.lastLoadFailed],
+            (checklist: InstrumentationChecklistApi | null, lastLoadFailed: boolean): boolean =>
+                checklist !== null && lastLoadFailed,
         ],
     }),
     listeners(({ actions, values }) => {
