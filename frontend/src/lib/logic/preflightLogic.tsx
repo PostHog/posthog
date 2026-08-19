@@ -4,6 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { devProxyPortForBackendPort } from 'lib/utils/devStackPorts'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
@@ -318,10 +319,12 @@ export const preflightLogic = kea<preflightLogicType>([
                 }
                 const isMismatchPresent =
                     !!preflight && (!preflight.site_url || preflight.site_url != window.location.origin)
+                const proxyPort = devProxyPortForBackendPort(Number(window.location.port))
                 if (
                     isMismatchPresent &&
-                    preflight.site_url === 'http://localhost:8010' &&
-                    window.location.origin === 'http://localhost:8000'
+                    window.location.hostname === 'localhost' &&
+                    proxyPort !== null &&
+                    preflight.site_url === `http://localhost:${proxyPort}`
                 ) {
                     // Local development setup using the old port - we have a warning in DebugNotice for this
                     return false

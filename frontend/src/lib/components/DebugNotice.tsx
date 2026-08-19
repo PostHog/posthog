@@ -9,6 +9,7 @@ import { IconBranch } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { getRegionForHost, getStoredSession, OAUTH_REGIONS } from 'lib/oauth/oauthClient'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { devProxyPortForBackendPort } from 'lib/utils/devStackPorts'
 
 export interface DebugNoticeProps {
     isCollapsed?: boolean
@@ -40,6 +41,7 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
     const oauthSession = getStoredSession()
     const oauthRegion = oauthSession ? getRegionForHost(oauthSession.backendHost) : null
     const modeLabel = oauthRegion ? `OAuth mode ${OAUTH_REGIONS[oauthRegion].flag}` : 'DEBUG mode'
+    const proxyPort = devProxyPortForBackendPort(Number(window.location.port))
 
     if (isCollapsed) {
         return (
@@ -106,15 +108,15 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
                     <span className="min-w-0 flex-1 truncate font-bold">{debugInfo.revision}</span>
                 </div>
             </Tooltip>
-            {window.location.port !== '8010' && (
+            {proxyPort !== null && (
                 <Tooltip
                     title={
                         <>
-                            You're currently using the app over port 8000,
+                            You're currently using the app over port {window.location.port},
                             <br />
                             which only serves the web app, without capture (/e/).
                             <br />
-                            Use port 8010 for full PostHog, proxied via Caddy.
+                            Use port {proxyPort} for full PostHog, proxied via Caddy.
                         </>
                     }
                     placement="right"
@@ -122,7 +124,7 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
                     <div className="flex items-center gap-2 w-fit px-2 h-8 border-l-4 border-brand-key">
                         <IconWarning className="text-lg" />
                         <Link
-                            to={window.location.href.replace(`:${window.location.port}`, ':8010')}
+                            to={window.location.href.replace(`:${window.location.port}`, `:${proxyPort}`)}
                             className="font-semibold text-default underline min-w-0 flex-1 truncate"
                         >
                             Click here to fix port!
