@@ -5302,6 +5302,12 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
 
 
 class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The action is project-admin only, so the caller in the rest of these tests has to be one.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     def _create_query_insight(self, *, name: str = "Trend", filter_test_accounts: bool | None = None) -> Insight:
         source: dict[str, Any] = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
         if filter_test_accounts is not None:
@@ -5397,33 +5403,17 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         self.assertTrue(self._reloaded_source(mine)["filterTestAccounts"])
         self.assertFalse(self._reloaded_source(theirs)["filterTestAccounts"])
 
-    def test_skips_insights_on_dashboards_the_requester_can_only_view(self) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
-        ]
-        self.organization.save()
+    def test_refuses_a_member_who_could_otherwise_edit_every_insight(self) -> None:
+        insight = self._create_query_insight(filter_test_accounts=False)
         member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
-        # Without a project-level row every org member resolves to project admin, which grants restriction
-        # rights and would make the dashboard's restriction level moot.
-        AccessControl.objects.create(
-            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
-        )
-        free = self._create_query_insight(name="Free", filter_test_accounts=False)
-        restricted_insight = self._create_query_insight(name="On a restricted dashboard", filter_test_accounts=False)
-        restricted_dashboard = Dashboard.objects.create(
-            team=self.team,
-            name="Restricted",
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-        )
-        DashboardTile.objects.create(insight=restricted_insight, dashboard=restricted_dashboard)
 
         self.client.force_login(member)
         response = self._bulk_set(True)
 
-        self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 1, "legacy": 0})
-        self.assertTrue(self._reloaded_source(free)["filterTestAccounts"])
-        self.assertFalse(self._reloaded_source(restricted_insight)["filterTestAccounts"])
+        # The per-insight check would let this through: insights default to editor access, which is how the
+        # settings UI hiding the button from non-admins ended up being the only thing stopping them.
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(self._reloaded_source(insight)["filterTestAccounts"])
 
     def test_records_the_change_in_the_activity_log(self) -> None:
         insight = self._create_query_insight()

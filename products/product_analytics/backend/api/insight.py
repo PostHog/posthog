@@ -110,6 +110,7 @@ from posthog.models.filters.utils import get_filter
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
+from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.ph_client import feature_enabled_or_false
 from posthog.query_cache import QueryCache
 from posthog.rate_limit import (
@@ -2769,16 +2770,24 @@ When set, the specified dashboard's filters and date range override will be appl
         request_serializer=InsightBulkSetTestAccountFilterRequestSerializer,
         responses={200: OpenApiResponse(response=InsightBulkSetTestAccountFilterResponseSerializer)},
         description=(
-            "Turn 'filter out internal and test users' on or off for every existing insight in the project. The "
-            "setting of the same name only decides the default for new insights; this applies it to the insights "
-            "that already exist. Only insights that store a query are changed; insights still holding legacy "
-            "`filters` are counted in `legacy` and left as they are. Insights with nowhere to put the toggle, "
-            "such as SQL insights, are left alone, as are insights the requester cannot edit. Dashboards follow "
-            "their insights unless the dashboard sets its own override. Insights are updated in batches, so a "
-            "failure part way through leaves the finished batches applied. Retrying is safe and picks up the rest."
+            "Turn 'filter out internal and test users' on or off for every existing insight in the project. "
+            "Requires project admin, matching the settings UI that fronts it. The setting of the same name only "
+            "decides the default for new insights; this applies it to the insights that already exist. Only "
+            "insights that store a query are changed; insights still holding legacy `filters` are counted in "
+            "`legacy` and left as they are. Insights with nowhere to put the toggle, such as SQL insights, are "
+            "left alone, as are insights the requester cannot edit. Dashboards follow their insights unless the "
+            "dashboard sets its own override. Insights are updated in batches, so a failure part way through "
+            "leaves the finished batches applied. Retrying is safe and picks up the rest."
         ),
     )
-    @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["insight:write"],
+        # Layered onto the viewset's chain rather than replacing it: `TeamAndOrgViewSetMixin.get_permissions`
+        # builds its own list and extends it with `self.permission_classes`, which is what this sets.
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
     def bulk_set_test_account_filter(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         enabled: bool = request.validated_data["enabled"]
         # Project-scoped to match `dangerously_get_queryset`, since insights are project-level even though they
@@ -2825,34 +2834,22 @@ When set, the specified dashboard's filters and date range override will be appl
         Access has to be resolved one insight at a time. `filter_queryset_by_access_level` answers whether an
         insight is visible rather than whether it can be edited, so filtering in the query would let insights
         the caller only has `viewer` on through to the write.
+
+        EE's `CanEditInsight` needs no counterpart here. It refuses insights on dashboards the caller can only
+        view, but `can_edit` short-circuits for anyone who `can_restrict`, which is every project admin, and the
+        action already requires project admin. Relaxing that requirement would have to bring the check back.
         """
         insights = list(Insight.objects.filter(id__in=insight_ids, team__project_id=self.team.project_id))
         if not self.user_access_control:
             return insights, 0
 
         self.user_access_control.preload_object_access_controls(cast(list, insights))
-
-        # EE adds `CanEditInsight` as an object permission, and a detail=False action never calls get_object, so
-        # the dashboard restriction it enforces has to be applied here or the bulk path would edit insights the
-        # single-insight PATCH refuses. Tiles are loaded for the whole batch because UserInsightPermissions
-        # queries per insight; the per-dashboard privilege behind `can_edit` is cached across insights.
-        dashboards_by_insight: dict[int, list[Dashboard]] = {}
-        for tile in DashboardTile.objects.filter(insight_id__in=[insight.id for insight in insights]).select_related(
-            "dashboard"
-        ):
-            # insight_id is nullable because a tile can hold text instead, but the filter above only matches
-            # tiles that point at an insight.
-            dashboards_by_insight.setdefault(cast(int, tile.insight_id), []).append(tile.dashboard)
-
-        editable: list[Insight] = []
-        for insight in insights:
-            level = self.user_access_control.get_user_access_level(insight)
-            if not (level and access_level_satisfied_for_resource("insight", level, "editor")):
-                continue
-            dashboards = dashboards_by_insight.get(insight.id, [])
-            if dashboards and not any(self.user_permissions.dashboard(board).can_edit for board in dashboards):
-                continue
-            editable.append(insight)
+        editable = [
+            insight
+            for insight in insights
+            if (level := self.user_access_control.get_user_access_level(insight))
+            and access_level_satisfied_for_resource("insight", level, "editor")
+        ]
         return editable, len(insights) - len(editable)
 
     def _set_test_account_filter_on_batch(self, insight_ids: Sequence[int], *, enabled: bool) -> dict[str, int]:

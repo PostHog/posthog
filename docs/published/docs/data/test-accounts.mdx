@@ -103,7 +103,7 @@ curl -X POST 'https://us.posthog.com/api/projects/:project_id/insights/bulk_set_
   -d '{"enabled": true}'
 ```
 
-The key needs the `insight:write` scope.
+The key needs the `insight:write` scope, and its owner has to be a project admin, the same as in the UI.
 The response counts the outcomes:
 
 ```json
