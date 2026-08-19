@@ -1,16 +1,27 @@
-import { WarningCircleIcon } from "@phosphor-icons/react";
 import {
-  type FeedQueryIssue,
-  parseFeedQuery,
+  ArchiveIcon,
+  AtIcon,
+  CircleHalfIcon,
+  GitPullRequestIcon,
+  HashIcon,
+  PackageIcon,
+  UserCircleIcon,
+} from "@phosphor-icons/react";
+import {
+  type FeedQuerySegment,
+  lexFeedQuery,
   TASK_RUN_STATUSES,
 } from "@posthog/core/tasks/feedQuery";
-import { cn } from "@posthog/quill";
+import { cn, Kbd } from "@posthog/quill";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
-import { TextField } from "@radix-ui/themes";
+import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
+  Fragment,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -24,24 +35,92 @@ interface Suggestion {
   insert: string;
   label: string;
   hint?: string;
+  icon?: ReactNode;
+}
+
+/** What the open dropdown is offering, with the heading that says so. */
+interface SuggestionGroup {
+  heading: string;
+  items: Suggestion[];
+}
+
+function keyIcon(icon: ReactNode): ReactNode {
+  return (
+    <span className="flex size-4 items-center justify-center text-(--gray-9)">
+      {icon}
+    </span>
+  );
 }
 
 const KEY_SUGGESTIONS: Suggestion[] = [
-  { insert: "created-by:", label: "created-by:", hint: "who started the task" },
-  { insert: "space:", label: "space:", hint: "tasks filed to a space" },
-  { insert: "repo:", label: "repo:", hint: "repository the task targets" },
-  { insert: "status:", label: "status:", hint: "latest run status" },
-  { insert: "is:", label: "is:", hint: "archived, running, done, failed" },
+  {
+    insert: "created-by:",
+    label: "created-by:",
+    hint: "who started the task",
+    icon: keyIcon(<UserCircleIcon size={14} />),
+  },
+  {
+    insert: "space:",
+    label: "space:",
+    hint: "tasks filed to a space",
+    icon: keyIcon(<HashIcon size={14} />),
+  },
+  {
+    insert: "repo:",
+    label: "repo:",
+    hint: "repository the task targets",
+    icon: keyIcon(<PackageIcon size={14} />),
+  },
+  {
+    insert: "status:",
+    label: "status:",
+    hint: "latest run status",
+    icon: keyIcon(<CircleHalfIcon size={14} />),
+  },
+  {
+    insert: "is:",
+    label: "is:",
+    hint: "archived, running, done, failed",
+    icon: keyIcon(<ArchiveIcon size={14} />),
+  },
   {
     insert: "origin:",
     label: "origin:",
     hint: "product that created the task",
+    icon: keyIcon(<AtIcon size={14} />),
   },
-  { insert: "pr:", label: "pr:", hint: "any, none" },
+  {
+    insert: "pr:",
+    label: "pr:",
+    hint: "any, none",
+    icon: keyIcon(<GitPullRequestIcon size={14} />),
+  },
 ];
 
 const IS_VALUES = ["archived", "running", "done", "failed"];
 const PR_SUGGESTED_VALUES = ["any", "none"];
+
+const STATUS_DOT_TONE: Record<string, string> = {
+  failed: DOT_TONE_VAR.red,
+  in_progress: DOT_TONE_VAR.blue,
+  completed: DOT_TONE_VAR.green,
+  queued: DOT_TONE_VAR.yellow,
+  cancelled: DOT_TONE_VAR.gray,
+  not_started: DOT_TONE_VAR.gray,
+};
+
+function statusDot(status: string): ReactNode {
+  return (
+    <span className="flex size-4 items-center justify-center">
+      <span
+        className="size-2 rounded-full"
+        style={{
+          backgroundColor: STATUS_DOT_TONE[status] ?? DOT_TONE_VAR.gray,
+        }}
+      />
+    </span>
+  );
+}
 
 // The chunk under the caret: the run of non-space characters around it. Quoted
 // values with spaces come from suggestion insertion, which moves the caret past
@@ -61,18 +140,112 @@ function quoteIfNeeded(value: string): string {
   return /\s/.test(value) ? `"${value}"` : value;
 }
 
+/** Bolds the typed prefix inside a suggestion's label. */
+function MatchedLabel({ label, typed }: { label: string; typed: string }) {
+  const matches =
+    typed !== "" && label.toLowerCase().startsWith(typed.toLowerCase());
+  if (!matches) return <span className="font-medium">{label}</span>;
+  return (
+    <span>
+      <span className="font-semibold text-foreground">
+        {label.slice(0, typed.length)}
+      </span>
+      <span className="font-medium">{label.slice(typed.length)}</span>
+    </span>
+  );
+}
+
+// The mirror and the input must lay glyphs out identically, so everything that
+// affects metrics lives in this one string: same font, size, tracking. Mono on
+// purpose — it reads as a query language and keeps the overlay exact.
+const EDITOR_TEXT_CLASS =
+  "whitespace-pre font-mono text-[13px] leading-none tracking-normal";
+
 /**
- * The feed query editor: a plain text input with GitHub-style token
- * autocomplete. Typing suggests filter keys; after `created-by:` it suggests
- * teammates, after `space:` your spaces, and so on. The parsed tokens and any
- * problems render as chips below, so a typo is visible before it is saved.
+ * A query string rendered with inline syntax coloring, from the same lexer the
+ * parser uses: tokens get a tinted pill, negation reads red, a value the
+ * parser rejects gets a wavy underline, a not-yet-supported one a dotted amber
+ * underline. Doubles as the editor's mirror (metrics must match the input
+ * exactly, so token styling never changes font or weight) and the feed page's
+ * read-only query display.
+ */
+export function FeedQueryHighlight({
+  query,
+  className,
+}: {
+  query: string;
+  className?: string;
+}) {
+  const segments = useMemo(() => lexFeedQuery(query), [query]);
+  return (
+    <span className={cn(EDITOR_TEXT_CLASS, className)}>
+      {segments.map((segment, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional slices of the string
+        <Fragment key={index}>{renderSegment(segment)}</Fragment>
+      ))}
+    </span>
+  );
+}
+
+function renderSegment(segment: FeedQuerySegment): ReactNode {
+  if (segment.kind !== "token" || !segment.token) {
+    return <span className="text-(--gray-12)">{segment.raw}</span>;
+  }
+  const { token, raw } = segment;
+  // Re-slice the raw chunk so the mirror renders exactly what was typed
+  // (alias spellings, quotes, `not:`) with color boundaries at the pieces.
+  const negPrefix = raw.startsWith("-") ? "-" : "";
+  const rest = raw.slice(negPrefix.length);
+  const colon = rest.indexOf(":");
+  const keyText = rest.slice(0, colon + 1);
+  let valueText = rest.slice(colon + 1);
+  let notPrefix = "";
+  if (valueText.toLowerCase().startsWith("not:")) {
+    notPrefix = valueText.slice(0, 4);
+    valueText = valueText.slice(4);
+  }
+  const negated = token.negated;
+  return (
+    <span
+      className={cn(
+        "rounded-[3px]",
+        negated ? "bg-(--red-a3)" : "bg-(--gray-a3)",
+      )}
+    >
+      {negPrefix && <span className="text-(--red-11)">{negPrefix}</span>}
+      <span className={negated ? "text-(--red-11)" : "text-(--blue-11)"}>
+        {keyText}
+      </span>
+      {notPrefix && <span className="text-(--red-11)">{notPrefix}</span>}
+      <span
+        className={cn(
+          token.invalid
+            ? "text-(--red-11) underline decoration-(--red-8) decoration-wavy underline-offset-2"
+            : token.unsupported
+              ? "text-(--amber-11) underline decoration-(--amber-8) decoration-dotted underline-offset-2"
+              : negated
+                ? "text-(--red-12)"
+                : "text-(--gray-12)",
+        )}
+      >
+        {valueText}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The feed query editor. The input's own text is transparent; an exactly
+ * aligned mirror underneath draws it with inline syntax coloring, so the query
+ * is highlighted as it is typed — no separate preview row, nothing below the
+ * field appearing and disappearing. A dropdown suggests keys, then values per
+ * key (teammates, spaces, repos, statuses), applied with ⏎ or Tab.
  */
 export function FeedQueryInput({
   id,
   value,
   onChange,
   onSubmit,
-  autoFocus,
   placeholder,
   "aria-label": ariaLabel,
 }: {
@@ -81,11 +254,11 @@ export function FeedQueryInput({
   onChange: (value: string) => void;
   /** Called on Enter while no suggestion is highlighted. */
   onSubmit?: () => void;
-  autoFocus?: boolean;
   placeholder?: string;
   "aria-label"?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const mirrorRef = useRef<HTMLDivElement>(null);
   const [caret, setCaret] = useState(0);
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
@@ -104,8 +277,15 @@ export function FeedQueryInput({
     pendingCaret.current = null;
   });
 
-  // Value providers for the data-backed keys. Loaded lazily-ish: members only
-  // once the input is in use (this component only mounts in the feed editor).
+  // The mirror scrolls with the input, or long queries would shear apart.
+  const syncScroll = () => {
+    if (mirrorRef.current && inputRef.current) {
+      mirrorRef.current.scrollLeft = inputRef.current.scrollLeft;
+    }
+  };
+  useLayoutEffect(syncScroll);
+
+  // Value providers for the data-backed keys.
   const { members } = useOrgMembers();
   const { channels } = useChannels();
   const repositories = useMemo(
@@ -119,20 +299,31 @@ export function FeedQueryInput({
   const activeKey = colon === -1 ? null : bare.slice(0, colon).toLowerCase();
   const activeValue =
     colon === -1 ? "" : bare.slice(colon + 1).replace(/^not:/i, "");
+  const typed = activeKey === null ? bare : activeValue;
 
-  const suggestions = useMemo<Suggestion[]>(() => {
+  const group = useMemo<SuggestionGroup>(() => {
     const startsWith = (candidate: string) =>
       candidate.toLowerCase().startsWith(activeValue.toLowerCase());
     switch (activeKey) {
       case null: {
         const prefix = bare.toLowerCase();
-        return KEY_SUGGESTIONS.filter((s) => s.label.startsWith(prefix));
+        return {
+          heading: "Filters",
+          items: KEY_SUGGESTIONS.filter((s) => s.label.startsWith(prefix)),
+        };
       }
       case "created-by":
       case "author":
       case "by": {
         const me: Suggestion[] = startsWith("@me")
-          ? [{ insert: "@me", label: "@me", hint: "you" }]
+          ? [
+              {
+                insert: "@me",
+                label: "@me",
+                hint: "you",
+                icon: keyIcon(<UserCircleIcon size={14} />),
+              },
+            ]
           : [];
         const matches = members
           .filter(
@@ -140,58 +331,98 @@ export function FeedQueryInput({
               startsWith(userDisplayName(member)) || startsWith(member.email),
           )
           .slice(0, 8);
-        return [
-          ...me,
-          ...matches.map((member) => {
-            // Insert the first name where it names one person; fall back to
-            // the email's user part so "created-by:sam" can't mean two Sams.
-            const first = (member.first_name ?? "").toLowerCase();
-            const unique =
-              first !== "" &&
-              members.filter(
-                (m) => (m.first_name ?? "").toLowerCase() === first,
-              ).length === 1;
-            return {
-              insert: unique ? first : member.email.split("@")[0],
-              label: userDisplayName(member),
-              hint: member.email,
-            };
-          }),
-        ];
+        return {
+          heading: "Teammates",
+          items: [
+            ...me,
+            ...matches.map((member) => {
+              // Insert the first name where it names one person; fall back to
+              // the email's user part so "created-by:sam" can't mean two Sams.
+              const first = (member.first_name ?? "").toLowerCase();
+              const unique =
+                first !== "" &&
+                members.filter(
+                  (m) => (m.first_name ?? "").toLowerCase() === first,
+                ).length === 1;
+              return {
+                insert: unique ? first : member.email.split("@")[0],
+                label: userDisplayName(member),
+                hint: member.email,
+                icon: <UserAvatar user={member} size="xs" />,
+              };
+            }),
+          ],
+        };
       }
       case "space":
       case "channel":
-        return channels
-          .filter((c) => startsWith(c.name))
-          .slice(0, 8)
-          .map((c) => ({ insert: c.name, label: c.name }));
+        return {
+          heading: "Spaces",
+          items: channels
+            .filter((c) => startsWith(c.name))
+            .slice(0, 8)
+            .map((c) => ({
+              insert: c.name,
+              label: c.name,
+              icon: keyIcon(<HashIcon size={14} />),
+            })),
+        };
       case "repo":
       case "repository":
-        return repositories
-          .filter(startsWith)
-          .slice(0, 8)
-          .map((repo) => ({ insert: repo, label: repo }));
+        return {
+          heading: "Repositories",
+          items: repositories
+            .filter(startsWith)
+            .slice(0, 8)
+            .map((repo) => ({
+              insert: repo,
+              label: repo,
+              icon: keyIcon(<PackageIcon size={14} />),
+            })),
+        };
       case "status":
-        return TASK_RUN_STATUSES.filter(startsWith).map((status) => ({
-          insert: status,
-          label: status,
-        }));
+        return {
+          heading: "Run status",
+          items: TASK_RUN_STATUSES.filter(startsWith).map((status) => ({
+            insert: status,
+            label: status,
+            icon: statusDot(status),
+          })),
+        };
       case "is":
-        return IS_VALUES.filter(startsWith).map((v) => ({
-          insert: v,
-          label: `is:${v}`,
-        }));
+        return {
+          heading: "Task state",
+          items: IS_VALUES.filter(startsWith).map((v) => ({
+            insert: v,
+            label: v,
+            icon:
+              v === "archived"
+                ? keyIcon(<ArchiveIcon size={14} />)
+                : statusDot(
+                    v === "running"
+                      ? "in_progress"
+                      : v === "done"
+                        ? "completed"
+                        : "failed",
+                  ),
+          })),
+        };
       case "pr":
-        return PR_SUGGESTED_VALUES.filter(startsWith).map((v) => ({
-          insert: v,
-          label: `pr:${v}`,
-          hint: v === "any" ? "has a pull request" : "no pull request",
-        }));
+        return {
+          heading: "Pull request",
+          items: PR_SUGGESTED_VALUES.filter(startsWith).map((v) => ({
+            insert: v,
+            label: v,
+            hint: v === "any" ? "has a pull request" : "no pull request",
+            icon: keyIcon(<GitPullRequestIcon size={14} />),
+          })),
+        };
       default:
-        return [];
+        return { heading: "", items: [] };
     }
   }, [activeKey, activeValue, bare, members, channels, repositories]);
 
+  const suggestions = group.items;
   const visible = open && suggestions.length > 0;
   const highlightedIndex = Math.min(highlighted, suggestions.length - 1);
 
@@ -252,123 +483,100 @@ export function FeedQueryInput({
 
   return (
     <div className="relative">
-      <TextField.Root
-        ref={inputRef}
-        id={id}
-        aria-label={ariaLabel}
-        autoFocus={autoFocus}
-        size="3"
-        value={value}
-        placeholder={placeholder}
-        autoComplete="off"
-        spellCheck={false}
-        onChange={(e) => {
-          onChange(e.target.value);
-          setOpen(true);
-          setHighlighted(0);
-          trackCaret();
-        }}
-        onSelect={trackCaret}
-        onKeyDown={onKeyDown}
-        onFocus={() => setOpen(true)}
-        // Delayed so a mousedown on a suggestion lands before the list goes.
-        onBlur={() => setTimeout(() => setOpen(false), 120)}
-      />
-      {visible && (
-        <div
-          role="listbox"
-          aria-label="Query suggestions"
-          className="absolute top-full right-0 left-0 z-50 mt-1 max-h-56 overflow-y-auto rounded-md border border-(--gray-6) bg-(--color-panel-solid) p-1 shadow-md"
-        >
-          {suggestions.map((suggestion, index) => (
-            <button
-              key={`${activeKey ?? "key"}:${suggestion.label}`}
-              type="button"
-              role="option"
-              aria-selected={index === highlightedIndex}
-              className={cn(
-                "flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-sm",
-                index === highlightedIndex
-                  ? "bg-fill-hover text-foreground"
-                  : "text-(--gray-11)",
-              )}
-              // Before blur, so picking a row doesn't close the list first.
-              onMouseDown={(e) => e.preventDefault()}
-              onMouseEnter={() => setHighlighted(index)}
-              onClick={() => apply(suggestion)}
-            >
-              <span className="font-medium">{suggestion.label}</span>
-              {suggestion.hint && (
-                <span className="min-w-0 truncate text-(--gray-9) text-xs">
-                  {suggestion.hint}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * The parsed query as chips: one per filter token, plus the free text. Shared
- * by the editor (live preview) and the feed page's query bar, so both surfaces
- * read the query the same way.
- */
-export function FeedQueryChips({
-  query,
-  issues,
-  className,
-}: {
-  query: string;
-  /** Resolution issues from the planner; parser issues render regardless. */
-  issues?: FeedQueryIssue[];
-  className?: string;
-}) {
-  const parsed = useMemo(() => parseFeedQuery(query), [query]);
-  // Planner issues subsume parser issues when the caller passes them.
-  const allIssues = issues ?? parsed.issues;
-  if (!parsed.text && parsed.tokens.length === 0) return null;
-  return (
-    <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        {parsed.text && (
-          <span className="inline-flex h-6 min-w-0 items-center rounded-md border border-(--gray-5) bg-(--gray-3) px-2 text-(--gray-11) text-xs">
-            <span className="truncate">&ldquo;{parsed.text}&rdquo;</span>
-          </span>
+      {/* The field: mirror below, transparent-text input above. Both carry
+          identical typography and padding, so the native caret and selection
+          sit exactly on the colored text. */}
+      <div
+        className={cn(
+          "relative h-9 overflow-hidden rounded-md border border-(--gray-a7) bg-(--color-surface)",
+          "focus-within:-outline-offset-1 focus-within:outline focus-within:outline-(--focus-8) focus-within:outline-2",
         )}
-        {parsed.tokens.map((token, index) => (
-          <span
-            // biome-ignore lint/suspicious/noArrayIndexKey: tokens are position-identified; duplicates are legal
-            key={`${token.raw}-${index}`}
-            className={cn(
-              "inline-flex h-6 items-center gap-1 rounded-md border px-2 font-medium text-xs",
-              token.negated
-                ? "border-(--red-6) bg-(--red-3) text-(--red-11)"
-                : "border-(--gray-6) bg-(--gray-4) text-(--gray-11)",
-            )}
-          >
-            {token.negated && <span>not</span>}
-            <span className="text-(--gray-9)">{token.key}:</span>
-            {token.value}
-          </span>
-        ))}
-      </div>
-      {allIssues.map((issue) => (
+      >
         <div
-          key={`${issue.raw}-${issue.message}`}
+          ref={mirrorRef}
+          aria-hidden
           className={cn(
-            "flex items-center gap-1.5 text-xs",
-            issue.kind === "unsupported"
-              ? "text-(--amber-11)"
-              : "text-(--red-11)",
+            "pointer-events-none absolute inset-0 flex items-center overflow-x-hidden px-2.5",
+            EDITOR_TEXT_CLASS,
           )}
         >
-          <WarningCircleIcon size={13} className="shrink-0" />
-          {issue.message}
+          <FeedQueryHighlight query={value} />
         </div>
-      ))}
+        <input
+          ref={inputRef}
+          id={id}
+          aria-label={ariaLabel}
+          type="text"
+          value={value}
+          placeholder={placeholder}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          className={cn(
+            "absolute inset-0 w-full bg-transparent px-2.5 outline-none",
+            EDITOR_TEXT_CLASS,
+            "text-transparent caret-(--gray-12) placeholder:text-(--gray-9)",
+            "selection:bg-(--blue-a4) selection:text-transparent",
+          )}
+          onChange={(e) => {
+            onChange(e.target.value);
+            setOpen(true);
+            setHighlighted(0);
+            trackCaret();
+          }}
+          onScroll={syncScroll}
+          onSelect={trackCaret}
+          onKeyDown={onKeyDown}
+          onFocus={() => setOpen(true)}
+          // Delayed so a mousedown on a suggestion lands before the list goes.
+          onBlur={() => setTimeout(() => setOpen(false), 120)}
+        />
+      </div>
+      {visible && (
+        <div className="absolute top-full right-0 left-0 z-50 mt-1.5 overflow-hidden rounded-lg border border-(--gray-a6) bg-(--color-panel-solid) shadow-lg">
+          <div className="px-3 pt-2 pb-1 font-medium text-(--gray-9) text-[11px] uppercase tracking-wider">
+            {group.heading}
+          </div>
+          <div
+            role="listbox"
+            aria-label="Query suggestions"
+            className="max-h-52 overflow-y-auto px-1 pb-1"
+          >
+            {suggestions.map((suggestion, index) => (
+              <button
+                key={`${activeKey ?? "key"}:${suggestion.label}`}
+                type="button"
+                role="option"
+                aria-selected={index === highlightedIndex}
+                className={cn(
+                  "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[13px]",
+                  index === highlightedIndex
+                    ? "bg-fill-hover text-foreground"
+                    : "text-(--gray-11)",
+                )}
+                // Before blur, so picking a row doesn't close the list first.
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setHighlighted(index)}
+                onClick={() => apply(suggestion)}
+              >
+                {suggestion.icon}
+                <MatchedLabel label={suggestion.label} typed={typed} />
+                {suggestion.hint && (
+                  <span className="min-w-0 flex-1 truncate text-right text-(--gray-9) text-xs">
+                    {suggestion.hint}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 border-(--gray-a5) border-t px-3 py-1.5 text-(--gray-9) text-xs">
+            <Kbd>↑↓</Kbd> navigate
+            <Kbd>⏎</Kbd> select
+            <Kbd>esc</Kbd> dismiss
+          </div>
+        </div>
+      )}
     </div>
   );
 }

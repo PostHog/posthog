@@ -227,6 +227,71 @@ function validateToken(token: FeedQueryToken, issues: FeedQueryIssue[]): void {
   }
 }
 
+/**
+ * One visual segment of a query string, in order and covering it exactly —
+ * `segments.map(s => s.raw).join("")` reproduces the input. This is what the
+ * editor's inline highlighter and the feed page's read-only rendering draw,
+ * so both surfaces color the query the same way.
+ */
+export interface FeedQuerySegment {
+  raw: string;
+  kind: "whitespace" | "text" | "token";
+  token?: {
+    key: FeedQueryKey;
+    value: string;
+    negated: boolean;
+    /** The parser flagged this token's value. */
+    invalid: boolean;
+    /** Valid, but nothing can act on it yet (pr states, ci). */
+    unsupported: boolean;
+  };
+}
+
+export function lexFeedQuery(query: string): FeedQuerySegment[] {
+  const segments: FeedQuerySegment[] = [];
+  let cursor = 0;
+  for (const match of query.matchAll(CHUNK_RE)) {
+    const start = match.index;
+    if (start > cursor) {
+      segments.push({ raw: query.slice(cursor, start), kind: "whitespace" });
+    }
+    const raw = match[0];
+    cursor = start + raw.length;
+
+    const tokenMatch = TOKEN_RE.exec(raw);
+    const key = tokenMatch
+      ? KEY_ALIASES[tokenMatch[2].toLowerCase()]
+      : undefined;
+    if (!tokenMatch || !key || tokenMatch[3] === "") {
+      segments.push({ raw, kind: "text" });
+      continue;
+    }
+    let negated = tokenMatch[1] === "-";
+    let value = unquote(tokenMatch[3]);
+    if (value.toLowerCase().startsWith("not:")) {
+      negated = true;
+      value = value.slice("not:".length);
+    }
+    const issues: FeedQueryIssue[] = [];
+    validateToken({ raw, key, value, negated }, issues);
+    segments.push({
+      raw,
+      kind: "token",
+      token: {
+        key,
+        value,
+        negated,
+        invalid: issues.some((issue) => issue.kind === "unknown-value"),
+        unsupported: issues.some((issue) => issue.kind === "unsupported"),
+      },
+    });
+  }
+  if (cursor < query.length) {
+    segments.push({ raw: query.slice(cursor), kind: "whitespace" });
+  }
+  return segments;
+}
+
 /** The structural slice of a member the planner needs (a `UserBasic` fits). */
 export interface FeedQueryMember {
   id: number;

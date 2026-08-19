@@ -8,7 +8,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { ChannelFeedView } from "@posthog/ui/features/canvas/components/ChannelFeedView";
-import { FeedQueryChips } from "@posthog/ui/features/canvas/components/FeedQueryInput";
+import { FeedQueryHighlight } from "@posthog/ui/features/canvas/components/FeedQueryInput";
 import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
@@ -101,12 +101,26 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
         className="mt-1.5 shrink-0 text-(--gray-9)"
       />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <FeedQueryChips query={feed.query} issues={issues} />
-        {!isLoading && (
-          <span className="text-(--gray-9) text-xs">
-            {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
+        <div className="flex min-w-0 items-baseline gap-2">
+          <FeedQueryHighlight query={feed.query} className="min-w-0 truncate" />
+          {!isLoading && (
+            <span className="shrink-0 text-(--gray-9) text-xs">
+              {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
+            </span>
+          )}
+        </div>
+        {issues.map((issue) => (
+          <span
+            key={`${issue.raw}-${issue.message}`}
+            className={
+              issue.kind === "unsupported"
+                ? "text-(--amber-11) text-xs"
+                : "text-(--red-11) text-xs"
+            }
+          >
+            {issue.message}
           </span>
-        )}
+        ))}
       </div>
       <Button
         variant="outline"

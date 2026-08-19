@@ -43,7 +43,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   }),
 }));
 
-import { FeedQueryChips, FeedQueryInput } from "./FeedQueryInput";
+import { FeedQueryHighlight, FeedQueryInput } from "./FeedQueryInput";
 
 function Harness({ initial = "" }: { initial?: string }) {
   const [value, setValue] = useState(initial);
@@ -62,12 +62,12 @@ describe("FeedQueryInput", () => {
     const input = screen.getByRole("textbox");
 
     await user.type(input, "cre");
-    await user.click(screen.getByRole("option", { name: /created-by:/ }));
+    // The bolded match prefix splits the label across spans, and accessible
+    // name computation joins them with a space — match loosely.
+    await user.click(screen.getByRole("option", { name: /ated-by:/ }));
     // The key completion keeps the list open on its values.
     await user.type(input, "sh");
-    await user.click(
-      screen.getByRole("option", { name: /Shy Levi shy@example.com/ }),
-    );
+    await user.click(screen.getByRole("option", { name: /shy@example\.com/ }));
 
     expect(screen.getByRole("status")).toHaveTextContent("created-by:shy");
   });
@@ -96,25 +96,34 @@ describe("FeedQueryInput", () => {
   });
 });
 
-describe("FeedQueryChips", () => {
-  it("renders text, tokens, and negation", () => {
-    render(
+describe("FeedQueryHighlight", () => {
+  // The editor overlays this on a transparent input, so any drift between the
+  // rendered text and the raw string shears the caret off the colored glyphs.
+  it("round-trips the query text exactly", () => {
+    const query = ' fix  space:"desktop app" -status:failed x ';
+    const { container } = render(
       <Theme>
-        <FeedQueryChips query="billing -status:failed created-by:shy" />
+        <FeedQueryHighlight query={query} />
       </Theme>,
     );
-    expect(screen.getByText("“billing”")).toBeTruthy();
-    expect(screen.getByText("failed")).toBeTruthy();
-    expect(screen.getByText("not")).toBeTruthy();
-    expect(screen.getByText("shy")).toBeTruthy();
+    expect(container.textContent).toBe(query);
   });
 
-  it("surfaces an unknown value as an error line", () => {
-    render(
+  it("marks invalid values with the wavy underline", () => {
+    const { container } = render(
       <Theme>
-        <FeedQueryChips query="status:sideways" />
+        <FeedQueryHighlight query="status:sideways" />
       </Theme>,
     );
-    expect(screen.getByText(/Unknown status "sideways"/)).toBeTruthy();
+    expect(container.querySelector(".decoration-wavy")).toBeTruthy();
+  });
+
+  it("marks not-yet-supported values with the dotted underline", () => {
+    const { container } = render(
+      <Theme>
+        <FeedQueryHighlight query="ci:red" />
+      </Theme>,
+    );
+    expect(container.querySelector(".decoration-dotted")).toBeTruthy();
   });
 });

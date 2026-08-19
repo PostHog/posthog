@@ -1,11 +1,11 @@
 import { XIcon } from "@phosphor-icons/react";
-import { Button } from "@posthog/quill";
+import { Button, cn, Spinner } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { FeedQueryInput } from "@posthog/ui/features/canvas/components/FeedQueryInput";
 import {
-  FeedQueryChips,
-  FeedQueryInput,
-} from "@posthog/ui/features/canvas/components/FeedQueryInput";
-import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
+  useFeedQueryPlan,
+  useTaskFeedResults,
+} from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import {
   type TaskFeed,
   useTaskFeedsStore,
@@ -61,7 +61,11 @@ export function TaskFeedModal({
     PREVIEW_DEBOUNCE_MS,
   );
   const preview = useTaskFeedResults(previewQuery);
-  const previewReady = !isPending && !preview.isLoading && previewQuery !== "";
+  // Issues come from the undebounced plan, so a typo is flagged the moment
+  // it is typed rather than after the debounce settles.
+  const { plan } = useFeedQueryPlan(open ? trimmedQuery : "");
+  const issue = plan?.issues[0];
+  const counting = trimmedQuery !== "" && (isPending || preview.isLoading);
 
   const submit = () => {
     if (!canSubmit) return;
@@ -147,18 +151,36 @@ export function TaskFeedModal({
             onSubmit={submit}
             placeholder="e.g. billing created-by:@me -status:failed"
           />
-          <FeedQueryChips query={trimmedQuery} issues={preview.issues} />
-          <Text className="text-gray-9 text-sm">
-            Free text searches title, description, and number. Add filters like
-            created-by:, space:, repo:, status:, or negate with -status:failed.
-          </Text>
-          {previewReady && (
-            <Text className="text-gray-9 text-sm">
-              {preview.tasks.length}{" "}
-              {preview.tasks.length === 1 ? "task matches" : "tasks match"}{" "}
-              right now
-            </Text>
-          )}
+          {/* Fixed-height meta row: guidance or the first problem on the
+              left, the live match count on the right. Space is reserved
+              either way, so typing never moves the field. */}
+          <div className="flex h-5 items-center justify-between gap-3 text-xs">
+            <span
+              className={cn(
+                "min-w-0 truncate",
+                issue
+                  ? issue.kind === "unsupported"
+                    ? "text-(--amber-11)"
+                    : "text-(--red-11)"
+                  : "text-(--gray-9)",
+              )}
+              title={issue?.message}
+            >
+              {issue
+                ? issue.message
+                : "Free text searches tasks. Same filter twice is either, -filter excludes."}
+            </span>
+            <span className="flex shrink-0 items-center gap-1.5 text-(--gray-9) tabular-nums">
+              {counting ? (
+                <Spinner className="size-3" />
+              ) : (
+                previewQuery !== "" &&
+                (preview.tasks.length === 1
+                  ? "1 task matches"
+                  : `${preview.tasks.length} tasks match`)
+              )}
+            </span>
+          </div>
         </Flex>
 
         <Flex gap="3" mt="5" justify="end">

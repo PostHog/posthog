@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type FeedQueryPlanContext,
   type FeedQueryTask,
+  lexFeedQuery,
   parseFeedQuery,
   planFeedQuery,
 } from "./feedQuery";
@@ -111,6 +112,48 @@ describe("feedQuery", () => {
       const parsed = parseFeedQuery(query);
       expect(parsed.issues).toHaveLength(1);
       expect(parsed.issues[0].kind).toBe(kind);
+    });
+  });
+
+  describe("lexFeedQuery", () => {
+    it.each([
+      "fix billing created-by:shy -status:failed",
+      '  space:"desktop app"  trailing ',
+      "https://example.com/x pr:not:merged",
+    ])("reproduces %j exactly from its segments", (query) => {
+      expect(
+        lexFeedQuery(query)
+          .map((s) => s.raw)
+          .join(""),
+      ).toBe(query);
+    });
+
+    it("classifies tokens, text, and mid-typing fragments", () => {
+      const segments = lexFeedQuery("fix -status:failed status:");
+      expect(segments.map((s) => s.kind)).toEqual([
+        "text",
+        "whitespace",
+        "token",
+        "whitespace",
+        // A dangling `status:` renders as plain text — no red flash mid-type.
+        "text",
+      ]);
+      expect(segments[2].token).toMatchObject({
+        key: "status",
+        value: "failed",
+        negated: true,
+        invalid: false,
+        unsupported: false,
+      });
+    });
+
+    it("flags invalid and unsupported values for the highlighter", () => {
+      const segments = lexFeedQuery("status:sideways ci:red");
+      expect(segments[0].token).toMatchObject({ invalid: true });
+      expect(segments[2].token).toMatchObject({
+        invalid: false,
+        unsupported: true,
+      });
     });
   });
 

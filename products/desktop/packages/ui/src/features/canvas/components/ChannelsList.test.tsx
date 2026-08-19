@@ -113,6 +113,7 @@ vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
 // file mounts.
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useTaskFeedResults: () => ({ tasks: [], isLoading: false, issues: [] }),
+  useFeedQueryPlan: () => ({ plan: undefined, isLoading: false }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
   useOrgMembers: () => ({
