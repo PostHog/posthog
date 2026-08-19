@@ -38,12 +38,14 @@ SECRET_NAME_TOKENS = (
 
 
 def _dotted_name(node: ast.expr) -> str | None:
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        base = _dotted_name(node.value)
-        return f"{base}.{node.attr}" if base else None
-    return None
+    match node:
+        case ast.Name(id=name):
+            return name
+        case ast.Attribute(value=value, attr=attr):
+            base = _dotted_name(value)
+            return f"{base}.{attr}" if base else None
+        case _:
+            return None
 
 
 def _is_dataclass_decorator(decorator: ast.expr, pydantic_names: set[str]) -> bool:
@@ -82,13 +84,15 @@ def _pydantic_bound_names(tree: ast.Module) -> set[str]:
     `from pydantic.dataclasses import dataclass` would otherwise be indistinguishable by name."""
     names: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            if node.module and (node.module == "pydantic" or node.module.startswith("pydantic.")):
-                names.update(alias.asname or alias.name for alias in node.names)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == "pydantic" or alias.name.startswith("pydantic."):
-                    names.add(alias.asname or alias.name.split(".")[0])
+        match node:
+            case ast.ImportFrom(module=str(module), names=aliases) if module == "pydantic" or module.startswith(
+                "pydantic."
+            ):
+                names.update(alias.asname or alias.name for alias in aliases)
+            case ast.Import(names=aliases):
+                for alias in aliases:
+                    if alias.name == "pydantic" or alias.name.startswith("pydantic."):
+                        names.add(alias.asname or alias.name.split(".")[0])
     return names
 
 
