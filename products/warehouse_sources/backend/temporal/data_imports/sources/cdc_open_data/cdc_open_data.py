@@ -27,7 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 APP_TOKEN_HEADER = "X-App-Token"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CdcOpenDataResumeConfig:
     next_offset: int
 
