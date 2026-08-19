@@ -1,9 +1,13 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
-
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+
+import {
+    errorTrackingRulesCreate,
+    errorTrackingRulesDestroy,
+    errorTrackingRulesUpdate,
+} from 'products/error_tracking/frontend/errorTrackingRuleApi'
 
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingBypassRule, ErrorTrackingRuleType } from '../rules/types'
@@ -121,9 +125,9 @@ export const bypassRuleModalLogic = kea<bypassRuleModalLogicType>([
                 saveRule: async () => {
                     const rule = values.rule
                     if (rule.id === 'new') {
-                        await api.errorTracking.createRule(ErrorTrackingRuleType.Bypass, rule)
+                        await errorTrackingRulesCreate(ErrorTrackingRuleType.Bypass, rule)
                     } else {
-                        await api.errorTracking.updateRule(ErrorTrackingRuleType.Bypass, rule)
+                        await errorTrackingRulesUpdate(ErrorTrackingRuleType.Bypass, rule)
                     }
                     return true
                 },
@@ -134,7 +138,7 @@ export const bypassRuleModalLogic = kea<bypassRuleModalLogicType>([
             {
                 deleteRule: async () => {
                     const rule = values.rule
-                    await api.errorTracking.deleteRule(ErrorTrackingRuleType.Bypass, rule.id)
+                    await errorTrackingRulesDestroy(ErrorTrackingRuleType.Bypass, rule.id)
                     return true
                 },
             },

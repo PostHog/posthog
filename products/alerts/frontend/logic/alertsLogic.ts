@@ -3,12 +3,13 @@ import { loaders } from 'kea-loaders'
 
 import { PaginationManual } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectClean } from 'lib/utils/objects'
 
 import { AlertState } from '~/queries/schema/schema-general'
 
+import { alertsDestroy, alertsList, alertsPartialUpdate } from '../generated/api'
 import { AlertType } from '../types'
 import { AlertLogicProps } from './alertLogic'
 import { buildAlertFilterConfig } from './alertNotifications'
@@ -222,18 +223,19 @@ export const alertsLogic = kea<alertsLogicType>([
                 loadAlerts: async () => {
                     const search = values.filters.search.trim()
 
-                    const response = await api.alerts.list(undefined, {
+                    const response = await alertsList(String(ApiConfig.getCurrentProjectId()), {
                         limit: ALERTS_PER_PAGE,
                         offset: (values.page - 1) * ALERTS_PER_PAGE,
                         ...(search ? { search } : {}),
                         ...(values.filters.createdBy !== 'All users' ? { created_by: values.filters.createdBy } : {}),
                     })
-                    const results = response.results.filter((alert) => !values.deletedAlertIds.has(alert.id))
+                    const typedResults = response.results as unknown as AlertType[]
+                    const results = typedResults.filter((alert) => !values.deletedAlertIds.has(alert.id))
                     return {
                         results,
                         count: Math.max(
                             0,
-                            (response.count ?? response.results.length) - (response.results.length - results.length)
+                            (response.count ?? typedResults.length) - (typedResults.length - results.length)
                         ),
                     }
                 },
@@ -309,7 +311,7 @@ export const alertsLogic = kea<alertsLogicType>([
         deleteAlert: async ({ alert }) => {
             actions.setAlertDeleting(alert.id, true)
             try {
-                await api.alerts.delete(alert.id)
+                await alertsDestroy(String(ApiConfig.getCurrentProjectId()), alert.id)
                 actions.removeAlertFromList(alert.id)
                 actions.loadAlerts()
                 lemonToast.success(`${alert.name || 'Unnamed alert'} has been deleted`)
@@ -335,7 +337,9 @@ export const alertsLogic = kea<alertsLogicType>([
         toggleAlertEnabled: async ({ alert }) => {
             actions.setAlertToggling(alert.id, true)
             try {
-                const updatedAlert = await api.alerts.update(alert.id, { enabled: !alert.enabled })
+                const updatedAlert = (await alertsPartialUpdate(String(ApiConfig.getCurrentProjectId()), alert.id, {
+                    enabled: !alert.enabled,
+                })) as unknown as AlertType
                 actions.updateAlertInList(updatedAlert)
             } catch {
                 lemonToast.error('Failed to update alert')

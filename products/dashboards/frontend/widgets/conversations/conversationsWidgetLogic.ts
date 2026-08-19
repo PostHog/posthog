@@ -1,9 +1,10 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers } from 'kea'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import type { TicketAssignee } from 'products/conversations/frontend/components/Assignee'
+import { conversationsTicketsPartialUpdate } from 'products/conversations/frontend/generated/api'
 
 export interface ConversationsWidgetLogicProps {
     tileId: number
@@ -54,7 +55,9 @@ export const conversationsWidgetLogic = kea<conversationsWidgetLogicType>([
             }
             actions.assignTicketLoading(ticketId)
             try {
-                await api.conversationsTickets.update(ticketId, { assignee })
+                await conversationsTicketsPartialUpdate(String(ApiConfig.getCurrentProjectId()), ticketId, {
+                    assignee,
+                })
                 actions.assignTicketSuccess(ticketId)
                 props.onRefreshData?.()
             } catch {

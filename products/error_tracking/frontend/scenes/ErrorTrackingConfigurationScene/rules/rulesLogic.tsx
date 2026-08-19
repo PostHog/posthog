@@ -1,9 +1,15 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
-
 import { FilterLogicalOperator } from '~/types'
+
+import {
+    errorTrackingRulesCreate,
+    errorTrackingRulesDestroy,
+    errorTrackingRulesList,
+    errorTrackingRulesReorder,
+    errorTrackingRulesUpdate,
+} from 'products/error_tracking/frontend/errorTrackingRuleApi'
 
 import { ErrorTrackingRule, ErrorTrackingRuleNew, ErrorTrackingRuleType, ErrorTrackingRulesLogicProps } from './types'
 
@@ -261,7 +267,7 @@ export const rulesLogic = kea<rulesLogicType>([
             [] as ErrorTrackingRule[],
             {
                 loadRules: async () => {
-                    const { results: rules } = await api.errorTracking.rules(props.ruleType)
+                    const { results: rules } = await errorTrackingRulesList(props.ruleType)
                     return rules
                 },
                 saveRule: async (id) => {
@@ -269,17 +275,17 @@ export const rulesLogic = kea<rulesLogicType>([
                     const newValues = [...values.rules]
                     if (rule) {
                         if (rule.id === 'new') {
-                            const newRule = await api.errorTracking.createRule(props.ruleType, rule)
+                            const newRule = await errorTrackingRulesCreate(props.ruleType, rule)
                             return [...newValues, newRule]
                         }
-                        await api.errorTracking.updateRule(props.ruleType, rule)
+                        await errorTrackingRulesUpdate(props.ruleType, rule)
                         return newValues.map((r) => (r.id === rule.id ? { ...rule, disabled_data: null } : r))
                     }
                     return newValues
                 },
                 deleteRule: async (id) => {
                     if (id !== 'new') {
-                        await api.errorTracking.deleteRule(props.ruleType, id)
+                        await errorTrackingRulesDestroy(props.ruleType, id)
                     }
                     const newValues = [...values.rules]
                     return newValues.filter((v) => v.id !== id)
@@ -287,7 +293,7 @@ export const rulesLogic = kea<rulesLogicType>([
                 deleteSelectedRules: async () => {
                     await Promise.all(
                         values.selectedRuleIds.map((id) =>
-                            id === 'new' ? Promise.resolve() : api.errorTracking.deleteRule(props.ruleType, id)
+                            id === 'new' ? Promise.resolve() : errorTrackingRulesDestroy(props.ruleType, id)
                         )
                     )
                     return values.rules.filter((rule) => !values.selectedRuleIds.includes(rule.id))
@@ -295,7 +301,7 @@ export const rulesLogic = kea<rulesLogicType>([
                 finishReorderingRules: async () => {
                     const rules = values.localRules
                     const ruleOrders = Object.fromEntries(rules.map((r) => [r.id, r.order_key]))
-                    await api.errorTracking.reorderRules(props.ruleType, ruleOrders)
+                    await errorTrackingRulesReorder(props.ruleType, ruleOrders)
                     return rules
                 },
             },

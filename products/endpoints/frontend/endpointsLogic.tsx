@@ -2,13 +2,14 @@ import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selec
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
-import api from 'lib/api'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EndpointType } from '~/types'
+
+import { endpointsApi } from 'products/endpoints/frontend/endpointsApi'
 
 import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/product-intents'
 
@@ -87,7 +88,7 @@ export const endpointsLogic = kea<endpointsLogicType>([
             [] as EndpointType[],
             {
                 loadEndpoints: async () => {
-                    const response = await api.endpoint.list()
+                    const response = await endpointsApi.list()
                     return response.results || []
                 },
             },

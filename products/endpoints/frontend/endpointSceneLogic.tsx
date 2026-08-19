@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import api, { ApiConfig } from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -21,9 +21,13 @@ import {
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { Breadcrumb, ChartDisplayType, EndpointType, EndpointVersionType } from '~/types'
 
+import { endpointsApi } from 'products/endpoints/frontend/endpointsApi'
+import { endpointsMaterializationPreviewCreate } from 'products/endpoints/frontend/generated/api'
+
 import { endpointLogic } from './endpointLogic'
 import { endpointsMaterializationSuggestionCreate } from './generated/api'
 import type { EndpointMaterializationSuggestionApi } from './generated/api.schemas'
+import type { MaterializationPreviewResponseApi } from './generated/api.schemas'
 
 // Default data freshness when none is set on the endpoint version (must match backend DEFAULT_DATA_FRESHNESS_SECONDS)
 const DEFAULT_DATA_FRESHNESS_SECONDS = 86400
@@ -242,38 +246,12 @@ export interface endpointSceneLogicActions {
         errorObject?: any
     }
     loadMaterializationPreviewSuccess: (
-        materializationPreview: {
-            aggregates: {
-                expression: string
-                reaggregate_fn: string | null
-            }[]
-            can_materialize: boolean
-            range_pairs: {
-                bucket_fn: string
-                column: string
-                variables: string[]
-            }[]
-            reason: string | null
-            transformed_query: string | null
-        } | null,
+        materializationPreview: MaterializationPreviewResponseApi | null,
         payload?: {
             value: true
         }
     ) => {
-        materializationPreview: {
-            aggregates: {
-                expression: string
-                reaggregate_fn: string | null
-            }[]
-            can_materialize: boolean
-            range_pairs: {
-                bucket_fn: string
-                column: string
-                variables: string[]
-            }[]
-            reason: string | null
-            transformed_query: string | null
-        } | null
+        materializationPreview: MaterializationPreviewResponseApi | null
         payload?: {
             value: true
         }
@@ -563,14 +541,18 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 }
                 const version = values.viewingVersion?.version
                 const overrides = Object.keys(values.bucketOverrides).length > 0 ? values.bucketOverrides : undefined
-                return await api.endpoint.getMaterializationPreview(endpoint.name, version, overrides)
+                return await endpointsMaterializationPreviewCreate(
+                    String(ApiConfig.getCurrentProjectId()),
+                    endpoint.name,
+                    { version: version, bucket_overrides: overrides }
+                )
             },
         },
         endpointResult: {
             __default: null as string | null,
             loadEndpointResult: async ({ name, data }: { name: string; data: EndpointRunRequest }) => {
                 try {
-                    const result = await api.endpoint.run(name, data)
+                    const result = await endpointsApi.run(name, data)
                     if (result && typeof result === 'object' && 'clickhouse' in result) {
                         const { clickhouse, ...rest } = result as any
                         return JSON.stringify(rest, null, 2)
@@ -684,7 +666,9 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 const versionNumber = parseInt(searchParams.version, 10)
                 if (!isNaN(versionNumber) && versionNumber !== endpoint.current_version) {
                     try {
-                        const versionData = await api.endpoint.get(endpoint.name, versionNumber)
+                        const versionData = await endpointsApi.retrieve(endpoint.name, {
+                            version: versionNumber,
+                        })
                         actions.setViewingVersion(versionData)
                     } catch {
                         // Version not found, clear the param
@@ -848,7 +832,9 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             const versionToReload = options?.version ?? values.viewingVersion?.version
             if (versionToReload && endpointName) {
                 try {
-                    const versionData = await api.endpoint.get(endpointName, versionToReload)
+                    const versionData = await endpointsApi.retrieve(endpointName, {
+                        version: versionToReload,
+                    })
                     actions.setViewingVersion(versionData)
                 } catch {
                     // Version may have been deleted, clear it
@@ -888,8 +874,8 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                     if (versionParam && values.endpoint?.name) {
                         // Load the requested version
                         const requestedVersion = versionParam
-                        api.endpoint
-                            .get(name, versionParam)
+                        endpointsApi
+                            .retrieve(name, { version: versionParam })
                             .then((versionData) => {
                                 // Only apply if this is still the requested version
                                 const currentParam = router.values.searchParams.version

@@ -1,8 +1,10 @@
 import { MakeLogicType, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { retryWithBackoff } from 'lib/utils/async'
+
+import { logsHasLogsRetrieve } from 'products/logs/frontend/generated/api'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 
@@ -54,7 +56,10 @@ export const logsIngestionLogic = kea<logsIngestionLogicType>([
         teamHasLogs: {
             __default: undefined as boolean | undefined,
             loadTeamHasLogs: async (): Promise<boolean> => {
-                return await retryWithBackoff(() => api.logs.hasLogs(), { maxAttempts: 3 })
+                return await retryWithBackoff(
+                    () => logsHasLogsRetrieve(String(ApiConfig.getCurrentProjectId())).then(({ hasLogs }) => hasLogs),
+                    { maxAttempts: 3 }
+                )
             },
         },
     }),

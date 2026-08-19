@@ -1,12 +1,13 @@
 import { MakeLogicType, actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils/datetime'
 
 import { AlertState } from '~/queries/schema/schema-general'
 
+import { alertsRetrieve } from '../generated/api'
 import type { AlertCheck, AlertType } from '../types'
 
 export const CHART_CHECKS_LIMIT = 50
@@ -181,7 +182,10 @@ export const alertLogic = kea<alertLogicType>([
                     }
 
                     const { limit, offset } = values.checksHistoryParams
-                    return await api.alerts.get(props.alertId, { checksLimit: limit, checksOffset: offset })
+                    return (await alertsRetrieve(String(ApiConfig.getCurrentProjectId()), props.alertId, {
+                        checks_limit: limit,
+                        checks_offset: offset,
+                    })) as unknown as AlertType
                 },
             },
         ],

@@ -4,10 +4,10 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { taskApi } from 'products/posthog_ai/frontend/taskApi'
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     reviewHogBlindSpotsList,
@@ -1123,12 +1123,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             try {
                 let repository: string | undefined
                 try {
-                    const { repositories } = await api.tasks.repositories()
+                    const { repositories } = await taskApi.repositories()
                     repository = repositories[0]
                 } catch {
                     repository = undefined
                 }
-                const task = await api.tasks.create({
+                const task = await taskApi.create({
                     title,
                     description: prompt,
                     origin_product: OriginProduct.USER_CREATED,

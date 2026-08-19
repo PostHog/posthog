@@ -33,6 +33,7 @@ jest.mock('products/alerts/frontend/generated/api', () => ({
 jest.mock('lib/utils/newInternalTab')
 
 jest.mock('products/signals/frontend/generated/api', () => ({
+    ...jest.requireActual('products/signals/frontend/generated/api'),
     signalsScoutConfigList: jest.fn(() => new Promise(() => {})),
     signalsScoutMetadataGet: jest.fn(() => new Promise(() => {})),
 }))
@@ -65,8 +66,8 @@ describe('AIObservabilitySelfDriving', () => {
         patchedSourceConfigs = []
         useMocks({
             get: {
-                '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
-                '/api/environments/:teamId/llm_analytics/evaluation_config/': {
+                '/api/projects/:teamId/llm_analytics/provider_keys/': { results: [] },
+                '/api/projects/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',

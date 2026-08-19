@@ -1,8 +1,12 @@
 import { MakeLogicType, actions, afterMount, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import { ApiConfig, CountedPaginatedResponse } from 'lib/api'
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
+
+import { errorTrackingSpikeEventsList } from 'products/error_tracking/frontend/generated/api'
+
+import type { PaginatedErrorTrackingSpikeEventListApi } from '../../../generated/api.schemas'
 
 const RESULTS_PER_PAGE = 10
 
@@ -46,12 +50,12 @@ export interface recentSpikesLogicActions {
         errorObject?: any
     }
     loadRecentSpikesSuccess: (
-        spikesResponse: CountedPaginatedResponse<ErrorTrackingSpikeEvent>,
+        spikesResponse: PaginatedErrorTrackingSpikeEventListApi,
         payload?: {
             value: true
         }
     ) => {
-        spikesResponse: CountedPaginatedResponse<ErrorTrackingSpikeEvent>
+        spikesResponse: PaginatedErrorTrackingSpikeEventListApi
         payload?: {
             value: true
         }
@@ -130,10 +134,10 @@ export const recentSpikesLogic = kea<recentSpikesLogicType>([
         spikesResponse: {
             loadRecentSpikes: async (_, breakpoint) => {
                 await breakpoint(100)
-                return await api.errorTracking.getSpikeEvents({
+                return await errorTrackingSpikeEventsList(String(ApiConfig.getCurrentProjectId()), {
                     limit: RESULTS_PER_PAGE,
                     offset: (values.page - 1) * RESULTS_PER_PAGE,
-                    orderBy: values.order,
+                    order_by: values.order,
                 })
             },
         },

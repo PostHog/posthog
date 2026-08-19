@@ -3,13 +3,20 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import { ApiConfig, CountedPaginatedResponse } from 'lib/api'
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
 import { pluralize } from 'lib/utils/strings'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
+
+import {
+    errorTrackingSymbolSetsBulkDeleteCreate,
+    errorTrackingSymbolSetsDestroy,
+    errorTrackingSymbolSetsDownloadRetrieve,
+    errorTrackingSymbolSetsList,
+} from 'products/error_tracking/frontend/generated/api'
 
 export const RESULTS_PER_PAGE = 20
 
@@ -76,10 +83,10 @@ export interface symbolSetLogicActions {
         errorObject?: any
     }
     loadSymbolSetsSuccess: (
-        symbolSetResponse: CountedPaginatedResponse<ErrorTrackingSymbolSet>,
+        symbolSetResponse: ErrorTrackingSymbolSetResponse,
         payload?: void
     ) => {
-        symbolSetResponse: CountedPaginatedResponse<ErrorTrackingSymbolSet>
+        symbolSetResponse: ErrorTrackingSymbolSetResponse
         payload?: void
     }
     setPage: (page: number) => {
@@ -167,26 +174,26 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         symbolSetResponse: {
             loadSymbolSets: async (_, breakpoint) => {
                 await breakpoint(100)
-                const res = await api.errorTracking.symbolSets.list({
+                const res = await errorTrackingSymbolSetsList(String(ApiConfig.getCurrentProjectId()), {
                     status: values.symbolSetStatusFilter,
                     limit: RESULTS_PER_PAGE,
                     offset: (values.page - 1) * RESULTS_PER_PAGE,
-                    orderBy: values.symbolSetOrder,
+                    order_by: values.symbolSetOrder,
                     search: values.searchQuery.trim() || undefined,
                 })
-                return res
+                return res as unknown as ErrorTrackingSymbolSetResponse
             },
         },
         deleteSymbolSetResponse: {
             deleteSymbolSet: async (id: string) => {
-                await api.errorTracking.symbolSets.delete(id)
+                await errorTrackingSymbolSetsDestroy(String(ApiConfig.getCurrentProjectId()), id)
                 lemonToast.success('Symbol set deleted')
                 actions.loadSymbolSets()
                 return null
             },
             bulkDeleteSymbolSets: async () => {
                 const ids = values.selectedSymbolSetIds
-                await api.errorTracking.symbolSets.bulkDelete(ids)
+                await errorTrackingSymbolSetsBulkDeleteCreate(String(ApiConfig.getCurrentProjectId()), { ids })
                 lemonToast.success(`${ids.length} ${pluralize(ids.length, 'symbol set', 'symbol sets', false)} deleted`)
                 actions.loadSymbolSets()
                 return null
@@ -197,7 +204,10 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
     listeners(({ actions }) => ({
         downloadSymbolSet: async ({ id }) => {
             try {
-                const response = await api.errorTracking.symbolSets.download(id)
+                const response = await errorTrackingSymbolSetsDownloadRetrieve(
+                    String(ApiConfig.getCurrentProjectId()),
+                    id
+                )
                 window.open(response.url, '_blank')
             } catch (e) {
                 lemonToast.error('Failed to download symbol set')

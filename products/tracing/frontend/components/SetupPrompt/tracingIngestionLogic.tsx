@@ -1,8 +1,9 @@
 import { MakeLogicType, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { retryWithBackoff } from 'lib/utils/async'
+
+import { tracingApi } from '../../tracingApi'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 
@@ -54,7 +55,7 @@ export const tracingIngestionLogic = kea<tracingIngestionLogicType>([
         teamHasSpans: {
             __default: undefined as boolean | undefined,
             loadTeamHasSpans: async (): Promise<boolean> => {
-                return await retryWithBackoff(() => api.tracing.hasSpans(), { maxAttempts: 3 })
+                return await retryWithBackoff(() => tracingApi.hasSpans(), { maxAttempts: 3 })
             },
         },
     }),
