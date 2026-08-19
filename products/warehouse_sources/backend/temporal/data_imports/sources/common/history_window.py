@@ -1,15 +1,11 @@
 """Where a sync with no cursor starts reading.
 
-A source that bounds a first sync to a lookback has to answer "from scratch, but from when?".
-Answering it per run against the current date is what makes a re-import destructive: the wipe
-clears the cursor, the source resolves its lookback against today, and every row older than one
-window is dropped with no later run walking back for it.
+A source that bounds a first sync to a lookback resolves it against today, so a re-import — which
+arrives with no cursor — narrows the range to the last window and the drain never walks back. The
+schema records the answer once instead.
 
-So a schema records the answer the first time it syncs, and reads it from there afterwards.
-
-Sources still resolving it per run: `adobe_analytics` (90d), `hatchet` (30d), and
-`google_play_console`, whose own `resolve_history_start` returns `today - history_days` whenever
-the watermark is absent — the same name as this module's idea and the opposite of it.
+Still resolving it per run: `adobe_analytics`, `hatchet`, and `google_play_console`, whose own
+`resolve_history_start` is this name for the opposite idea.
 """
 
 import datetime as dt
@@ -22,12 +18,10 @@ if TYPE_CHECKING:
 
 
 def history_start_for_schema(schema: "ExternalDataSchema", now: dt.datetime | None = None) -> dt.datetime | None:
-    """Resolve a schema's history start, recording it on a first sync so later runs agree.
+    """The oldest point this schema covers, or None for no bound.
 
-    Only a schema that has never synced gets a value written, because that is the only moment the
-    lookback is the truthful answer. A schema already holding data covers a range nobody recorded,
-    and inventing one would declare away whatever it holds beyond the invention. It stays unbounded
-    instead, which the source is free to reach however it can cheaply.
+    Written on a first sync, the one moment the lookback is the truthful answer. A schema already
+    holding data covers a range nobody recorded, and inventing one declares away the rest.
     """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob  # noqa: PLC0415
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (  # noqa: PLC0415
@@ -47,17 +41,14 @@ def history_start_for_schema(schema: "ExternalDataSchema", now: dt.datetime | No
     if schema.history_start is not None:
         return schema.history_start
 
-    # Whether the schema has ever run, not whether it currently holds a table: `delete_table` nulls
-    # the table link on a schema that has synced for years, and recording a lookback for that one
-    # writes down a narrower range than it covered — the loss this exists to prevent. Jobs outlive
-    # the wipe, so they separate a genuine first sync from a wiped one.
+    # Not `table_id`: `delete_table` nulls it on a schema that has synced for years. Jobs outlive
+    # the wipe, so they tell a genuine first sync from a wiped one.
     if ExternalDataJob.objects.filter(schema_id=schema.pk).exists():
         return None
 
-    # `update_fields` because the pipeline holds this instance from before the run linked its table,
-    # and `skip_activity_log` because this is pipeline bookkeeping: it skips an extra SELECT that
-    # fails the import when the pooler has dropped the connection mid-sync, and forces an UPDATE so
-    # a concurrently deleted schema can't be resurrected as an INSERT (see `save`).
+    # `update_fields` because the pipeline loaded this instance before the run linked its table.
+    # `skip_activity_log` for the reasons `save` gives: it avoids a read that fails the import on a
+    # dropped pooler connection, and forces an UPDATE rather than resurrecting a deleted row.
     schema.history_start = (now or timezone.now()) - lookback
     schema.save(update_fields=["history_start"], skip_activity_log=True)
 

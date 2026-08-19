@@ -72,14 +72,9 @@ GOOGLE_ADS_HOST = "googleads.googleapis.com"
 # catch-up speed against per-run size.
 GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS = 7
 
-# The per-run budget is wall time, not a count of windows. A window is anywhere from empty to a full
-# day of rows, so a count has to be set for the widest one and then throttles every table to it: five
-# windows is 35 days a run, which leaves a table years behind needing weeks of runs.
-#
-# It bounds time spent importing new ground, not the run: the loop below only arms it once a window
-# past the cursor has produced rows, so a walk across a long gap runs uncapped until it reaches
-# data. That is deliberate — a budget that could stop a run before it moved the cursor would leave
-# the next run repeating it — and it stays far under the activity's week-long start_to_close.
+# Wall time, not a count of windows: a window is anywhere from empty to a full day of rows, so a
+# count has to suit the widest one and then throttles every table to it. Bounds time spent importing
+# new ground rather than the run — see the arming rule in the drain loop.
 GOOGLE_ADS_MAX_DRAIN_SECONDS = 10 * 60
 
 # Lower bound for the "where does this resource's data begin" request. Google serves a date this old
@@ -624,9 +619,9 @@ def google_ads_source(
                     else start
                 )
             else:
-                # A first sync and a re-import both arrive here, and both read the range the schema
-                # records, so the two stop needing to be told apart. No recorded range means
-                # unbounded, which this drain reaches by asking the account rather than walking to it.
+                # A first sync and a re-import both land here and read the same recorded range, so
+                # the two stop needing to be told apart. No range means unbounded, which this drain
+                # reaches by asking the account rather than walking to it.
                 if history_start is not None:
                     start = _incremental_value_as_date(history_start)
                 else:
@@ -647,9 +642,6 @@ def google_ads_source(
             drain_started = time.monotonic()
 
             while start < end:
-                # Only a run that already imported a window past the cursor can stop on the budget:
-                # spending it all on the lookback overlap would leave the cursor unmoved for the next
-                # run to repeat.
                 if landed_new_ground and time.monotonic() - drain_started >= GOOGLE_ADS_MAX_DRAIN_SECONDS:
                     break
 
@@ -663,9 +655,9 @@ def google_ads_source(
                     had_data = True
                     yield pa_table
 
-                # New ground only, so the budget can't stop a run that hasn't moved the cursor, and
-                # an empty window doesn't end the run. The test is `start`, not `window_end`: the
-                # query is `>= start`, so a window merely ending past the cursor can still hold only
+                # Arms the budget on new ground only, so a run that has not moved the cursor cannot
+                # be stopped and left for the next run to repeat. `start`, not `window_end`: the
+                # query is `>= start`, so a window merely ending past the cursor can hold only
                 # overlap rows at or before it.
                 if had_data and start > cursor_before_lookback:
                     landed_new_ground = True

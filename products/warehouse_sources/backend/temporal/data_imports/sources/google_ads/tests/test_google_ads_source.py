@@ -1497,9 +1497,8 @@ class TestGoogleAdsQueryConstruction:
         assert response.sort_mode == "asc"
 
     def test_lookback_overlap_cannot_consume_a_whole_run(self):
-        # A run that spends its whole budget re-reading the lookback overlap leaves the cursor where
-        # it started, so the next run repeats it and a schema behind by more than its lookback never
-        # advances. The budget has to buy new ground even when it is already spent.
+        # Spending the whole budget on lookback overlap leaves the cursor unmoved, so the next run
+        # repeats it and a schema behind by more than its lookback never advances.
         clock = itertools.count()
 
         with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
@@ -1531,23 +1530,19 @@ class TestGoogleAdsQueryConstruction:
         assert queries[0].startswith(
             "SELECT campaign.id,segments.date FROM campaign_stats WHERE segments.date >= '2026-04-04'"
         )
-        # Walked the four overlap windows and the 2026-05-02 window that straddles the 2026-05-04
-        # cursor, then landed the first window that starts strictly past it — the one whose rows are
-        # all new ground.
+        # The first window starting strictly past the cursor, so its rows are all new ground.
         assert "segments.date >= '2026-05-09'" in queries[-1]
 
     def test_a_straddling_window_of_only_overlap_rows_cannot_stop_the_drain(self):
-        # The same stall, reached differently: a window that straddles the cursor can hold only rows
-        # at or before it, so arming the budget on `window_end` rather than `start` stops the run
-        # with the cursor unmoved and the gap never crossed.
+        # The same stall via a straddling window: it can hold only rows at or before the cursor, so
+        # arming on `window_end` rather than `start` stops the run with the cursor unmoved.
         cursor = dt.date(2026, 1, 1)
         w = GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS
         # The pre-lookback cursor is 2026-01-31, straddled by the window starting 2026-01-29.
         overlap_and_straddle = {(cursor + dt.timedelta(days=w * i)).isoformat(): 1 for i in range(5)}
         data_past_gap = cursor + dt.timedelta(days=w * 22)  # 2026-06-04, after a run of empty windows
-        # One second of drain per loop check, against a two-second budget — the budget is spent long
-        # before the walk reaches the data past the gap, so only refusing to arm it on the straddle
-        # keeps the run going.
+        # One second per loop check against a two-second budget: it is spent long before the walk
+        # reaches the data, so only refusing to arm on the straddle keeps the run going.
         clock = itertools.count()
 
         with freeze_time("2026-12-31"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
@@ -1567,9 +1562,7 @@ class TestGoogleAdsQueryConstruction:
     @pytest.mark.parametrize(
         "history_start,expected_start",
         [
-            # The schema records the range it covers, so a run with no cursor reads that whether the
-            # run is a first sync or a re-import that just cleared one. Deciding it here instead is
-            # what let a re-import narrow the range to the last window.
+            # A run with no cursor reads the recorded range, first sync or re-import alike.
             ("2020-02-08", "2020-02-08"),
             ("2025-03-01", "2025-03-01"),
         ],
@@ -1594,9 +1587,8 @@ class TestGoogleAdsQueryConstruction:
     def test_no_recorded_range_asks_the_account_where_its_rows_begin(
         self, earliest_date: str | None, expected_start: str
     ) -> None:
-        # A schema that predates the recorded range reads unbounded. Walking fixed windows from the
-        # 1970 sentinel would spend the run on empty requests, so one request locates the start
-        # instead. An account holding nothing has no range to walk.
+        # A schema that predates the recorded range reads unbounded: one request locates the start,
+        # and an account holding nothing has no range to walk.
         with freeze_time("2026-07-17"):
             _response, queries = self._run_source(
                 self._stats_table(),
@@ -1632,10 +1624,8 @@ class TestGoogleAdsQueryConstruction:
         ]
 
     def test_run_stops_when_the_drain_budget_is_spent(self):
-        # A run has to stop somewhere: one that keeps drawing on a shared worker until it has walked
-        # years of backlog is the unbounded scan the windows replaced. Stopping on elapsed time
-        # rather than a window count lets a run take as many windows as it can afford, so a backlog
-        # drains at the speed the work actually costs instead of a fixed 35 days a run.
+        # Stopping on elapsed time rather than a window count lets a run take as many windows as it
+        # can afford, so a backlog drains at the speed the work costs instead of a fixed 35 days.
         cursor = dt.date(2026, 1, 1)
         window_rows = {
             (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1 for i in range(40)
