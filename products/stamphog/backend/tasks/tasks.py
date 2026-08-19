@@ -561,13 +561,15 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
             approval_dismissed_at__isnull=True,
         )
         .exclude(head_sha=head_sha)
-        .order_by("-completed_at")
+        .order_by("-created_at")
         .first()
     )
     if standing is None or standing.posted_review_id is None or not standing.head_sha:
         return False
 
-    approved_base_sha = ((standing.output or {}).get("pr") or {}).get("base", {}).get("sha") or ""
+    approved_pr = (standing.output or {}).get("pr")
+    approved_base = (approved_pr or {}).get("base") if isinstance(approved_pr, dict) else None
+    approved_base_sha = (approved_base or {}).get("sha") if isinstance(approved_base, dict) else ""
     if not approved_base_sha:
         return False
 

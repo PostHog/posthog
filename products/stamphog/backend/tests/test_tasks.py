@@ -1358,24 +1358,6 @@ def test_manually_dismissed_approval_is_not_retained(team, repo_config):
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_retention_needs_the_approved_base_sha(team, repo_config):
-    # Without the base the approved side cannot be pinned, and comparing against a guessed base would
-    # answer about a diff the approval never covered.
-    _run_task(_pr_payload(), "delivery-nobase-approved", team.id)
-    with team_scope(team.id):
-        ReviewRun.objects.filter(pull_request__pr_number=42).update(posted_review_id=9, output={})
-
-    mock_execute = _run_task(
-        _pr_payload(action="synchronize", head_sha="sha-2"),
-        "delivery-nobase-push",
-        team.id,
-        compare_results=[_APPROVED, list(_APPROVED)],
-    )
-
-    mock_execute.assert_called_once()
-
-
-@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_retained_approval_still_counts_as_approved_at_merge(team, repo_config):
     # The merge handler matches an approving run on head_sha alone. A retained approval was posted at
     # an earlier head, so without the retained-head record the merge reads as unapproved and the PR
@@ -1412,3 +1394,26 @@ def test_retained_approval_still_counts_as_approved_at_merge(team, repo_config):
         assert list(PullRequestAudience.objects.filter(pull_request=merged).values_list("audience_key", flat=True)) == [
             "team:devex"
         ]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "output",
+    [{}, {"pr": None}, {"pr": {"base": None}}, {"pr": {"base": {}}}],
+    ids=["no_pr", "null_pr", "null_base", "empty_base"],
+)
+def test_retention_needs_a_usable_approved_base_sha(team, repo_config, output):
+    # Without the base the approved side cannot be pinned, and a malformed payload must read as
+    # "cannot answer" rather than raising into the caller's catch-all.
+    _run_task(_pr_payload(), f"delivery-base-{list(output)}-{output}", team.id)
+    with team_scope(team.id):
+        ReviewRun.objects.filter(pull_request__pr_number=42).update(posted_review_id=9, output=output)
+
+    mock_execute = _run_task(
+        _pr_payload(action="synchronize", head_sha="sha-2"),
+        f"delivery-base-push-{list(output)}-{output}",
+        team.id,
+        compare_results=[_APPROVED, list(_APPROVED)],
+    )
+
+    mock_execute.assert_called_once()
