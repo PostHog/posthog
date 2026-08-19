@@ -8,7 +8,6 @@ import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { ExecHelpCatalog } from '@/tools/exec-help'
@@ -23,6 +22,20 @@ import { getToolDefinition } from '@/tools/toolDefinitions'
 
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
+
+// Catalog-only trust fields spliced into the mandatory discovery examples in
+// `schema-discovery.md`. Empty in the flag-off render so it stays byte-identical.
+const TRUST_DISCOVERY_PLACEHOLDERS_ON = {
+    trust_table_column: ', certification',
+    trust_relationship_columns: ', confidence, reasoning',
+    trust_discovery_bullet:
+        "\n   - **Trust layer** — prefer a `certified` table or view over an equivalent `deprecated` one, and read a join's `confidence` and `reasoning` before you rely on it. Proposed marks and the full review queue live in `system.information_schema.certifications`.",
+}
+const TRUST_DISCOVERY_PLACEHOLDERS_OFF = {
+    trust_table_column: '',
+    trust_relationship_columns: '',
+    trust_discovery_bullet: '',
+}
 
 export class InstructionsBuilder {
     private readonly formatter: InstructionsFormatter
@@ -143,14 +156,19 @@ export class InstructionsBuilder {
 
     formatExecuteSqlDescription(toolFeatureFlags?: EvaluatedFlags): string {
         const dataCatalogEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
+        // Fold the trust columns into the examples the agent copies verbatim, so they
+        // arrive with discovery instead of in a separate section it can skip. The
+        // columns only exist in the catalog, so the flag-off render resolves every
+        // trust placeholder to an empty string and stays byte-identical.
+        const schemaDiscovery = formatPrompt(
+            SCHEMA_DISCOVERY,
+            dataCatalogEnabled ? TRUST_DISCOVERY_PLACEHOLDERS_ON : TRUST_DISCOVERY_PLACEHOLDERS_OFF
+        )
         // Metric discovery leads the splice so catalog-first routing still precedes
         // raw schema discovery, without displacing the tool's own intro line.
-        const schemaDiscovery = dataCatalogEnabled
-            ? `${METRIC_DISCOVERY.trim()}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
-            : SCHEMA_DISCOVERY.trim()
         return formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),
-            schema_discovery: schemaDiscovery,
+            schema_discovery: dataCatalogEnabled ? `${METRIC_DISCOVERY.trim()}\n\n${schemaDiscovery}` : schemaDiscovery,
         })
     }
 }

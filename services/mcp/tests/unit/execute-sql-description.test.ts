@@ -8,7 +8,11 @@ describe('formatExecuteSqlDescription', () => {
 
     it('includes data-catalog discovery only when its feature flag is on', () => {
         const flagged = builder.formatExecuteSqlDescription({ [PRODUCT_DATA_CATALOG_FLAG]: true })
-        expect(flagged).toContain('#### Catalog trust signals')
+        // Trust guidance is folded into the mandatory discovery step, not a separate
+        // section the agent can skip: the table-listing and relationships examples
+        // must carry the trust columns and name the certifications table.
+        expect(flagged).toContain('**Trust layer**')
+        expect(flagged).toContain('system.information_schema.certifications')
         expect(flagged).toContain('certification')
         expect(flagged).toContain('confidence')
         expect(flagged).toContain('reasoning')
