@@ -24,8 +24,9 @@ inputs:
 outputs:
     conclusion:
         description: >-
-            Conclusion of the completed check (success, failure, cancelled, ...).
-            'timed_out' if the check did not complete before the timeout.
+            Conclusion of the completed check (success, failure, ...). Runs that
+            concurrency cancelled are excluded from selection, so 'cancelled' is
+            never returned; 'timed_out' if no other run completed before the timeout.
         value: ${{ steps.poll.outputs.conclusion }}
 runs:
     using: 'composite'
