@@ -506,14 +506,14 @@ WHERE team_id = X AND distinct_id = 'anon-123'
 
 ### Ingestion pipeline (Node.js)
 
-| File                                                                                  | Purpose                                         |
-| ------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `nodejs/src/ingestion/common/persons/person-uuid.ts`                                  | Deterministic UUID generation                   |
-| `nodejs/src/ingestion/common/steps/event-processing/process-persons-step.ts`          | Entry point for person processing               |
-| `nodejs/src/ingestion/common/steps/event-processing/process-personless-step.ts`       | Personless event handling                       |
-| `nodejs/src/ingestion/common/persons/person-merge-service.ts`                         | Merge/identify handling, override version logic |
-| `nodejs/src/ingestion/common/persons/person-create-service.ts`                        | Person creation                                 |
-| `nodejs/src/common/persons/repositories/postgres-person-repository.ts`                | PostgreSQL queries for person operations        |
+| File                                                                            | Purpose                                         |
+| ------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `nodejs/src/ingestion/common/persons/person-uuid.ts`                            | Deterministic UUID generation                   |
+| `nodejs/src/ingestion/common/steps/event-processing/process-persons-step.ts`    | Entry point for person processing               |
+| `nodejs/src/ingestion/common/steps/event-processing/process-personless-step.ts` | Personless event handling                       |
+| `nodejs/src/ingestion/common/persons/person-merge-service.ts`                   | Merge/identify handling, override version logic |
+| `nodejs/src/ingestion/common/persons/person-create-service.ts`                  | Person creation                                 |
+| `nodejs/src/common/persons/repositories/postgres-person-repository.ts`          | PostgreSQL queries for person operations        |
 
 ### PostgreSQL schema (Python/Django)
 
