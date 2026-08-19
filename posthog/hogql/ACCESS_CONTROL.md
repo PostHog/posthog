@@ -93,9 +93,13 @@ HogQL is intentionally more restrictive here, and it's a known limitation.
 
 ## 2. Warehouse tables and views
 
-Active for every organization.
-The `hogql-warehouse-access-control` flag that once gated this level (checked in `Database._fetch_sources`) has been at 100% rollout, with no targeting, since 2026-06-19.
-So the honest answer to "is warehouse access control live for my organization?" is yes, for every organization.
+Active for every organization on PostHog Cloud.
+The `hogql-warehouse-access-control` flag still gates this level, checked in `Database._fetch_sources`.
+It has been at 100% rollout on PostHog Cloud, with no targeting, since 2026-06-19, so on Cloud the honest answer to "is warehouse access control live for my organization?" is yes, for every organization.
+
+Self-hosted deployments still depend on that flag evaluating true.
+`feature_enabled_or_false` returns `False` whenever the analytics SDK is disabled — under `TEST`, when an operator sets `OPT_OUT_CAPTURE` (exposed in the hobby compose file), or under `DEBUG` in local development.
+When it returns `False`, this level is skipped and no warehouse table or view is filtered.
 
 ### Resource-level: the `warehouse_objects` umbrella
 
