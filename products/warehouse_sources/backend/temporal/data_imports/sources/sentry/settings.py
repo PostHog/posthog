@@ -33,10 +33,19 @@ REQUIRED_SENTRY_SCOPES = (
 # carry a floor rather than the 1970 sentinel the issue endpoints tolerate.
 SENTRY_RETENTION_DAYS = 90
 
-# The issues API windows its listing while the synced `issues` table accumulates every issue
-# ever seen, so a warehouse fan-out must floor the scan or it fans out over issues the API
-# path never would. Same floor as the tag-values iterator's per-row cutoff.
-ISSUES_PARENT_ROW_FILTER = ParentRowFilter(field="lastSeen", not_older_than=timedelta(days=SENTRY_RETENTION_DAYS))
+# How far back a fan-out reaches for the issues it fans out over. Both paths carry this
+# window: the API fetch sends it as `start`/`end`, and the warehouse scan applies it as a
+# floor on `lastSeen`, so the two produce the same issue set.
+#
+# It is set here rather than inherited. A parent fetch that sends no bound gets whatever
+# Sentry defaults to, which is undocumented, invisible in our own logs, and impossible for a
+# snapshot scan to reproduce — the warehouse path fanned out over roughly five times the
+# issues the API path did because of it. Widening this widens both paths together, and costs
+# a full-refresh child (issue_hashes) proportionally, since it re-reads every issue in the
+# window on every run.
+SENTRY_FANOUT_PARENT_WINDOW = timedelta(days=14)
+
+ISSUES_PARENT_ROW_FILTER = ParentRowFilter(field="lastSeen", not_older_than=SENTRY_FANOUT_PARENT_WINDOW)
 
 # `dataset` values accepted by /trace-items/attributes/.
 TRACE_ITEM_DATASETS = ("logs", "preprod", "processing_errors", "spans", "tracemetrics")

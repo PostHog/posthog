@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sen
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.settings import (
     REQUIRED_SENTRY_SCOPES,
     SENTRY_ENDPOINTS,
+    SENTRY_FANOUT_PARENT_WINDOW,
     SENTRY_RETENTION_DAYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.source import SentrySource
@@ -625,7 +626,16 @@ class TestSentrySourceValidation:
         row = rows[0]
         assert row["issue_id"] == "100"
         assert row["tag_key"] == "browser"
-        assert seen_issues_params == [{"limit": 100, "query": "", "sort": "date"}]
+        assert len(seen_issues_params) == 1
+        # start/end carry the fan-out window and move with the clock; the window itself is
+        # asserted in TestFanoutParentWindow.
+        issues_params = seen_issues_params[0]
+        assert issues_params is not None
+        assert {k: v for k, v in issues_params.items() if k not in ("start", "end")} == {
+            "limit": 100,
+            "query": "",
+            "sort": "date",
+        }
         assert seen_values_params == [{"limit": 100, "sort": "-date"}]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
@@ -970,9 +980,11 @@ class TestIssueTagValuesResumable:
 
     @parameterized.expand(
         [
-            # An incremental run floors at its watermark, which is tighter than the window.
-            ("incremental_run", "2026-08-01T00:00:00Z", datetime(2026, 8, 1, tzinfo=UTC)),
-            # A full refresh has no watermark, so only Sentry's list window bounds the scan.
+            # A watermark inside the window is the tighter floor, so the scan stops there.
+            ("watermark_inside_window", timedelta(days=2), timedelta(days=2)),
+            # A watermark older than the window can't widen it back out.
+            ("watermark_older_than_window", timedelta(days=60), None),
+            # A full refresh has no watermark, so the window alone bounds the scan.
             ("full_refresh", None, None),
         ]
     )
@@ -986,11 +998,12 @@ class TestIssueTagValuesResumable:
         return_value=iter([[{"id": "100", "lastSeen": "2026-08-17T00:00:00Z"}]]),
     )
     def test_warehouse_scan_is_floored_by_the_watermark_and_the_list_window(
-        self, _name, watermark, expected_floor, mock_reader, _mock_resolve, mock_get
+        self, _name, watermark_ago, expected_floor_ago, mock_reader, _mock_resolve, mock_get
     ) -> None:
         # Without a floor the scan reads every issue ever synced and discards most of them
         # per row, which is the fan-out inflation the config-driven children already fixed.
         mock_get.return_value.get.side_effect = lambda url, **kwargs: _response([])
+        watermark = None if watermark_ago is None else (datetime.now(UTC) - watermark_ago).isoformat()
 
         resp = sentry_source(
             auth_token="token",
@@ -1008,10 +1021,9 @@ class TestIssueTagValuesResumable:
 
         row_filter = mock_reader.call_args.kwargs["row_filter"]
         assert row_filter.field == "lastSeen"
-        floor = row_filter.floor(datetime.now(UTC))
-        if expected_floor is None:
-            expected_floor = datetime.now(UTC) - timedelta(days=SENTRY_RETENTION_DAYS)
-        assert abs(floor - expected_floor) < timedelta(seconds=5)
+        now = datetime.now(UTC)
+        expected_floor = now - (expected_floor_ago if expected_floor_ago is not None else SENTRY_FANOUT_PARENT_WINDOW)
+        assert abs(row_filter.floor(now) - expected_floor) < timedelta(seconds=5)
 
     @parameterized.expand(
         [
@@ -2119,3 +2131,53 @@ def test_every_warehouse_fanout_child_bounds_its_parent_scan():
     for name, fanout in warehouse_children.items():
         assert fanout.parent_row_filter is not None, f"{name} reads its parent unbounded"
         assert fanout.parent_row_filter.field == "lastSeen"
+
+
+class TestFanoutParentWindow:
+    @parameterized.expand(["issue_events", "issue_hashes"])
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.build_dependent_resource")
+    def test_api_parent_listing_carries_the_same_window_as_the_warehouse_scan(self, endpoint, mock_build) -> None:
+        # The API listing used to send no time bound, so Sentry chose the window and the
+        # warehouse scan fanned out over ~5x the issues. Both sides read one constant now.
+        mock_build.return_value = []
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint=endpoint,
+            team_id=123,
+            job_id="job-id",
+            source_id="source-1",
+        )
+
+        parent_params = mock_build.call_args.kwargs["parent_params_extra"]
+        window_start = datetime.strptime(parent_params["start"], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
+        fanout = SENTRY_ENDPOINTS[endpoint].fanout
+        assert fanout is not None
+        row_filter = fanout.parent_row_filter
+        assert row_filter is not None
+        assert abs(window_start - row_filter.floor(datetime.now(UTC))) < timedelta(seconds=5)
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_tag_values_api_listing_carries_the_window_too(self, mock_get) -> None:
+        # issue_tag_values walks the same parent through its own iterator, so an unbounded
+        # listing here would reintroduce the mismatch for the one child that has no config.
+        mock_get.return_value.get.side_effect = lambda url, **kwargs: _response([])
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            source_id="source-1",
+        )
+        list(cast(Any, resp.items()))
+
+        issues_call = next(c for c in mock_get.return_value.get.call_args_list if c.args[0].endswith("/issues/"))
+        params = issues_call.kwargs["params"]
+        window_start = datetime.strptime(params["start"], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
+        expected = datetime.now(UTC) - SENTRY_FANOUT_PARENT_WINDOW
+        assert abs(window_start - expected) < timedelta(seconds=5)

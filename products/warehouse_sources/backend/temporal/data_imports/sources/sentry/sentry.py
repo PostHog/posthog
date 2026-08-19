@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.set
     PROJECT_STAT_NAMES,
     REQUIRED_SENTRY_SCOPES,
     SENTRY_ENDPOINTS,
+    SENTRY_FANOUT_PARENT_WINDOW,
     SENTRY_RETENTION_DAYS,
     TRACE_ITEM_DATASETS,
     TRACE_ITEM_STATS_TYPES,
@@ -407,6 +408,20 @@ def _skip_rows_on_stale_issue_404(
 _ISSUES_PARENT_COLUMNS = ["id", "lastSeen"]
 
 
+def _issues_parent_api_params() -> dict[str, str]:
+    """Time bound for the API-side issues listing a fan-out walks.
+
+    The same window `ISSUES_PARENT_ROW_FILTER` applies to the warehouse scan, sent the way
+    every other timed Sentry call in this source sends one. Without it Sentry picks the
+    window, and a snapshot scan has no way to reproduce a bound it cannot see.
+    """
+    now = datetime.now(UTC)
+    return {
+        "start": _start_param_for_sentry(now - SENTRY_FANOUT_PARENT_WINDOW),
+        "end": _start_param_for_sentry(now),
+    }
+
+
 def _issues_parent_row_filter(cutoff_last_seen: datetime | None) -> ParentRowFilter:
     """Floor for the issues scan: Sentry's list window, tightened by the incremental cutoff.
 
@@ -490,7 +505,9 @@ def _iter_issue_tag_values_rows(
             base_api_url=base_api_url,
             path=f"/organizations/{organization_slug}/issues/",
             headers=headers,
-            params={"limit": 100, "query": "", "sort": "date"},
+            # Same window the warehouse branch above floors its scan with, so this iterator
+            # walks one issue set whichever parent it read.
+            params={"limit": 100, "query": "", "sort": "date", **_issues_parent_api_params()},
         )
 
     # A pinned Delta version enumerates its files in a fixed order, so a warehouse run
@@ -1349,6 +1366,7 @@ def sentry_source(
                 source_id=source_id,
                 use_warehouse_parent=use_warehouse_parent,
                 page_size_param=endpoint_config.page_size_param,
+                parent_params_extra=_issues_parent_api_params() if endpoint_config.fanout.parent_row_filter else None,
             ),
         )
         # Sentry gates the service hooks API at the org level, so it 403s even
