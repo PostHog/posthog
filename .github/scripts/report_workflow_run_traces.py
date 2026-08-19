@@ -311,8 +311,17 @@ def fetch_jobs(repo: str, run_id: int, attempt: int, token: str, *, opener: Any 
     )
 
 
-def fetch_run(repo: str, run_id: int, token: str, *, opener: Any = None) -> dict:
-    return _api_get(f"repos/{repo}/actions/runs/{run_id}", token, opener=opener)
+def fetch_run(repo: str, run_id: int, token: str, *, attempt: int = 0, opener: Any = None) -> dict:
+    """The run's metadata, for `attempt` when given and for the latest attempt otherwise.
+
+    The attempt-agnostic path always describes the latest attempt, so pairing it with
+    an older attempt's jobs puts `run_started_at` after every job end and collapses the
+    root span to zero length.
+    """
+    path = f"repos/{repo}/actions/runs/{run_id}"
+    if attempt:
+        path = f"{path}/attempts/{attempt}"
+    return _api_get(path, token, opener=opener)
 
 
 # ---------- Parsing ----------
@@ -703,8 +712,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def collect_runs(args: argparse.Namespace, token: str, now: datetime) -> Collection:
     """Resolve the target runs into fully parsed span trees."""
     if args.run_id:
-        raw_runs = [fetch_run(args.repo, run_id, token) for run_id in args.run_id]
+        raw_runs = [fetch_run(args.repo, run_id, token, attempt=args.run_attempt) for run_id in args.run_id]
     else:
+        if args.run_attempt:
+            # The scan returns latest-attempt payloads only, so an attempt override there
+            # would pair one attempt's jobs with another attempt's window.
+            logger.warning("--run-attempt only applies with --run-id; ignoring it for the scan")
         since = parse_iso_utc(args.since) or watermark(args.repo, token, lookback_hours=args.lookback_hours, now=now)
         logger.info("scanning master pushes completed since %s", since.isoformat())
         raw_runs = scan_runs(args.repo, token, since)
@@ -718,7 +731,9 @@ def collect_runs(args: argparse.Namespace, token: str, now: datetime) -> Collect
     complete = True
     for raw in raw_runs:
         run_id = int(raw.get("id") or 0)
-        attempt = args.run_attempt or int(raw.get("run_attempt") or 1)
+        # Both fetch paths report the attempt their payload describes, so jobs, metadata
+        # and the trace ID stay on one attempt.
+        attempt = int(raw.get("run_attempt") or 1)
         try:
             raw_jobs = fetch_jobs(args.repo, run_id, attempt, token)
         except ApiError:
@@ -728,7 +743,7 @@ def collect_runs(args: argparse.Namespace, token: str, now: datetime) -> Collect
         if not raw_jobs:
             logger.info("run %s attempt %s has no jobs; nothing to trace", run_id, attempt)
             continue
-        run = parse_run({**raw, "run_attempt": attempt}, raw_jobs)
+        run = parse_run(raw, raw_jobs)
         if run is not None:
             runs.append(run)
     return Collection(runs=tuple(runs), complete=complete)

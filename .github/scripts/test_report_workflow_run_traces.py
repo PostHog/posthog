@@ -408,6 +408,31 @@ class TestScan:
         assert "status=completed" in url
 
 
+class TestAttemptSelection:
+    def test_selected_attempt_uses_that_attempts_window(self) -> None:
+        # Pairing an older attempt's jobs with the latest attempt's `run_started_at` puts
+        # every job before the root span starts, which clamps the root to zero length.
+        opener = _FakeOpener(
+            {
+                "/attempts/2/jobs": {"jobs": [_raw_job()]},
+                "/attempts/2": _raw_run(run_attempt=2),
+                "/actions/runs/999": _raw_run(
+                    run_attempt=3, created_at=_iso(10_000), run_started_at=_iso(10_000), updated_at=_iso(10_100)
+                ),
+            }
+        )
+        args = reporter.parse_args(["--run-id", "999", "--run-attempt", "2"])
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(reporter.urllib.request, "urlopen", opener)
+            collection = reporter.collect_runs(args, "t", RUN_START)
+
+        run = collection.runs[0]
+        assert run.attempt == 2
+        assert run.duration_seconds == 60.0
+        assert run.jobs[0].start >= run.start
+        assert run.jobs[0].end <= run.end
+
+
 class TestApiRetries:
     def test_does_not_retry_a_404(self) -> None:
         # With an empty rate-limit bucket a retry just spends more of it.
@@ -436,8 +461,8 @@ class TestExitStatus:
         "failure",
         [
             urllib.error.URLError("connection reset"),
-            urllib.error.HTTPError("u", 500, "Server Error", {}, None),
-            urllib.error.HTTPError("u", 403, "Forbidden", {}, None),
+            urllib.error.HTTPError("u", 500, "Server Error", {}, None),  # type: ignore[arg-type]
+            urllib.error.HTTPError("u", 403, "Forbidden", {}, None),  # type: ignore[arg-type]
         ],
     )
     def test_a_failed_scan_holds_the_watermark(self, failure: Exception, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -483,7 +508,7 @@ class TestExitStatus:
             "urlopen",
             _FakeOpener(
                 {
-                    "/jobs": urllib.error.HTTPError("u", 500, "Server Error", {}, None),
+                    "/jobs": urllib.error.HTTPError("u", 500, "Server Error", {}, None),  # type: ignore[arg-type]
                     "/actions/runs/999": _raw_run(),
                 }
             ),
