@@ -19,9 +19,33 @@ use serde_json::{json, Value};
 use std::fs::File;
 use std::io::Write;
 
-use crate::kafka::KafkaSink;
+use crate::kafka::{KafkaSink, WriteError};
 
 use tracing::{debug, error, instrument};
+
+// Map a Kafka write failure to an HTTP response. An oversized payload can never
+// succeed as sent, so it answers 413 rather than a retry-implying 500.
+pub(crate) fn kafka_write_error_response(
+    signal: &str,
+    e: &WriteError,
+) -> (StatusCode, Json<Value>) {
+    match e {
+        WriteError::MessageTooLarge => {
+            error!("Rejected oversized {signal} batch: {e}");
+            (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(json!({"error": "Payload too large to deliver"})),
+            )
+        }
+        WriteError::Other(_) => {
+            error!("Failed to send {signal} to Kafka: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Internal server error"})),
+            )
+        }
+    }
+}
 
 // `patch_otel_json` normalises an OTLP/JSON payload so it can be deserialized by
 // upstream `opentelemetry-proto`'s generated types. This is a workaround layer
@@ -444,11 +468,7 @@ pub async fn export_logs_http(
         .write(token, rows, body.len() as u64, timestamps_overridden)
         .await
     {
-        error!("Failed to send logs to Kafka: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Internal server error")})),
-        ));
+        return Err(kafka_write_error_response("logs", &e));
     } else {
         debug!("Successfully sent {} logs to Kafka", row_count);
     }
@@ -592,11 +612,7 @@ pub async fn export_traces_http(
         .write_traces(token, rows, body.len() as u64, timestamps_overridden)
         .await
     {
-        error!("Failed to send traces to Kafka: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Internal server error"})),
-        ));
+        return Err(kafka_write_error_response("traces", &e));
     } else {
         debug!("Successfully sent {} traces to Kafka", row_count);
     }
@@ -729,11 +745,7 @@ pub async fn export_metrics_http(
         .write_metrics(token, rows, body.len() as u64, timestamps_overridden)
         .await
     {
-        error!("Failed to send metrics to Kafka: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Internal server error"})),
-        ));
+        return Err(kafka_write_error_response("metrics", &e));
     } else {
         debug!(
             "Successfully sent {} metric data points to Kafka",

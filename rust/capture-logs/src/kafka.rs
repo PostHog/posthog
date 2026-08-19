@@ -10,7 +10,7 @@ use capture::config::KafkaConfig;
 use chrono::Utc;
 use health::HealthHandle;
 use metrics::{counter, gauge};
-use rdkafka::error::KafkaError;
+use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
@@ -18,6 +18,86 @@ use rdkafka::ClientConfig;
 use std::result::Result::Ok;
 use std::time::Duration;
 use tracing::log::{debug, info};
+
+// Headroom left below the configured `message.max.bytes` for Kafka framing and
+// our per-message headers, so a payload we accept locally doesn't get rejected
+// once the record batch overhead is added.
+const KAFKA_MESSAGE_OVERHEAD_BYTES: usize = 4096;
+
+/// Error returned when producing an Avro batch to Kafka.
+///
+/// `MessageTooLarge` is separated out so the HTTP layer can answer 413 instead
+/// of a generic 500: the payload can never succeed as-is, unlike transient
+/// broker failures.
+#[derive(Debug, thiserror::Error)]
+pub enum WriteError {
+    #[error("payload exceeds Kafka message size limit")]
+    MessageTooLarge,
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
+fn map_produce_error(err: KafkaError) -> WriteError {
+    if err.rdkafka_error_code() == Some(RDKafkaErrorCode::MessageSizeTooLarge) {
+        WriteError::MessageTooLarge
+    } else {
+        WriteError::Other(anyhow!("kafka error: {err}"))
+    }
+}
+
+struct EncodedChunk {
+    payload: Vec<u8>,
+    row_count: usize,
+}
+
+fn encode_avro<T: serde::Serialize>(schema: &Schema, rows: &[T]) -> anyhow::Result<Vec<u8>> {
+    let mut writer = Writer::with_codec(
+        schema,
+        Vec::new(),
+        Codec::Zstandard(ZstandardSettings::new(1)),
+    );
+    for row in rows {
+        writer.append_ser(row)?;
+    }
+    Ok(writer.into_inner()?)
+}
+
+/// Encode `rows` into one or more Avro payloads that each fit under `payload_limit`,
+/// splitting the batch in half as needed. A single row that still exceeds the
+/// limit cannot be split and yields `WriteError::MessageTooLarge`.
+fn encode_chunks<T: serde::Serialize>(
+    schema: &Schema,
+    rows: &[T],
+    payload_limit: usize,
+    out: &mut Vec<EncodedChunk>,
+) -> Result<(), WriteError> {
+    let payload = encode_avro(schema, rows).map_err(WriteError::Other)?;
+    if payload.len() <= payload_limit || rows.len() <= 1 {
+        if payload.len() > payload_limit {
+            return Err(WriteError::MessageTooLarge);
+        }
+        out.push(EncodedChunk {
+            payload,
+            row_count: rows.len(),
+        });
+        return Ok(());
+    }
+
+    let mid = rows.len() / 2;
+    encode_chunks(schema, &rows[..mid], payload_limit, out)?;
+    encode_chunks(schema, &rows[mid..], payload_limit, out)?;
+    Ok(())
+}
+
+/// Distribute a batch-level counter across chunks proportionally to their row
+/// counts, giving the final chunk the remainder so the parts sum to the whole.
+fn split_share(remaining: u64, chunk_rows: usize, remaining_rows: usize, is_last: bool) -> u64 {
+    if is_last || remaining_rows == 0 {
+        remaining
+    } else {
+        ((remaining as u128 * chunk_rows as u128) / remaining_rows as u128) as u64
+    }
+}
 
 struct KafkaContext {
     liveness: HealthHandle,
@@ -117,6 +197,9 @@ pub struct KafkaSink {
     logs_topic: String,
     traces_topic: String,
     metrics_topic: String,
+    logs_message_max_bytes: usize,
+    traces_message_max_bytes: usize,
+    metrics_message_max_bytes: usize,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -323,6 +406,15 @@ impl KafkaSink {
             logs_topic: config.kafka_topic,
             traces_topic: config.kafka_traces_topic,
             metrics_topic: config.kafka_metrics_topic,
+            logs_message_max_bytes: config.kafka_producer_message_max_bytes as usize,
+            traces_message_max_bytes: config
+                .kafka_traces_producer_message_max_bytes
+                .unwrap_or(config.kafka_producer_message_max_bytes)
+                as usize,
+            metrics_message_max_bytes: config
+                .kafka_metrics_producer_message_max_bytes
+                .unwrap_or(config.kafka_producer_message_max_bytes)
+                as usize,
         })
     }
 
@@ -344,23 +436,77 @@ impl KafkaSink {
         uncompressed_bytes: u64,
         records_uncompressed_bytes: Option<u64>,
         timestamps_overridden: u64,
-    ) -> Result<(), anyhow::Error> {
-        let schema = Schema::parse_str(avro_schema_str)?;
-        let mut writer = Writer::with_codec(
-            &schema,
-            Vec::new(),
-            Codec::Zstandard(ZstandardSettings::new(1)),
-        );
+        message_max_bytes: usize,
+    ) -> Result<(), WriteError> {
+        let schema = Schema::parse_str(avro_schema_str).map_err(|e| WriteError::Other(e.into()))?;
+        let payload_limit = message_max_bytes
+            .saturating_sub(KAFKA_MESSAGE_OVERHEAD_BYTES)
+            .max(1);
 
-        for row in rows {
-            writer.append_ser(row)?;
+        let mut chunks: Vec<EncodedChunk> = Vec::new();
+        encode_chunks(&schema, rows, payload_limit, &mut chunks)?;
+
+        if chunks.len() > 1 {
+            counter!("capture_logs_kafka_batch_split_total").increment(1);
         }
 
-        let payload: Vec<u8> = writer.into_inner()?;
+        // Split the batch-level counters across chunks so billing headers still
+        // sum to the values for the original request.
+        let mut remaining_rows = rows.len();
+        let mut remaining_uncompressed = uncompressed_bytes;
+        let mut remaining_records = records_uncompressed_bytes;
+        let mut remaining_ts = timestamps_overridden;
 
+        for chunk in &chunks {
+            let chunk_rows = chunk.row_count;
+            let is_last = chunk_rows >= remaining_rows;
+
+            let chunk_uncompressed =
+                split_share(remaining_uncompressed, chunk_rows, remaining_rows, is_last);
+            remaining_uncompressed -= chunk_uncompressed;
+
+            let chunk_records = remaining_records.map(|r| {
+                let share = split_share(r, chunk_rows, remaining_rows, is_last);
+                remaining_records = Some(r - share);
+                share
+            });
+
+            let chunk_ts = split_share(remaining_ts, chunk_rows, remaining_rows, is_last);
+            remaining_ts -= chunk_ts;
+
+            remaining_rows -= chunk_rows;
+
+            self.send_encoded(
+                producer,
+                topic,
+                token,
+                &chunk.payload,
+                chunk_uncompressed,
+                chunk_records,
+                chunk_rows,
+                chunk_ts,
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn send_encoded(
+        &self,
+        producer: &FutureProducer<KafkaContext>,
+        topic: &str,
+        token: &str,
+        payload: &[u8],
+        uncompressed_bytes: u64,
+        records_uncompressed_bytes: Option<u64>,
+        record_count: usize,
+        timestamps_overridden: u64,
+    ) -> Result<(), WriteError> {
         let future = match producer.send_result(FutureRecord {
             topic,
-            payload: Some(&payload),
+            payload: Some(payload),
             partition: None,
             key: None::<Vec<u8>>.as_ref(),
             timestamp: None,
@@ -390,7 +536,7 @@ impl KafkaSink {
                     })
                     .insert(Header {
                         key: "record_count",
-                        value: Some(&rows.len().to_string()),
+                        value: Some(&record_count.to_string()),
                     })
                     .insert(Header {
                         key: "created_at",
@@ -406,13 +552,17 @@ impl KafkaSink {
                     })
             }),
         }) {
-            Err((err, _)) => Err(anyhow!(format!("kafka error: {err}"))),
-            Ok(delivery_future) => Ok(delivery_future),
-        }?;
+            Err((err, _)) => return Err(map_produce_error(err)),
+            Ok(delivery_future) => delivery_future,
+        };
 
-        drop(future.await?);
-
-        Ok(())
+        match future.await {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err((err, _))) => Err(map_produce_error(err)),
+            Err(canceled) => Err(WriteError::Other(anyhow!(
+                "kafka delivery canceled: {canceled}"
+            ))),
+        }
     }
 
     pub async fn write(
@@ -421,7 +571,7 @@ impl KafkaSink {
         rows: Vec<KafkaLogRow>,
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), WriteError> {
         if rows.is_empty() {
             return Ok(());
         }
@@ -448,6 +598,7 @@ impl KafkaSink {
             uncompressed_bytes,
             Some(records_uncompressed_bytes),
             timestamps_overridden,
+            self.logs_message_max_bytes,
         )
         .await?;
 
@@ -460,7 +611,7 @@ impl KafkaSink {
         rows: Vec<KafkaTraceRow>,
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), WriteError> {
         if rows.is_empty() {
             return Ok(());
         }
@@ -478,6 +629,7 @@ impl KafkaSink {
             uncompressed_bytes,
             None,
             timestamps_overridden,
+            self.traces_message_max_bytes,
         )
         .await?;
 
@@ -490,7 +642,7 @@ impl KafkaSink {
         rows: Vec<KafkaMetricRow>,
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), WriteError> {
         if rows.is_empty() {
             return Ok(());
         }
@@ -508,9 +660,92 @@ impl KafkaSink {
             uncompressed_bytes,
             None,
             timestamps_overridden,
+            self.metrics_message_max_bytes,
         )
         .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn string_schema() -> Schema {
+        Schema::parse_str(r#""string""#).unwrap()
+    }
+
+    // Varied per-row content so each row adds real bytes even after zstd, keeping
+    // `full > single row` regardless of the compressor.
+    fn varied_rows(count: usize) -> Vec<String> {
+        (0..count)
+            .map(|i| {
+                (0..64)
+                    .map(|j| char::from(b'a' + (((i * 31 + j * 13) % 26) as u8)))
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn encode_chunks_splits_batch_that_exceeds_limit() {
+        let schema = string_schema();
+        let rows = varied_rows(50);
+        let full = encode_avro(&schema, &rows).unwrap();
+        let limit = full.len() - 1;
+
+        let mut chunks = Vec::new();
+        encode_chunks(&schema, &rows, limit, &mut chunks).unwrap();
+
+        assert!(chunks.len() >= 2);
+        assert!(chunks.iter().all(|c| c.payload.len() <= limit));
+        assert_eq!(
+            chunks.iter().map(|c| c.row_count).sum::<usize>(),
+            rows.len()
+        );
+    }
+
+    #[test]
+    fn encode_chunks_keeps_a_fitting_batch_whole() {
+        let schema = string_schema();
+        let rows = varied_rows(10);
+        let full = encode_avro(&schema, &rows).unwrap();
+
+        let mut chunks = Vec::new();
+        encode_chunks(&schema, &rows, full.len(), &mut chunks).unwrap();
+
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].row_count, rows.len());
+    }
+
+    #[test]
+    fn encode_chunks_errors_when_a_single_row_cannot_fit() {
+        let schema = string_schema();
+        let rows = varied_rows(1);
+
+        let err = encode_chunks(&schema, &rows, 1, &mut Vec::new()).unwrap_err();
+        assert!(matches!(err, WriteError::MessageTooLarge));
+    }
+
+    #[test]
+    fn split_share_distributes_and_preserves_total() {
+        let chunk_rows = [3usize, 3, 4];
+        let value = 100u64;
+
+        let mut remaining = value;
+        let mut remaining_rows: usize = chunk_rows.iter().sum();
+        let mut shares = Vec::new();
+        for (i, &cr) in chunk_rows.iter().enumerate() {
+            let is_last = i == chunk_rows.len() - 1;
+            let share = split_share(remaining, cr, remaining_rows, is_last);
+            remaining -= share;
+            remaining_rows -= cr;
+            shares.push(share);
+        }
+
+        assert_eq!(shares, vec![30, 30, 40]);
+        assert_eq!(shares.iter().sum::<u64>(), value);
+        assert_eq!(remaining, 0);
     }
 }

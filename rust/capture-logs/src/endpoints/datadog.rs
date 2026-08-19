@@ -1,6 +1,6 @@
 use crate::authorizer::Signal;
 use crate::log_record::{override_timestamp, KafkaLogRow};
-use crate::service::{decode_body_if_gzip_magic, Service};
+use crate::service::{decode_body_if_gzip_magic, kafka_write_error_response, Service};
 use axum::{
     extract::State,
     extract::{Path, Query},
@@ -350,11 +350,7 @@ pub async fn export_datadog_logs_http(
         .write(&token, rows, body.len() as u64, timestamps_overridden)
         .await
     {
-        error!("Failed to send logs to Kafka: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Internal server error"})),
-        ));
+        return Err(kafka_write_error_response("logs", &e));
     } else {
         debug!("Successfully sent {} Datadog logs to Kafka", row_count);
     }
