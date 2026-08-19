@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -357,7 +358,21 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 loadScoutConfigs: async () => {
                     const teamId = teamLogic.values.currentTeamId
-                    return teamId ? await signalsScoutConfigList(String(teamId)) : null
+                    if (!teamId) {
+                        return null
+                    }
+                    try {
+                        return await signalsScoutConfigList(String(teamId))
+                    } catch (error) {
+                        // A stale project id left in the URL by a project switch, or a member without
+                        // access, are expected — degrade to the same null the no-team guard returns
+                        // instead of reporting them. Anything else, notably a 5xx, still throws so a
+                        // real backend failure keeps reaching error tracking.
+                        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
