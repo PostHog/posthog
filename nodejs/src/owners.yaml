@@ -10,6 +10,6 @@ rules:
     - match: '/ingestion/pipelines/sessionreplay/'
       owners: [team-replay, team-ingestion]
     - match: '/ingestion/pipelines/sessionreplay/ml-mirror-*/'
-      owners: ai-research
+      owners: [ai-research, team-ingestion]
     - match: '/session-replay/recording-rasterizer/'
       owners: team-replay
