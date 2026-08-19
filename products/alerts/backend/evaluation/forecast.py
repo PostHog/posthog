@@ -8,7 +8,13 @@ from posthog.api.services.query import ExecutionMode
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.schema_enums import ForecastConditionType, ForecastSensitivity, ForecastTargetDirection
+from posthog.schema_enums import (
+    ForecastConditionType,
+    ForecastDirection,
+    ForecastErrorMode,
+    ForecastSensitivity,
+    ForecastTargetDirection,
+)
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.trends import _has_breakdown
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult, is_non_time_series_trend
@@ -81,20 +87,80 @@ def _clean_points(result: ExtractionResult) -> tuple[list[str], list[float]]:
 
 
 def _decomposition_suffix(forecast: ForecastResult, index: int) -> str:
-    """Render the forecast decomposition for one point, e.g. " (trend 1210.00, weekly seasonality −12%)".
-    Empty when the engine produced no components — the message degrades to expected-vs-actual."""
+    """Say why the forecast sits where it does, in the metric's own terms.
+
+    Why the alert fired is the first thing a person asks, so this belongs in the message rather
+    than in metadata. The engine's component names are model vocabulary, so they are stated as
+    plain observations about the series instead.
+    """
     if not forecast.components:
         return ""
     trend_series = forecast.components.get("trend")
     trend = trend_series[index] if trend_series and index < len(trend_series) else None
-    parts: list[str] = []
-    if trend is not None:
-        parts.append(f"trend {trend:.2f}")
-    for name in ("weekly", "yearly"):
-        series = forecast.components.get(name)
-        if series and index < len(series) and trend:
-            parts.append(f"{name} seasonality {series[index] / trend:+.0%}")
-    return f" ({', '.join(parts)})" if parts else ""
+    if trend is None:
+        return ""
+
+    parts = [f"usual level around {trend:,.0f}"]
+    # A share of the trend only reads as higher or lower while the trend is positive. On a negative
+    # trend the division flips the sign, so the sentence would state the opposite of what happened.
+    if trend > 0:
+        for name, phrasing in (("weekly", "on this day of the week"), ("yearly", "at this time of year")):
+            series = forecast.components.get(name)
+            if not series or index >= len(series):
+                continue
+            share = series[index] / trend
+            direction = "higher" if share >= 0 else "lower"
+            parts.append(f"typically {abs(share):.0%} {direction} {phrasing}")
+    return f" ({', '.join(parts)})"
+
+
+def _band_deviation_verdict(
+    *,
+    actual: float,
+    yhat: float,
+    lower: float,
+    upper: float,
+    direction: str,
+    error_mode: str,
+    error_threshold_pct: float | None,
+    error_threshold_abs: float | None,
+    score_threshold: float,
+) -> tuple[bool, str]:
+    """Decide whether the latest point counts as off, and describe the range it was judged against.
+
+    Split from the fit so the direction and error-mode matrix is testable without an engine.
+    """
+    half_width = max((upper - lower) / 2, 0.0)
+    if error_mode == ForecastErrorMode.RELATIVE.value:
+        # A share of the forecast is undefined near zero, which is an ordinary state for a count
+        # metric in a quiet period. The band's half-width is the series' own scale, so it floors
+        # the denominator without introducing a constant that only suits one kind of metric.
+        denominator = max(abs(yhat), half_width)
+        deviation = abs(actual - yhat) / denominator if denominator else 0.0
+        outside = deviation > (error_threshold_pct or 0.0)
+        described = f"within {(error_threshold_pct or 0.0):.0%} of {yhat:.2f}"
+    elif error_mode == ForecastErrorMode.ABSOLUTE.value:
+        allowed = error_threshold_abs or 0.0
+        outside = abs(actual - yhat) > allowed
+        described = f"within {allowed:.2f} of {yhat:.2f}"
+    else:
+        outside = actual < lower or actual > upper
+        described = f"{lower:.2f} to {upper:.2f}"
+        if outside and score_threshold > 0 and half_width > 0:
+            # How far past the range the point sits, measured in band half-widths, so the control
+            # is comparable across metrics. The interval already carries the residual scale, so
+            # this needs no in-sample output and no second fit.
+            excess = (actual - upper) if actual > upper else (lower - actual)
+            outside = (excess / half_width) >= score_threshold
+
+    if not outside:
+        return False, described
+    moved_up = actual > yhat
+    if direction == ForecastDirection.ABOVE.value and not moved_up:
+        return False, described
+    if direction == ForecastDirection.BELOW.value and moved_up:
+        return False, described
+    return True, described
 
 
 def _evaluate_band_deviation(
@@ -104,26 +170,39 @@ def _evaluate_band_deviation(
     engine: ForecastEngine,
     interval_width: float,
     interval_type: IntervalType | None,
+    forecast_config: dict[str, Any] | None = None,
 ) -> AlertEvaluationResult:
     """Fit on history excluding the latest completed point, predict one interval, fire if that
-    actual point sits outside the band."""
+    actual point counts as off under the configured mode and direction."""
+    config = forecast_config or {}
     interval_value = interval_type.value if interval_type else None
     forecast = engine.forecast(dates[:-1], values[:-1], 1, interval_width, interval_type)
     actual = values[-1]
-    lower, upper = forecast.lower[0], forecast.upper[0]
+    lower, upper, yhat = forecast.lower[0], forecast.upper[0], forecast.yhat[0]
+
+    fired, described = _band_deviation_verdict(
+        actual=actual,
+        yhat=yhat,
+        lower=lower,
+        upper=upper,
+        direction=config.get("direction") or ForecastDirection.BOTH.value,
+        error_mode=config.get("error_mode") or ForecastErrorMode.PREDICTION_INTERVAL.value,
+        error_threshold_pct=config.get("error_threshold_pct"),
+        error_threshold_abs=config.get("error_threshold_abs"),
+        score_threshold=float(config.get("score_threshold") or 0.0),
+    )
+
     breaches: list[str] = []
-    if actual < lower or actual > upper:
+    if fired:
         breaches = [
             f"The latest value for {label} ({actual:.2f}) is outside the expected range "
-            f"({lower:.2f} to {upper:.2f}){_decomposition_suffix(forecast, 0)}"
+            f"({described}){_decomposition_suffix(forecast, 0)}"
         ]
     return AlertEvaluationResult(
         value=actual,
         breaches=breaches,
         interval=interval_value,
-        triggered_metadata={"forecast": {"lower": lower, "upper": upper, "yhat": forecast.yhat[0]}}
-        if breaches
-        else None,
+        triggered_metadata={"forecast": {"lower": lower, "upper": upper, "yhat": yhat}} if breaches else None,
     )
 
 
@@ -151,19 +230,20 @@ def _evaluate_future_breach_values(
     against_upper = lower if best_case else yhat
     against_lower = upper if best_case else yhat
 
+    qualifier = "even in the best case" if best_case else "on the current forecast"
     for i in range(len(yhat)):
         breach_date = dates[i][:10]
         if bounds.upper is not None and against_upper[i] > bounds.upper:
             predicted = against_upper[i]
             message = (
-                f"Forecast for {label}: predicted value {predicted:.2f} on {breach_date} "
-                f"is more than the upper threshold ({bounds.upper}){decomposition(i)}"
+                f"Forecast for {label}: predicted {predicted:.2f} on {breach_date} "
+                f"is more than the upper threshold ({bounds.upper}) {qualifier}{decomposition(i)}"
             )
         elif bounds.lower is not None and against_lower[i] < bounds.lower:
             predicted = against_lower[i]
             message = (
-                f"Forecast for {label}: predicted value {predicted:.2f} on {breach_date} "
-                f"is less than the lower threshold ({bounds.lower}){decomposition(i)}"
+                f"Forecast for {label}: predicted {predicted:.2f} on {breach_date} "
+                f"is less than the lower threshold ({bounds.lower}) {qualifier}{decomposition(i)}"
             )
         else:
             continue
@@ -341,7 +421,9 @@ def evaluate_with_forecast(
     engine = get_forecast_engine(forecast_config)
 
     if condition == ForecastConditionType.BAND_DEVIATION.value:
-        return _evaluate_band_deviation(dates, values, label, engine, interval_width, result.interval_type)
+        return _evaluate_band_deviation(
+            dates, values, label, engine, interval_width, result.interval_type, forecast_config
+        )
     elif condition == ForecastConditionType.TARGET_BY_DATE.value:
         return _evaluate_target_by_date(
             dates, values, label, forecast_config, engine, interval_width, result.interval_type

@@ -1,4 +1,5 @@
 import datetime
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -24,6 +25,8 @@ from products.alerts.backend.evaluation.contract import (
     SeriesPoint,
 )
 from products.alerts.backend.evaluation.forecast import (
+    _band_deviation_verdict,
+    _decomposition_suffix,
     _evaluate_future_breach_values,
     _evaluate_target_by_date_values,
     _index_for_target_date,
@@ -315,3 +318,103 @@ class TestInsufficientHistoryIsNotMisconfiguration:
             evaluate_with_forecast(result, {"condition": "future_breach"}, None)
         # The distinction is the point: it must not be catchable as a configuration failure.
         assert not issubclass(InsufficientHistoryError, AlertExtractionError)
+
+
+class TestDecompositionCopy:
+    def _forecast(self, trend: float, weekly: float) -> ForecastResult:
+        return ForecastResult(
+            dates=["2026-04-01"],
+            yhat=[100.0],
+            lower=[90.0],
+            upper=[110.0],
+            components={"trend": [trend], "weekly": [weekly]},
+        )
+
+    def test_states_the_direction_in_the_metric_terms(self) -> None:
+        assert _decomposition_suffix(self._forecast(1210.0, -145.2), 0) == (
+            " (usual level around 1,210, typically 12% lower on this day of the week)"
+        )
+
+    def test_a_negative_trend_states_no_seasonality_rather_than_the_opposite(self) -> None:
+        """Dividing by a negative trend flips the sign, so a component that is lower would read as
+        higher. Opaque model output made that survivable; a plain sentence would not."""
+        suffix = _decomposition_suffix(self._forecast(-1000.0, -120.0), 0)
+        assert "higher" not in suffix
+        assert "lower" not in suffix
+        assert suffix == " (usual level around -1,000)"
+
+
+class TestBandDeviationModes:
+    def _verdict(self, **kw: Any) -> bool:
+        args: dict[str, Any] = {
+            "actual": 100.0,
+            "yhat": 100.0,
+            "lower": 90.0,
+            "upper": 110.0,
+            "direction": "both",
+            "error_mode": "prediction_interval",
+            "error_threshold_pct": None,
+            "error_threshold_abs": None,
+            "score_threshold": 0.0,
+        }
+        args.update(kw)
+        return _band_deviation_verdict(**args)[0]
+
+    @parameterized.expand(
+        [
+            # Direction filters which way counts, so an alert on revenue is not woken by a spike.
+            ("both fires on a spike", "both", 130.0, True),
+            ("both fires on a drop", "both", 70.0, True),
+            ("above ignores a drop", "above", 70.0, False),
+            ("above fires on a spike", "above", 130.0, True),
+            ("below ignores a spike", "below", 130.0, False),
+            ("below fires on a drop", "below", 70.0, True),
+        ]
+    )
+    def test_direction(self, _name, direction, actual, fires) -> None:
+        assert self._verdict(direction=direction, actual=actual) is fires
+
+    @parameterized.expand(
+        [
+            ("inside the percentage", 105.0, 0.1, False),
+            ("outside the percentage", 130.0, 0.1, True),
+            ("a wider percentage tolerates it", 130.0, 0.5, False),
+        ]
+    )
+    def test_relative_mode(self, _name, actual, pct, fires) -> None:
+        assert self._verdict(error_mode="relative", actual=actual, error_threshold_pct=pct) is fires
+
+    def test_relative_mode_near_zero_uses_the_band_as_the_scale(self) -> None:
+        """A share of the forecast is undefined near zero, which is ordinary for a count metric in
+        a quiet period. Without a floor this divides by ~0 and fires on any noise."""
+        # yhat 0, band half-width 10: a move of 1 is well inside, a move of 50 is not.
+        assert (
+            self._verdict(error_mode="relative", yhat=0.0, lower=-10.0, upper=10.0, actual=1.0, error_threshold_pct=0.5)
+            is False
+        )
+        assert (
+            self._verdict(
+                error_mode="relative", yhat=0.0, lower=-10.0, upper=10.0, actual=50.0, error_threshold_pct=0.5
+            )
+            is True
+        )
+
+    @parameterized.expand(
+        [
+            ("inside the amount", 105.0, 10.0, False),
+            ("outside the amount", 130.0, 10.0, True),
+        ]
+    )
+    def test_absolute_mode(self, _name, actual, amount, fires) -> None:
+        assert self._verdict(error_mode="absolute", actual=actual, error_threshold_abs=amount) is fires
+
+    @parameterized.expand(
+        [
+            # Band is 90..110, half-width 10. A point at 115 sits half a half-width past it.
+            ("just past the range still fires at 0", 115.0, 0.0, True),
+            ("half a half-width does not clear 1.0", 115.0, 1.0, False),
+            ("a full half-width does", 120.0, 1.0, True),
+        ]
+    )
+    def test_score_threshold(self, _name, actual, threshold, fires) -> None:
+        assert self._verdict(actual=actual, score_threshold=threshold) is fires
