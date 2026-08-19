@@ -13049,6 +13049,12 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
+    export interface Billing {
+      /** @maxLength 100 */
+      plan: string;
+      billing_limit: number;
+    }
+
     /**
      * * `check` - Check
      * * `firing` - Firing
@@ -13455,6 +13461,60 @@ export namespace Schemas {
       PosthogSystem: 'posthog_system',
     } as const;
 
+    export type BillingOverviewResponseProductsItem = {[key: string]: unknown};
+
+    export interface BillingOverviewResponse {
+      /** @nullable */
+      customer_id?: string | null;
+      /** @nullable */
+      billing_plan?: string | null;
+      /** @nullable */
+      subscription_level?: string | null;
+      has_active_subscription?: boolean;
+      deactivated?: boolean;
+      is_annual_plan_customer?: boolean;
+      /** @nullable */
+      free_trial_until?: string | null;
+      /** @nullable */
+      current_total_amount_usd?: string | null;
+      /** @nullable */
+      current_total_amount_usd_after_discount?: string | null;
+      /** @nullable */
+      projected_total_amount_usd?: string | null;
+      /** @nullable */
+      projected_total_amount_usd_after_discount?: string | null;
+      /** @nullable */
+      projected_total_amount_usd_with_limit?: string | null;
+      /** @nullable */
+      projected_total_amount_usd_with_limit_after_discount?: string | null;
+      /** @nullable */
+      discount_amount_usd?: string | null;
+      /** @nullable */
+      discount_percent?: number | null;
+      /** @nullable */
+      amount_off_expires_at?: string | null;
+      /** @nullable */
+      startup_program_label?: string | null;
+      /** @nullable */
+      startup_program_label_previous?: string | null;
+      /** @nullable */
+      stripe_portal_url?: string | null;
+      /** @nullable */
+      external_billing_provider_invoices_url?: string | null;
+      /** Subscribed and available products/addons with pricing, plan, limit, usage, and entitlement metadata. */
+      products?: BillingOverviewResponseProductsItem[];
+      available_product_features?: string[];
+      usage_summary?: unknown;
+      billing_period?: unknown;
+      custom_limits_usd?: unknown;
+      next_period_custom_limits_usd?: unknown;
+      trial?: unknown;
+      license?: unknown;
+      account_owner?: unknown;
+      customer_trust_scores?: unknown;
+      never_drop_data?: boolean;
+    }
+
     /**
      * * `excluded` - Excluded
      * * `credited` - Credited
@@ -13466,6 +13526,19 @@ export namespace Schemas {
       Excluded: 'excluded',
       Credited: 'credited',
     } as const;
+
+    export interface BillingPeriodResponse {
+      /**
+         * Start of the organization's current billing period, or null when billing has not synced a period.
+         * @nullable
+         */
+      current_period_start: string | null;
+      /**
+         * End of the organization's current billing period, or null when billing has not synced a period.
+         * @nullable
+         */
+      current_period_end: string | null;
+    }
 
     /**
      * * `team_retention` - team_retention
@@ -19365,21 +19438,22 @@ export namespace Schemas {
     }
 
     /**
-     * Binds a data-warehouse source to a custom property definition. Account sources read a
-     * materialized view column and sync onto matching accounts; person and group sources read a
-     * warehouse schema and sync onto matching persons or groups on each warehouse sync.
+     * Binds warehouse columns to a custom property definition. Account sources read a materialized
+     * view column and sync onto matching accounts; person and group sources read either an imported
+     * warehouse table or a materialized view, and sync onto matching persons or groups on every
+     * warehouse run of what they read.
      */
     export interface CustomPropertySource {
       readonly id: string;
       /** UUID of the custom property definition this source feeds. One source per definition. */
       definition: string;
       /**
-         * Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.
+         * UUID of the data-warehouse saved query to read from. Required for an account source. For a person or group source it must be a materialized view, and is one of the two binding options. Mutually exclusive with external_data_schema.
          * @nullable
          */
       saved_query?: string | null;
       /**
-         * Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+         * Person and group sources only: UUID of the warehouse schema (an imported table) to read from. Mutually exclusive with saved_query; a person or group source sets exactly one.
          * @nullable
          */
       external_data_schema?: string | null;
@@ -19391,7 +19465,7 @@ export namespace Schemas {
       source_column?: string | null;
       /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
       column_property_map?: unknown;
-      /** Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+      /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
       column_descriptions?: unknown;
       /**
          * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
@@ -19418,27 +19492,32 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
       /**
-         * Person and group sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+         * Person and group sources only: how often the bound table or view runs, in seconds. Null for account sources, or when the schedule is unavailable — including a view whose frequency is set on its data-modeling DAG.
          * @nullable
          */
       readonly sync_frequency_interval_seconds: number | null;
       /**
-         * Person and group sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+         * Person and group sources only: approximate time of the next scheduled run (last run + interval). Approximate — drifts if the schedule was paused. Null for account sources, if never run, or when the interval is unavailable.
          * @nullable
          */
       readonly next_sync_at: string | null;
       /** Person and group sources only: the most recent sync/backfill run, or null if none yet. */
       readonly latest_run: CustomPropertySyncRun | null;
       /**
-         * Person and group sources only: UUID of the warehouse source owning the schema, so the UI can link to the table. Null for account sources or when unavailable.
+         * Table-bound person and group sources only: UUID of the warehouse source owning the schema, so the UI can link to the table. Null for account sources, view-bound sources, or when unavailable.
          * @nullable
          */
       readonly external_data_source: string | null;
       /**
-         * Person and group sources only: the bound warehouse table as it is named in HogQL. Null for account sources or when unavailable.
+         * Person and group sources only: what this source reads, as it is named in HogQL — the imported table, or the view. Null for account sources or when unavailable.
          * @nullable
          */
       readonly table_name: string | null;
+      /**
+         * View-bound person and group sources only: the materialized view's name, so the UI can tell a view-backed source from a table-backed one. Null for account and table-bound sources.
+         * @nullable
+         */
+      readonly saved_query_name: string | null;
     }
 
     /**
@@ -29429,6 +29508,7 @@ export namespace Schemas {
     export interface ErrorTrackingBreakdownsQuery {
       breakdownProperties: string[];
       dateRange?: DateRange | null;
+      filterGroup?: PropertyGroupFilter | null;
       filterTestAccounts?: boolean | null;
       issueId: string;
       kind?: 'ErrorTrackingBreakdownsQuery';
@@ -30972,13 +31052,6 @@ export namespace Schemas {
       readonly evaluation_count: number;
     }
 
-    export interface EvaluationPattern {
-      title: string;
-      description: string;
-      frequency: string;
-      example_generation_ids: string[];
-    }
-
     /**
      * * `scheduled` - Scheduled
      * * `every_n` - Every N
@@ -31280,74 +31353,6 @@ export namespace Schemas {
          * @nullable
          */
       distinct_id?: string | null;
-    }
-
-    /**
-     * * `all` - all
-     * * `pass` - pass
-     * * `fail` - fail
-     * * `na` - na
-     */
-    export type FilterEnum = typeof FilterEnum[keyof typeof FilterEnum];
-
-
-    export const FilterEnum = {
-      All: 'all',
-      Pass: 'pass',
-      Fail: 'fail',
-      Na: 'na',
-    } as const;
-
-    /**
-     * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
-     */
-    export interface EvaluationSummaryRequest {
-      /** UUID of the evaluation config to summarize */
-      evaluation_id: string;
-      /** Filter type to apply ('all', 'pass', 'fail', or 'na')
-       *
-       * * `all` - all
-       * * `pass` - pass
-       * * `fail` - fail
-       * * `na` - na */
-      filter?: FilterEnum;
-      /**
-         * Optional: specific generation IDs to include in summary (max 250)
-         * @maxItems 250
-         */
-      generation_ids?: string[];
-      /** If true, bypass cache and generate a fresh summary */
-      force_refresh?: boolean;
-    }
-
-    export interface EvaluationSummaryStatistics {
-      total_analyzed: number;
-      pass_count: number;
-      fail_count: number;
-      na_count: number;
-    }
-
-    export interface EvaluationSummaryResponse {
-      overall_assessment: string;
-      pass_patterns: EvaluationPattern[];
-      fail_patterns: EvaluationPattern[];
-      na_patterns: EvaluationPattern[];
-      recommendations: string[];
-      statistics: EvaluationSummaryStatistics;
-    }
-
-    export interface EvaluationSummaryThrottleResponse {
-      /** Error category */
-      type: string;
-      /** Machine-readable error code */
-      code: string;
-      /** Why the request was throttled */
-      detail: string;
-      /**
-         * Related request field, when applicable
-         * @nullable
-         */
-      attr: string | null;
     }
 
     export interface EventDefinitionBasic {
@@ -37985,6 +37990,8 @@ export namespace Schemas {
       authored_report_count: number;
       /** Number of distinct inbox reports scouts edited via `edit_report`, deduped across runs, over the same most-recent-120-output-runs set as `count`, capped to the 50 most recently touched reports (the same slice the findings page lists) and excluding reports also authored within that set (authoring supersedes an edit; a report whose authoring run falls outside the cap counts as edited). */
       edited_report_count: number;
+      /** Number of scout runs created in the window, whether or not they produced output. Unlike the report tallies it is not capped, so it is the fleet's activity over the same span the output counts describe. */
+      run_count: number;
       /**
          * ISO-8601 timestamp of the most recent output run (TaskRun completion, falling back to run creation), or null when nothing was produced in the window.
          * @nullable
@@ -40423,6 +40430,11 @@ export namespace Schemas {
       /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
       error_kind?: string[];
       /**
+         * Restrict to invocations whose error_message contains this substring (case-insensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind).
+         * @maxLength 200
+         */
+      error_message_contains?: string;
+      /**
          * Skip invocations that have already been attempted this many times or more.
          * @minimum 1
          * @maximum 255
@@ -40505,6 +40517,11 @@ export namespace Schemas {
       duration_ms: number | null;
       attempts: number;
       is_retry: boolean;
+    }
+
+    export interface HogInvocationResultsCount {
+      /** Number of invocations matching the filters, without the list endpoint's 500-row cap. */
+      count: number;
     }
 
     export type HogLanguage = typeof HogLanguage[keyof typeof HogLanguage];
@@ -49552,7 +49569,6 @@ export namespace Schemas {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -49576,7 +49592,6 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       UserCreated: 'user_created',
-      Automation: 'automation',
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
@@ -54047,44 +54062,6 @@ export namespace Schemas {
     }
 
     /**
-     * Detail/create/update/run response for a task automation.
-     */
-    export interface TaskAutomationDTO {
-      id: string;
-      name: string;
-      prompt: string;
-      /** @nullable */
-      repository: string | null;
-      /** @nullable */
-      github_integration: number | null;
-      cron_expression: string;
-      timezone: string;
-      /** @nullable */
-      template_id: string | null;
-      enabled: boolean;
-      /** @nullable */
-      last_run_at: string | null;
-      /** @nullable */
-      last_run_status: string | null;
-      last_task_id: string;
-      /** @nullable */
-      last_task_run_id: string | null;
-      /** @nullable */
-      last_error: string | null;
-      created_at: string;
-      updated_at: string;
-    }
-
-    export interface PaginatedTaskAutomationDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskAutomationDTO[];
-    }
-
-    /**
      * * `anthropic` - anthropic
      * * `openai` - openai
      */
@@ -56254,6 +56231,12 @@ export namespace Schemas {
       /** @nullable */
       readonly display_status_message?: string | null;
       readonly import_config?: unknown;
+    }
+
+    export interface PatchedBilling {
+      /** @maxLength 100 */
+      plan?: string;
+      billing_limit?: number;
     }
 
     export interface PatchedBillingAlertConfiguration {
@@ -62923,47 +62906,6 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
-    /**
-     * Request body for creating or updating a task automation.
-     */
-    export interface PatchedTaskAutomationWrite {
-      /**
-         * Display name (stored as the backing task's title).
-         * @maxLength 255
-         */
-      name?: string;
-      /** The automation prompt (stored as the backing task's description). */
-      prompt?: string;
-      /**
-         * Target repository in the format organization/repository.
-         * @maxLength 255
-         */
-      repository?: string;
-      /**
-         * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-         * @nullable
-         */
-      github_integration?: number | null;
-      /**
-         * Standard 5-field cron expression (minute hour day month weekday).
-         * @maxLength 100
-         */
-      cron_expression?: string;
-      /**
-         * IANA timezone the schedule runs in.
-         * @maxLength 128
-         */
-      timezone?: string;
-      /**
-         * Optional template identifier this automation was created from.
-         * @maxLength 255
-         * @nullable
-         */
-      template_id?: string | null;
-      /** Whether the schedule is active; paused when false. */
-      enabled?: boolean;
-    }
-
     export interface PatchedTaskRunSetOutputRequest {
       /** Output data from the run. Validated against the task's json_schema if one is set. */
       output?: unknown;
@@ -63039,7 +62981,6 @@ export namespace Schemas {
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
-       * * `automation` - Automation
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
@@ -63083,14 +63024,12 @@ export namespace Schemas {
          */
       signal_report?: string | null;
       /**
-         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
          * @maxLength 200
          */
       signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
       /** If true, the task is hidden from default list responses. */
       archived?: boolean;
       /**
@@ -78576,47 +78515,6 @@ export namespace Schemas {
       artifacts: TaskArtifact[];
     }
 
-    /**
-     * Request body for creating or updating a task automation.
-     */
-    export interface TaskAutomationWrite {
-      /**
-         * Display name (stored as the backing task's title).
-         * @maxLength 255
-         */
-      name: string;
-      /** The automation prompt (stored as the backing task's description). */
-      prompt: string;
-      /**
-         * Target repository in the format organization/repository.
-         * @maxLength 255
-         */
-      repository: string;
-      /**
-         * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-         * @nullable
-         */
-      github_integration?: number | null;
-      /**
-         * Standard 5-field cron expression (minute hour day month weekday).
-         * @maxLength 100
-         */
-      cron_expression: string;
-      /**
-         * IANA timezone the schedule runs in.
-         * @maxLength 128
-         */
-      timezone?: string;
-      /**
-         * Optional template identifier this automation was created from.
-         * @maxLength 255
-         * @nullable
-         */
-      template_id?: string | null;
-      /** Whether the schedule is active; paused when false. */
-      enabled?: boolean;
-    }
-
     export interface TaskCommentAnchor {
       /** Anchor kind. */
       kind?: string;
@@ -78770,7 +78668,6 @@ export namespace Schemas {
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
-       * * `automation` - Automation
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
@@ -78814,14 +78711,12 @@ export namespace Schemas {
          */
       signal_report?: string | null;
       /**
-         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
          * @maxLength 200
          */
       signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
       /** If true, the task is hidden from default list responses. */
       archived?: boolean;
       /**
@@ -79934,7 +79829,6 @@ export namespace Schemas {
        * * `error_tracking` - Error Tracking
        * * `eval_clusters` - Eval Clusters
        * * `user_created` - User Created
-       * * `automation` - Automation
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
@@ -79978,14 +79872,12 @@ export namespace Schemas {
          */
       signal_report?: string | null;
       /**
-         * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+         * How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). Non-implementation labels count toward the report's discussion task limit.
          * @maxLength 200
          */
       signal_report_task_relationship?: string;
       /** JSON schema used to validate the output of the task. */
       json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
       /** If true, the task is hidden from default list responses. */
       archived?: boolean;
       /**
@@ -82566,11 +82458,11 @@ export namespace Schemas {
     }
 
     export interface _LogsServicesResponse {
-      /** Per-service aggregates, ordered by log_count descending. Capped at 1000 services. */
+      /** Per-service aggregates, ordered by log_count descending. Capped at 10000 services. */
       services: _LogsServiceAggregate[];
       /** Time-bucketed counts broken down by service, for plotting volume over time. Covers only the top 25 services in this response; re-request with `serviceNames` to get sparklines for specific services. */
       sparkline: _LogsServicesSparklineBucket[];
-      /** True distinct service count for the window and filters, unaffected by the 1000-service cap on `services`. Greater than the length of `services` when the response is truncated. */
+      /** True distinct service count for the window and filters, unaffected by the 10000-service cap on `services`. Greater than the length of `services` when the response is truncated. */
       total_services: number;
       /** Roll-up stats for the Services tab header. */
       summary?: _LogsServicesSummary;
@@ -87588,6 +87480,10 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ExternalDataSchemasCancelCreate200 = {
+      detail?: string;
+    };
+
     export type ExternalDataSchemasCancelCreate400 = {
       detail?: string;
     };
@@ -87622,6 +87518,14 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type ExternalDataSchemasReloadCreate400 = {
+      detail?: string;
+    };
+
+    export type ExternalDataSchemasResyncCreate400 = {
+      detail?: string;
     };
 
     export type ExternalDataSourcesListParams = {
@@ -88521,11 +88425,46 @@ export namespace Schemas {
      */
     distinct_id?: string;
     /**
+     * Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target.
+     * @minLength 1
+     * @maxLength 200
+     */
+    error_message_contains?: string;
+    /**
      * Maximum number of invocations to return (1-500, default 50).
      * @minimum 1
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
+     * @minLength 1
+     */
+    status?: string;
+    };
+
+    export type HogFlowsInvocationResultsCountRetrieveParams = {
+    /**
+     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Only return invocations triggered for this distinct_id (the person the run executed for).
+     * @minLength 1
+     */
+    distinct_id?: string;
+    /**
+     * Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target.
+     * @minLength 1
+     * @maxLength 200
+     */
+    error_message_contains?: string;
     /**
      * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
      * @minLength 1
@@ -89776,14 +89715,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
 
     export type LlmAnalyticsModelsRetrieveParams = {
     /**
@@ -92416,17 +92347,6 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
-    };
-
-    export type TaskAutomationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type TaskChannelsListParams = {

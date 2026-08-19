@@ -7,7 +7,7 @@ from django.shortcuts import redirect
 import requests
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -20,7 +20,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import get_authenticator_scopes, posthog_feature_flag_enabled
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from ee.billing.billing_manager import BillingManager
@@ -63,6 +63,10 @@ def user_has_billing_access(user: User, organization: Organization) -> bool:
     return _owner_only_billing_enabled(user, organization) is False
 
 
+def is_token_auth_request(request: Request) -> bool:
+    return get_authenticator_scopes(getattr(request, "successful_authenticator", None)) is not None
+
+
 class HasBillingAccess(permissions.BasePermission):
     """
     Permission to allow users with Billing access to access Billing endpoints.
@@ -85,6 +89,47 @@ class HasBillingAccess(permissions.BasePermission):
 class BillingSerializer(serializers.Serializer):
     plan = serializers.CharField(max_length=100)
     billing_limit = serializers.IntegerField()
+
+
+@extend_schema_serializer(many=False)
+class BillingOverviewResponseSerializer(serializers.Serializer):
+    customer_id = serializers.CharField(required=False, allow_null=True)
+    billing_plan = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    subscription_level = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    has_active_subscription = serializers.BooleanField(required=False)
+    deactivated = serializers.BooleanField(required=False)
+    is_annual_plan_customer = serializers.BooleanField(required=False)
+    free_trial_until = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    current_total_amount_usd = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    current_total_amount_usd_after_discount = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    projected_total_amount_usd = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    projected_total_amount_usd_after_discount = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    projected_total_amount_usd_with_limit = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    projected_total_amount_usd_with_limit_after_discount = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True
+    )
+    discount_amount_usd = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    discount_percent = serializers.FloatField(required=False, allow_null=True)
+    amount_off_expires_at = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    startup_program_label = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    startup_program_label_previous = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    stripe_portal_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
+    external_billing_provider_invoices_url = serializers.URLField(required=False, allow_blank=True, allow_null=True)
+    products = serializers.ListField(
+        child=serializers.DictField(child=serializers.JSONField(allow_null=True)),
+        required=False,
+        help_text="Subscribed and available products/addons with pricing, plan, limit, usage, and entitlement metadata.",
+    )
+    available_product_features = serializers.ListField(child=serializers.CharField(), required=False)
+    usage_summary = serializers.JSONField(required=False)
+    billing_period = serializers.JSONField(required=False, allow_null=True)
+    custom_limits_usd = serializers.JSONField(required=False)
+    next_period_custom_limits_usd = serializers.JSONField(required=False)
+    trial = serializers.JSONField(required=False, allow_null=True)
+    license = serializers.JSONField(required=False, allow_null=True)
+    account_owner = serializers.JSONField(required=False, allow_null=True)
+    customer_trust_scores = serializers.JSONField(required=False)
+    never_drop_data = serializers.BooleanField(required=False)
 
 
 class LicenseKeySerializer(serializers.Serializer):
@@ -140,21 +185,31 @@ class BillingPeriodResponseSerializer(serializers.Serializer):
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
+    pagination_class = None
     param_derived_from_user_current_team = "team_id"
 
-    scope_object = "INTERNAL"
+    scope_object = "billing"
+    scope_object_read_actions = ["list", "usage", "spend"]
+    scope_object_write_actions: list[str] = []
+    # OpenAPI skips root-router viewsets that derive their team from the current user.
+    # Billing opts in so generated clients and MCP scaffolding include these read actions.
+    force_include_in_api_docs = True
 
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
         user = self.request.user if isinstance(self.request.user, User) and self.request.user.distinct_id else None
         return BillingManager(license, user, ip_address=get_trusted_client_ip(self.request))
 
+    @extend_schema(responses={200: OpenApiResponse(response=BillingOverviewResponseSerializer)})
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()
         if license and not license.is_v2_license:
             raise NotFound("Billing is not supported for this license type")
 
         org = self._get_org()
+        if is_token_auth_request(request):
+            if not org or not isinstance(request.user, User) or not user_has_billing_access(request.user, org):
+                raise PermissionDenied("You do not have access to Billing for this organization.")
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
         if hasattr(org, "billing"):
@@ -682,11 +737,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return {}
 
     def _get_org(self) -> Optional[Organization]:
-        # root-router viewset with param_derived_from_user_current_team — no URL-scoped org to mismatch
-        # nosemgrep: cross-org-bypass-user-organization
-        org = None if self.request.user.is_anonymous else self.request.user.organization
+        if self.request.user.is_anonymous:
+            return None
 
-        return org
+        try:
+            return self.team.organization
+        except Exception:
+            return None
 
     def _get_org_required(self) -> Organization:
         org = self._get_org()

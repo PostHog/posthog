@@ -676,6 +676,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                 const dateRange = source?.dateRange
                 const breakdownBy = source?.breakdownBy
                 const value = record[0] ?? ''
+                const doPathCleaning = source?.doPathCleaning
 
                 return (
                     <div className="flex flex-row items-center justify-end">
@@ -686,9 +687,10 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                             value={value}
                             properties={source?.properties}
                             filter_test_accounts={source?.filterTestAccounts}
+                            doPathCleaning={doPathCleaning}
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
-                        <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />
+                        <ErrorTrackingButton breakdownBy={breakdownBy} value={value} doPathCleaning={doPathCleaning} />
                         <CreateSurveyButton value={value} />
                     </div>
                 )
