@@ -5088,6 +5088,10 @@ snapshots:
         hash: v1.k794b7964.4344045fc1bada8b4f2067de9f83cdb38b5dbe14719e7b4d332c2a7689a5d8cd.NvfJs1mb9VLArjiQdsrspse5hcopmjfyz4HXvwD_MZA
     products-data-modeling-lineage-graph--single-node--light:
         hash: v1.k794b7964.965d630c09110769bac58d2fc162856dc5303d9a98e97995aec4cc48098581da.Gi_VbiOcJVaHaHybXL8911KOWXwBMAGtbHwCIA2HO0E
+    products-mcp-analytics-routingbar--all-variants--dark:
+        hash: v1.k794b7964.769a69526cf676447319f587f24ed0d2670a137098867f8d3ee87ebda3415a70.3FGS0pbxxcrZUSto8SNCNHEkxaFXH6T8shqpdg5zzlQ
+    products-mcp-analytics-routingbar--all-variants--light:
+        hash: v1.k794b7964.7f57dacddb48fbad29a8614127d42d54425501b1f7755423d84316e1e937720e.thYPF2z3eMW5QvSe5SnvYtn35l6UCvUtsyx9EBLeqxk
     products-posthog-ai-composer--default--dark:
         hash: v1.k794b7964.4ccf5eb666de2b3315dc3f142ded80b445748d58ce8ae2d7d154272d7b194b3b.E61uR16UwC5qC1XkQquxMh1z3bonN6IYLdYDyzcorTA
     products-posthog-ai-composer--default--light:
@@ -6901,9 +6905,9 @@ snapshots:
     scenes-app-mcp-analytics--dashboard-with-menu-bar--light:
         hash: v1.k794b7964.0ac0bf1b02890312bdc239db7a4842f1a377468aa9c5ad67c926aecaccf510ce.V7Onp6uOX4j46-gDndut-qkT9N6LwIUCq5z4hVn-VZg
     scenes-app-mcp-analytics--intent-clustering--dark:
-        hash: v1.k794b7964.cb042849f291e0ec235b0261605cbe12165c559d1ca4f8de761a18908357270b.wBXNgw84NNQEI1gXsv5uFOiR7cRn5jNApZRApxKV_r0
+        hash: v1.k794b7964.64563081f2752d9d272a03b440d1d8d464e9401f7bba052ad69565ea3af0bc6e.T2vzGEgBaTrMVGr03LZiEmlTcTpJ9yApyM-oMO6RDiw
     scenes-app-mcp-analytics--intent-clustering--light:
-        hash: v1.k794b7964.484f20160cf83b4effbbc4e9fafeb27cce15dddd192d9e2c84c73d0d389360d1.TgrCvHQoDHfmlNJvQnch5Tgygpu5-sYcVhNems0DVEc
+        hash: v1.k794b7964.5db1fed9a3e5a5490f0d8135c781bffe4a0005510654cc3552978e21094d0d44.LJXBicQp3MWkKTBnnngZdfvu6ZZhmV1exzkPabI3rKs
     scenes-app-mcp-analytics--sessions--dark:
         hash: v1.k794b7964.e44b6747efcbc630753707078c16ebb36a05f9701fa89c014d8eebec1eabc4fb.i5C5Ib24E2xi_tzTLXniz3WM8UKaAFOj4aqVnMmtIiI
     scenes-app-mcp-analytics--sessions--light:
