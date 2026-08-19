@@ -306,8 +306,12 @@ const REDACTED_VALUE = '[redacted]'
 // Snowflake and friends all accept one as an alternative to discrete
 // host/user/password fields, and it carries the credentials inline
 // (`postgres://user:pass@host/db`) — MongoDB's source has no other field for them.
+// `certificate` covers Temporal Cloud's `client_certificate`: the source config
+// itself marks it `secret: true` even though the name reads as public key
+// material, and a client cert is namespace-identifying enough to keep out of
+// telemetry too.
 const SENSITIVE_KEY_PATTERN =
-    /password|passwd|passphrase|secret|credential|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|(^|[_-])(token|key|keys)$/i
+    /password|passwd|passphrase|secret|credential|certificate|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|(^|[_-])(token|key|keys)$/i
 
 function redactSecrets(value: unknown): unknown {
     if (Array.isArray(value)) {

@@ -455,6 +455,7 @@ describe('Hono MCP analytics contexts', () => {
             ['token', true],
             ['client_secret', true],
             ['connection_string', true],
+            ['client_certificate', true],
             ['token_id', false],
             ['token_url', false],
             ['app_tokens', false],
