@@ -171,7 +171,9 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                                             size="small"
                                                             icon={<IconCopy />}
                                                             onClick={() => {
-                                                                void navigator.clipboard.writeText(record.recordValue)
+                                                                void navigator.clipboard.writeText(
+                                                                    record.copyableValue ?? record.recordValue
+                                                                )
                                                                 lemonToast.success('Value copied to clipboard')
                                                             }}
                                                             tooltip="Copy value"
@@ -185,6 +187,13 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                                         <div className="flex gap-1 items-center">
                                                             <IconWarning className="size-6 text-warning" /> Not present
                                                         </div>
+                                                    ) : record.status === 'mismatch' ? (
+                                                        <Tooltip title="We found a record at this name, but its value is wrong. Update it to the value shown here.">
+                                                            <div className="flex gap-1 items-center">
+                                                                <IconWarning className="size-6 text-danger" /> Wrong
+                                                                value
+                                                            </div>
+                                                        </Tooltip>
                                                     ) : record.status === 'success' ? (
                                                         <div className="flex gap-1 items-center">
                                                             <IconCheckCircle className="size-6 text-success" /> Verified

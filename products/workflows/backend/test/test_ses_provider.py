@@ -203,6 +203,7 @@ class TestSESProvider(TestCase):
                     "status": "pending",
                     "type": "mail_from",
                     "priority": 10,
+                    "copyableValue": "10 feedback-smtp.us-east-1.amazonses.com.",
                 },
                 {
                     "recordHostname": "mail.test.posthog.com",
@@ -358,6 +359,43 @@ class TestSESProvider(TestCase):
         for token in ("token1", "token2", "token3"):
             expected = "success" if token in present_tokens else "pending"
             assert statuses[token] == expected, f"{token}: expected {expected}, got {statuses[token]}"
+
+    @parameterized.expand(
+        [
+            ("missing", None, "pending"),
+            ("present_correct", "feedback-smtp.us-east-1.amazonses.com.", "success"),
+            ("present_wrong", "mail.wrong-host.example.com.", "mismatch"),
+        ]
+    )
+    def test_verify_mx_reports_per_record_status_when_ses_is_not_success(self, _name, exchange, expected_status):
+        """A direct MX lookup tells a missing record apart from one present with the wrong value."""
+        provider = SESProvider()
+
+        def resolve_side_effect(hostname, rdtype=None):
+            if rdtype == "MX" and exchange is not None:
+                rdata = MagicMock()
+                rdata.exchange = dns.name.from_text(exchange)
+                return [rdata]
+            raise dns.resolver.NXDOMAIN()
+
+        with (
+            patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif,
+            patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim,
+            patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail,
+            patch("products.workflows.backend.providers.ses.dns.resolver.Resolver") as mock_resolver_cls,
+        ):
+            mock_resolver_cls.return_value.resolve.side_effect = resolve_side_effect
+            mock_verif.return_value = {"VerificationAttributes": {TEST_DOMAIN: {"VerificationStatus": "Success"}}}
+            mock_dkim.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}}
+            mock_mail.return_value = {"MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Pending"}}}
+
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+
+        mx_records = [r for r in result["dnsRecords"] if r["type"] == "mail_from" and r["recordType"] == "MX"]
+        assert len(mx_records) == 1
+        assert mx_records[0]["status"] == expected_status
+        # The copy value carries priority, host, and the trailing dot for combined-field DNS hosts
+        assert mx_records[0]["copyableValue"] == "10 feedback-smtp.us-east-1.amazonses.com."
 
 
 class TestSESResponseShapeContract(TestCase):

@@ -7831,8 +7831,9 @@ export interface EmailSenderDomainStatus {
               recordType: 'TXT' | 'MX'
               recordHostname: string
               recordValue: string
-              status: 'pending' | 'success'
+              status: 'pending' | 'success' | 'mismatch'
               priority?: number
+              copyableValue?: string
           }
     )[]
 }

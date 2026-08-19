@@ -19,11 +19,14 @@ export interface EmailSetupModalLogicProps {
 
 export interface ApiDnsRecord {
     type: string
-    status: 'success' | 'pending'
+    status: 'success' | 'pending' | 'mismatch'
     recordValue: string
     recordType: string
     recordHostname: string
     priority?: number
+    // Complete record data ready to paste on hosts that combine fields (MX only). When
+    // present, the copy button uses this instead of the split recordValue.
+    copyableValue?: string
 }
 
 export interface DnsRecord extends ApiDnsRecord {

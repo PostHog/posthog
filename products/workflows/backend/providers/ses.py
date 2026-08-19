@@ -299,6 +299,10 @@ class SESProvider:
                 "recordHostname": f"{mail_from_subdomain}.{domain}",
                 "recordValue": f"feedback-smtp.{ses_region}.amazonses.com",
                 "priority": 10,
+                # Many DNS hosts take priority and mail server in one field and reject the bare
+                # hostname. Hand back the full record data (priority, host, trailing dot) so the
+                # copy button gives a value they can paste as is.
+                "copyableValue": f"10 feedback-smtp.{ses_region}.amazonses.com.",
                 "status": "pending",
             }
         )
@@ -426,6 +430,27 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "mail_from":
                     r["status"] = "success"
+        else:
+            # SES reports one aggregate MAIL FROM status, so a wrong MX value just sits on
+            # "pending" with no hint. Do a direct MX lookup to tell "missing" apart from
+            # "present but wrong value".
+            resolver = dns.resolver.Resolver()
+            resolver.lifetime = 5
+            for r in dns_records:
+                if r["type"] != "mail_from" or r["recordType"] != "MX":
+                    continue
+                try:
+                    answers = resolver.resolve(r["recordHostname"], "MX")
+                    expected = dns.name.from_text(r["recordValue"])
+                    # dnspython Name comparison is case-insensitive per RFC 1035
+                    if any(rdata.exchange == expected for rdata in answers):
+                        r["status"] = "success"
+                    else:
+                        r["status"] = "mismatch"
+                except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.resolver.Timeout):
+                    pass
+                except Exception:
+                    logger.exception("Unexpected error during MX lookup for %s", r["recordHostname"])
         if dmarc_status == "Success":
             for r in dns_records:
                 if r["type"] == "dmarc":
