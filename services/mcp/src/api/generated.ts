@@ -29429,6 +29429,7 @@ export namespace Schemas {
     export interface ErrorTrackingBreakdownsQuery {
       breakdownProperties: string[];
       dateRange?: DateRange | null;
+      filterGroup?: PropertyGroupFilter | null;
       filterTestAccounts?: boolean | null;
       issueId: string;
       kind?: 'ErrorTrackingBreakdownsQuery';
