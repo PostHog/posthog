@@ -2791,11 +2791,17 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     provider_cpu_usage_attribution_usec = models.PositiveBigIntegerField(
         null=True, blank=True, help_text="Cumulative provider CPU time sampled when user attribution starts"
     )
+    provider_billed_cpu_usage_attribution_usec = models.PositiveBigIntegerField(
+        null=True, blank=True, help_text="Estimated billed CPU time sampled when user attribution starts"
+    )
     provider_cpu_usage_attribution_measured_at = models.DateTimeField(
         null=True, blank=True, help_text="When provider CPU usage was sampled at user attribution"
     )
     provider_cpu_usage_usec = models.PositiveBigIntegerField(
         null=True, blank=True, help_text="Cumulative provider CPU time sampled immediately before sandbox cleanup"
+    )
+    provider_billed_cpu_usage_usec = models.PositiveBigIntegerField(
+        null=True, blank=True, help_text="Estimated billed CPU time sampled immediately before sandbox cleanup"
     )
     provider_usage_measured_at = models.DateTimeField(
         null=True, blank=True, help_text="When provider resource usage was sampled"
