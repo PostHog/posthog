@@ -205,6 +205,24 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert again.ended_at == first.ended_at
         assert again.ended_reason == SandboxSession.EndedReason.CLEANUP
 
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_close_captures_analytics_once(self, mock_capture):
+        run = self._run()
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-analytics", config=_config())
+        record_task_run_user_activity(run.id, self.team.id)
+
+        close_sandbox_session("sb-analytics", reason=SandboxSession.EndedReason.CLEANUP)
+        close_sandbox_session("sb-analytics", reason=SandboxSession.EndedReason.REAPED)
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
+        assert len(captured) == 1
+        props = captured[0].kwargs["properties"]
+        assert props["ended_reason"] == SandboxSession.EndedReason.CLEANUP
+        assert props["runtime_seconds"] >= 0
+        assert props["idle_seconds"] >= 0
+        assert props["prewarmed"] is False
+        assert props["origin_product"] == Task.OriginProduct.USER_CREATED
+
     def test_close_records_provider_cpu_usage(self):
         run = self._run()
         open_sandbox_session(run_id=run.id, sandbox_id="sb-usage", config=_config(vm_runtime=True))
