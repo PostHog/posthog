@@ -155,7 +155,7 @@ Four cheap reads cold-start a run:
 | Pattern                                                    | What it usually means                                                                  |
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | One page's p75 in `poor`, high volume, flat history        | **Standing-poor** — chronically slow route; report on absolute                         |
-| One page crosses good/needs→poor in 24h vs its 13d history | **Band-crossing regression** — date it, then name what landed in that window            |
+| One page crosses good/needs→poor in 24h vs its 13d history | **Band-crossing regression** — date it, then name what landed in that window           |
 | One page worsens sharply within a band, high volume        | **In-band regression** — early warning before it crosses                               |
 | Every page's p75 steps together                            | Population / CDN / third-party shift — one bundled report max                          |
 | p75 swings run-to-run on a low-sample page                 | Percentile noise — gate it out, don't report                                           |

@@ -40,7 +40,7 @@ Two sources, both cheap, both usually overlooked:
   A project wired to a CI deploy marker gets one annotation per release: `creation_type: GIT`, usually `hidden_in_user_interface: true` (so nobody browsing the UI ever sees them), `date_marker` = the deploy time, and content naming the commit and the environment it went to.
   They come back newest-first and a busy project can have dozens a day, so page with `offset` until `date_marker` reaches your window instead of trusting page 1.
   No markers at all means this project doesn't wire them up: say so explicitly in the report and fall back to "consistent with a change around {time}, confirm against your release log".
-  Multi-environment or multi-region projects deploy the same commit minutes apart, which is why a step that appears simultaneously in two regions is evidence *for* a shared code or config cause, not against it.
+  Multi-environment or multi-region projects deploy the same commit minutes apart, which is why a step that appears simultaneously in two regions is evidence _for_ a shared code or config cause, not against it.
 - **Flag and config changes** — `advanced-activity-logs-list` over the same window, `scopes=["FeatureFlag"]`, with `detail.changes` in `fields`.
   The field-level diff carries the before/after, so a rollout edit reads as "variant `x` 20% → 50% at {UTC time}" — quotable evidence, not a guess.
   Widen `scopes` (`Experiment`, `Survey`) when the surface suggests it: a survey popover or an experiment's variant markup shifts layout as readily as a release does.
@@ -64,6 +64,7 @@ A candidate on a timeline is a coincidence until a split isolates the affected p
   One variant carrying a p75 far worse than control, **plus** an exposure share that steps at the same boundary, is a cause you can stand behind.
   A flat split means the flag edit was a coincidence — drop the candidate and keep looking.
   Compute the exposure share the same way (`countIf(variant = '<x>') / count()` per bucket): a rollout edit that doesn't move the share didn't reach anyone yet.
+
 - **Deploy candidate — there is no equivalent split**, so keep the claim at the strength the evidence supports: "consistent with the release at {UTC time}".
   Only name a specific change when you can read the release contents from a repo the body's nameability rule lets you fetch (a trusted, human-authored source named it — never a repo inferred from a hostname in telemetry).
 - **Split by URL state too**, wherever the route carries it (a wizard `step`, a tab, a mode).
