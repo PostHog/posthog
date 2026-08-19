@@ -53,8 +53,7 @@ describe("startup location", () => {
   });
 
   it("skips the first-run treatment when the server created nothing", async () => {
-    // A reinstall loses the saved location, but the spaces already exist, so
-    // the user lands on #general without the first-run ceremony.
+    // A reinstall loses the saved location while the spaces survive.
     vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
     const client = {
       provisionDefaultTaskChannels: vi.fn().mockResolvedValue({
@@ -71,9 +70,8 @@ describe("startup location", () => {
   });
 
   it("carries an install from before provisioning back to where it was", async () => {
-    // The old key is the only trace of an install that predates the default spaces.
-    // Nothing else provisions now, so this launch is its one chance to get them, and it
-    // must still land where the user left off rather than on a first-run #general.
+    // The old key is the only trace of an install that predates the default
+    // spaces, and it still has to land where the user left off.
     vi.spyOn(stateStorage, "getItem").mockImplementation(async (key) =>
       key.includes(":v2:") ? null : "/website/old-space",
     );
@@ -94,6 +92,25 @@ describe("startup location", () => {
     });
     expect(client.provisionDefaultTaskChannels).toHaveBeenCalledOnce();
     expect(removeItem).toHaveBeenCalledWith("startup-location:project");
+  });
+
+  it("opens anyway when provisioning is unavailable", async () => {
+    // A server that cannot provision yet must not cost someone their location.
+    vi.spyOn(stateStorage, "getItem").mockImplementation(async (key) =>
+      key.includes(":v2:") ? null : "/website/old-space",
+    );
+    const removeItem = vi
+      .spyOn(stateStorage, "removeItem")
+      .mockResolvedValue(undefined);
+    const client = {
+      provisionDefaultTaskChannels: vi.fn().mockRejectedValue(new Error("404")),
+    };
+
+    await expect(resolveStartupLocation("project", client)).resolves.toEqual({
+      href: "/website/old-space",
+      firstRun: null,
+    });
+    expect(removeItem).not.toHaveBeenCalled();
   });
 
   it("consumes a primed provisioning result exactly once", async () => {

@@ -6416,13 +6416,8 @@ _CHANNEL_NAME_SEPARATORS = re.compile(r"[^a-z0-9]+")
 
 def normalize_channel_name(name: str) -> str:
     """Slack-style channel key: lowercase letters, digits and dashes, with every run of
-    anything else becoming a single dash. Mirrors ``normalizeChannelName`` in
-    ``channelName.ts``, which is what Desktop applies to the field as the user types; the
-    two have to agree or a name is stored differently from the one the user was shown.
-
-    Channels are resolved by name from client-side surfaces (folder names), so the stored
-    key must be canonical for the (team, name) uniqueness to mean anything. Dropping "#"
-    matters on top of that, because several surfaces write one in front of the name.
+    anything else becoming a single dash. Must stay in step with ``normalizeChannelName``
+    in ``channelName.ts``, or a name is stored in a shape the field cannot produce.
 
     Returns "" for a name with nothing usable in it, which callers reject.
     """
@@ -6434,9 +6429,8 @@ RESERVED_CHANNEL_NAMES = PERSONAL_SPACE_NAMES | {Channel.GENERAL_CHANNEL_NAME}
 
 
 def is_personal_space_name(name: str) -> bool:
-    """Reads as somebody's private space. Desktop decides the lock glyph and the label from
-    a bare name on surfaces that hold nothing else, so a shared space carrying one of these
-    would present itself as private."""
+    """Reads as somebody's private space. Surfaces holding a bare name decide the lock and
+    the label from it, so a shared space under one of these presents itself as private."""
     return normalize_channel_name(name) in PERSONAL_SPACE_NAMES
 
 
@@ -6500,7 +6494,6 @@ def _ensure_system_channel(
             )
         except IntegrityError:
             channel, created = channels.get(team_id=team_id, **legacy_lookup), False
-        # Only shared feeds get the "created this space" announcement.
         if created and channel.channel_type == Channel.ChannelType.PUBLIC:
             _emit_channel_created(channel, user_id)
     if channel.system_role != role:
@@ -6544,8 +6537,8 @@ def _ensure_general_channel(team_id: int, user_id: int | None) -> tuple[Channel,
 
 
 def _is_general_channel(channel: Channel) -> bool:
-    """Mirrors the client check in ``channelName.ts``: a row created before the role
-    existed, or by a name-based path, is still the team's general space."""
+    """Must match ``isGeneralChannel`` in ``channelName.ts``: a row with no role but the
+    general name is still the team's general space."""
     if channel.system_role is not None:
         return channel.system_role == Channel.SystemRole.GENERAL
     return channel.channel_type == Channel.ChannelType.PUBLIC and channel.name == Channel.GENERAL_CHANNEL_NAME
@@ -6564,9 +6557,8 @@ def provision_default_channels(team_id: int, user_id: int) -> contracts.Provisio
 
 
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
-    """Every space the requester can see — the team's public spaces plus their own personal
-    one — by name. Which spaces matter more is the reader's question, so the order carries no
-    opinion about it. ``starred`` reflects the requester's stars. Does not create anything."""
+    """Every space the requester can see, by name. ``starred`` reflects the requester's
+    stars. Creates nothing, which is what lets a caller gate on a space existing."""
     channels = list(
         _team_channels(team_id).select_related("created_by").filter(Channel.visible_to_q(user_id)).order_by("name")
     )
