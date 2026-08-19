@@ -60,10 +60,7 @@ import {
 } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import { ChatThreadFooter } from "@posthog/ui/features/sessions/components/chat-thread/ChatThreadFooter";
 import { ChatThreadChromeProvider } from "@posthog/ui/features/sessions/components/chat-thread/chatThreadChrome";
-import {
-  PROMPT_RECALL_HINT_KEY,
-  type PromptRecallHandler,
-} from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
+import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { MessageMinimap } from "@posthog/ui/features/sessions/components/chat-thread/MessageMinimap";
 import { ToolGroup } from "@posthog/ui/features/sessions/components/chat-thread/ToolGroup";
@@ -132,6 +129,7 @@ import {
   useSessionTaskId,
 } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
@@ -1018,7 +1016,7 @@ function ThreadKeyboardNav({
       const nextId = userMessageIds[nextIndex];
       if (!nextId) return;
 
-      useSettingsStore.getState().markHintLearned(PROMPT_RECALL_HINT_KEY);
+      useSettingsStore.getState().markHintLearned(TIP_KEYS.recallMessageNav);
       setKeyboardFocusedMessageId(nextId);
       jump(nextId);
     },
@@ -1246,6 +1244,13 @@ interface SharedChatThreadProps {
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
+  /**
+   * Chain index of the oldest loaded entry; 0 means the whole transcript is loaded. Above 0 the
+   * thread renders windowed regardless of length, because only that body survives a prepend.
+   */
+  olderHistoryCursor?: number;
+  isLoadingOlderHistory?: boolean;
+  onLoadOlderHistory?: () => void;
 }
 
 export interface ChatThreadProps extends SharedChatThreadProps {
@@ -1344,6 +1349,9 @@ function ChatThreadRenderer({
   footerState,
   hasPendingPermission,
   promptRecallRef,
+  olderHistoryCursor = 0,
+  isLoadingOlderHistory,
+  onLoadOlderHistory,
 }: ChatThreadRendererProps) {
   const diffWorkerFactory = useService<DiffWorkerFactory>(DIFF_WORKER_FACTORY);
   const diffsPoolOptions = useMemo(
@@ -1372,11 +1380,15 @@ function ChatThreadRenderer({
   // stays there for the life of this mount (see CHAT_THREAD_VIRTUALIZATION_THRESHOLD). Long
   // sessions start virtualized from the first render; a live session flips once mid-stream,
   // resuming from the scroll state the non-virtualized body recorded.
+  //
+  // A pageable transcript is windowed however short it is: prepending older history shifts the
+  // non-virtualized body's ordinal keys, which rebinds mounted rows to older content and loses the
+  // reader's place (see {@link keyTurnRows}).
   const flatCount = useMemo(() => countFlatRows(rows), [rows]);
-  const [virtualized, setVirtualized] = useState(
-    () => flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD,
-  );
-  if (!virtualized && flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD) {
+  const needsWindowing =
+    flatCount > CHAT_THREAD_VIRTUALIZATION_THRESHOLD || olderHistoryCursor > 0;
+  const [virtualized, setVirtualized] = useState(() => needsWindowing);
+  if (!virtualized && needsWindowing) {
     setVirtualized(true);
   }
   const flatRows = useMemo(
@@ -1540,6 +1552,9 @@ function ChatThreadRenderer({
                 footer={footer}
                 renderNav={renderNav}
                 resumeRef={threadResumeRef}
+                olderHistoryCursor={olderHistoryCursor}
+                isLoadingOlderHistory={isLoadingOlderHistory}
+                onLoadOlderHistory={onLoadOlderHistory}
               />
             ) : (
               <>

@@ -362,6 +362,53 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is True
 
+    @parameterized.expand(
+        [
+            ("live_access_token", 1, False, False, True),
+            ("live_refresh_token_only", -1, True, False, True),
+            ("expired_access_token_only", -1, False, False, False),
+            ("live_access_token_first_party", 1, False, True, False),
+        ]
+    )
+    def test_requires_credential_review_for_oauth_access(
+        self,
+        _name: str,
+        expires_hours: int,
+        with_refresh_token: bool,
+        is_first_party: bool,
+        expected: bool,
+    ):
+        User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
+        app = OAuthApplication.objects.create(
+            name="Provisioning partner",
+            client_id="test_credential_review_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+            is_first_party=is_first_party,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token="test_credential_review_access_token",
+            scope="openid",
+            expires=timezone.now() + timedelta(hours=expires_hours),
+        )
+        if with_refresh_token:
+            OAuthRefreshToken.objects.create(
+                user=self.user,
+                application=app,
+                token="test_credential_review_refresh_token",
+                access_token=access_token,
+            )
+
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is expected
+
     def test_credentials_review_complete_endpoint(self):
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(

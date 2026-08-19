@@ -21,7 +21,14 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotAuthenticated, NotFound, ParseError, PermissionDenied, ValidationError
+from rest_framework.exceptions import (
+    APIException,
+    NotAuthenticated,
+    NotFound,
+    ParseError,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.parsers import BaseParser
 from rest_framework.permissions import IsAuthenticated
@@ -36,12 +43,7 @@ from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.models import User
-from posthog.permissions import (
-    APIScopePermission,
-    DenyMCPBuiltInAgentOAuth,
-    get_authenticator_scoped_team_ids,
-    get_authenticator_scopes,
-)
+from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import CodeInviteThrottle, TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
@@ -63,6 +65,7 @@ from products.tasks.backend.facade.access import (
     compute_quota_limit_response,
     usage_limit_response,
 )
+from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import get_task_client_provenance
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.metrics import (
@@ -102,8 +105,6 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextResponseSerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
-    TaskAutomationSerializer,
-    TaskAutomationWriteSerializer,
     TaskCommentDetailQuerySerializer,
     TaskCommentDetailSerializer,
     TaskCommentsQuerySerializer,
@@ -157,6 +158,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskStagedArtifactsPrepareUploadResponseSerializer,
     TaskSummariesRequestSerializer,
     TaskSummarySerializer,
+    TaskUsageResponseSerializer,
     TaskWriteSerializer,
     WarmTaskRequestSerializer,
     WarmTaskResponseSerializer,
@@ -279,6 +281,12 @@ def _parse_slack_thread_url(url: str) -> tuple[str, str] | None:
     return channel, f"{raw_ts[:-6]}.{raw_ts[-6:]}"
 
 
+class TaskUsageUpstreamUnavailable(APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = "Task usage is temporarily unavailable."
+    default_code = "task_usage_upstream_unavailable"
+
+
 @extend_schema(tags=["tasks"])
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
@@ -393,6 +401,31 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if task is None:
             raise NotFound()
         return Response(TaskSerializer(task).data)
+
+    @extend_schema(
+        operation_id="tasks_usage_retrieve",
+        responses={200: TaskUsageResponseSerializer},
+        summary="Get task usage",
+        description="Return estimated model and cloud compute costs attributed to a task.",
+    )
+    @action(detail=True, methods=["get"], url_path="usage", required_scopes=["task:read"])
+    def usage(self, request, pk=None, **kwargs):
+        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        if task is None or task.created_at is None:
+            raise NotFound()
+        try:
+            usage = get_task_usage(team_id=self.team_id, task_id=task.id, task_created_at=task.created_at)
+        except TaskTokenUsageUnavailable as error:
+            raise TaskUsageUpstreamUnavailable() from error
+        return Response(
+            TaskUsageResponseSerializer(
+                {
+                    "token_cost_usd": usage.token_cost_usd,
+                    "compute_cost_usd": usage.compute_cost_usd,
+                    "total_cost_usd": usage.total_cost_usd,
+                }
+            ).data
+        )
 
     @extend_schema(operation_id="tasks_artifacts_list", responses=TaskArtifactsResponseSerializer)
     @action(detail=True, methods=["get"], url_path="artifacts", required_scopes=["task:read"])
@@ -1014,122 +1047,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if outcome == "not_found":
             raise NotFound("device_id does not match a push token registered by the caller")
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class DenyBuiltInAgentTaskAutomations(DenyMCPBuiltInAgentOAuth):
-    """Automations schedule future runs that resolve a member's credentials, so a
-    built-in agent's sandbox token must not create or trigger them."""
-
-    message = "Built-in agents cannot manage task automations."
-
-
-@extend_schema(tags=["task-automations"])
-class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """API for managing scheduled task automations."""
-
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, DenyBuiltInAgentTaskAutomations]
-    scope_object = "task"
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-
-    def _write_serializer(self, data, *, partial: bool = False) -> TaskAutomationWriteSerializer:
-        serializer = TaskAutomationWriteSerializer(
-            data=data, partial=partial, context={"team": self.team, "team_id": self.team.id}
-        )
-        serializer.is_valid(raise_exception=True)
-        return serializer
-
-    @staticmethod
-    def _facade_kwargs(validated_data: dict) -> dict:
-        """Translate the resolved ``github_integration`` instance to its id for the facade."""
-        kwargs = dict(validated_data)
-        if "github_integration" in kwargs:
-            integration = kwargs.pop("github_integration")
-            kwargs["github_integration_id"] = integration.id if integration is not None else None
-        return kwargs
-
-    @extend_schema(responses={200: TaskAutomationSerializer(many=True)})
-    def list(self, request, **kwargs):
-        automations = tasks_facade.list_task_automations(self.team_id, getattr(request.user, "id", None))
-        page = self.paginate_queryset(automations)
-        if page is not None:
-            return self.get_paginated_response(TaskAutomationSerializer(page, many=True).data)
-        return Response(TaskAutomationSerializer(automations, many=True).data)
-
-    @extend_schema(responses={200: TaskAutomationSerializer})
-    def retrieve(self, request, pk=None, **kwargs):
-        automation = tasks_facade.get_task_automation(pk, self.team_id, getattr(request.user, "id", None))
-        if automation is None:
-            raise NotFound()
-        return Response(TaskAutomationSerializer(automation).data)
-
-    @extend_schema(
-        request=TaskAutomationWriteSerializer,
-        responses={
-            201: TaskAutomationSerializer,
-            403: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access is required",
-            ),
-        },
-    )
-    def create(self, request, **kwargs):
-        # Automations schedule cloud runs, so creating one needs the same Desktop access as
-        # running a task. No Inbox surface creates automations, so no exemption applies.
-        if access_response := code_access_required_response(request.user):
-            return access_response
-        serializer = self._write_serializer(request.data)
-        automation = tasks_facade.create_task_automation(
-            self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
-        )
-        return Response(TaskAutomationSerializer(automation).data, status=status.HTTP_201_CREATED)
-
-    @extend_schema(
-        request=TaskAutomationWriteSerializer,
-        responses={
-            200: TaskAutomationSerializer,
-            403: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access is required",
-            ),
-        },
-    )
-    def partial_update(self, request, pk=None, **kwargs):
-        serializer = self._write_serializer(request.data, partial=True)
-        if serializer.validated_data.get("enabled") is True:
-            if access_response := code_access_required_response(request.user):
-                return access_response
-        automation = tasks_facade.update_task_automation(
-            pk, self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
-        )
-        if automation is None:
-            raise NotFound()
-        return Response(TaskAutomationSerializer(automation).data)
-
-    @extend_schema(responses={204: None})
-    def destroy(self, request, pk=None, **kwargs):
-        if not tasks_facade.delete_task_automation(pk, self.team_id, getattr(request.user, "id", None)):
-            raise NotFound()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @extend_schema(
-        request=None,
-        responses={
-            200: TaskAutomationSerializer,
-            403: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access is required",
-            ),
-        },
-    )
-    @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
-    def run(self, request, pk=None, **kwargs):
-        if access_response := code_access_required_response(request.user):
-            return access_response
-        automation = tasks_facade.run_task_automation_now(pk, self.team_id, getattr(request.user, "id", None))
-        if automation is None:
-            raise NotFound()
-        return Response(TaskAutomationSerializer(automation).data)
 
 
 @extend_schema(tags=["task-runs", "tasks"])
