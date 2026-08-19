@@ -16,11 +16,12 @@ After the pull request merges to `master`, the `Release CLI` workflow:
 
 1. Checks for pending CLI changesets
 2. Waits for approval in the GitHub `Release SDK` environment
-3. Runs `sampo release` from `./cli`
-4. Updates `cli/Cargo.toml`, `cli/Cargo.lock`, and `cli/CHANGELOG.md`
-5. Commits the release bump to `master`
-6. Runs cargo-dist against the release bump commit
-7. Creates the `posthog-cli/vX.Y.Z` GitHub release, refreshes `posthog-cli-latest` for stable releases, and publishes the npm package
+3. Updates to the latest `master` and stops successfully if no changesets remain
+4. Runs `sampo release` from `./cli`
+5. Updates `cli/Cargo.toml`, `cli/Cargo.lock`, and `cli/CHANGELOG.md`
+6. Commits the release bump to `master`
+7. Runs cargo-dist against the release bump commit
+8. Creates the `posthog-cli/vX.Y.Z` GitHub release, refreshes `posthog-cli-latest` for stable releases, and publishes the npm package
 
 Do not run `sampo publish`; cargo-dist owns publishing for `posthog-cli`.
 

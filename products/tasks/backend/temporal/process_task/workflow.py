@@ -326,6 +326,11 @@ _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 
+# Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
+# the message's dedupe key so a retry can land; background runs keep the fail-fast
+# terminalization poll_for_turn callers rely on. Same cleanup lifecycle as above.
+_PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN = "tasks-followup-failure-keeps-run"
+
 # `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
 # Django model imports.
 _ONBOARDING_ORIGIN_PRODUCT = "onboarding"
@@ -801,7 +806,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._ci_repetitions += 1
         ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
         self._last_active_time = workflow.now()
-        await self._send_followup_to_sandbox(ci_message, [])
+        await self._send_followup_to_sandbox(ci_message, [], user_originated=False)
 
     @workflow.run
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
@@ -2566,6 +2571,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         context: dict[str, Any] | None = None,
         *,
         steer: bool = False,
+        user_originated: bool = True,
     ) -> str | None:
         workflow.logger.info(
             "send_followup_dispatch_begin",
@@ -2608,8 +2614,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     **error_properties,
                 },
             )
-            # Mark the run as failed so poll_for_turn sees a terminal status
-            # immediately instead of waiting for the inactivity timeout.
+            if self.context.mode == "interactive" and workflow.patched(_PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN):
+                if message_id:
+                    dedupe_key = _message_dedupe_key(message_id, actor_user_id, context)
+                    if dedupe_key in self._accepted_message_id_set:
+                        self._accepted_message_id_set.discard(dedupe_key)
+                        self._accepted_message_ids.remove(dedupe_key)
+                if user_originated:
+                    # A user follow-up can arrive without a message_id, so the card can't hinge on
+                    # one; the generated group still gives the user a failure notice instead of a
+                    # silently frozen conversation. CI nudges skip it because the copy is user-facing.
+                    await self._emit_progress(
+                        step="followup_delivery",
+                        status="failed",
+                        label="Couldn't deliver your message",
+                        group=f"followup-delivery:{message_id or workflow.uuid4()}",
+                        detail=str(cause_message or e),
+                    )
+                return None
             self._completion_status = "failed"
             self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
             self._completion_error_type = "followup_delivery_failed"

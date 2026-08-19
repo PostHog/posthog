@@ -113,6 +113,25 @@ def resolve_github_setup_callback_context(
     return team_id, next_url
 
 
+def callback_authorize_state(user_id: int, state_raw: str | None) -> GitHubAuthorizeState | None:
+    """The authorize state a callback belongs to, or ``None`` when it carries none for this user.
+
+    Resolves the token from the ``state`` query param first, then the user's pending record, the
+    same way ``views._parse_callback`` routes a callback. Read-only, unlike
+    ``consume_github_authorize_state``: callers further down the callback still need the state.
+
+    Any logged-in user can be sent to the callback URL cross-site, so this is what separates a
+    callback the user started from one an attacker handed them.
+    """
+    token, _ = parse_github_authorize_state_param(state_raw)
+    if token is None:
+        pending_token = cache.get(unified_authorize_pending_cache_key(user_id))
+        token = str(pending_token) if pending_token is not None else None
+    if not token:
+        return None
+    return load_authorize_state(token, user_id=user_id)
+
+
 def has_pending_personal_setup_update(user: User, installation_id: str | None) -> bool:
     pending_token = cache.get(unified_authorize_pending_cache_key(user.id))
     if pending_token is None:

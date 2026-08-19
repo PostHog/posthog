@@ -54,11 +54,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
-        has_data_warehouse_series = (
-            self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
-        )
-
-        if has_data_warehouse_series or retention_fixed_interval_base_query_use_dwh_variant(self.team):
+        if self.has_data_warehouse_series or retention_fixed_interval_base_query_use_dwh_variant(self.team):
             return self.build_base_query_dwh(
                 start_interval_index_filter=start_interval_index_filter,
                 selected_breakdown_value=selected_breakdown_value,
@@ -549,8 +545,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     ) -> ast.SelectQuery:
         entity_is_dwh = entity.type == EntityType.DATA_WAREHOUSE
 
-        actor_column_name = self.entity_actor_id_column(entity)
-        actor_field = ast.Field(chain=[actor_column_name])
+        actor_field = self.coerce_actor_id_expr(self.entity_actor_id_expr(entity))
 
         timestamp_column_name = entity.timestamp_field if entity_is_dwh else "timestamp"
         assert timestamp_column_name
