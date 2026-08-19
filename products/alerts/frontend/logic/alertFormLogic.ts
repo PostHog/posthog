@@ -140,6 +140,14 @@ export function insightAlertKindForQuery(query?: Record<string, any> | null): In
     return 'trends'
 }
 
+/**
+ * A 404 from an alert mutation means the alert is already gone server-side (deleted in another tab
+ * or session). The caller's goal is met, so treat it as success rather than an error.
+ */
+export function alertAlreadyGone(error: unknown): boolean {
+    return error instanceof ApiError && error.status === 404
+}
+
 export interface AlertFormLogicProps {
     alert: AlertType | null
     insightId: QueryBasedInsightModel['id']
@@ -845,42 +853,77 @@ export const alertFormLogic = kea<alertFormLogicType>([
             return undefined
         }
 
+        // Drop the alert from the list, refetch, and close the modal.
+        const handleAlertGone = (alertId: string): void => {
+            const parent = getParentLogic()
+            if (parent) {
+                parent.actions.removeAlert(alertId)
+                parent.actions.loadAlerts()
+            }
+            props.onEditSuccess(undefined)
+        }
+
         return {
             deleteAlert: async () => {
                 if (!values.alertForm.id) {
                     throw new Error("Cannot delete alert that doesn't exist")
                 }
-                await api.alerts.delete(values.alertForm.id)
-                lemonToast.success('Alert deleted.')
-                const parent = getParentLogic()
-                if (parent) {
-                    parent.actions.removeAlert(values.alertForm.id)
-                    parent.actions.loadAlerts()
+                const alertId = values.alertForm.id
+                try {
+                    await api.alerts.delete(alertId)
+                } catch (error) {
+                    if (!alertAlreadyGone(error)) {
+                        lemonToast.error("Couldn't delete the alert. Try again.")
+                        return
+                    }
                 }
-                props.onEditSuccess(undefined)
+                lemonToast.success('Alert deleted.')
+                handleAlertGone(alertId)
             },
             snoozeAlert: async ({ snoozeUntil }) => {
                 if (!values.alertForm.id) {
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: resolveSnoozeUntil(snoozeUntil),
-                })
+                const alertId = values.alertForm.id
+                let updatedAlert: AlertType
+                try {
+                    updatedAlert = await api.alerts.update(alertId, {
+                        snoozed_until: resolveSnoozeUntil(snoozeUntil),
+                    })
+                } catch (error) {
+                    if (alertAlreadyGone(error)) {
+                        lemonToast.info('This alert no longer exists.')
+                        handleAlertGone(alertId)
+                        return
+                    }
+                    throw error
+                }
                 hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
                     parent.actions.loadAlerts()
                 }
-                props.onEditSuccess(values.alertForm.id)
+                props.onEditSuccess(alertId)
             },
             clearSnooze: async () => {
                 if (!values.alertForm.id) {
                     throw new Error("Cannot resolve alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: null,
-                })
+                const alertId = values.alertForm.id
+                let updatedAlert: AlertType
+                try {
+                    updatedAlert = await api.alerts.update(alertId, {
+                        snoozed_until: null,
+                    })
+                } catch (error) {
+                    if (alertAlreadyGone(error)) {
+                        lemonToast.info('This alert no longer exists.')
+                        handleAlertGone(alertId)
+                        return
+                    }
+                    throw error
+                }
                 hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {

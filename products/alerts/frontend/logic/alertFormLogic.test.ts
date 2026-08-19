@@ -25,6 +25,7 @@ import { InsightLogicProps, InsightShortId } from '~/types'
 import { supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import {
+    alertAlreadyGone,
     alertFormLogic,
     canCheckOngoingInterval,
     ongoingIntervalField,
@@ -1116,5 +1117,77 @@ describe('alertFormLogic', () => {
             expect(field.disabledReason !== undefined).toBe(hasReason)
             expect(field.tooltip.length).toBeGreaterThan(0)
         })
+    })
+
+    describe('deleting an alert with stale state', () => {
+        let infoToastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            infoToastSpy = jest.spyOn(lemonToast, 'info').mockImplementation(jest.fn())
+        })
+
+        function mountExistingAlert(onEditSuccess: jest.Mock = jest.fn()): ReturnType<typeof alertFormLogic.build> {
+            const logic = alertFormLogic({
+                alert: makeSavedAlert({ id: 'alert-1' }),
+                insightId: 42,
+                onEditSuccess,
+                insightVizDataLogicProps: insightLogicProps,
+                insightInterval: 'day',
+            })
+            logic.mount()
+            return logic
+        }
+
+        // Regression: `deleteAlert` had no try/catch, so a 404 from a concurrently deleted alert became
+        // an unhandled exception instead of closing the modal.
+        it('treats a 404 on delete as success (alert already gone)', async () => {
+            jest.spyOn(api.alerts, 'delete').mockRejectedValue(new ApiError('Not found.', 404))
+            const onEditSuccess = jest.fn()
+            const logic = mountExistingAlert(onEditSuccess)
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteAlert()
+            }).toFinishAllListeners()
+
+            expect(successToastSpy).toHaveBeenCalledWith('Alert deleted.')
+            expect(errorToastSpy).not.toHaveBeenCalled()
+            expect(onEditSuccess).toHaveBeenCalledWith(undefined)
+        })
+
+        it('shows an error toast and keeps the modal open on a non-404 delete failure', async () => {
+            jest.spyOn(api.alerts, 'delete').mockRejectedValue(new ApiError('Server error.', 500))
+            const onEditSuccess = jest.fn()
+            const logic = mountExistingAlert(onEditSuccess)
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteAlert()
+            }).toFinishAllListeners()
+
+            expect(errorToastSpy).toHaveBeenCalledWith("Couldn't delete the alert. Try again.")
+            expect(successToastSpy).not.toHaveBeenCalled()
+            expect(onEditSuccess).not.toHaveBeenCalled()
+        })
+
+        // A snooze against an already-deleted alert must close cleanly, not throw the 404.
+        it('closes the modal when snoozing a 404 (alert already gone)', async () => {
+            updateSpy.mockRejectedValue(new ApiError('Not found.', 404))
+            const onEditSuccess = jest.fn()
+            const logic = mountExistingAlert(onEditSuccess)
+
+            await expectLogic(logic, () => {
+                logic.actions.snoozeAlert('2026-12-31T00:00:00Z')
+            }).toFinishAllListeners()
+
+            expect(infoToastSpy).toHaveBeenCalledWith('This alert no longer exists.')
+            expect(onEditSuccess).toHaveBeenCalledWith(undefined)
+        })
+    })
+
+    it.each([
+        ['a 404 ApiError is treated as gone', new ApiError('Not found.', 404), true],
+        ['a non-404 ApiError is not gone', new ApiError('Server error.', 500), false],
+        ['a plain Error is not gone', new Error('boom'), false],
+    ])('alertAlreadyGone: %s', (_name, error, expected) => {
+        expect(alertAlreadyGone(error)).toBe(expected)
     })
 })
