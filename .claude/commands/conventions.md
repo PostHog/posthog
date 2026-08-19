@@ -96,7 +96,7 @@ Hence the explicit separation between the data and view layers.
 - Consume results with dot notation (`result.field`), never by unpacking into positional locals
 - Name dataclasses after the domain concept (`BillingPeriod`), never `*Info`/`*Data`/`*Tuple`
 - Mark secret fields with `field(repr=False)`
-- A bare `@dataclass` without an explicit `frozen=` choice fails the `posthog/test/test_dataclass_defaults.py` ratchet and is flagged by the `prefer-frozen-dataclasses` semgrep rule
+- A bare `@dataclass` without an explicit `frozen=` choice fails the `posthog/test/repo_invariants/test_dataclass_defaults.py` ratchet and is flagged by the `prefer-frozen-dataclasses` semgrep rule
 
 ### Logging
 

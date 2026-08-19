@@ -11,7 +11,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
-import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
@@ -27,6 +26,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
+import { getEventMarkerColor } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { StatusIndicator } from '../../components/Indicators'
@@ -209,7 +209,7 @@ const RightHandColumn = ({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element | null => {
-    const { issue, issueLoading, selectedEvent, initialEvent, initialEventLoading } =
+    const { issue, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
@@ -228,13 +228,7 @@ const RightHandColumn = ({
             )}
         >
             {isMobile && (
-                <div className="flex items-center justify-between p-1 shrink-0">
-                    <div className="flex items-center gap-1 pl-1">
-                        {detailEvent?.timestamp && (
-                            <TZLabel className="text-muted text-xs" time={detailEvent.timestamp} />
-                        )}
-                        {tagRenderer(detailEvent)}
-                    </div>
+                <div className="flex shrink-0 justify-end p-1">
                     <LemonButton icon={<IconX />} size="small" onClick={onClose} aria-label="Close detail" />
                 </div>
             )}
@@ -246,8 +240,12 @@ const RightHandColumn = ({
                     issueName={issue?.name ?? null}
                     loading={issueLoading || initialEventLoading}
                     event={detailEvent ?? undefined}
+                    eventMarkerColor={
+                        detailEvent
+                            ? getEventMarkerColor(detailEvent.uuid, summary?.first_event_uuid, summary?.last_event_uuid)
+                            : undefined
+                    }
                     label={tagRenderer(detailEvent)}
-                    hideEventMeta={isMobile}
                     renderStackTraceActions={() => {
                         return issue ? <StackTraceActions issue={issue} /> : null
                     }}

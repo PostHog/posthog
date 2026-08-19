@@ -57,6 +57,11 @@ export type CommandMenuAction =
   | "open-artifact"
   | "open-channel"
   | "open-command-center"
+  | "save-feed"
+  | "complete-filter"
+  | "show-all-matches"
+  | "repair-query"
+  | "open-feed"
   | "open-inbox"
   | "open-archived"
   | "open-loops"
@@ -985,6 +990,16 @@ export type ChannelActionType =
   | "open_mention"
   | "activity_tab_change";
 
+export type TaskFeedActionType = "create" | "update" | "delete" | "open";
+
+export interface TaskFeedActionProperties {
+  action_type: TaskFeedActionType;
+  surface: "sidebar" | "feed_home" | "command_menu";
+  feed_id: string;
+  /** Length of the saved query. Do not record its text. */
+  query_length?: number;
+}
+
 export interface ChannelActionProperties {
   action_type: ChannelActionType;
   surface: ChannelsSurface;
@@ -1473,6 +1488,7 @@ export const ANALYTICS_EVENTS = {
   // Project Bluebird (Channels) events
   CHANNELS_SPACE_VIEWED: "Channels space viewed",
   CHANNEL_ACTION: "Channel action",
+  TASK_FEED_ACTION: "Task feed action",
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
   CANVAS_RENDERED: "Canvas rendered",
@@ -1655,6 +1671,7 @@ export type EventPropertyMap = {
   // Project Bluebird (Channels) events
   [ANALYTICS_EVENTS.CHANNELS_SPACE_VIEWED]: ChannelsSpaceViewedProperties;
   [ANALYTICS_EVENTS.CHANNEL_ACTION]: ChannelActionProperties;
+  [ANALYTICS_EVENTS.TASK_FEED_ACTION]: TaskFeedActionProperties;
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
