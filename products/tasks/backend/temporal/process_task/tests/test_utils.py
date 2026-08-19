@@ -722,6 +722,47 @@ class TestSlackTaskRunActorUser(TestCase):
         assert get_task_run_credential_user(task, state) == creator
 
 
+class TestWebRunActorUser(TestCase):
+    def _task_with_creator(self, slug: str):
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+
+        organization = Organization.objects.create(name=f"{slug}-org")
+        team = Team.objects.create(organization=organization, name=f"{slug}-team")
+        creator = User.objects.create(email=f"creator-{slug}@example.com")
+        task = Task.objects.create(
+            team=team,
+            title="Signals report task",
+            created_by=creator,
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        return organization, team, creator, task
+
+    def test_credential_user_uses_recorded_actor_over_creator(self) -> None:
+        from posthog.models.organization import OrganizationMembership
+        from posthog.models.user import User
+
+        organization, _team, creator, task = self._task_with_creator("web-actor")
+        teammate = User.objects.create(email="teammate-web-actor@example.com")
+        OrganizationMembership.objects.create(user=teammate, organization=organization)
+        state = {"actor_user_id": teammate.id}
+
+        assert get_task_run_actor_user(task, state) == teammate
+        assert get_task_run_credential_user(task, state) == teammate
+
+    def test_credential_user_fails_closed_when_recorded_actor_invalid(self) -> None:
+        _organization, _team, creator, task = self._task_with_creator("web-actor-invalid")
+        state = {"actor_user_id": creator.id + 999_999}
+
+        assert get_task_run_credential_user(task, state) is None
+
+    def test_credential_user_falls_back_to_creator_without_recorded_actor(self) -> None:
+        _organization, _team, creator, task = self._task_with_creator("web-actor-none")
+
+        assert get_task_run_credential_user(task, {}) == creator
+        assert get_task_run_credential_user(task, None) == creator
+
+
 class TestGetSandboxGitHubToken(TestCase):
     @parameterized.expand(
         [

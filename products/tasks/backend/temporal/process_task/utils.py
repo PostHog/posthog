@@ -33,6 +33,7 @@ from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _re
 # Re-exported so existing activity/workflow imports keep working after the move to
 # logic/services (non-temporal callers import run_actor directly).
 from products.tasks.backend.logic.services.run_actor import (
+    actor_resolution_fails_closed as actor_resolution_fails_closed,
     get_actor_distinct_id as get_actor_distinct_id,
     get_task_run_actor_user as get_task_run_actor_user,
     get_task_run_credential_user as get_task_run_credential_user,

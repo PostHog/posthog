@@ -2021,6 +2021,12 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        # The recorded run actor decides whose OAuth token and API credentials the
+        # sandbox mints (run_actor.get_task_run_credential_user). Server-side writers
+        # go through TaskRun.update_state_atomic; a PATCHable value would let a task
+        # controller mint credentials as any user id they name.
+        "actor_user_id",
+        "slack_actor_user_id",
         "github_credential_source",
         "pr_authorship_mode",
         "repositories",
@@ -3936,6 +3942,14 @@ def bootstrap_task_run(
             },
         )
 
+    if user_id is not None:
+        from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep tasks internals off the api import path
+            actor_state_updates,
+        )
+
+        extra_state = extra_state or {}
+        extra_state.update(actor_state_updates(user_id=user_id))
+
     logger.info(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
     )
@@ -4838,6 +4852,7 @@ def create_task(
                 artifact_ids=pending_user_artifact_ids,
                 auto_publish=warm_auto_publish,
                 reasoning_effort=warm_reasoning_effort,
+                actor_user_id=user_id,
             )
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
@@ -5296,6 +5311,7 @@ def _activate_warm_run(
     description: str | None = None,
     auto_publish: bool | None = None,
     reasoning_effort: str | None = None,
+    actor_user_id: int | None = None,
 ) -> None:
     """Activate an idling warm Run: set the draft Task's visible description from raw task text,
     forward the first message to the already-running agent, and drop the ``await_user_message`` marker
@@ -5319,6 +5335,14 @@ def _activate_warm_run(
         activation_state_updates["auto_publish"] = auto_publish
     if reasoning_effort is not None:
         activation_state_updates["reasoning_effort"] = reasoning_effort
+    if actor_user_id is not None:
+        from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep tasks internals off the api import path
+            actor_state_updates,
+        )
+
+        # Before the signal, like auto_publish: credential minting for the forwarded
+        # first message must already see who is driving this run.
+        activation_state_updates.update(actor_state_updates(user_id=actor_user_id))
     TaskRun.update_state_atomic(
         run.id,
         updates=activation_state_updates,
@@ -5565,6 +5589,7 @@ def run_task(
                         artifact_ids=pending_user_artifact_ids,
                         auto_publish=validated_data.get("auto_publish"),
                         reasoning_effort=validated_data.get("reasoning_effort"),
+                        actor_user_id=user_id,
                     )
                     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
@@ -5798,6 +5823,14 @@ def run_task(
                     missing_artifact_ids=missing_artifact_ids,
                 )
             )
+
+    if user_id is not None:
+        from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415 — keep tasks internals off the api import path
+            actor_state_updates,
+        )
+
+        extra_state = extra_state or {}
+        extra_state.update(actor_state_updates(user_id=user_id))
 
     logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
     task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)

@@ -45,8 +45,32 @@ def loop_owner_eligible_for_credentials(user_id: int | None, team: Team) -> bool
     return UserPermissions(user=owner, team=team).current_team.effective_membership_level is not None
 
 
+ACTOR_USER_STATE_KEY = "actor_user_id"
+SLACK_ACTOR_USER_STATE_KEY = "slack_actor_user_id"
+
+
 def is_slack_interaction_state(state: dict[str, Any] | None) -> bool:
     return (state or {}).get("interaction_origin") == "slack"
+
+
+def _recorded_actor_key(state: dict[str, Any]) -> str:
+    return SLACK_ACTOR_USER_STATE_KEY if is_slack_interaction_state(state) else ACTOR_USER_STATE_KEY
+
+
+def has_recorded_actor(state: dict[str, Any] | None) -> bool:
+    """Whether this run recorded the user driving it (Slack steering, or a web run
+    started or commanded on a task the driver did not create)."""
+    state = state or {}
+    return _recorded_actor_key(state) in state
+
+
+def actor_resolution_fails_closed(state: dict[str, Any] | None) -> bool:
+    """Whether credential minting must fail closed instead of falling back to the task creator.
+
+    True for every Slack run and for any run that recorded a driving actor: once an
+    actor is on record, an invalid one must stop the run, not silently escalate to
+    the creator's credentials."""
+    return is_slack_interaction_state(state) or ACTOR_USER_STATE_KEY in (state or {})
 
 
 def get_task_run_actor_user(
@@ -57,19 +81,20 @@ def get_task_run_actor_user(
 ) -> User | None:
     """Return the PostHog user acting on this task run.
 
-    Slack runs carry their current steering user in run state. Credential-bearing
-    paths should pass ``allow_task_creator_fallback=False`` so a missing or
-    unauthorized Slack actor fails closed instead of silently using the creator.
+    Slack runs carry their current steering user in run state; web runs carry the
+    user who started or last messaged them when that user is not the task creator.
+    Credential-bearing paths should pass ``allow_task_creator_fallback=False`` so a
+    missing or unauthorized actor fails closed instead of silently using the creator.
     """
     state = state or {}
     task_created_by = task.created_by if getattr(task, "created_by_id", None) is not None else None
-    if not is_slack_interaction_state(state):
+    if not is_slack_interaction_state(state) and ACTOR_USER_STATE_KEY not in state:
         return task_created_by
 
     def fallback_actor() -> User | None:
         return task_created_by if allow_task_creator_fallback else None
 
-    actor_user_id = state.get("slack_actor_user_id")
+    actor_user_id = state.get(_recorded_actor_key(state))
     if not isinstance(actor_user_id, int) or isinstance(actor_user_id, bool):
         return fallback_actor()
     if task_created_by is not None and actor_user_id == task_created_by.id:
@@ -107,17 +132,22 @@ def get_task_run_actor_user(
 def get_task_run_credential_user(task: Task, state: dict[str, Any] | None = None) -> User | None:
     """Return the user whose credentials may be minted for this run.
 
-    Slack runs fail closed when their recorded actor can't be validated, but runs
-    started before actor tracking existed carry no ``slack_actor_user_id`` at all —
-    those grandfather to the task creator so in-flight runs survive the rollout.
+    A run with a recorded actor fails closed when that actor can't be validated, but
+    runs started before actor tracking existed carry no actor key at all — those
+    grandfather to the task creator so in-flight runs survive the rollout.
     """
     state = state or {}
-    allow_fallback = not is_slack_interaction_state(state) or "slack_actor_user_id" not in state
-    return get_task_run_actor_user(task, state, allow_task_creator_fallback=allow_fallback)
+    return get_task_run_actor_user(task, state, allow_task_creator_fallback=not has_recorded_actor(state))
 
 
 def get_actor_distinct_id(actor: User) -> str:
     return actor.distinct_id or f"user_{actor.id}"
+
+
+def actor_state_updates(*, user_id: int) -> dict[str, Any]:
+    """Run-state update recording the user driving a non-Slack run (run start or follow-up).
+    Credential resolution reads ``actor_user_id`` — every non-Slack writer must build it here."""
+    return {ACTOR_USER_STATE_KEY: user_id}
 
 
 def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None) -> dict[str, Any]:

@@ -24,7 +24,13 @@ from products.tasks.backend.logic.services.agent_command import (
     user_facing_agent_error,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates
+from products.tasks.backend.logic.services.run_actor import (
+    ACTOR_USER_STATE_KEY,
+    SLACK_ACTOR_USER_STATE_KEY,
+    actor_resolution_fails_closed,
+    actor_state_updates,
+    slack_actor_state_updates,
+)
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.models import TaskRun
@@ -164,11 +170,12 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
 
     state = task_run.state
     if input.actor_user_id is not None:
-        state = {**(state or {}), "slack_actor_user_id": input.actor_user_id}
+        actor_key = SLACK_ACTOR_USER_STATE_KEY if is_slack_interaction_state(state) else ACTOR_USER_STATE_KEY
+        state = {**(state or {}), actor_key: input.actor_user_id}
 
     actor_user = get_task_run_credential_user(task_run.task, state)
-    if is_slack_interaction_state(state) and actor_user is None:
-        error_msg = "Slack actor unavailable for this run"
+    if actor_resolution_fails_closed(state) and actor_user is None:
+        error_msg = "Acting user unavailable for this run"
         _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
         raise RuntimeError(f"send_followup failed: {error_msg}")
 
@@ -189,10 +196,14 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             )
             return STEER_DECLINED_OUTCOME
 
-    if input.actor_user_id is not None and is_slack_interaction_state(state):
+    if input.actor_user_id is not None:
         # Deliveries are serialized by the workflow, so stamping here moves
         # the durable actor only after an active steer passes its identity gate.
-        updates = slack_actor_state_updates(user_id=input.actor_user_id, slack_user_id=actor_slack_user_id)
+        updates = (
+            slack_actor_state_updates(user_id=input.actor_user_id, slack_user_id=actor_slack_user_id)
+            if is_slack_interaction_state(state)
+            else actor_state_updates(user_id=input.actor_user_id)
+        )
         current = task_run.state or {}
         if any(current.get(key) != value for key, value in updates.items()):
             try:

@@ -33,9 +33,9 @@ from products.tasks.backend.models import (
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
 from products.tasks.backend.temporal.process_task.utils import (
+    actor_resolution_fails_closed,
     get_actor_distinct_id,
     get_task_run_credential_user,
-    is_slack_interaction_state,
 )
 
 from ee.hogai.sandbox import is_turn_complete
@@ -134,11 +134,11 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
     await redis_stream.initialize()
 
     actor_user = await sync_to_async(get_task_run_credential_user)(task_run.task, task_run.state)
-    if is_slack_interaction_state(task_run.state) and actor_user is None:
-        # Deterministic: the recorded Slack actor no longer resolves, so every retry
+    if actor_resolution_fails_closed(task_run.state) and actor_user is None:
+        # Deterministic: the recorded actor no longer resolves, so every retry
         # would fail identically. Write the error sentinel and fail for good instead
         # of retrying until the run dies on the inactivity timeout with no reason.
-        error_message = "Slack task run is missing an acting user"
+        error_message = "Task run is missing an acting user"
         logger.error("relay_sandbox_events_missing_actor", run_id=input.run_id)
         await redis_stream.mark_error(error_message)
         raise ApplicationError(error_message, non_retryable=True)

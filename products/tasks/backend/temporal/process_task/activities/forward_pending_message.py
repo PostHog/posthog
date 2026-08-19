@@ -12,9 +12,9 @@ from posthog.temporal.common.utils import close_db_connections
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
 from products.tasks.backend.temporal.process_task.utils import (
+    actor_resolution_fails_closed,
     get_actor_distinct_id,
     get_task_run_credential_user,
-    is_slack_interaction_state,
 )
 
 logger = get_logger(__name__)
@@ -130,8 +130,8 @@ def forward_pending_user_message(run_id: str) -> None:
 
         auth_token = None
         actor_user = get_task_run_credential_user(task_run.task, state)
-        if is_slack_interaction_state(state) and actor_user is None:
-            raise RuntimeError("Slack task run is missing an acting user")
+        if actor_resolution_fails_closed(state) and actor_user is None:
+            raise RuntimeError("Task run is missing an acting user")
         if actor_user and actor_user.id:
             auth_token = create_sandbox_connection_token(
                 task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)

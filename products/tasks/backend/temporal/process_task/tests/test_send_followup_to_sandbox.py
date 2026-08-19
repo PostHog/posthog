@@ -739,12 +739,21 @@ class TestSendFollowupActivityRefreshOrdering:
             updates={"slack_actor_user_id": 99, "slack_actor_slack_user_id": "U_BOB"},
         )
 
-    def test_non_slack_delivery_does_not_stamp(self, _patches):
+    def test_non_slack_delivery_stamps_run_actor(self, _patches):
+        # A teammate messaging a picked-up run must move the durable actor too, so
+        # later credential minting resolves the sender rather than the task creator.
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
 
-        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99))
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_task_run_credential_user"
+        ) as mock_resolve:
+            mock_resolve.return_value = MagicMock(id=99)
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99))
 
-        _patches["task_run_cls"].update_state_atomic.assert_not_called()
+        _patches["task_run_cls"].update_state_atomic.assert_any_call(
+            _patches["task_run"].id,
+            updates={"actor_user_id": 99},
+        )
 
     def test_default_scope_is_read_only(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
@@ -758,9 +767,13 @@ class TestSendFollowupActivityRefreshOrdering:
         _patches["task_run"].state = {"sandbox_id": "sandbox-1"}
         _patches["task_run"].task.created_by_id = 42
 
-        outcome = send_followup_to_sandbox(
-            SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99, steer=True)
-        )
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_task_run_credential_user"
+        ) as mock_resolve:
+            mock_resolve.return_value = MagicMock(id=99)
+            outcome = send_followup_to_sandbox(
+                SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99, steer=True)
+            )
 
         assert outcome == STEER_DECLINED_OUTCOME
         _patches["conn_token"].assert_not_called()

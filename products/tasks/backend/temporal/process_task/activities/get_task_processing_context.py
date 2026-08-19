@@ -48,6 +48,7 @@ from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
+    actor_resolution_fails_closed,
     format_allowed_domains_for_log,
     get_actor_distinct_id,
     get_pr_authorship_mode,
@@ -780,11 +781,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     state = task_run.state or {}
     actor_user = get_task_run_credential_user(task, state)
-    if is_slack_interaction_state(state) and actor_user is None:
+    if actor_resolution_fails_closed(state) and actor_user is None:
         raise TaskInvalidStateError(
-            f"Task {task.id} has no valid Slack actor",
+            f"Task {task.id} has no valid run actor",
             {"task_id": str(task.id), "run_id": run_id},
-            cause=RuntimeError(f"Task {task.id} missing Slack actor for task run {run_id}"),
+            cause=RuntimeError(f"Task {task.id} missing run actor for task run {run_id}"),
         )
     distinct_id = (
         get_actor_distinct_id(actor_user) if actor_user else task.created_by.distinct_id or "process_task_workflow"

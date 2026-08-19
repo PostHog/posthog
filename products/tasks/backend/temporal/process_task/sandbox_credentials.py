@@ -21,6 +21,7 @@ from products.tasks.backend.logic.services.run_actor import loop_owner_eligible_
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
+    actor_resolution_fails_closed,
     get_github_token,
     get_pr_authorship_mode,
     get_readonly_github_token,
@@ -28,7 +29,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_github_token,
     get_task_run_credential_user,
     is_caller_token_run,
-    is_slack_interaction_state,
     resolve_user_github_integration_for_task,
     sandbox_identity_scope,
 )
@@ -402,8 +402,8 @@ class GitHubSandboxCredential:
             )
 
         actor_user = get_task_run_credential_user(task, ctx.state)
-        if is_slack_interaction_state(ctx.state) and actor_user is None:
-            raise ReauthorizationRequired("Slack run requires an acting user before refreshing GitHub credentials.")
+        if actor_resolution_fails_closed(ctx.state) and actor_user is None:
+            raise ReauthorizationRequired("Run requires an acting user before refreshing GitHub credentials.")
 
         integration = None
         if get_pr_authorship_mode(task, ctx.state) == PrAuthorshipMode.USER and not is_caller_token_run(

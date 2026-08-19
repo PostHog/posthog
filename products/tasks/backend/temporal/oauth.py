@@ -19,8 +19,8 @@ from posthog.temporal.oauth import (
 from products.mcp_store.backend.facade.api import is_builtin_agent_enforcement_enabled
 from products.tasks.backend.exceptions import OAuthTokenError, TaskInvalidStateError
 from products.tasks.backend.logic.services.run_actor import (
+    actor_resolution_fails_closed,
     get_task_run_credential_user,
-    is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.models import Task
@@ -105,9 +105,9 @@ def create_oauth_access_token_for_run(
 ) -> str:
     """Mint the sandbox OAuth token for a run, resolving the acting user from run state.
 
-    Single entry point for the run credential policy: Slack runs fail closed when their
-    recorded actor can't be validated (never falling back to the task creator), while
-    other runs keep the creator fallback. Callers must not re-derive this pairing by
+    Single entry point for the run credential policy: a run with a recorded actor
+    fails closed when that actor can't be validated (never falling back to the task
+    creator), while runs that never recorded one keep the creator fallback. Callers must not re-derive this pairing by
     hand — passing ``user``/``allow_task_creator_fallback`` separately makes it possible
     to mint creator credentials for a Slack run by omitting one kwarg. Loop-fired runs
     (``loop_id`` in run state) get ``loop:write`` stripped from the granted scopes here.
@@ -119,7 +119,7 @@ def create_oauth_access_token_for_run(
             task,
             scopes=scopes,
             user=actor_user,
-            allow_task_creator_fallback=not is_slack_interaction_state(state),
+            allow_task_creator_fallback=not actor_resolution_fails_closed(state),
             loop_id=None,
         )
 
@@ -140,7 +140,7 @@ def create_oauth_access_token_for_run(
             task,
             scopes=scopes,
             user=actor_user,
-            allow_task_creator_fallback=not is_slack_interaction_state(state),
+            allow_task_creator_fallback=not actor_resolution_fails_closed(state),
             loop_id=loop_id if isinstance(loop_id, str) else None,
         )
 
