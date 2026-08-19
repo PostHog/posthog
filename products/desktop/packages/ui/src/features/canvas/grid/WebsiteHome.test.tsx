@@ -23,7 +23,9 @@ vi.mock("@posthog/host-router/react", () => ({
 
 // The home canvas itself is another surface's concern; this file is about the
 // query that resolves which canvas Home shows.
-vi.mock("./GridCanvasView", () => ({ GridCanvasView: () => null }));
+vi.mock("@posthog/ui/features/canvas/components/WebsiteDashboard", () => ({
+  WebsiteDashboard: () => null,
+}));
 
 import { WebsiteHome } from "./WebsiteHome";
 

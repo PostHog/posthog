@@ -2,6 +2,7 @@ import {
   ArchiveIcon,
   CaretRightIcon,
   FolderSimpleIcon,
+  HouseIcon,
   PencilSimpleIcon,
   PushPinIcon,
   PushPinSlashIcon,
@@ -52,6 +53,8 @@ export interface TaskRowMenuProps {
   /** Absent where there's no inline rename to open — canvases, for now. */
   onRename?: () => void;
   onTogglePin: () => void;
+  /** Canvases can replace the caller's personal Home tab. */
+  onSetHome?: () => void;
   /** Tasks are archived; canvases are deleted (with an undo window). */
   onArchive?: () => void;
   onDelete?: () => void;
@@ -117,6 +120,12 @@ function TaskRowMenuItems({
         )}
         {menu.isPinned ? "Unpin" : "Pin"}
       </Item>
+      {menu.onSetHome && (
+        <Item onClick={menu.onSetHome}>
+          <HouseIcon size={14} />
+          Set as home tab
+        </Item>
+      )}
       {menu.onRename && (
         <Item onClick={menu.onRename}>
           <PencilSimpleIcon size={14} />

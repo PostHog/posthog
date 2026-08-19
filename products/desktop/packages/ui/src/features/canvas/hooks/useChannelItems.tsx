@@ -63,8 +63,11 @@ export function useChannelItems(channelId: string): {
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds, togglePin } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
-  const { setPinned: setCanvasPinned, invalidateDashboards } =
-    useDashboardMutations();
+  const {
+    setPinned: setCanvasPinned,
+    setHome,
+    invalidateDashboards,
+  } = useDashboardMutations();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser, isLoading: viewerLoading } = useCurrentUser({
     client,
@@ -179,6 +182,12 @@ export function useChannelItems(channelId: string): {
           invalidate: invalidateDashboards,
         });
       },
+      setHome: (item) => {
+        if (item.kind !== "canvas") return;
+        setHome(item.id)
+          .then(() => toast.success("Home tab updated"))
+          .catch(() => toast.error("Couldn't update home tab"));
+      },
     }),
     [
       channelId,
@@ -187,6 +196,7 @@ export function useChannelItems(channelId: string): {
       togglePin,
       archiveTask,
       invalidateDashboards,
+      setHome,
     ],
   );
 
