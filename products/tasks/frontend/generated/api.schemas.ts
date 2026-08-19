@@ -1062,126 +1062,6 @@ export interface TaskActivityMarkReadResponseApi {
 }
 
 /**
- * Detail/create/update/run response for a task automation.
- */
-export interface TaskAutomationDTOApi {
-    id: string
-    name: string
-    prompt: string
-    /** @nullable */
-    repository: string | null
-    /** @nullable */
-    github_integration: number | null
-    cron_expression: string
-    timezone: string
-    /** @nullable */
-    template_id: string | null
-    enabled: boolean
-    /** @nullable */
-    last_run_at: string | null
-    /** @nullable */
-    last_run_status: string | null
-    last_task_id: string
-    /** @nullable */
-    last_task_run_id: string | null
-    /** @nullable */
-    last_error: string | null
-    created_at: string
-    updated_at: string
-}
-
-export interface PaginatedTaskAutomationDTOListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskAutomationDTOApi[]
-}
-
-/**
- * Request body for creating or updating a task automation.
- */
-export interface TaskAutomationWriteApi {
-    /**
-     * Display name (stored as the backing task's title).
-     * @maxLength 255
-     */
-    name: string
-    /** The automation prompt (stored as the backing task's description). */
-    prompt: string
-    /**
-     * Target repository in the format organization/repository.
-     * @maxLength 255
-     */
-    repository: string
-    /**
-     * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-     * @nullable
-     */
-    github_integration?: number | null
-    /**
-     * Standard 5-field cron expression (minute hour day month weekday).
-     * @maxLength 100
-     */
-    cron_expression: string
-    /**
-     * IANA timezone the schedule runs in.
-     * @maxLength 128
-     */
-    timezone?: string
-    /**
-     * Optional template identifier this automation was created from.
-     * @maxLength 255
-     * @nullable
-     */
-    template_id?: string | null
-    /** Whether the schedule is active; paused when false. */
-    enabled?: boolean
-}
-
-/**
- * Request body for creating or updating a task automation.
- */
-export interface PatchedTaskAutomationWriteApi {
-    /**
-     * Display name (stored as the backing task's title).
-     * @maxLength 255
-     */
-    name?: string
-    /** The automation prompt (stored as the backing task's description). */
-    prompt?: string
-    /**
-     * Target repository in the format organization/repository.
-     * @maxLength 255
-     */
-    repository?: string
-    /**
-     * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
-     * @nullable
-     */
-    github_integration?: number | null
-    /**
-     * Standard 5-field cron expression (minute hour day month weekday).
-     * @maxLength 100
-     */
-    cron_expression?: string
-    /**
-     * IANA timezone the schedule runs in.
-     * @maxLength 128
-     */
-    timezone?: string
-    /**
-     * Optional template identifier this automation was created from.
-     * @maxLength 255
-     * @nullable
-     */
-    template_id?: string | null
-    /** Whether the schedule is active; paused when false. */
-    enabled?: boolean
-}
-
-/**
  * Response shape for a task channel, read from a frozen ``ChannelDTO``.
  */
 export interface ChannelDTOApi {
@@ -1656,7 +1536,6 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `error_tracking` - Error Tracking
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
- * * `automation` - Automation
  * * `slack` - Slack
  * * `support_queue` - Support Queue
  * * `session_summaries` - Session Summaries
@@ -1679,7 +1558,6 @@ export const OriginProductEnumApi = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
-    Automation: 'automation',
     Slack: 'slack',
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
@@ -1719,7 +1597,6 @@ export interface TaskCreateApi {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -1863,7 +1740,6 @@ export interface TaskWriteApi {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -1992,7 +1868,6 @@ export interface PatchedTaskWriteApi {
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
-     * * `automation` - Automation
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
@@ -4260,17 +4135,6 @@ export type TaskActivityListParams = {
      * @maximum 500
      */
     limit?: number
-}
-
-export type TaskAutomationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type TaskChannelsListParams = {

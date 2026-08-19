@@ -1143,9 +1143,9 @@ export const getCustomPropertySourcesSyncUrl = (projectId: string, id: string) =
 }
 
 /**
- * Person and group sources only: trigger the underlying warehouse schema's sync now. This
- * re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
- * off it.
+ * Person and group sources only: run what this source reads now — an import for a table
+ * binding (a real, billable warehouse sync), a materialization for a view binding. The
+ * incremental person/group-property update runs off that run.
  */
 export const customPropertySourcesSync = async (
     projectId: string,
