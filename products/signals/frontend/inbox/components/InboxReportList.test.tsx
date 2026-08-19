@@ -35,7 +35,7 @@ function makeReport(id: string): SignalReport {
         source_products: ['error_tracking'],
         created_at: '2026-06-11T10:00:00Z',
         updated_at: '2026-06-11T10:00:00Z',
-    } as SignalReport
+    } satisfies SignalReport
 }
 
 describe('InboxReportList', () => {
