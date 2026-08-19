@@ -661,7 +661,8 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         expected = oracle_resource_access_level(
             resource, specs, is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN
         )
-        assert self._fresh_uac().access_level_for_resource(resource) == expected
+        resource_access = self._fresh_uac().access_level_for_resource(resource)
+        assert resource_access and resource_access.access_level == expected
 
     @given(data=resource_level_rows(), membership_level=membership_levels_st)
     @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
@@ -805,7 +806,8 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         effective = RESOURCE_INHERITANCE_MAP.get(resource, resource)
         assert effective is not None
         assert uac.access_level_for_object(obj) == highest_access_level(resource)
-        assert uac.access_level_for_resource(resource) == highest_access_level(effective)
+        resource_access = uac.access_level_for_resource(resource)
+        assert resource_access and resource_access.access_level == highest_access_level(effective)
         assert uac.get_user_access_level(obj) == highest_access_level(resource)
         assert uac.check_can_modify_access_levels_for_object(obj) is True
 

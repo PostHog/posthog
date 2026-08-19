@@ -1,3 +1,4 @@
+import { parseObjectTags } from "@posthog/core/inbox/objectTags";
 import { useMemo } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { getCloudUrlFromRegion, useAuthStore } from "@/features/auth";
@@ -10,6 +11,7 @@ import { useThemeColors } from "@/lib/theme";
 import { CopyButton } from "./CopyButton";
 import { GithubRefChip } from "./GithubRefChip";
 import { MarkdownImage } from "./MarkdownImage";
+import { ObjectTagChip, ObjectTagPreviewProvider } from "./ObjectTagChip";
 import { PostHogRefChip } from "./PostHogRefChip";
 
 const IMAGE_LINE_PATTERN = /^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/;
@@ -258,6 +260,23 @@ function renderPlainText(
   keyBase: string,
 ): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
+  for (const [i, segment] of parseObjectTags(text).entries()) {
+    const key = `${keyBase}-${i}`;
+    if (segment.type === "tag") {
+      nodes.push(<ObjectTagChip key={key} tag={segment.ref} />);
+    } else {
+      nodes.push(...renderUrlText(segment.value, posthogUrlOptions, key));
+    }
+  }
+  return nodes;
+}
+
+function renderUrlText(
+  text: string,
+  posthogUrlOptions: ParsePostHogUrlOptions,
+  keyBase: string,
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null = null;
 
@@ -446,7 +465,7 @@ export function MarkdownText({
     [cloudRegion],
   );
 
-  return (
+  const rendered = (
     <View style={{ gap: 8 }}>
       {blocks.map((block, i) => {
         const key = `block-${i}`;
@@ -649,4 +668,6 @@ export function MarkdownText({
       })}
     </View>
   );
+
+  return <ObjectTagPreviewProvider>{rendered}</ObjectTagPreviewProvider>;
 }

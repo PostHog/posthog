@@ -105,7 +105,7 @@ export function FeatureRequestEditModal(): JSX.Element {
                     <LemonInput value={editTitle} onChange={setEditTitle} maxLength={400} fullWidth />
                 </div>
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Description</LemonLabel>
+                    <LemonLabel>Description (optional)</LemonLabel>
                     <LemonTextArea value={editDescription} onChange={setEditDescription} minRows={5} />
                 </div>
                 <div className="flex flex-col gap-1">

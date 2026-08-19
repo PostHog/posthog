@@ -1063,8 +1063,12 @@ class TestGetStaleStrandedRuns:
             plan = "\n".join(row[0] for row in await cur.fetchall())
         finally:
             await conn.execute("SET enable_seqscan = on")
+        # The fence must keep the failed-run gate a per-run SubPlan probing the
+        # run-gate index. Asserting "no Hash Anti Join anywhere" instead is flaky:
+        # the UNFENCED lease gate may legitimately plan as a hash anti-join, and a
+        # flattened failed-gate can still show sb_run_gate_idx (as its hash build).
         assert "sb_run_gate_idx" in plan
-        assert "Hash Anti Join" not in plan
+        assert "SubPlan" in plan
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1523,6 +1527,23 @@ class TestClaimGates:
         finally:
             await conn.execute("SET enable_seqscan = on")
         assert "sb_claimable_idx" in plan
+
+
+@pytest.mark.django_db(transaction=True)
+class TestGetClaimableBatchCount:
+    @pytest.mark.asyncio
+    async def test_counts_claimable_states_within_eligibility_window(self, conn):
+        # Feeds the queue-depth gauge; dropping a state or the window bound here
+        # makes the backpressure signal lie.
+        await _insert_batch(conn, batch_index=0, run_uuid="r-a")
+        retry = await _insert_batch(conn, batch_index=1, run_uuid="r-a")
+        await BatchQueue.update_status(conn, batch_id=retry, job_state="waiting_retry", attempt=1)
+        done = await _insert_batch(conn, batch_index=2, run_uuid="r-a")
+        await BatchQueue.update_status(conn, batch_id=done, job_state="succeeded", attempt=1)
+        expired = await _insert_batch(conn, batch_index=0, run_uuid="r-old")
+        await conn.execute(f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 days' WHERE id = %s", (expired,))
+
+        assert await BatchQueue.get_claimable_batch_count(conn) == 2
 
 
 @pytest.mark.django_db(transaction=True)

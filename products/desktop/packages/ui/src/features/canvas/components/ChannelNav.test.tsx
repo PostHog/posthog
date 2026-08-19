@@ -24,6 +24,7 @@ vi.mock("@posthog/ui/router/useAppView", () => ({
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity: vi.fn(),
+  navigateToHome: vi.fn(),
   navigateToInbox: vi.fn(),
   navigateToWebsiteCommandCenter: vi.fn(),
 }));
@@ -37,6 +38,12 @@ import { ChannelNav } from "./ChannelNav";
 describe("ChannelNav", () => {
   beforeEach(() => {
     mocks.view = { type: "task-input" };
+  });
+
+  it("keeps Inbox available in the channels navigation", () => {
+    render(<ChannelNav />);
+
+    expect(screen.getByLabelText("Inbox")).toBeEnabled();
   });
 
   it("opens recent activity from the bell after the hover delay", async () => {
