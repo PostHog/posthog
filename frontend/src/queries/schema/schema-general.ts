@@ -9016,6 +9016,7 @@ export const externalDataSources = [
     'SamCart',
     'IronSourceAds',
     'MicrosoftExcel',
+    'Polymarket',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
