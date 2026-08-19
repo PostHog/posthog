@@ -39,6 +39,19 @@ async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
 // through posthog.conversations.sendMessage (the widget endpoint), so guard against the same cap.
 export const CONVERSATIONS_MESSAGE_MAX_LENGTH = 10000
 
+// posthog-js turns a send that never leaves the browser (ad blocker, offline, dropped connection)
+// into a handled ConversationsError with kind 'network', so callers can drop it. The type is not
+// exported, so detect the marker structurally. sendFailed still records these, so we keep them out
+// of error tracking without losing visibility.
+function isHandledNetworkConversationsError(error: unknown): boolean {
+    return (
+        !!error &&
+        typeof error === 'object' &&
+        (error as Record<string, unknown>).__posthogHandledConversationsError === true &&
+        (error as Record<string, unknown>).kind === 'network'
+    )
+}
+
 // One email rule shared by the form validator and the submit guard, so the two can't drift.
 // Trimmed because pasted addresses often carry stray whitespace; requireTLD because an address
 // without one can't be delivered to, making it no better than a blank field for replying.
@@ -635,8 +648,10 @@ export const supportLogic = kea<supportLogicType>([
                 actions.resetSendSupportRequest()
             } catch (e) {
                 // The request may have reached the server even though the response failed, so don't
-                // retry here — that could file the ticket twice
-                posthog.captureException(e)
+                // retry here, because that could file the ticket twice.
+                if (!isHandledNetworkConversationsError(e)) {
+                    posthog.captureException(e)
+                }
                 sendFailed('send_failed', e)
             }
         },

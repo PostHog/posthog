@@ -209,6 +209,29 @@ describe('supportLogic', () => {
             expect(sendFailures()[0][1]).toMatchObject({ reason: expectedReason })
         })
 
+        // A benign network blip (ad blocker, offline, dropped connection) is a handled
+        // ConversationsError that posthog-js marks so callers can ignore it. It is already shown to
+        // the user and recorded via sendFailed, so it must stay out of error tracking. Any other
+        // failure still reports.
+        it.each([
+            [
+                'a handled network conversations error',
+                Object.assign(new Error('offline'), { __posthogHandledConversationsError: true, kind: 'network' }),
+                false,
+            ],
+            ['a generic error', new Error('boom'), true],
+        ])('captures %s only when it is not a handled network failure', async (_case, thrown, expectCapture) => {
+            ;(posthog.captureException as jest.Mock).mockClear()
+            conversationsMock(jest.fn().mockRejectedValue(thrown))
+
+            await logic.asyncActions.submitSupportTicket(FORM_FIELDS)
+
+            expect((posthog.captureException as jest.Mock).mock.calls).toHaveLength(expectCapture ? 1 : 0)
+            // Either way the failure is still reported as a product event, so visibility is unchanged.
+            expect(sendFailures()).toHaveLength(1)
+            expect(sendFailures()[0][1]).toMatchObject({ reason: 'send_failed' })
+        })
+
         it('waits for the lazily-loaded extension, then reports a failure if it never arrives', async () => {
             ;(posthog as any).conversations = undefined
 
