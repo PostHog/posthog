@@ -123,6 +123,7 @@ class TestMintScopedToken:
             "obo": "123",
         }
         assert kwargs["headers"] == {"Authorization": "Bearer phs_test_mint"}
+        assert kwargs["timeout"] == 3
 
     def test_retries_mint_rate_limit_then_succeeds(self, mint_settings):
         with (
