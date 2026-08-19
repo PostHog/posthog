@@ -1,8 +1,9 @@
 import re
-import dataclasses
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
@@ -45,7 +46,7 @@ METRICS_BASE_URL = "https://api.appfireflow.com"
 _WORKSPACE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*$")
 
 
-@dataclasses.dataclass
+@frozen
 class PluralsightFlowResumeConfig:
     offset: int
 
