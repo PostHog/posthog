@@ -2,8 +2,6 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, reducers } fr
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { ensureAnchored } from 'lib/components/IngestionControls/triggers/urlConfigLogic'
 import { uuid } from 'lib/utils/dom'
 
@@ -41,6 +39,7 @@ export interface triggerGroupFormLogicValues {
     isTriggerGroupSubmitting: boolean
     isTriggerGroupValid: boolean
     newUrl: string
+    newUrlError: string | null
     showTriggerGroupErrors: boolean
     testUrl: string
     triggerGroup: {
@@ -143,6 +142,9 @@ export interface triggerGroupFormLogicActions {
     }
     setNewUrl: (url: string) => {
         url: string
+    }
+    setNewUrlError: (error: string | null) => {
+        error: string | null
     }
     setTestUrl: (url: string) => {
         url: string
@@ -256,6 +258,7 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
     actions({
         setIsAddingUrl: (isAdding: boolean) => ({ isAdding }),
         setNewUrl: (url: string) => ({ url }),
+        setNewUrlError: (error: string | null) => ({ error }),
         setTestUrl: (url: string) => ({ url }),
         addUrl: (url: string) => ({ url }),
         removeUrl: (url: string) => ({ url }),
@@ -270,14 +273,20 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
             false,
             {
                 setIsAddingUrl: (_, { isAdding }) => isAdding,
-                addUrl: () => false,
             },
         ],
         newUrl: [
             '',
             {
                 setNewUrl: (_, { url }) => url,
-                addUrl: () => '',
+            },
+        ],
+        newUrlError: [
+            null as string | null,
+            {
+                setNewUrl: () => null,
+                setIsAddingUrl: () => null,
+                setNewUrlError: (_, { error }) => error,
             },
         ],
         testUrl: [
@@ -343,18 +352,19 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
         addUrl: ({ url }) => {
             const trimmedUrl = url.trim()
             if (!trimmedUrl) {
+                actions.setNewUrlError('Enter a URL pattern')
                 return
             }
 
             if (!isValidRegex(trimmedUrl)) {
-                lemonToast.error('Invalid regex pattern. Please check your syntax.', { hideButton: true })
+                actions.setNewUrlError('Invalid regex pattern. Please check your syntax.')
                 return
             }
 
             const anchoredUrl = ensureAnchored(trimmedUrl)
 
             if (values.triggerGroup.urls.find((u) => u.url === anchoredUrl)) {
-                lemonToast.warning('This URL pattern has already been added')
+                actions.setNewUrlError('This URL pattern has already been added')
                 return
             }
 
@@ -362,6 +372,9 @@ export const triggerGroupFormLogic = kea<triggerGroupFormLogicType>([
                 ...values.triggerGroup.urls,
                 { url: anchoredUrl, matching: 'regex' as const },
             ])
+            // Only clear the field and close the panel once the pattern is actually added.
+            actions.setNewUrl('')
+            actions.setIsAddingUrl(false)
         },
         removeUrl: ({ url }) => {
             actions.setTriggerGroupValue(

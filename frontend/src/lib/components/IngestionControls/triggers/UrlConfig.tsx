@@ -13,6 +13,7 @@ import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
 import { ingestionControlsLogic } from '../ingestionControlsLogic'
 import { UrlTriggerConfig } from '../types'
+import { ensureAnchored } from './urlConfigLogic'
 
 export function UrlConfig({
     logic,
@@ -283,13 +284,17 @@ function UrlConfigForm({
                     <AiRegexHelper
                         onApply={(regex) => {
                             try {
-                                addUrl({
-                                    url: regex,
-                                    matching: 'regex',
-                                })
+                                new RegExp(regex)
                             } catch {
-                                lemonToast.error('Failed to apply regex')
+                                lemonToast.error('The generated pattern is not a valid regex')
+                                return
                             }
+                            // Anchor and store exactly like a typed pattern, so the saved value is what
+                            // the tester below runs against and the user can see it.
+                            addUrl({
+                                url: ensureAnchored(regex),
+                                matching: 'regex',
+                            })
                         }}
                     />
                     <AiRegexHelperButton />

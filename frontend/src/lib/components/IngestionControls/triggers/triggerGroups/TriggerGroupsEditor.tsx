@@ -316,7 +316,8 @@ function EventTriggerRow({
 
 function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
     const logic = triggerGroupFormLogic({ group, onSave, onCancel })
-    const { triggerGroup, isAddingUrl, newUrl, testUrl, isTriggerGroupSubmitting, expandedEvent } = useValues(logic)
+    const { triggerGroup, isAddingUrl, newUrl, newUrlError, testUrl, isTriggerGroupSubmitting, expandedEvent } =
+        useValues(logic)
     const {
         setTriggerGroupValue,
         setIsAddingUrl,
@@ -458,6 +459,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                         Save
                                     </LemonButton>
                                 </div>
+                                {newUrlError && <div className="text-danger text-xs mt-1">{newUrlError}</div>}
                                 {triggerGroup.urls.length > 0 && (
                                     <div className="mt-3 pt-3 border-t">
                                         <LemonLabel className="text-xs mb-1 block">
