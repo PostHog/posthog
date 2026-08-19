@@ -793,6 +793,9 @@ tests:
     test:quarantine:
         click: hogli_commands.quarantine.cli:quarantine
         description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
+    test:audit:
+        click: hogli_commands.test_audit:test_audit
+        description: Audit the Python test suite — count, growth, where the time goes, duplicate tests to merge
     evals:
         cmd: python -m products.posthog_ai.eval_harness.harness
         description: Run evals — sandboxed agent and one-shot suites (extra args pass through, e.g. `sql` or `cli_mcp --provider modal`)
