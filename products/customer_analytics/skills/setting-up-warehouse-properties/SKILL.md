@@ -96,8 +96,11 @@ Group the proposal into what will be mapped, what you excluded and why, and what
 
 Create the definition first, then the source:
 
-1. `custom-property-definitions-create` with `target_type: person` (or `group` plus `group_type_index`), and a
-   name describing the group of properties, not one column — the definition is the row the user sees in the UI.
+1. `custom-property-definitions-create` with `target_type: person` (or `group` plus `group_type_index`),
+   `display_type: text`, and a name describing the group of properties, not one column — the definition is the row
+   the user sees in the UI. `display_type` is required by the API; use `text` for person and group targets, where it
+   is ignored (it only drives how an account property renders, since profile properties are written as raw `$set` /
+   `$group_set` values).
 2. `custom-property-sources-create` with the definition id, exactly one of `external_data_schema` or
    `saved_query`, the whole `column_property_map`, and `key_column` set to the identifier from step 2.
 
