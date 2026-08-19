@@ -130,7 +130,7 @@ def get_local_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: d
         WHERE equals(event, '$ai_generation')
             AND greaterOrEquals(timestamp, {task_created_at})
             AND equals(properties.ai_product, 'posthog_code')
-            AND equals(properties.team_id, {team_id})
+            AND equals(toString(properties.team_id), {team_id})
             AND (
                 equals(properties.task_id, {task_id})
                 OR equals(properties.$ai_session_id, {task_id})
@@ -142,7 +142,7 @@ def get_local_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: d
             query=query,
             placeholders={
                 "task_created_at": ast.Constant(value=task_created_at),
-                "team_id": ast.Constant(value=team_id),
+                "team_id": ast.Constant(value=str(team_id)),
                 "task_id": ast.Constant(value=str(task_id)),
             },
             team=Team.objects.get(pk=settings.LLM_ANALYTICS_INTERNAL_TEAM_ID),
