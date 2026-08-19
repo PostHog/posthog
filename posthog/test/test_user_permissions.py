@@ -86,11 +86,11 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 
         permissions = self.permissions()
         # Warm the visible-teams cache first
-        permissions.teams_visible_for_user
+        assert permissions.teams_visible_for_user
 
         # Reading project_id must not trigger a follow-up query per team
         with self.assertNumQueries(0):
-            permissions.project_ids_visible_for_user
+            assert permissions.project_ids_visible_for_user is not None
 
     def test_team_ids_visible_for_user_no_explicit_permissions(self):
         from ee.models.rbac.access_control import AccessControl
