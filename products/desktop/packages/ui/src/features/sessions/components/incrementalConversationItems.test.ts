@@ -322,6 +322,26 @@ describe("createIncrementalConversationBuilder", () => {
     );
   });
 
+  it("settles a prior thought when the next prompt precedes trailing progress", () => {
+    const inc = createIncrementalConversationBuilder();
+    const initial = [userPromptMsg(1, 1, "first"), thoughtChunk(2, "thinking")];
+    inc.update(initial, true);
+
+    const displaced = [
+      ...initial,
+      progressMsg(3, "setup", "completed", "Ready"),
+      userPromptMsg(4, 2, "second"),
+    ];
+    expect(normalize(inc.update(displaced, true))).toEqual(
+      normalize(buildConversationItems(displaced, true)),
+    );
+
+    const continued = [...displaced, agentChunk(5, "working")];
+    expect(normalize(inc.update(continued, true))).toEqual(
+      normalize(buildConversationItems(continued, true)),
+    );
+  });
+
   it("resets the stable prefix when a transcript is replaced with the same prompt ids", () => {
     const inc = createIncrementalConversationBuilder();
     inc.update(
