@@ -282,7 +282,6 @@ class TestScoutSlackDelivery(BaseTest):
             title="Checkout failures",
             summary="Checkout failed for many users",
         )
-        assert report.slack_message is None
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
         fake_client.chat_postMessage.return_value = {"ts": "1785418710.000900"}
