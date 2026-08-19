@@ -14,7 +14,7 @@ from oauth2_provider.generators import generate_client_id, generate_client_secre
 from oauth2_provider.models import AbstractApplication
 
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
-from posthog.models.oauth_provisioning import ProvisioningConfig, ProvisioningRateLimits
+from posthog.models.oauth_provisioning import UNLIMITED_OVERRIDE, ProvisioningConfig
 
 # The provisioning config is one JSONB column, but an operator should still get the checkboxes
 # they had when it was a column each: a raw JSON textarea turns a mistyped capability key into
@@ -25,19 +25,40 @@ PROVISIONING_RATE_LIMIT_PREFIX = "provisioning_rate_limit_"
 
 
 def _provisioning_form_fields() -> dict[str, forms.Field]:
-    """One form field per capability, plus one per rate-limit override."""
+    """One form field per capability. Rate-limit override fields are generated
+    per request in ``get_form`` from the endpoint registry."""
     fields: dict[str, forms.Field] = {}
     for name, info in ProvisioningConfig.model_fields.items():
-        if name in ("rate_limits", "rate_limit_source"):
+        if name == "rate_limits":
             continue
         fields[f"{PROVISIONING_FIELD_PREFIX}{name}"] = forms.BooleanField(
             required=False, label=name.replace("_", " "), help_text=info.description or ""
         )
-    for name in ProvisioningRateLimits.model_fields:
-        fields[f"{PROVISIONING_RATE_LIMIT_PREFIX}{name}"] = forms.IntegerField(
-            required=False, min_value=0, label=f"rate limit {name.replace('_', ' ')} (per hour)"
-        )
     return fields
+
+
+def _rate_limit_endpoints() -> list[str]:
+    """Every declared rate-limit endpoint, so a new @rate_limited declaration
+    grows an override field here with no admin change."""
+    # Deferred: budgets register when the provisioning view modules import, and this
+    # admin module loads at django.setup() in every process, where pulling the ee
+    # views in eagerly would bloat startup.
+    from ee.api.agentic_provisioning import views  # noqa: F401, PLC0415
+    from ee.api.agentic_provisioning.ratelimits import registered_budgets  # noqa: PLC0415
+
+    return sorted(registered_budgets())
+
+
+def _rate_limit_form_fields() -> dict[str, forms.Field]:
+    return {
+        f"{PROVISIONING_RATE_LIMIT_PREFIX}{name}": forms.IntegerField(
+            required=False,
+            min_value=UNLIMITED_OVERRIDE,
+            label=f"rate limit {name.replace('_', ' ')} (per hour)",
+            help_text="Blank = tier-derived budget; -1 = unlimited. Outranks the tier, including BLOCKED.",
+        )
+        for name in _rate_limit_endpoints()
+    }
 
 
 PROVISIONING_FORM_FIELD_NAMES = tuple(_provisioning_form_fields())
@@ -81,39 +102,43 @@ class OAuthApplicationForm(forms.ModelForm):
             if "client_type" in self.fields:
                 self.fields["client_type"].initial = AbstractApplication.CLIENT_CONFIDENTIAL
 
+    def _rate_limit_field_names(self) -> list[str]:
+        return [name for name in self.fields if name.startswith(PROVISIONING_RATE_LIMIT_PREFIX)]
+
     def _load_provisioning_initial(self) -> None:
         config = self.instance.provisioning if self.instance.pk else ProvisioningConfig()
         for name in ProvisioningConfig.model_fields:
-            if name in ("rate_limits", "rate_limit_source"):
+            if name == "rate_limits":
                 continue
             self.fields[f"{PROVISIONING_FIELD_PREFIX}{name}"].initial = getattr(config, name)
-        for name in ProvisioningRateLimits.model_fields:
-            self.fields[f"{PROVISIONING_RATE_LIMIT_PREFIX}{name}"].initial = getattr(config.rate_limits, name)
+        for field_name in self._rate_limit_field_names():
+            endpoint = field_name.removeprefix(PROVISIONING_RATE_LIMIT_PREFIX)
+            self.fields[field_name].initial = config.rate_limits.get(endpoint)
+
+    def clean(self):
+        cleaned = super().clean() or {}
+        for field_name in self._rate_limit_field_names():
+            # 0 is rejected rather than meaning "unlimited": that footgun is why the
+            # unlimited sentinel is -1 (UNLIMITED_OVERRIDE).
+            if cleaned.get(field_name) == 0:
+                self.add_error(field_name, "Enter a positive hourly limit, -1 for unlimited, or leave blank.")
+        return cleaned
 
     def save(self, commit: bool = True):
         instance = super().save(commit=False)
 
-        previous = instance.provisioning
         capabilities = {
             name: self.cleaned_data[f"{PROVISIONING_FIELD_PREFIX}{name}"]
             for name in ProvisioningConfig.model_fields
-            if name not in ("rate_limits", "rate_limit_source")
+            if name != "rate_limits"
         }
-        rate_limits = ProvisioningRateLimits(
-            **{
-                name: self.cleaned_data[f"{PROVISIONING_RATE_LIMIT_PREFIX}{name}"]
-                for name in ProvisioningRateLimits.model_fields
-            }
-        )
-        # An operator typing a limit here outranks the verified/unverified defaults, so record
-        # that. Without it the next CIMD metadata refresh re-tiers the app and overwrites them.
-        # Keyed on the field actually changing in this form rather than on the stored value, so
-        # saving an unrelated field doesn't pin a limit a CIMD refresh set since the form loaded.
-        source = previous.rate_limit_source
-        if f"{PROVISIONING_RATE_LIMIT_PREFIX}account_requests" in self.changed_data:
-            source = "admin"
+        rate_limits = {
+            field_name.removeprefix(PROVISIONING_RATE_LIMIT_PREFIX): value
+            for field_name in self._rate_limit_field_names()
+            if (value := self.cleaned_data.get(field_name)) is not None
+        }
 
-        instance.provisioning = ProvisioningConfig(**capabilities, rate_limits=rate_limits, rate_limit_source=source)
+        instance.provisioning = ProvisioningConfig(**capabilities, rate_limits=rate_limits)
 
         if commit:
             instance.save()
@@ -140,11 +165,7 @@ class ProvisioningCapabilityFilter(admin.SimpleListFilter):
     parameter_name = "provisioning_capability"
 
     def lookups(self, request, model_admin):
-        return [
-            (name, name.replace("_", " "))
-            for name in ProvisioningConfig.model_fields
-            if name not in ("rate_limits", "rate_limit_source")
-        ]
+        return [(name, name.replace("_", " ")) for name in ProvisioningConfig.model_fields if name != "rate_limits"]
 
     def queryset(self, request, queryset):
         capability = self.value()
@@ -271,7 +292,11 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     def get_fieldsets(self, request, obj=None):
         if obj:
-            provisioning_fields = ["is_provisioning_partner", *PROVISIONING_FORM_FIELD_NAMES]
+            provisioning_fields = [
+                "is_provisioning_partner",
+                *PROVISIONING_FORM_FIELD_NAMES,
+                *_rate_limit_form_fields(),
+            ]
 
             return (
                 (None, {"fields": ("id", "name", "client_id", "client_type", "auth_brand", "logo_uri")}),
@@ -335,6 +360,11 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
             )
 
     def get_form(self, request, obj=None, change=False, **kwargs):
+        # The rate-limit override fields follow the endpoint registry, so they are
+        # declared on a per-request subclass: modelform_factory validates the
+        # fieldset names against the form class, which therefore has to carry them
+        # before super() runs.
+        kwargs["form"] = type("OAuthApplicationAdminForm", (self.form,), dict(_rate_limit_form_fields()))
         form = super().get_form(request, obj, change=change, **kwargs)
 
         if not obj:
