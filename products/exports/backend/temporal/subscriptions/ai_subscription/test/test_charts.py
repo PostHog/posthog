@@ -62,6 +62,14 @@ def test_a_well_formed_chart_validates():
             "x_and_y_identical",
         ),
         ("bar_over_a_single_row", _BAR, _response(rows=[["a", 1]]), "too_few_rows"),
+        # The prompt tells the planner every y column must be numeric; nothing enforced it, so a
+        # text column shipped as a blank chart that counted as a success.
+        (
+            "non_numeric_series",
+            _LINE,
+            {"results": _ROWS, "columns": ["day", "signups"], "types": [["day", "Date"], ["signups", "String"]]},
+            "non_numeric_series",
+        ),
         # The response shape comes from a query runner, not from us; a chart must never break a report.
         ("malformed_results", _LINE, {"results": "nonsense"}, "no_results"),
         ("response_is_not_a_dict", _LINE, "nonsense", "no_results"),
@@ -79,6 +87,14 @@ def test_an_unchartable_result_is_dropped_with_a_reason(_name, spec, response, e
         # A bar chart is about comparing named categories, so few rows is the normal case.
         ("bar_with_two_categories", _BAR, _response(rows=_ROWS[:2])),
         ("line_at_exactly_the_row_floor", _LINE, _response(rows=_ROWS)),
+        # Numeric types pass, and an unreadable `types` shape skips the check rather than dropping
+        # every chart.
+        (
+            "numeric_series_declared",
+            _LINE,
+            {"results": _ROWS, "columns": ["day", "signups"], "types": [["day", "Date"], ["signups", "UInt64"]]},
+        ),
+        ("unreadable_types_skips_the_check", _LINE, {"results": _ROWS, "columns": ["day", "signups"], "types": "?"}),
     ]
 )
 def test_shapes_that_chart_fine(_name, spec, response):
@@ -166,3 +182,39 @@ async def test_the_phase_budget_bounds_the_whole_render():
 
     assert rendered == []
     assert failures == [(0, "budget_exhausted")]
+
+
+async def test_a_slow_chart_does_not_discard_the_ones_that_rendered():
+    # The phase used to wrap one gather in wait_for, so a single slow render threw away every
+    # finished chart and reported them all as failures — paid-for renders lost to a timeout.
+    charts = [_chart(hogql="FAST", step_index=0), _chart(hogql="SLOW", step_index=1)]
+
+    def _render(**kwargs):
+        if kwargs["export_context"]["source"]["source"]["query"] == "SLOW":
+            time.sleep(5)
+        return MagicMock(id=7, exception=None), b"png"
+
+    with (
+        patch(f"{_CHARTS}._CHART_PHASE_BUDGET_SECONDS", 1.5),
+        patch(f"{_CHARTS}.render_png_export", side_effect=_render),
+    ):
+        rendered, failures = await render_charts(charts, team=MagicMock(), user=MagicMock())
+
+    assert [chart.step_index for chart in rendered] == [0]
+    assert failures == [(1, "budget_exhausted")]
+
+
+async def test_one_stuck_render_is_dropped_without_the_phase_budget():
+    # Per-render bound, so a single stuck browserless worker costs its own chart, not the phase.
+    def _hang(**kwargs):
+        time.sleep(5)
+        return MagicMock(id=1, exception=None), b"png"
+
+    with (
+        patch(f"{_CHARTS}._RENDER_TIMEOUT_SECONDS", 0.2),
+        patch(f"{_CHARTS}.render_png_export", side_effect=_hang),
+    ):
+        rendered, failures = await render_charts([_chart()], team=MagicMock(), user=MagicMock())
+
+    assert rendered == []
+    assert failures == [(0, "render_timed_out")]

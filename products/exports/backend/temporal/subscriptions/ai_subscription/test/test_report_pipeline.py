@@ -912,6 +912,46 @@ async def test_a_report_ships_when_every_chart_render_fails(
     assert result.plan_to_persist is not None
 
 
+@parameterized.expand(
+    [
+        # Spec-invalid: re-planning can produce a better spec, so don't freeze.
+        ("missing_columns", None),
+        ("x_and_y_identical", None),
+        ("non_numeric_series", None),
+        # Data-shaped: a thin or wide week says nothing about the spec. Freezing anyway is what
+        # keeps the subscription from re-running the planner LLM on every delivery forever.
+        ("too_few_rows", "frozen"),
+        ("too_many_categories", "frozen"),
+        ("no_results", "frozen"),
+    ]
+)
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}.render_charts", new_callable=AsyncMock)
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_only_a_spec_invalid_chart_drop_blocks_freezing(
+    _name: str,
+    expectation: str | None,
+    mock_bep: MagicMock,
+    mock_run: AsyncMock,
+    mock_render: AsyncMock,
+    mock_chat: MagicMock,
+    _capture: MagicMock,
+) -> None:
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_run.return_value = _charted_run(chart_dropped_reason=_name)
+    mock_render.return_value = ([], [])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    if expectation == "frozen":
+        assert result.plan_to_persist is not None
+    else:
+        assert result.plan_to_persist is None
+
+
 @patch(_SLO_CAPTURE)
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}.render_charts", new_callable=AsyncMock)
@@ -1001,10 +1041,12 @@ async def test_a_truncated_report_says_so_and_emits_an_event(
     with patch(f"{_RP}.MAX_CHARTS_PER_REPORT", 2):
         result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
-    assert "Showing 1 of 3 charts" in result.markdown
+    # The footnote counts the cap, not the renders: one chart lost to a failed render is not
+    # something splitting the prompt would recover, so it must not inflate the missing count.
+    assert "This report has 3 charts and shows the 2 most important" in result.markdown
     assert "Split this prompt into separate subscriptions" in result.markdown
     assert mock_truncated.call_args.kwargs["requested"] == 3
-    assert mock_truncated.call_args.kwargs["rendered"] == 2
+    assert mock_truncated.call_args.kwargs["selected"] == 2
 
 
 @patch(_SLO_CAPTURE)

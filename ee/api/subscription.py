@@ -1318,7 +1318,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         help_text="Per-step query diagnostics (generated HogQL + failure type) for this report. Null for non-AI deliveries or runs without persisted diagnostics."
     )
     ai_report_charts = serializers.SerializerMethodField(
-        help_text="Charts rendered for this report, in the order they were delivered. Null for non-AI deliveries and runs without charts."
+        help_text="Charts rendered for this report, in the order they were delivered. Empty when the report had no charts. Null for non-AI deliveries and for deliveries recorded before charts existed."
     )
     ai_report_prompt = serializers.SerializerMethodField(
         help_text="The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries."

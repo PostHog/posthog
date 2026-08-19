@@ -20,12 +20,20 @@ logger = structlog.get_logger(__name__)
 # Displays whose x axis is a continuous run of points, so a chart of one or two rows reads as noise.
 _CONTINUOUS_DISPLAYS = {"ActionsLineGraph", "ActionsAreaGraph"}
 
-# A single render holds a browserless worker for up to 90s. Bound the whole phase well inside the
-# generate activity's 10-minute start_to_close_timeout: that activity retries three times and each
-# retry re-runs the LLM pipeline, so a slow render must never be what times it out.
-_CHART_PHASE_BUDGET_SECONDS = 180.0
+# Drop reasons that mean the spec itself is wrong, so re-planning can produce a better one. Every
+# other reason describes this run's data (an empty week, a breakdown that grew past the bar cap) and
+# would recur on a frozen plan forever, so those must not block freezing.
+SPEC_INVALID_DROP_REASONS = frozenset({"missing_columns", "x_and_y_identical", "non_numeric_series"})
+
 # Cap simultaneous browserless renders per report, mirroring the per-report ClickHouse step cap.
 _MAX_CONCURRENT_RENDERS = 3
+# Per-render ceiling, below the exporter's own 90s RENDER_TIMEOUT so a stuck render is dropped here
+# rather than holding a slot for the full export timeout.
+_RENDER_TIMEOUT_SECONDS = 75.0
+# Whole-phase ceiling. Deliberately above the worst case (ceil(MAX_CHARTS_PER_REPORT /
+# _MAX_CONCURRENT_RENDERS) waves x _RENDER_TIMEOUT_SECONDS) so ordinary dispatch overhead — the
+# asset insert, a Temporal connect, browserless queueing — cannot turn a full report into no charts.
+_CHART_PHASE_BUDGET_SECONDS = 210.0
 
 
 @frozen
@@ -66,6 +74,12 @@ def validate_chart(
     if spec.x_column in spec.y_columns:
         return None, "x_and_y_identical"
 
+    # The planner is told every y column must be numeric, but nothing enforced it, so a text column
+    # shipped as a blank chart counted as a success. `types` is [[name, clickhouse_type], ...].
+    numeric_columns = _numeric_column_names(response.get("types"))
+    if numeric_columns is not None and not set(spec.y_columns).issubset(numeric_columns):
+        return None, "non_numeric_series"
+
     if spec.display in _CONTINUOUS_DISPLAYS:
         if len(rows) < MIN_CHART_ROWS:
             return None, "too_few_rows"
@@ -75,6 +89,25 @@ def validate_chart(
         return None, "too_many_categories"
 
     return ValidatedChart(spec=spec, hogql=hogql, title=title, step_index=step_index), None
+
+
+def _numeric_column_names(types: Any) -> Optional[set[str]]:
+    """Column names whose ClickHouse type is numeric, or None when the shape is unreadable.
+
+    None means "cannot tell" and the caller skips the check, so an unexpected `types` shape costs a
+    guard rather than every chart.
+    """
+    if not isinstance(types, list) or not types:
+        return None
+    numeric: set[str] = set()
+    for entry in types:
+        if not isinstance(entry, list | tuple) or len(entry) < 2:
+            return None
+        name, clickhouse_type = str(entry[0]), str(entry[1])
+        # Nullable(Int64), LowCardinality(Float64) and friends carry the inner type in the name.
+        if any(token in clickhouse_type for token in ("Int", "Float", "Decimal", "UInt")):
+            numeric.add(name)
+    return numeric
 
 
 def _distinct_count(rows: list[Any], index: int) -> int:
@@ -132,11 +165,20 @@ async def render_charts(
             try:
                 # render_png_export wraps async_to_sync internally, so it cannot be awaited directly
                 # from this activity's event loop.
-                asset, png = await database_sync_to_async(render_png_export, thread_sensitive=False)(
-                    team=team,
-                    created_by=user,
-                    export_context=build_export_context(chart),
+                asset, png = await asyncio.wait_for(
+                    database_sync_to_async(render_png_export, thread_sensitive=False)(
+                        team=team,
+                        created_by=user,
+                        export_context=build_export_context(chart),
+                    ),
+                    timeout=_RENDER_TIMEOUT_SECONDS,
                 )
+            except TimeoutError:
+                # Cancelling this does not stop the worker thread: asgiref cannot cancel a sync
+                # callable that already started, so the render finishes and writes an asset nothing
+                # references. The timeout frees the report, not the browserless worker.
+                logger.warning("ai_report.chart_render_timed_out", step_index=chart.step_index)
+                return None, (chart.step_index, "render_timed_out")
             except Exception:
                 logger.warning("ai_report.chart_render_error", step_index=chart.step_index, exc_info=True)
                 return None, (chart.step_index, "render_error")
@@ -145,16 +187,30 @@ async def render_charts(
                 return None, (chart.step_index, "render_failed")
             return RenderedChart(export_asset_id=asset.id, title=chart.title, step_index=chart.step_index), None
 
-    try:
-        outcomes = await asyncio.wait_for(
-            asyncio.gather(*(render_one(chart) for chart in charts)),
-            timeout=_CHART_PHASE_BUDGET_SECONDS,
-        )
-    except TimeoutError:
-        logger.warning("ai_report.chart_phase_budget_exhausted", chart_count=len(charts))
-        # The budget bounds the phase, not a single chart, so every chart in flight is lost.
-        return [], [(chart.step_index, "budget_exhausted") for chart in charts]
+    tasks = {asyncio.create_task(render_one(chart)): chart for chart in charts}
+    # wait(), not wait_for() over a gather: a phase that overruns must keep the charts that already
+    # rendered rather than discarding paid-for work and reporting them all as failures.
+    done, pending = await asyncio.wait(tasks.keys(), timeout=_CHART_PHASE_BUDGET_SECONDS)
+    for task in pending:
+        task.cancel()
+    if pending:
+        logger.warning("ai_report.chart_phase_budget_exhausted", abandoned=len(pending), chart_count=len(charts))
 
-    rendered = [chart for chart, _ in outcomes if chart is not None]
-    failures = [failure for _, failure in outcomes if failure is not None]
+    rendered: list[RenderedChart] = []
+    failures: list[tuple[int, str]] = [(tasks[task].step_index, "budget_exhausted") for task in pending]
+    for task in done:
+        # A task that raised is a bug in render_one, which catches everything it expects; treat it
+        # as a lost chart rather than letting it escape and cost the report.
+        if task.exception() is not None:
+            logger.warning("ai_report.chart_render_error", step_index=tasks[task].step_index, exc_info=True)
+            failures.append((tasks[task].step_index, "render_error"))
+            continue
+        chart, failure = task.result()
+        if chart is not None:
+            rendered.append(chart)
+        if failure is not None:
+            failures.append(failure)
+    # Keep report order stable regardless of which render finished first.
+    rendered.sort(key=lambda item: item.step_index)
+    failures.sort(key=lambda item: item[0])
     return rendered, failures

@@ -433,6 +433,12 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
                                 className="max-w-full rounded border"
                                 // First-party PNGs the backend rendered, addressed by asset id — not urls
                                 // the model wrote, which is what disableImages above guards against.
+                                // Only the asset's creator can fetch this: the exports content route
+                                // 404s for everyone else (products/exports/backend/api/exports.py:547),
+                                // so a teammate sees no image here. Do not "fix" that by loosening the
+                                // check or minting a delivery token — chart PNGs are query-derived, and
+                                // ai_report_charts is deliberately scrubbed for callers without query
+                                // access. It needs a delivery-scoped endpoint enforcing the same check.
                                 src={getExportsContentRetrieveUrl(String(currentTeamId), chart.export_asset_id)}
                                 alt={chart.title}
                             />

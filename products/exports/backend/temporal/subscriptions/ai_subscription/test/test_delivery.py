@@ -221,6 +221,10 @@ class TestBuildChartImageUrls:
             ("expired_asset", [{"export_asset_id": 7, "title": "t"}], None),
             ("missing_id", [{"title": "no id"}], "https://ph.test/img.png"),
             ("not_a_dict", ["junk"], "https://ph.test/img.png"),
+            # Raw JSONB: a row edited out of band can hold a non-list, which used to iterate
+            # per-character or raise and fail the delivery activity.
+            ("not_a_list", "nonsense", "https://ph.test/img.png"),
+            ("none", None, "https://ph.test/img.png"),
         ]
     )
     def test_unusable_entries_yield_nothing(self, _name, charts, minted) -> None:

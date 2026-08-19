@@ -22,6 +22,7 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
+    SPEC_INVALID_DROP_REASONS,
     RenderedChart,
     ValidatedChart,
     render_charts,
@@ -114,8 +115,13 @@ def _all_queries_failed_notice(total_steps: int) -> str:
     )
 
 
-def _charts_truncated_footnote(rendered: int, total: int) -> str:
-    return f"\n\n_Showing {rendered} of {total} charts. Split this prompt into separate subscriptions to see the rest._"
+def _charts_truncated_footnote(shown: int, total: int) -> str:
+    # Counts the cap, not the renders: a chart lost to a failed render is not something splitting the
+    # prompt would recover, so folding those in would give the reader advice that cannot work.
+    return (
+        f"\n\n_This report has {total} charts and shows the {shown} most important. "
+        "Split this prompt into separate subscriptions to see the rest._"
+    )
 
 
 class ReportStage(StrEnum):
@@ -229,9 +235,12 @@ async def generate_ai_report(
             raise
 
         total_steps = len(spec.plan.steps)
-        # Count chart specs the result couldn't support before the render phase writes its own
-        # reasons onto these diagnostics — only a validation failure should block freezing.
-        chart_validation_failures = sum(1 for diagnostic in diagnostics if diagnostic.chart_dropped_reason)
+        # Only a spec-invalid drop blocks freezing, and only from before the render phase writes its
+        # own reasons here. A chart dropped because this week's data was thin or wide would otherwise
+        # re-plan the subscription every delivery forever, billing a planner call each time.
+        chart_spec_failures = sum(
+            1 for diagnostic in diagnostics if diagnostic.chart_dropped_reason in SPEC_INVALID_DROP_REASONS
+        )
         # Rank before rendering: a render costs a browserless worker and a second query execution, so
         # the charts that lose the ranking must never be built. Python's sort is stable, so equal
         # importance keeps plan order.
@@ -239,7 +248,7 @@ async def generate_ai_report(
         selected, dropped = ranked[:MAX_CHARTS_PER_REPORT], ranked[MAX_CHARTS_PER_REPORT:]
         if dropped:
             _capture_charts_truncated(
-                team=team, trace_correlation_id=trace_correlation_id, requested=len(charts), rendered=len(selected)
+                team=team, trace_correlation_id=trace_correlation_id, requested=len(charts), selected=len(selected)
             )
         rendered_charts, chart_failures = await render_charts(selected, team=team, user=user)
         # A render failure is as diagnosable as a validation failure: both mean the reader got no
@@ -269,7 +278,7 @@ async def generate_ai_report(
                 total_steps=total_steps,
             )
         if dropped:
-            report = report + _charts_truncated_footnote(len(rendered_charts), len(charts))
+            report = report + _charts_truncated_footnote(len(selected), len(charts))
         if total_steps and failed_count == total_steps:
             # Every query failed, so the body is all "could not be computed" placeholders. Lead with a
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
@@ -282,7 +291,7 @@ async def generate_ai_report(
             total_steps=total_steps,
             relevant_events=spec.relevant_events,
             trace_correlation_id=trace_correlation_id,
-            chart_failure_count=chart_validation_failures,
+            chart_failure_count=chart_spec_failures,
         )
         return AiReportResult(
             markdown=report,
@@ -294,7 +303,7 @@ async def generate_ai_report(
 
 
 def _capture_charts_truncated(
-    *, team: Team, trace_correlation_id: Optional[Union[int, str]], requested: int, rendered: int
+    *, team: Team, trace_correlation_id: Optional[Union[int, str]], requested: int, selected: int
 ) -> None:
     """Record that the planner asked for more charts than a report renders.
 
@@ -311,7 +320,8 @@ def _capture_charts_truncated(
                     "subscription_id": trace_correlation_id,
                     "team_id": team.id,
                     "charts_requested": requested,
-                    "charts_rendered": rendered,
+                    # Selected by the ranking, not rendered — the SLO tag carries the render count.
+                    "charts_selected": selected,
                     # system signal keyed by team, not a person
                     "$process_person_profile": False,
                 },
@@ -522,11 +532,13 @@ async def _run_steps(
                         step.chart,
                         query_result.response,
                         hogql=executable_hogql,
-                        # The planner's short label when it wrote one, else its rationale sentence.
-                        # Both are LLM output rendered into email and Slack, so both get stripped.
-                        title=strip_llm_framing_markers(step.chart.title, max_len=MAX_CHART_TITLE_LENGTH)
-                        if step.chart.title
-                        else safe_description,
+                        # The planner's short label when it wrote one, else its rationale sentence
+                        # cut to the same length — a caption has to stay label-shaped, and
+                        # `description` is capped at 500. Both are LLM output rendered into email
+                        # and Slack, so both get stripped.
+                        title=strip_llm_framing_markers(
+                            step.chart.title or safe_description, max_len=MAX_CHART_TITLE_LENGTH
+                        ),
                         step_index=step_index,
                     )
                     if step.chart is not None

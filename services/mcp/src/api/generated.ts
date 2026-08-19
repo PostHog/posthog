@@ -52527,7 +52527,7 @@ export namespace Schemas {
          */
       readonly ai_report_diagnostics: readonly AIReportQueryDiagnostic[] | null;
       /**
-         * Charts rendered for this report, in the order they were delivered. Null for non-AI deliveries and runs without charts.
+         * Charts rendered for this report, in the order they were delivered. Empty when the report had no charts. Null for non-AI deliveries and for deliveries recorded before charts existed.
          * @nullable
          */
       readonly ai_report_charts: readonly AIReportChart[] | null;
