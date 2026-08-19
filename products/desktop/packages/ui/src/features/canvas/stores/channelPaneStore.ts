@@ -39,6 +39,16 @@ export function shouldKeepListForRoute(channelId: string): boolean {
   return false;
 }
 
+/**
+ * Drop the latch. The route effect calls this when it lands on a channel-less
+ * route, which ends the navigation the latch was armed for — otherwise the
+ * latch survives that route and holds a later deep link back to the same
+ * channel on the list.
+ */
+export function clearKeepListForRoute(): void {
+  keepListForChannelId = null;
+}
+
 /** Slide back to the channel list, keeping the scoped channel as it is. */
 export function showChannelList(): void {
   keepListForChannelId = null;
