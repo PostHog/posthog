@@ -168,9 +168,13 @@ impl GlobalRateLimiter {
                 custom_keys_csv: config.ai_byte_limit_overrides_csv.as_ref(),
                 custom_key_scale: window_secs,
                 local_cache_max_entries: config.ai_byte_limit_local_cache_max_entries,
-                // Shared knob, but this limiter counts bytes: any real event
-                // clears an event-scaled floor, so this is effectively unfloored.
-                min_sync_floor: config.global_rate_limit_min_sync_floor,
+                // No floor. The shared knob is an event count, and this
+                // limiter counts bytes, so inheriting it would be a unit
+                // confusion that reads as deliberate. The floor exists to keep
+                // an unbounded key space off Redis; this limiter's keys are
+                // projects sending AI traffic, few enough that syncing all of
+                // them is cheap and accurate enforcement is worth more.
+                min_sync_floor: 0,
                 redis_key_prefix: AI_BYTES_REDIS_KEY_PREFIX,
                 metrics_scope: &metrics_scope,
                 // Thresholds come from config only; the Django-written blob
