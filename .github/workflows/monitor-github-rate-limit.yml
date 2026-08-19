@@ -66,7 +66,7 @@ permissions:
 
 jobs:
     poll:
-        runs-on: ubuntu-latest
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 3
         # Forks don't get secret access on pull_request, so the capture would
         # no-op anyway — skip the run entirely to avoid noise.
