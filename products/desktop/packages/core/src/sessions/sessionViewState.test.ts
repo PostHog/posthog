@@ -71,6 +71,26 @@ describe("deriveSessionViewState", () => {
     expect(state.isCloudRunNotTerminal).toBe(true);
   });
 
+  it.each([
+    { isHydratingTranscript: true, expected: true },
+    { isHydratingTranscript: undefined, expected: false },
+  ])(
+    "shows an empty terminal thread as initializing only while its transcript hydrates (hydrating: $isHydratingTranscript)",
+    ({ isHydratingTranscript, expected }) => {
+      const session = makeSession("completed");
+      session.isHydratingTranscript = isHydratingTranscript;
+
+      const state = deriveSessionViewState(
+        session,
+        makeTask("completed"),
+        null,
+        true,
+      );
+
+      expect(state.isInitializing).toBe(expected);
+    },
+  );
+
   it("treats not_started as a non-terminal cloud state", () => {
     const state = deriveSessionViewState(
       undefined,
