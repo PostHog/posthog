@@ -2122,6 +2122,19 @@ class TestProperty(BaseTest):
             ),
         )
 
+    def test_behavioral_property_in_action_step_raises(self):
+        # Compiling one would re-enter action_to_expr until Python's recursion limit
+        action = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}])
+        action.steps_json = [
+            {
+                "event": "$pageview",
+                "properties": [self._behavioral_filter(event_type="actions", key=str(action.pk))],
+            }
+        ]
+        action.save()
+        with self.assertRaises(QueryError):
+            action_to_expr(action)
+
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
     # Sentinel to indicate a property should not be included in the event

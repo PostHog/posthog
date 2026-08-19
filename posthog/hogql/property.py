@@ -1614,6 +1614,9 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
             exprs.append(expr)
 
         if step.properties:
+            # An action referencing itself here would re-enter action_to_expr until Python's recursion limit.
+            if any(isinstance(prop, dict) and prop.get("type") == "behavioral" for prop in step.properties):
+                raise QueryError("Action steps can't filter on behavioral properties")
             exprs.append(property_to_expr(step.properties, team))
 
         if len(exprs) == 1:
