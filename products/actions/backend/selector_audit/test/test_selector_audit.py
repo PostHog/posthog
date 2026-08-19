@@ -38,6 +38,7 @@ from products.actions.backend.selector_audit.audit import (
     discover_rows,
     load_report,
     measure_team_rows,
+    prefill_counts_from_previous,
     save_report,
 )
 from products.actions.backend.selector_audit.compilers import (
@@ -195,6 +196,61 @@ class TestDecideBucket(SimpleTestCase):
 class TestDetectLiveCompiler(SimpleTestCase):
     def test_live_compiler_is_recognized(self) -> None:
         assert detect_live_compiler() in ("old", "new")
+
+
+class TestMeasureBatching(SimpleTestCase):
+    def _run(self, rows: list[dict[str, Any]], batch_size: int = 40) -> tuple[list[dict[str, Any]], int]:
+        queries: list[dict[str, Any]] = []
+        batches_done = 0
+
+        def fake_execute(query: str, params: dict[str, Any], **kwargs: Any) -> list[list[int]]:
+            queries.append(params)
+            return [[7] * sum(1 for key in params if key.startswith("regex_"))]
+
+        def on_batch_done() -> None:
+            nonlocal batches_done
+            batches_done += 1
+
+        with patch("products.actions.backend.selector_audit.audit.sync_execute", side_effect=fake_execute):
+            measure_team_rows(
+                1, rows, days=7, batch_size=batch_size, sleep_seconds=0, log=_noop_log, on_batch_done=on_batch_done
+            )
+        return queries, batches_done
+
+    @staticmethod
+    def _regexes(params: dict[str, Any]) -> set[str]:
+        return {value for key, value in params.items() if key.startswith("regex_")}
+
+    def test_distinct_selectors_measured_once_with_counts_fanned_out(self) -> None:
+        rows = [
+            make_row(action_id=1),
+            make_row(action_id=2),
+            make_row(action_id=3, selector=".btn", rewrite=None),
+        ]
+        queries, batches_done = self._run(rows, batch_size=1)
+        assert len(queries) == 2
+        assert batches_done == 2
+        assert self._regexes(queries[0]) == {compile_old(".btn"), compile_new(".btn")}
+        assert self._regexes(queries[1]) == {
+            compile_old('[id="root"] > span'),
+            compile_new('[id="root"] > span'),
+            compile_old('[id="root"] span'),
+            compile_new('[id="root"] span'),
+        }
+        assert all(row["counts"] == dict.fromkeys(COUNT_KEYS, 7) for row in rows)
+
+    def test_resume_prefill_skips_already_measured_selectors(self) -> None:
+        measured = make_row(action_id=1, counts=dict.fromkeys(COUNT_KEYS, 5), bucket=BUCKET_SAFE_REWRITE)
+        previous = build_report([measured], {}, {"days": 7}, "old")
+        rows = [make_row(action_id=1), make_row(action_id=2, selector=".btn", rewrite=None)]
+
+        assert prefill_counts_from_previous(rows, previous) == 1
+        queries, _ = self._run(rows)
+
+        assert len(queries) == 1
+        assert self._regexes(queries[0]) == {compile_old(".btn"), compile_new(".btn")}
+        assert rows[0]["counts"] == dict.fromkeys(COUNT_KEYS, 5)
+        assert rows[1]["counts"] == dict.fromkeys(COUNT_KEYS, 7)
 
 
 class TestReportRoundtrip(SimpleTestCase):

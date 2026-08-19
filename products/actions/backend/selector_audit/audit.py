@@ -168,30 +168,51 @@ def measure_team_rows(
     batch_size: int,
     sleep_seconds: float,
     log: Callable[[str], object],
+    on_batch_done: Optional[Callable[[], None]] = None,
 ) -> None:
     """Fill row counts with countIf(match(elements_chain, regex)) over recent $autocapture."""
-    measurable = [row for row in rows if row["bucket"] != BUCKET_COMPILE_ERROR]
+    # The same selector often guards many actions, so measure each distinct one
+    # once and fan the counts out to every row that shares it. Rows that already
+    # have complete counts (a --resume prefill) need no query at all.
+    pending = [
+        row
+        for row in rows
+        if row["bucket"] != BUCKET_COMPILE_ERROR and any(row["counts"][key] is None for key in COUNT_KEYS)
+    ]
+    rows_by_selector: dict[str, list[Row]] = {}
+    for row in pending:
+        rows_by_selector.setdefault(row["selector"], []).append(row)
+    selectors = sorted(rows_by_selector)
     date_from = timezone.now() - timedelta(days=days)
+    total_batches = (len(selectors) + batch_size - 1) // batch_size
+    if selectors:
+        log(
+            f"  team {team_id}: {len(selectors)} distinct selectors across {len(pending)} steps, "
+            f"{total_batches} batches"
+        )
 
-    for batch_start in range(0, len(measurable), batch_size):
-        batch = measurable[batch_start : batch_start + batch_size]
-        # Identical regexes (same selector on several actions) share one countIf column.
+    for batch_index, batch_start in enumerate(range(0, len(selectors), batch_size), start=1):
+        batch = selectors[batch_start : batch_start + batch_size]
+        started = time.monotonic()
+        # Identical regexes (e.g. a rewrite compiling byte-equal to its original)
+        # share one countIf column.
         column_index_by_regex: dict[str, int] = {}
-        variants_by_row: list[dict[str, int]] = []
-        for row in batch:
+        variants_by_selector: list[dict[str, int]] = []
+        for selector in batch:
+            rewrite = rows_by_selector[selector][0]["rewrite"]
             variants: dict[str, int] = {}
             regexes = {
-                "old_original": compile_old(row["selector"]),
-                "new_original": compile_new(row["selector"]),
+                "old_original": compile_old(selector),
+                "new_original": compile_new(selector),
             }
-            if row["rewrite"]:
-                regexes["old_rewritten"] = compile_old(row["rewrite"])
-                regexes["new_rewritten"] = compile_new(row["rewrite"])
+            if rewrite:
+                regexes["old_rewritten"] = compile_old(rewrite)
+                regexes["new_rewritten"] = compile_new(rewrite)
             for count_key, regex in regexes.items():
                 if regex not in column_index_by_regex:
                     column_index_by_regex[regex] = len(column_index_by_regex)
                 variants[count_key] = column_index_by_regex[regex]
-            variants_by_row.append(variants)
+            variants_by_selector.append(variants)
 
         params: dict[str, Any] = {"team_id": team_id, "date_from": date_from}
         columns: list[str] = []
@@ -212,19 +233,23 @@ def measure_team_rows(
                 readonly=True,
             )
         except Exception as error:
-            # Leave the batch unmeasured rather than aborting the team: the report
-            # marks these rows not_measured and a re-run picks them up.
-            log(f"  batch failed for team {team_id} ({len(batch)} selectors): {error}")
+            # Leave the batch unmeasured rather than aborting the team: these rows
+            # stay not_measured and a re-run (with --resume) picks them up.
+            log(f"  team {team_id}: batch {batch_index}/{total_batches} failed ({len(batch)} selectors): {error}")
             continue
 
         counts_by_column = list(result[0])
-        for row, variants in zip(batch, variants_by_row, strict=True):
-            for count_key, column in variants.items():
-                row["counts"][count_key] = int(counts_by_column[column])
-            if not row["rewrite"]:
-                # No `>` to rewrite, so the rewrite is the selector itself.
-                row["counts"]["old_rewritten"] = row["counts"]["old_original"]
-                row["counts"]["new_rewritten"] = row["counts"]["new_original"]
+        for selector, variants in zip(batch, variants_by_selector, strict=True):
+            for row in rows_by_selector[selector]:
+                for count_key, column in variants.items():
+                    row["counts"][count_key] = int(counts_by_column[column])
+                if not row["rewrite"]:
+                    # No `>` to rewrite, so the rewrite is the selector itself.
+                    row["counts"]["old_rewritten"] = row["counts"]["old_original"]
+                    row["counts"]["new_rewritten"] = row["counts"]["new_original"]
+        log(f"  team {team_id}: batch {batch_index}/{total_batches} done in {time.monotonic() - started:.0f}s")
+        if on_batch_done is not None:
+            on_batch_done()
         if sleep_seconds:
             time.sleep(sleep_seconds)
 
@@ -277,6 +302,25 @@ def decide_bucket(row: Row, tolerance: float, gain_tolerance: float = 0.1) -> No
             candidates.append((row["rewrite"], new_rewritten))
         closest = min(candidates, key=lambda candidate: abs(candidate[1] - old_original))
         row["suggestion"] = {"selector": closest[0], "new_count": closest[1]}
+
+
+def prefill_counts_from_previous(rows: list[Row], previous: Optional[Report]) -> int:
+    """Copy complete counts from the previous report so --resume skips re-measuring them.
+
+    Keyed by row_key, so a selector edited since that report is measured fresh.
+    """
+    if not previous:
+        return 0
+    previous_by_key = {row_key(row): row for row in iter_report_rows(previous)}
+    prefilled = 0
+    for row in rows:
+        if row["bucket"] == BUCKET_COMPILE_ERROR:
+            continue
+        earlier = previous_by_key.get(row_key(row))
+        if earlier and all(earlier["counts"].get(key) is not None for key in COUNT_KEYS):
+            row["counts"] = {key: earlier["counts"][key] for key in COUNT_KEYS}
+            prefilled += 1
+    return prefilled
 
 
 def collect_references(team: Team, rows: list[Row], log: Callable[[str], object]) -> None:

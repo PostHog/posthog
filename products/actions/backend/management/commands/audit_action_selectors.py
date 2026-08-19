@@ -21,6 +21,7 @@ from products.actions.backend.selector_audit.audit import (
     discover_rows,
     load_report,
     measure_team_rows,
+    prefill_counts_from_previous,
     save_report,
 )
 
@@ -52,6 +53,11 @@ class Command(BaseCommand):
         parser.add_argument("--batch-size", type=int, default=40, help="Selectors per ClickHouse query (default 40)")
         parser.add_argument("--sleep", type=float, default=1.0, help="Seconds between ClickHouse queries (default 1.0)")
         parser.add_argument(
+            "--resume",
+            action="store_true",
+            help="With --measure: keep counts already in the report at --output and only measure the rest",
+        )
+        parser.add_argument(
             "--output",
             type=str,
             default="action_selector_audit.json",
@@ -76,6 +82,8 @@ class Command(BaseCommand):
         applying = options["apply_safe_rewrites"] or options["apply_deploy_day_rewrites"]
         if options["live_run"] and not applying:
             raise CommandError("--live-run does nothing without --apply-safe-rewrites/--apply-deploy-day-rewrites")
+        if options["resume"] and not options["measure"]:
+            raise CommandError("--resume only applies with --measure")
 
         live_compiler = detect_live_compiler()
         log(f"live compiler: {live_compiler}")
@@ -101,7 +109,25 @@ class Command(BaseCommand):
 
         team_ids = sorted({row["team_id"] for row in rows})
         team_totals: dict[int, Any] = {}
+        run_params: dict[str, Any] = {
+            "days": options["days"],
+            "tolerance": options["tolerance"],
+            "rewrite_gain_tolerance": options["rewrite_gain_tolerance"],
+            "measured": options["measure"],
+            "team_ids": options["team_ids"],
+        }
         if options["measure"]:
+            if options["resume"]:
+                resumed = prefill_counts_from_previous(rows, previous)
+                log(f"resume: reusing counts for {resumed} of {len(rows)} selector steps from {output_path}")
+
+            def checkpoint() -> None:
+                # Persist progress after every batch, so a killed run loses at
+                # most one batch and can restart with --resume.
+                for checkpoint_row in rows:
+                    decide_bucket(checkpoint_row, options["tolerance"], options["rewrite_gain_tolerance"])
+                save_report(output_path, build_report(rows, team_totals, run_params, live_compiler))
+
             for team_id in team_ids:
                 team_rows = [row for row in rows if row["team_id"] == team_id]
                 total = count_autocapture_events(team_id, options["days"])
@@ -109,10 +135,18 @@ class Command(BaseCommand):
                 if total == 0:
                     log(f"team {team_id}: no $autocapture in the last {options['days']} days, skipping measurement")
                     continue
-                log(f"team {team_id}: measuring {len(team_rows)} selectors against {total} autocapture events")
-                measure_team_rows(team_id, team_rows, options["days"], options["batch_size"], options["sleep"], log)
-                for row in team_rows:
-                    decide_bucket(row, options["tolerance"], options["rewrite_gain_tolerance"])
+                log(f"team {team_id}: measuring {len(team_rows)} selector steps against {total} autocapture events")
+                measure_team_rows(
+                    team_id,
+                    team_rows,
+                    options["days"],
+                    options["batch_size"],
+                    options["sleep"],
+                    log,
+                    on_batch_done=checkpoint,
+                )
+            for row in rows:
+                decide_bucket(row, options["tolerance"], options["rewrite_gain_tolerance"])
 
         carry_over_previous(rows, previous, keep_measurements=not options["measure"])
 
@@ -140,18 +174,7 @@ class Command(BaseCommand):
                 )
 
         diff = diff_reports(previous, rows)
-        report = build_report(
-            rows,
-            team_totals,
-            {
-                "days": options["days"],
-                "tolerance": options["tolerance"],
-                "rewrite_gain_tolerance": options["rewrite_gain_tolerance"],
-                "measured": options["measure"],
-                "team_ids": options["team_ids"],
-            },
-            live_compiler,
-        )
+        report = build_report(rows, team_totals, run_params, live_compiler)
         csv_path = save_report(output_path, report)
 
         buckets_histogram = Counter(row["bucket"] for row in rows)
