@@ -392,13 +392,21 @@ async fn process_events_inner(
     // the whole batch under this error's own `ai_event_too_big` tag; counting
     // locally too would report one more drop than the batch held, and split one
     // rejection across two `cause` labels.
+    //
+    // The uuid says which event to fix, since a batch can carry several of the
+    // same name. It is only a handle for clients that send their own; the rest
+    // get the one `process_single_event` minted, which identifies nothing they
+    // can look up. The non-AI-event rejection above deliberately omits it: its
+    // offender may be the `$$heatmap` event capture itself synthesized, and
+    // naming a uuid the client never issued would misdirect them.
     if let Some(offender) = events.iter().find(|e| {
         e.metadata.data_type == DataType::AiEvents
             && exceeds_max_ai_event_bytes(e.event.data.len(), context.ai_max_event_bytes)
     }) {
         return Err(CaptureError::AiEventTooBig(format!(
-            "AI event {} is {} bytes, over the {}-byte limit",
+            "AI event {} (uuid {}) is {} bytes, over the {}-byte limit",
             offender.metadata.event_name,
+            offender.event.uuid,
             offender.event.data.len(),
             context.ai_max_event_bytes
         )));
@@ -1497,6 +1505,10 @@ mod tests {
         oversized
             .properties
             .insert("$ai_input".to_string(), json!("x".repeat(800)));
+        // A client-supplied uuid: the case where the uuid in the message is a
+        // handle the sender can match against its own outbox.
+        let offender_uuid = Uuid::parse_str("018f2c6e-0000-7000-8000-00000000beef").unwrap();
+        oversized.uuid = Some(offender_uuid);
 
         let err = run_pipeline(
             sink.clone(),
@@ -1516,6 +1528,12 @@ mod tests {
         .expect_err("an oversize AI event must refuse the batch");
 
         assert!(matches!(err, CaptureError::AiEventTooBig(_)), "got {err:?}");
+        // The offender's uuid, not the batch's first event: a batch can carry
+        // several events of one name, so the name alone doesn't say which to fix.
+        assert!(
+            err.to_string().contains(&offender_uuid.to_string()),
+            "the message must name the offending event's uuid, got {err}"
+        );
         assert!(
             sink.get_events().is_empty(),
             "no event may reach the sink once the request is refused"
