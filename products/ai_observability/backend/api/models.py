@@ -128,7 +128,10 @@ class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             if provider is not None and provider_key.provider != provider:
                 return Response(
                     {
-                        "detail": f"Key provider '{provider_key.provider}' does not match requested provider '{provider}'"
+                        "detail": (
+                            f"Key '{key_id}' belongs to provider '{provider_key.provider}', not '{provider}'. "
+                            "Omit the provider param to use the key's own provider."
+                        )
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )

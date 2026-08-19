@@ -106,7 +106,10 @@ class TestLLMModelsViewSet(APIBaseTest):
         response = self._list(f"?provider=openai&key_id={key.id}")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("does not match", response.json()["detail"])
+        detail = response.json()["detail"]
+        self.assertIn("anthropic", detail)
+        # A key resolves its own provider, so the rejection has to name that as the way out.
+        self.assertIn("omit the provider param", detail.lower())
 
     @parameterized.expand(
         [
