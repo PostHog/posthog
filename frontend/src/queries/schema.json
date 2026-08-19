@@ -25705,7 +25705,8 @@
                 "SamCart",
                 "IronSourceAds",
                 "MicrosoftExcel",
-                "Profound"
+                "Profound",
+                "Airwallex"
             ],
             "type": "string"
         },
