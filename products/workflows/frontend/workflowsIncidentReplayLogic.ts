@@ -7,7 +7,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { hogFlowsList, hogFlowsRerunCreate } from 'products/workflows/frontend/generated/api'
+import {
+    hogFlowsInvocationResultsRetrieve,
+    hogFlowsList,
+    hogFlowsRerunCreate,
+} from 'products/workflows/frontend/generated/api'
 
 // The window of the 2026-08-17 email send incident (UTC), padded around the first and last
 // observed failures. Both the affected-workflow lookup and the rerun filter use it, so a
@@ -127,10 +131,41 @@ export const workflowsIncidentReplayLogic = kea<workflowsIncidentReplayLogicType
                         return []
                     }
 
-                    const flows = await hogFlowsList(String(values.currentProjectId), { limit: 300 })
+                    // App metrics are historical counters, so a fully replayed workflow would sit in
+                    // the banner forever. Only keep workflows that still have a failed invocation
+                    // carrying the incident's error message - the same rows the rerun would target -
+                    // so a workflow drops off once its replay drains, and stays while a >10k replay
+                    // still has a leftover. A check that errors keeps its row (never hide the
+                    // recovery path on a transient failure).
+                    const projectId = String(values.currentProjectId)
+                    const needle = INCIDENT_ERROR_MESSAGE_PREFIX.toLowerCase()
+                    const stillFailing = await Promise.all(
+                        affected.map(async (row) => {
+                            try {
+                                const invocations = await hogFlowsInvocationResultsRetrieve(projectId, row.id, {
+                                    status: 'failed',
+                                    after: INCIDENT_WINDOW_START,
+                                    before: INCIDENT_WINDOW_END,
+                                    limit: 500,
+                                })
+                                return invocations.some((invocation) =>
+                                    invocation.error_message.toLowerCase().includes(needle)
+                                )
+                            } catch {
+                                return true
+                            }
+                        })
+                    )
+                    const remaining = affected.filter((_, index) => stillFailing[index])
+
+                    if (remaining.length === 0) {
+                        return []
+                    }
+
+                    const flows = await hogFlowsList(projectId, { limit: 300 })
                     const namesById = new Map((flows.results ?? []).map((flow) => [flow.id, flow.name]))
 
-                    return affected
+                    return remaining
                         .map((row) => ({
                             id: row.id,
                             name: namesById.get(row.id) ?? 'Deleted workflow',
