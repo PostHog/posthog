@@ -2832,7 +2832,9 @@ When set, the specified dashboard's filters and date range override will be appl
         for tile in DashboardTile.objects.filter(insight_id__in=[insight.id for insight in insights]).select_related(
             "dashboard"
         ):
-            dashboards_by_insight.setdefault(tile.insight_id, []).append(tile.dashboard)
+            # insight_id is nullable because a tile can hold text instead, but the filter above only matches
+            # tiles that point at an insight.
+            dashboards_by_insight.setdefault(cast(int, tile.insight_id), []).append(tile.dashboard)
 
         editable: list[Insight] = []
         for insight in insights:
