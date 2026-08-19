@@ -48,7 +48,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, EventDefinition } from '~/types'
 
 import { useTaxonomicFilterContext } from '../headless/context'
-import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
+import { hasRecentContext, recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import { isQuickFilterItem, META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
 import { filterPinnedForContext, filterRecentsForContext } from '../utils/suggestedContextFilters'
@@ -388,7 +388,10 @@ export function TaxonomicFilterMenu({
             const mergedItem = extra
                 ? ({ ...(entry.item as unknown as object), ...extra } as unknown as TaxonomicDefinitionTypes)
                 : entry.item
-            const itemValue = entry.group.getValue?.(mergedItem) ?? null
+            const itemValue =
+                (hasRecentContext(mergedItem) ? mergedItem._recentContext.sourceValue : undefined) ??
+                entry.group.getValue?.(mergedItem) ??
+                null
             hadCommitRef.current = true
             posthog.capture('taxonomic filter menu item selected', {
                 groupType: entry.group.type,

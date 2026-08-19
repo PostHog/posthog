@@ -298,30 +298,33 @@ def get_issue_assignment(assignment_id: UUID | str) -> ErrorTrackingIssueAssignm
 
 
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:
-    if not key or not value:
+    if not key:
         return []
+
+    if key == "severity":
+        severities = [severity.value for severity in ErrorTrackingIssue.Severity]
+        return [severity for severity in severities if not value or value.lower() in severity.lower()]
 
     queryset = ErrorTrackingIssue.objects.filter(team_id=team_id)
 
     if key == "name":
+        if value:
+            queryset = queryset.filter(name__icontains=value)
         return [
             issue_name
-            for issue_name in queryset.filter(name__icontains=value).values_list("name", flat=True)
+            for issue_name in queryset.order_by("name").values_list("name", flat=True).distinct()[:100]
             if issue_name is not None
         ]
 
     if key == "issue_description":
+        if value:
+            queryset = queryset.filter(description__icontains=value)
         return [
             issue_description
-            for issue_description in queryset.filter(description__icontains=value).values_list("description", flat=True)
+            for issue_description in queryset.order_by("description")
+            .values_list("description", flat=True)
+            .distinct()[:100]
             if issue_description is not None
-        ]
-
-    if key == "severity":
-        return [
-            severity
-            for severity in queryset.filter(severity__icontains=value).values_list("severity", flat=True).distinct()
-            if severity is not None
         ]
 
     return []

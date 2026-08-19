@@ -165,8 +165,15 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             ["name", "name", "checkout", ["Checkout timeout", "Checkout type error"]],
             ["issue_description", "issue_description", "timeout", ["A timeout during payment"]],
             ["severity", "severity", "hi", ["high"]],
+            ["empty_name_search", "name", None, ["Checkout timeout", "Checkout type error"]],
+            [
+                "empty_description_search",
+                "issue_description",
+                None,
+                ["A timeout during payment", "Type mismatch in checkout"],
+            ],
+            ["empty_severity_search", "severity", None, ["low", "medium", "high", "critical"]],
             ["missing_key", None, "timeout", []],
-            ["missing_value", "name", None, []],
             ["unknown_key", "unknown", "checkout", []],
         ]
     )
