@@ -1,5 +1,6 @@
-import dataclasses
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.settings import BASE_URL
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -16,7 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
-@dataclasses.dataclass
+@frozen
 class BlueskyResumeConfig:
     cursor: str
 
