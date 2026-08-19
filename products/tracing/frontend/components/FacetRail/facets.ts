@@ -201,6 +201,54 @@ export function cycleFacetFilter(
     return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
 }
 
+/** The data key a facet is broken down by: its column, or the resource-attribute key resolution picked. */
+export function facetSourceKey(facet: FacetConfig): string {
+    return facet.source.type === 'column' ? facet.source.column : facet.source.key
+}
+
+/** Everything a facet's own values can depend on, before its own selection is stripped out. */
+export interface FacetScope {
+    currentTeamId: number | null
+    utcDateRange: { date_from?: string | null; date_to?: string | null }
+    serviceNames: string[] | undefined
+    /** filterGroup with any pinned scope folded in — what the breakdown request actually carries. */
+    queryFilterGroup: UniversalFiltersGroup | undefined
+}
+
+/**
+ * A stable string identifying everything that can change this facet's values: the breakdown scope
+ * minus the facet's own contributions, mirroring what the backend strips when excludeBreakdownFilter
+ * is set (see _extract_filters in products/tracing/backend/attribute_breakdown_query_runner.py,
+ * pinned from the other side by test_attribute_breakdown.py::test_exclude_breakdown_filter_*).
+ * Selecting a value in this facet leaves the signature untouched, so the facet doesn't refetch
+ * itself; selecting in any other facet changes it.
+ *
+ * A string, not an object: `queryFilterGroup` gets a fresh identity on every edit, so an object
+ * couldn't tell "nothing I care about changed". Presentation state (view mode, sort, compare) is
+ * deliberately absent — the breakdown request doesn't read it.
+ */
+export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): string {
+    const { source } = facet
+    const selfKey = facetSourceKey(facet)
+    const selfType = source.type === 'column' ? PropertyFilterType.Span : PropertyFilterType.SpanResourceAttribute
+    // Any operator: the backend drops every filter under the breakdown key, not just the rail's own.
+    const groupSignature = innerFilters(scope.queryFilterGroup)
+        .filter((filter) => !(filter.type === selfType && filter.key === selfKey))
+        .map((filter) => [filter.type, filter.key, filter.operator, JSON.stringify(filter.value ?? null)])
+
+    return JSON.stringify([
+        // A facet mounted before the team resolved fetches nothing; keeping the id in the signature
+        // makes it fetch once the team arrives.
+        scope.currentTeamId ?? null,
+        [source.type, selfKey],
+        scope.utcDateRange.date_from ?? null,
+        scope.utcDateRange.date_to ?? null,
+        // The service facet breaks down the same column the dedicated field filters.
+        source.type === 'column' && source.column === 'service_name' ? null : (scope.serviceNames ?? []),
+        groupSignature,
+    ])
+}
+
 // OTel span status. Values must stay the digit strings "0"/"1"/"2": breakdown rows arrive
 // stringified (the backend toString()s the Int16 column), so these are what counts key on.
 // Don't switch to the label strings — the server-side filter normaliser treats "OK" as
