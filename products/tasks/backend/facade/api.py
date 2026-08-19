@@ -6206,13 +6206,22 @@ def send_cancel(run_id: str | UUID, *, auth_token: str | None = None):
 # --- Channels & task threads ---
 
 
-def normalize_channel_name(name: str) -> str:
-    """Slack-style channel key: lowercase, whitespace collapsed to dashes.
+_CHANNEL_NAME_SEPARATORS = re.compile(r"[^a-z0-9]+")
 
-    Channels are resolved by name from client-side surfaces (folder names), so the
-    stored key must be canonical for the (team, name) uniqueness to mean anything.
+
+def normalize_channel_name(name: str) -> str:
+    """Slack-style channel key: lowercase letters, digits and dashes, with every run of
+    anything else becoming a single dash. Mirrors ``normalizeChannelName`` in
+    ``channelName.ts``, which is what Desktop applies to the field as the user types; the
+    two have to agree or a name is stored differently from the one the user was shown.
+
+    Channels are resolved by name from client-side surfaces (folder names), so the stored
+    key must be canonical for the (team, name) uniqueness to mean anything. Dropping "#"
+    matters on top of that, because several surfaces write one in front of the name.
+
+    Returns "" for a name with nothing usable in it, which callers reject.
     """
-    return re.sub(r"\s+", "-", name.strip().lower())[:128]
+    return _CHANNEL_NAME_SEPARATORS.sub("-", name.strip().lower()).strip("-")[:128].strip("-")
 
 
 PERSONAL_SPACE_NAMES = frozenset({Channel.PERSONAL_CHANNEL_NAME, Channel.PERSONAL_CHANNEL_LABEL})

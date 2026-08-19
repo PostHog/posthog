@@ -70,8 +70,8 @@ export function channelDisplayReference(
     : `#${channelDisplayName(name)}`;
 }
 
-// A channel's name is used verbatim as its server-side filesystem path segment,
-// so it must be directory-safe: lowercase letters, numbers, and hyphens only.
+// The server normalizes a name to this shape (`normalize_channel_name`), so anything
+// else would be stored as something other than what the field showed.
 export const CHANNEL_NAME_PATTERN = /^[a-z0-9-]+$/;
 
 function replaceChannelNameSeparators(name: string): string {
