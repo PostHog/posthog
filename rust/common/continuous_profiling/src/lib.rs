@@ -24,7 +24,8 @@ const K8S_TAG_ENV_VARS: &[(&str, &str)] = &[
     ("app", "K8S_APP"),
     ("container", "K8S_CONTAINER_NAME"),
     ("controller_type", "K8S_CONTROLLER_TYPE"),
-    ("service_name", "K8S_SERVICE_NAME"),
+    // No service_name here: pyroscope 2.x already sets it from the application
+    // name, and the server rejects profiles with a duplicate label (HTTP 400).
 ];
 
 #[derive(Envconfig, Clone, Debug)]
