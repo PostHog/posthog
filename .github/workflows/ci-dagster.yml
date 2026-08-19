@@ -504,8 +504,11 @@ jobs:
                       SPLIT_GRANULARITY=(--split-granularity=file)
                   fi
                   TESTMON_ARGS=()
-                  if [[ "${{ github.event_name }}" == "push" && "${{ steps.testmon-cache.outputs.cache-hit }}" != "true" ]] && python -c "import testmon" 2>/dev/null; then
-                      TESTMON_ARGS=(--testmon-noselect)
+                  if python -c "import testmon" 2>/dev/null; then
+                      if [[ "${{ github.event_name }}" == "push" && "${{ steps.testmon-cache.outputs.cache-hit }}" != "true" ]] || \
+                         [[ "${{ github.event_name }}" == "pull_request" && "${{ steps.testmon-cache.outputs.cache-matched-key }}" == "" ]]; then
+                          TESTMON_ARGS=(--testmon-noselect)
+                      fi
                   fi
                   pytest posthog/dags products/**/dags \
                       --reuse-db \
@@ -531,6 +534,16 @@ jobs:
               with:
                   name: dagster-testmon-shadow-${{ matrix.group }}
                   path: dagster-testmon-selection-${{ matrix.group }}.json
+                  if-no-files-found: ignore
+                  retention-days: 7
+
+            - name: Upload bootstrap testmon baseline
+              if: ${{ github.event_name == 'pull_request' && !cancelled() && steps.testmon-cache.outputs.cache-matched-key == '' }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: dagster-testmon-bootstrap-${{ matrix.group }}
+                  path: ${{ env.TESTMON_DATAFILE }}
+                  include-hidden-files: true
                   if-no-files-found: ignore
                   retention-days: 7
 
