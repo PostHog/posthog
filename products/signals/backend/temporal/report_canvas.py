@@ -35,7 +35,10 @@ class ReportCanvasWorkflowInput:
 @scoped_temporal()
 @close_db_connections
 async def report_canvases_enabled_activity(team_id: int) -> bool:
-    team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
+    try:
+        team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
+    except Team.DoesNotExist:
+        return False
     return await database_sync_to_async(report_canvases_enabled, thread_sensitive=False)(team)
 
 
