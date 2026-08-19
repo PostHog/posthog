@@ -242,6 +242,16 @@ export interface TaskListOptions {
   originProduct?: string;
   internal?: boolean;
   channel?: string;
+  /** Case-insensitive substring match over task title, description, and number. */
+  search?: string;
+  /** Filter by the status of the task's most recent run. */
+  status?: string;
+  /** Filter by the state of the latest run's pull request (open/draft/merged/closed). */
+  prState?: string;
+  /** Filter by the CI rollup on the latest run's pull request (passing/failing/pending/none). */
+  ciStatus?: string;
+  /** List only archived tasks; the server excludes them by default. */
+  archived?: boolean;
   /** Caller-side cap for surfaces that only show the newest few. */
   limit?: number;
   /**
@@ -250,6 +260,8 @@ export interface TaskListOptions {
    * few and a long-running session never makes the page.
    */
   ordering?: "-last_activity_at" | "-created_at";
+  /** Zero-based offset for fetching a later task-list page. */
+  offset?: number;
 }
 
 export interface TaskSearchResult {
@@ -2311,6 +2323,30 @@ export class PostHogAPIClient {
     return (await this.getTasksPage(options)).tasks;
   }
 
+  async getTasksWithStatus(
+    options?: TaskListOptions,
+    pagination?: { maxPages?: number },
+  ): Promise<{ tasks: Task[]; isComplete: boolean }> {
+    const maxPages = pagination?.maxPages ?? 1;
+    const pageSize = Math.min(options?.limit ?? 100, 100);
+    const tasks: Task[] = [];
+    let count = 0;
+
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
+      const page = await this.getTasksPage({
+        ...options,
+        limit: pageSize,
+        offset: tasks.length,
+      });
+      tasks.push(...page.tasks);
+      count = page.count;
+      if (tasks.length >= count) return { tasks, isComplete: true };
+      if (page.tasks.length === 0) break;
+    }
+
+    return { tasks, isComplete: tasks.length >= count };
+  }
+
   async searchTasks(query: string, limit = 20): Promise<TaskSearchResult[]> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/tasks/search/`;
@@ -2336,6 +2372,10 @@ export class PostHogAPIClient {
       limit: options?.limit ?? 500,
     };
 
+    if (options?.offset !== undefined) {
+      params.offset = options.offset;
+    }
+
     if (options?.repository) {
       params.repository = options.repository;
     }
@@ -2354,6 +2394,26 @@ export class PostHogAPIClient {
 
     if (options?.channel) {
       params.channel = options.channel;
+    }
+
+    if (options?.search) {
+      params.search = options.search;
+    }
+
+    if (options?.status) {
+      params.status = options.status;
+    }
+
+    if (options?.prState) {
+      params.pr_state = options.prState;
+    }
+
+    if (options?.ciStatus) {
+      params.ci_status = options.ciStatus;
+    }
+
+    if (options?.archived) {
+      params.archived = "true";
     }
 
     if (options?.ordering) {
