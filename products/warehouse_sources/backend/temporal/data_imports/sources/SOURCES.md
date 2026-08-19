@@ -672,6 +672,7 @@ the row lists both.
 | vapi                             | HTTP                        | requests                                                        | ✅                          |
 | vellum                           | HTTP                        | requests                                                        | ✅                          |
 | veeqo                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| vendr                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | veracode                         | HTTP                        | requests (custom HMAC signing)                                  | ✅                          |
 | vercel                           | HTTP                        | requests                                                        | ✅                          |
 | vitally                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1416,7 +1417,6 @@ doesn't conflict with concurrent PRs.
 - us_treasury_fiscal_data
 - uservoice
 - vanta
-- vendr
 - vespa
 - virtuous
 - visma_economic

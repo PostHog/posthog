@@ -32,7 +32,7 @@ BASE_URL = "https://api.vendr.com"
 _PAGINATOR: PaginatorConfig = {"type": "offset", "limit": PAGE_SIZE, "total_path": None}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class VendrResumeConfig:
     # Opaque framework checkpoint: an offset position for a top-level endpoint, or per-company
     # fan-out state (current company, completed companies, child offset) for a company-scoped
