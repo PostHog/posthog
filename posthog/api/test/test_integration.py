@@ -3492,7 +3492,7 @@ class TestGitHubTeamIntegrationComplete:
     def _sibling_github_integration(self, name: str, installation_id: str, private: bool = False) -> Integration:
         team = Team.objects.create(organization=self.organization, name=name)
         if private:
-            AccessControl.objects.create(team=team, resource="project", access_level="none")
+            AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
         return Integration.objects.create(
             team=team,
             kind="github",

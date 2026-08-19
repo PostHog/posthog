@@ -16,6 +16,7 @@ import type {
   McpToolPermissionRequest,
   McpToolPolicy,
 } from "@posthog/shared";
+import type { PiEnrichmentConfig } from "./enrichment-extension";
 import { safePiEnvironment } from "./rpc-environment";
 import type {
   PiExtensionEvent,
@@ -50,6 +51,7 @@ export interface PiRpcProviderOptions {
 
 export interface PiRpcBootstrap {
   providerOptions: PiRpcProviderOptions;
+  enrichment?: PiEnrichmentConfig;
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
   projectTrusted?: boolean;
@@ -431,6 +433,7 @@ export type PiRpcClientOptions = Pick<
 > & {
   sessionFile?: string;
   providerOptions: PiRpcProviderOptions;
+  enrichment?: PiEnrichmentConfig;
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
   projectTrusted?: boolean;
@@ -441,6 +444,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
   const {
     sessionFile,
     providerOptions,
+    enrichment,
     runtimeMcpServers,
     mcpToolPolicies,
     projectTrusted,
@@ -460,6 +464,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
     },
     {
       providerOptions,
+      enrichment,
       runtimeMcpServers,
       mcpToolPolicies,
       projectTrusted: projectTrusted ?? false,
