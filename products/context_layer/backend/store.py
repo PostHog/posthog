@@ -552,6 +552,7 @@ def _lint_incoming_commits(workdir: Path, base: str, tip: str) -> None:
             raise LintFailedError([f"commit {sha[:12]}: {error}" for error in errors])
     _run_git(["checkout", "--quiet", "--force", tip], cwd=workdir)
 
+
 def _fetch_incoming_bundle(workdir: Path, bundle_bytes: bytes, ref: str) -> str | None:
     """Fetch `ref` from a posted bundle into the working clone; returns its sha,
     or None when it already equals the current head."""
@@ -610,6 +611,10 @@ def land_dream_branch(organization_id: uuid.UUID | str, bundle_bytes: bytes, *, 
             return None
         _assert_bundle_within_bounds(workdir, fetched)
         _lint_incoming_commits(workdir, DEFAULT_BRANCH, fetched)
+        # The lint walk leaves HEAD detached at the branch tip; the merge below
+        # must run from main or it silently no-ops and the landing keeps the
+        # old tree.
+        _run_git(["checkout", "--quiet", "--force", DEFAULT_BRANCH], cwd=workdir)
         _run_git(["branch", "--force", branch, fetched], cwd=workdir)
         try:
             _run_git(

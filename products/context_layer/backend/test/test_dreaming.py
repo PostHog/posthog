@@ -50,9 +50,19 @@ class TestDreamingLane(BaseTest):
         assert config.dream_failure_streak == 0
         assert config.last_dream_started_at is not None
 
+    def test_unpaused_lane_gets_a_fresh_threshold_before_repausing(self) -> None:
+        config = self._config(dream_failure_streak=dreaming.FAILURE_STREAK_PAUSE_THRESHOLD, dreaming_paused=False)
+        for expected_paused in [False] * (dreaming.FAILURE_STREAK_PAUSE_THRESHOLD - 1) + [True]:
+            dreaming._record_dispatch_failure(config)
+            config.refresh_from_db()
+            assert config.dreaming_paused is expected_paused
+
     def test_prepare_dispatch_needs_team_and_enabling_user(self) -> None:
         config = self._config(created_by=None)
         assert dreaming._prepare_dispatch(str(config.organization_id)) is None
+        config.refresh_from_db()
+        # A lane with no dispatch target trips the breaker instead of retrying silently forever.
+        assert config.dream_failure_streak == 1
 
         config.created_by = self.user
         config.save()
