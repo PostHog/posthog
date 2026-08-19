@@ -1411,6 +1411,7 @@ class ProjectViewSet(
         permissions: list = [
             IsAuthenticated,
             APIScopePermission,
+            PremiumMultiProjectPermission,
             *self.permission_classes,
         ]
 
@@ -1418,16 +1419,16 @@ class ProjectViewSet(
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    permissions.append(UserCanCreateProjectPermission)
+                    # Evaluate the create-access check before the premium check so a member who lacks
+                    # permission gets the permission message, not the plan-upgrade one.
+                    permissions.insert(
+                        permissions.index(PremiumMultiProjectPermission), UserCanCreateProjectPermission
+                    )
                 else:
                     permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
                 permissions.append(TeamMemberLightManagementPermission)
-
-            # Evaluated after the create/update access check so a member who lacks permission gets the
-            # permission message, not the plan-upgrade one. It is a no-op outside create and update.
-            permissions.append(PremiumMultiProjectPermission)
 
         return [permission() for permission in permissions]
 
