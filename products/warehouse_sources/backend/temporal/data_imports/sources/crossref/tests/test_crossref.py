@@ -299,6 +299,24 @@ class TestGetRowsCursorPagination:
 
         assert "indexed_date" not in rows[0]
 
+    @mock.patch(CROSSREF_SESSION_PATCH)
+    def test_mailto_passed_as_redact_value(self, MockSession) -> None:
+        """mailto is a user-typed contact email, not a secret, but it should still be kept out
+        of logged/captured request URLs like other tracked-session redactions."""
+        MockSession.return_value.get.side_effect = [_response(200, {"items": [{"DOI": "1"}]})]
+
+        _collect("Works", _make_manager(), mailto="me@example.com", member_id="301", funder_id=None, issn=None)
+
+        assert MockSession.call_args.kwargs["redact_values"] == ("me@example.com",)
+
+    @mock.patch(CROSSREF_SESSION_PATCH)
+    def test_no_mailto_passes_no_redact_values(self, MockSession) -> None:
+        MockSession.return_value.get.side_effect = [_response(200, {"items": [{"DOI": "1"}]})]
+
+        _collect("Works", _make_manager(), mailto=None, member_id="301", funder_id=None, issn=None)
+
+        assert MockSession.call_args.kwargs["redact_values"] == ()
+
 
 class TestGetRowsTypesEndpoint:
     @mock.patch(CROSSREF_SESSION_PATCH)
@@ -367,3 +385,19 @@ class TestValidateCredentials:
 
         url = mock_session.return_value.get.call_args.args[0]
         assert _query(url)["mailto"] == "me@example.com"
+
+    @mock.patch(CROSSREF_SESSION_PATCH)
+    def test_mailto_passed_as_redact_value(self, mock_session) -> None:
+        """mailto is a user-typed contact email, not a secret, but it should still be kept out
+        of logged/captured request URLs like other tracked-session redactions."""
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("me@example.com")
+
+        assert mock_session.call_args.kwargs["redact_values"] == ("me@example.com",)
+
+    @mock.patch(CROSSREF_SESSION_PATCH)
+    def test_no_mailto_passes_no_redact_values(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials(None)
+
+        assert mock_session.call_args.kwargs["redact_values"] == ()

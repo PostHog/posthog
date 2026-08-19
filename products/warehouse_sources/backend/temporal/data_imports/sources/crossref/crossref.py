@@ -76,7 +76,10 @@ def validate_credentials(mailto: Optional[str]) -> bool:
         params["mailto"] = mailto
     url = _build_url("/works", params)
     try:
-        response = make_tracked_session().get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+        # mailto isn't a credential, but it's still a contact email a source admin typed in — keep
+        # it out of the URL the tracked session logs/captures, the same way secrets are redacted.
+        redact_values = (mailto,) if mailto else ()
+        response = make_tracked_session(redact_values=redact_values).get(url, timeout=REQUEST_TIMEOUT_SECONDS)
         return response.status_code == 200
     except Exception:
         return False
@@ -132,7 +135,9 @@ def get_rows(
     incremental_field: Optional[str] = None,
 ) -> Iterator[Any]:
     config = ENDPOINTS[endpoint]
-    session = make_tracked_session()
+    # mailto isn't a credential, but it's still a contact email a source admin typed in — keep
+    # it out of the URL the tracked session logs/captures, the same way secrets are redacted.
+    session = make_tracked_session(redact_values=(mailto,) if mailto else ())
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     params = _build_params(
