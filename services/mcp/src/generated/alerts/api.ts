@@ -24,7 +24,10 @@ export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
     has_detector: zod
         .boolean()
         .optional()
-        .describe('Optional. Restrict results by whether the alert uses anomaly detection.'),
+        .describe(
+            'Optional. Restrict results by whether the alert uses anomaly detection. A forecast alert has no detector, so has_detector=false includes forecast alerts as well as plain threshold alerts. Use has_forecast to separate the two.'
+        ),
+    has_forecast: zod.boolean().optional().describe('Optional. Restrict results by whether the alert uses a forecast.'),
     insight_id: zod.number().optional().describe('Optional. Restrict results to alerts on this insight ID.'),
     insight_tag: zod.string().optional().describe('Optional. Restrict results to alerts whose insight has this tag.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
