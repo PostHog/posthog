@@ -624,6 +624,28 @@ def get_query_runner(
             user=user,
         )
     if kind == "RetentionQuery":
+        # Queries originating from the web analytics product take a WA-owned
+        # subclass that can serve the retention tile's shape from precompute
+        # buckets and falls back to the standard retention path internally.
+        # Tags-only check plus a locally evaluated rollout flag — no I/O here.
+        query_tags = get_from_dict_or_attr(query, "tags")
+        if query_tags and get_from_dict_or_attr(query_tags, "productKey") == "web_analytics":
+            from products.web_analytics.backend.hogql_queries.web_retention_lazy_precompute import (
+                is_retention_precompute_enabled_for_team,
+            )
+
+            if is_retention_precompute_enabled_for_team(team):
+                from products.web_analytics.backend.hogql_queries.web_retention import WebRetentionQueryRunner
+
+                return WebRetentionQueryRunner(
+                    query=cast(RetentionQuery | dict[str, Any], query),
+                    team=team,
+                    timings=timings,
+                    limit_context=limit_context,
+                    modifiers=modifiers,
+                    user=user,
+                )
+
         from .insights.retention.retention_query_runner import RetentionQueryRunner
 
         return RetentionQueryRunner(
