@@ -26184,7 +26184,7 @@
                     "type": "number"
                 },
                 "score_threshold": {
-                    "description": "How far outside the band counts, from 0 to 1 (prediction_interval mode only). Higher fires less. Measured in band half-widths rather than against training residuals: those exist only when the engine runs with history, which is the preview path, and a scheduled check does not. The band already carries the residual scale, since Prophet built it from them.",
+                    "description": "How far past the band's edge a value must sit to count, measured in band half-widths (prediction_interval mode only). 0 fires as soon as a value leaves the range, 1 waits for a full half-width beyond it, and above roughly 2 a well-calibrated band never fires. Not a probability, and not bounded at 1. Measured this way rather than against training residuals because those exist only when the engine runs with history, which is the preview path and not a scheduled check. The band already carries the residual scale, since Prophet built it from them.",
                     "type": "number"
                 },
                 "sensitivity": {

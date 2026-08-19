@@ -38,6 +38,8 @@ const DEFAULT_HORIZON = 7
 const DEFAULT_INTERVAL_WIDTH = 0.95
 /** Fire as soon as a value leaves the range, which is how band alerts behaved before the control existed. */
 const DEFAULT_SCORE_THRESHOLD = 0
+/** One full band half-width past the edge. Above roughly two, a well-calibrated band never fires. */
+const FAR_PAST_SCORE_THRESHOLD = 1
 /** Default distance for percentage mode, as a fraction. */
 const DEFAULT_ERROR_THRESHOLD_PCT = 0.2
 /** Default runway for a new target, comfortably inside the six month reach cap. */
@@ -349,7 +351,7 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
                                     tooltip: 'Fires as soon as a value leaves the range.',
                                 },
                                 {
-                                    value: 0.75,
+                                    value: FAR_PAST_SCORE_THRESHOLD,
                                     label: 'Well past it',
                                     'data-attr': 'alertForm-forecast-score-threshold-far',
                                     tooltip: 'Waits until a value is clearly outside, so borderline points stay quiet.',
