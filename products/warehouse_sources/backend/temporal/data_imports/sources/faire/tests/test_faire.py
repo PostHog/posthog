@@ -341,6 +341,6 @@ def test_prepared_request_type_is_used_for_auth() -> None:
     # framework applies auth — guards against a signature mismatch going unnoticed.
     auth = APIKeyAuth(api_key="token", name="X-FAIRE-ACCESS-TOKEN", location="header")
     prepared = PreparedRequest()
-    prepared.headers = {}  # type: ignore[assignment]
+    prepared.headers = {}  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
     auth(prepared)
     assert prepared.headers["X-FAIRE-ACCESS-TOKEN"] == "token"
