@@ -1,6 +1,7 @@
-import dataclasses
 from typing import Any, Optional
 from urllib.parse import urlencode
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -23,7 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.sett
 _HEADERS = {"Accept": "application/vnd.api+json"}
 
 
-@dataclasses.dataclass
+@frozen
 class GleifResumeConfig:
     # GLEIF's `links.next` is a full, self-contained URL (JSON:API convention) covering both
     # the cursor pagination `lei-records` uses and the page-number pagination the small
