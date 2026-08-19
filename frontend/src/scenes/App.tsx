@@ -87,6 +87,18 @@ export function App(): JSX.Element | null {
         return () => unmount?.()
     }, [])
 
+    // Keep the export flow mounted for the app lifetime so an export can outlive the scene that
+    // started it. Without this the logic unmounts when the user navigates away mid-export, and the
+    // async create loop, resumed polling, and the completion toast's Download button throw a kea
+    // "Can not find path" error. Lazy so exportsLogic's imports stay out of App's static graph.
+    useEffect(() => {
+        let unmount: (() => void) | undefined
+        void retryImport(() => import('lib/components/ExportButton/exportsLogic')).then(({ exportsLogic }) => {
+            unmount = exportsLogic.mount()
+        })
+        return () => unmount?.()
+    }, [])
+
     useThemedHtml()
 
     // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
