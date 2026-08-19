@@ -746,6 +746,13 @@ class ExternalDataSourceBulkUpdateSchemasSerializer(serializers.Serializer):
     )
 
 
+def _parse_job_date_param(param_name: str, value: str) -> datetime:
+    try:
+        return parser.parse(value)
+    except (ValueError, OverflowError):
+        raise ValidationError({param_name: "Must be a single ISO 8601 timestamp (for example 2026-03-17T00:00:00Z)."})
+
+
 def _validation_error_message(error: ValidationError) -> str:
     # DRF normalizes ValidationError.detail to a list or dict (never a bare string).
     detail = error.detail
@@ -4563,11 +4570,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if schemas:
             jobs = jobs.filter(schema__name__in=schemas)
         if after:
-            after_date = parser.parse(after)
-            jobs = jobs.filter(created_at__gt=after_date)
+            jobs = jobs.filter(created_at__gt=_parse_job_date_param("after", after))
         if before:
-            before_date = parser.parse(before)
-            jobs = jobs.filter(created_at__lt=before_date)
+            jobs = jobs.filter(created_at__lt=_parse_job_date_param("before", before))
 
         jobs = jobs[:50]
 

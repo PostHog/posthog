@@ -5534,6 +5534,23 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == expected_count
 
+    @parameterized.expand(
+        [
+            ("after", "after=not-a-date"),
+            ("before", "before=not-a-date"),
+            # Two timestamps crammed into one param — the value that triggered the original 500.
+            ("range_in_before", "before=2026-03-17T00:00:00Z 2026-04-01T00:00:00Z"),
+        ]
+    )
+    def test_source_jobs_rejects_unparseable_date_param(self, param_name, query_string):
+        source = self._create_external_data_source()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs?{query_string}",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
