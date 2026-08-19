@@ -14,6 +14,7 @@ function renderWithFlags(node: ReactNode, bluebirdEnabled: boolean) {
   const flags: FeatureFlags = {
     isEnabled: () => bluebirdEnabled,
     getPayload: () => undefined,
+    getVariant: () => undefined,
     onFlagsLoaded: () => () => {},
   };
   const container = new Container();
