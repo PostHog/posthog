@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
+    reset_rows_synced_if_needed,
     resolve_primary_keys,
     trim_source_job_inputs,
     validate_incremental_sync,
@@ -495,6 +496,63 @@ class TestHandleCorruptedDeltaLog:
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "salvaged"
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is False
+
+
+# transaction=True: the helper saves the job via the async thread pool, which can't see an
+# atomic TestCase's uncommitted rows.
+@pytest.mark.django_db(transaction=True)
+class TestResetRowsSyncedIfNeeded:
+    def _job_with_leftover_count(self, team) -> ExternalDataJob:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source, sync_type_config={})
+        return ExternalDataJob.objects.create(
+            team=team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=1234,
+            billable=True,
+        )
+
+    @pytest.mark.parametrize(
+        "_name,is_incremental,reset_pipeline,should_resume,incremental_cursor_staged,expect_reset",
+        [
+            # Staged-cursor (v3) incremental retry re-extracts the whole window from batch 0, so a
+            # leftover count from the previous attempt would double-count every re-read row — and
+            # rows_synced feeds billed usage. This is the regression case.
+            ("staged_cursor_incremental_retry_resets", True, False, False, True, True),
+            # A resumable source picks up the previous attempt's staged batches, so its rows stay counted.
+            ("resumable_source_keeps_count", True, False, True, True, False),
+            # Durable-cursor (v2) incremental retry resumes past the rows already counted.
+            ("durable_cursor_incremental_retry_keeps_count", True, False, False, False, False),
+            ("full_refresh_restart_resets", False, False, False, False, True),
+            ("reset_pipeline_resets", True, True, False, False, True),
+        ],
+    )
+    def test_reset_conditions(
+        self,
+        _name: str,
+        is_incremental: bool,
+        reset_pipeline: bool,
+        should_resume: bool,
+        incremental_cursor_staged: bool,
+        expect_reset: bool,
+        team,
+    ) -> None:
+        job = self._job_with_leftover_count(team)
+
+        async_to_sync(reset_rows_synced_if_needed)(
+            job,
+            is_incremental,
+            reset_pipeline,
+            should_resume,
+            incremental_cursor_staged=incremental_cursor_staged,
+        )
+
+        job.refresh_from_db()
+        assert job.rows_synced == (0 if expect_reset else 1234)
 
 
 # transaction=True: the webhook-first branch clears the reset flag via update_sync_type_config_keys,

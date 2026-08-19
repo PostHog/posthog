@@ -31,7 +31,7 @@ class HogInvocationRerunFilterSerializer(serializers.Serializer):
     window_start = serializers.DateTimeField(required=True, help_text="Inclusive lower bound on `scheduled_at` (UTC).")
     window_end = serializers.DateTimeField(required=True, help_text="Exclusive upper bound on `scheduled_at` (UTC).")
     status = serializers.ListField(
-        child=serializers.ChoiceField(choices=["running", "succeeded", "failed"]),
+        child=serializers.ChoiceField(choices=["running", "succeeded", "failed", "canceled"]),
         required=False,
         help_text="Restrict to invocations whose latest status is one of these. Defaults to ['failed'].",
     )
