@@ -1,12 +1,18 @@
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import {
+    FACETS,
+    FacetConfig,
+    FacetScope,
+    FacetSelection,
     FacetSource,
     FilterGroupFacetSource,
-    facetFilterValues,
-    facetSelectedValues,
+    cycleFacetFilter,
+    facetFilterSelection,
+    facetScopeSignature,
+    facetSelection,
     mergeSelectedIntoOptions,
-    toggleFacetFilter,
+    resolveFacets,
 } from './facets'
 
 const SERVICE_SOURCE: FacetSource = { type: 'column', column: 'service_name' }
@@ -22,7 +28,10 @@ function groupWith(values: object[]): UniversalFiltersGroup {
 }
 
 describe('facets', () => {
-    describe('toggleFacetFilter / facetFilterValues', () => {
+    describe('cycleFacetFilter / facetFilterSelection', () => {
+        const read = (group: UniversalFiltersGroup | undefined, source: FilterGroupFacetSource): FacetSelection =>
+            facetFilterSelection(group, source)
+
         it.each<[string, FilterGroupFacetSource, PropertyFilterType]>([
             ['column facet writes a span filter', STATUS_SOURCE, PropertyFilterType.Span],
             [
@@ -31,26 +40,34 @@ describe('facets', () => {
                 PropertyFilterType.SpanResourceAttribute,
             ],
         ])('%s', (_, source, expectedType) => {
-            const group = toggleFacetFilter(undefined, source, 'a')
+            const group = cycleFacetFilter(undefined, source, 'a')
             const inner = (group.values[0] as UniversalFiltersGroup).values
             expect(inner).toEqual([
                 expect.objectContaining({ type: expectedType, operator: PropertyOperator.Exact, value: ['a'] }),
             ])
-            expect(facetFilterValues(group, source)).toEqual(['a'])
+            expect(read(group, source)).toEqual({ included: ['a'], excluded: [] })
         })
 
-        it('accumulates values on repeated toggles and removes on re-toggle', () => {
-            let group = toggleFacetFilter(undefined, POD_SOURCE, 'pod-a')
-            group = toggleFacetFilter(group, POD_SOURCE, 'pod-b')
-            expect(facetFilterValues(group, POD_SOURCE)).toEqual(['pod-a', 'pod-b'])
+        it('cycles a value unchecked → included → excluded → unchecked, dropping emptied filters', () => {
+            const afterFirst = cycleFacetFilter(undefined, POD_SOURCE, 'pod-a')
+            expect(read(afterFirst, POD_SOURCE)).toEqual({ included: ['pod-a'], excluded: [] })
 
-            group = toggleFacetFilter(group, POD_SOURCE, 'pod-a')
-            expect(facetFilterValues(group, POD_SOURCE)).toEqual(['pod-b'])
+            const afterSecond = cycleFacetFilter(afterFirst, POD_SOURCE, 'pod-a')
+            expect(read(afterSecond, POD_SOURCE)).toEqual({ included: [], excluded: ['pod-a'] })
+
+            const afterThird = cycleFacetFilter(afterSecond, POD_SOURCE, 'pod-a')
+            expect((afterThird.values[0] as UniversalFiltersGroup).values).toEqual([])
         })
 
-        it('drops the filter entirely when the last value is toggled off', () => {
-            const group = toggleFacetFilter(toggleFacetFilter(undefined, POD_SOURCE, 'pod-a'), POD_SOURCE, 'pod-a')
-            expect((group.values[0] as UniversalFiltersGroup).values).toEqual([])
+        it('writes includes as an exact filter and excludes as an is_not filter, both array-valued', () => {
+            let group = cycleFacetFilter(undefined, POD_SOURCE, 'pod-a')
+            group = cycleFacetFilter(group, POD_SOURCE, 'pod-b')
+            group = cycleFacetFilter(group, POD_SOURCE, 'pod-a') // pod-a → excluded
+
+            expect((group.values[0] as UniversalFiltersGroup).values).toEqual([
+                expect.objectContaining({ operator: PropertyOperator.Exact, value: ['pod-b'] }),
+                expect.objectContaining({ operator: PropertyOperator.IsNot, value: ['pod-a'] }),
+            ])
         })
 
         it('preserves unrelated filters, including a same-key filter of a different type', () => {
@@ -62,42 +79,51 @@ describe('facets', () => {
                 operator: PropertyOperator.IContains,
                 value: 'pod',
             }
-            const group = toggleFacetFilter(groupWith([other]), POD_SOURCE, 'pod-a')
+            const group = cycleFacetFilter(groupWith([other]), POD_SOURCE, 'pod-a')
             const inner = (group.values[0] as UniversalFiltersGroup).values
             expect(inner).toEqual([other, expect.objectContaining({ type: PropertyFilterType.SpanResourceAttribute })])
-            expect(facetFilterValues(group, POD_SOURCE)).toEqual(['pod-a'])
+            expect(read(group, POD_SOURCE)).toEqual({ included: ['pod-a'], excluded: [] })
         })
 
-        it('reads a scalar filter value written outside the rail as a single selection', () => {
-            const group = groupWith([
-                {
-                    key: 'status_code',
-                    type: PropertyFilterType.Span,
-                    operator: PropertyOperator.Exact,
-                    value: 'Error',
-                },
-            ])
-            expect(facetFilterValues(group, STATUS_SOURCE)).toEqual(['Error'])
-        })
-
-        it('drops empty strings written by external state so they cannot become stuck filters', () => {
-            const group = groupWith([
-                {
-                    key: 'status_code',
-                    type: PropertyFilterType.Span,
-                    operator: PropertyOperator.Exact,
-                    value: ['Error', ''],
-                },
-            ])
-            expect(facetFilterValues(group, STATUS_SOURCE)).toEqual(['Error'])
+        it.each<[string, PropertyOperator, unknown, FacetSelection]>([
+            [
+                'a scalar exact chip written outside the rail reads as a single inclusion',
+                PropertyOperator.Exact,
+                'Error',
+                { included: ['Error'], excluded: [] },
+            ],
+            [
+                'a scalar is_not chip written outside the rail reads as a single exclusion',
+                PropertyOperator.IsNot,
+                'Error',
+                { included: [], excluded: ['Error'] },
+            ],
+            [
+                'empty strings from external state are dropped so they cannot become stuck filters',
+                PropertyOperator.Exact,
+                ['Error', ''],
+                { included: ['Error'], excluded: [] },
+            ],
+            [
+                'a non-rail operator chip is not rail state',
+                PropertyOperator.IContains,
+                'Error',
+                { included: [], excluded: [] },
+            ],
+        ])('%s', (_, operator, value, expected) => {
+            const group = groupWith([{ key: 'status_code', type: PropertyFilterType.Span, operator, value }])
+            expect(read(group, STATUS_SOURCE)).toEqual(expected)
         })
     })
 
-    describe('facetSelectedValues', () => {
+    describe('facetSelection', () => {
         it('drops empty service names from external state so they cannot inject a blank row', () => {
             // The service facet reads the dedicated serviceNames field, not the filterGroup — a URL or
             // saved view carrying serviceNames: [''] must not surface a blank selected service row.
-            expect(facetSelectedValues(undefined, ['api', ''], SERVICE_SOURCE)).toEqual(['api'])
+            expect(facetSelection(undefined, ['api', ''], SERVICE_SOURCE)).toEqual({
+                included: ['api'],
+                excluded: [],
+            })
         })
     })
 
@@ -137,6 +163,142 @@ describe('facets', () => {
             const options = mergeSelectedIntoOptions(fetched, ['api', 'worker-1'], search)
             expect(options.filter((o) => o.count === 0).map((o) => o.value)).toEqual(expectedInjected)
             expect(options).toEqual(expect.arrayContaining(fetched))
+        })
+    })
+
+    describe('facetScopeSignature', () => {
+        const configured = (key: string): FacetConfig => FACETS.find((f) => f.key === key)!
+        const SERVICE = configured('service')
+        const STATUS = configured('status')
+        const NAMESPACE = configured('namespace')
+
+        const filter = (type: PropertyFilterType, key: string, operator: PropertyOperator, value: unknown): object => ({
+            type,
+            key,
+            operator,
+            value,
+        })
+
+        const BASE: FacetScope = {
+            currentTeamId: 1,
+            utcDateRange: { date_from: '-1h', date_to: null },
+            serviceNames: [],
+            queryFilterGroup: groupWith([]),
+        }
+        const signature = (facet: FacetConfig, scope: Partial<FacetScope> = {}): string =>
+            facetScopeSignature(facet, { ...BASE, ...scope })
+
+        // A facet that reacts to its own selection refetches a list excludeBreakdownFilter guarantees
+        // is unchanged; one that ignores a filter it should see serves stale counts. Both are silent.
+        it.each<[string, FacetConfig, Partial<FacetScope>, boolean]>([
+            ['service ignores its own selection', SERVICE, { serviceNames: ['api'] }, false],
+            [
+                'service ignores a span filter on its own column, at any operator',
+                SERVICE,
+                {
+                    queryFilterGroup: groupWith([
+                        filter(PropertyFilterType.Span, 'service_name', PropertyOperator.IContains, 'ap'),
+                    ]),
+                },
+                false,
+            ],
+            [
+                'service sees the status selection',
+                SERVICE,
+                {
+                    queryFilterGroup: groupWith([
+                        filter(PropertyFilterType.Span, 'status_code', PropertyOperator.Exact, ['2']),
+                    ]),
+                },
+                true,
+            ],
+            ['service sees the date range', SERVICE, { utcDateRange: { date_from: '-7d', date_to: null } }, true],
+            [
+                'status ignores its own selection',
+                STATUS,
+                {
+                    queryFilterGroup: groupWith([
+                        filter(PropertyFilterType.Span, 'status_code', PropertyOperator.Exact, ['2']),
+                    ]),
+                },
+                false,
+            ],
+            ['status sees the service selection', STATUS, { serviceNames: ['api'] }, true],
+            [
+                'namespace ignores its own values, either polarity',
+                NAMESPACE,
+                {
+                    queryFilterGroup: groupWith([
+                        filter(PropertyFilterType.SpanResourceAttribute, 'k8s.namespace.name', PropertyOperator.IsNot, [
+                            'argocd',
+                        ]),
+                    ]),
+                },
+                false,
+            ],
+            [
+                'namespace sees a span_attribute filter under the same key, which the backend keeps',
+                NAMESPACE,
+                {
+                    queryFilterGroup: groupWith([
+                        filter(PropertyFilterType.SpanAttribute, 'k8s.namespace.name', PropertyOperator.Exact, [
+                            'argocd',
+                        ]),
+                    ]),
+                },
+                true,
+            ],
+            [
+                'namespace sees another resource attribute',
+                NAMESPACE,
+                {
+                    queryFilterGroup: groupWith([
+                        filter(PropertyFilterType.SpanResourceAttribute, 'host.name', PropertyOperator.Exact, [
+                            'node-1',
+                        ]),
+                    ]),
+                },
+                true,
+            ],
+        ])('%s', (_, facet, scope, expectedToChange) => {
+            expect(signature(facet, scope) !== signature(facet)).toBe(expectedToChange)
+        })
+
+        it('is identical for structurally equal filter groups', () => {
+            // The signature is what the rail subscribes on: if it carried object identity rather than
+            // content, every unrelated filter edit would refetch every facet again.
+            const chip = (): object =>
+                filter(PropertyFilterType.SpanResourceAttribute, 'host.name', PropertyOperator.Exact, ['node-1'])
+            expect(signature(NAMESPACE, { queryFilterGroup: groupWith([chip()]) })).toEqual(
+                signature(NAMESPACE, { queryFilterGroup: groupWith([chip()]) })
+            )
+        })
+    })
+
+    describe('resolveFacets', () => {
+        const environmentKey = (presentResourceKeys: string[]): string | undefined => {
+            const facet = resolveFacets(FACETS, presentResourceKeys).find((f) => f.key === 'environment')
+            return facet?.source.type === 'resourceAttribute' ? facet.source.key : undefined
+        }
+
+        // The rail queries and filters on whichever key resolution picks, so picking the wrong one (or
+        // none) silently hides a facet the tenant's data can populate.
+        it.each<[string, string[], string | undefined]>([
+            ['the current key is used as-is', ['deployment.environment.name'], 'deployment.environment.name'],
+            ['the superseded key still resolves', ['deployment.environment'], 'deployment.environment'],
+            ['a datadog env tag still resolves', ['env'], 'env'],
+            [
+                'the current key wins over its aliases',
+                ['env', 'deployment.environment', 'deployment.environment.name'],
+                'deployment.environment.name',
+            ],
+            ['no spelling emitted drops the facet', ['k8s.pod.name'], undefined],
+        ])('%s', (_, presentResourceKeys, expected) => {
+            expect(environmentKey(presentResourceKeys)).toEqual(expected)
+        })
+
+        it('keeps column facets whatever the tenant emits', () => {
+            expect(resolveFacets(FACETS, []).map((f) => f.key)).toEqual(['service', 'status'])
         })
     })
 })

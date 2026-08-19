@@ -11,7 +11,7 @@ from .activity_logging.notification_viewed import NotificationViewed
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .column_configuration import ColumnConfiguration
-from .comment import Comment
+from .comment import Comment, CommentSlackThread
 from .core_event import CoreEvent
 from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
@@ -70,7 +70,7 @@ from .global_rate_limit_threshold_config import GlobalRateLimitThresholdConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
-from .user_integration import UserIntegration
+from .user_integration import GitHubInstallRequest, UserIntegration
 from .user_push_token import UserPushToken
 from .repo_routing_rule import RepoRoutingRule
 from .user_repo_preference import UserRepoPreference
@@ -179,12 +179,14 @@ __all__ = [
     "UserManager",
     "UserGroup",
     "UserGroupMembership",
+    "GitHubInstallRequest",
     "UserIntegration",
     "UserPushToken",
     "DataWarehouseTable",
     "WebAnalyticsFilterPreset",
     "ScheduledChange",
     "Comment",
+    "CommentSlackThread",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",

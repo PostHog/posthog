@@ -1,17 +1,15 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconArchive, IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
-import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -40,7 +38,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -57,14 +54,16 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
+
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
-import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
+import { openBulkArchiveFlagsDialog, openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
-import { flagSelectionLogic } from './flagSelectionLogic'
+import { BULK_ARCHIVE_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
 
@@ -342,6 +341,7 @@ export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
     productKey: ProductKey.FEATURE_FLAGS,
+    emptyState: featureFlagsEmptyState,
 }
 
 const RUNTIME_LABELS: Record<FeatureFlagEvaluationRuntime, string> = {
@@ -360,20 +360,17 @@ export function OverviewTab({
     nouns?: [string, string]
 }): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
-    const { user } = useValues(userLogic)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
     const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
         useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
-    const newFeatureFlagUrl = urls.featureFlagTemplates()
-    const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { paramsFromFilters } = useValues(featureFlagsLogic({}))
-    const { bulkDeleteResponseLoading } = useValues(flagSelectionLogic)
-    const { bulkDeleteFlags, openBulkCopyModal } = useActions(flagSelectionLogic)
+    const { bulkDeleteResponseLoading, bulkArchiveRunning, bulkArchiveProgress } = useValues(flagSelectionLogic)
+    const { bulkDeleteFlags, bulkArchiveFlags, openBulkCopyModal } = useActions(flagSelectionLogic)
 
     const [matchingFlagIds, setMatchingFlagIds] = useState<readonly number[] | null>(null)
     const [matchingFlagIdsLoading, setMatchingFlagIdsLoading] = useState(false)
@@ -558,23 +555,22 @@ export function OverviewTab({
 
     return (
         <SceneContent>
-            <ProductIntroduction
-                productName="Feature flags"
-                productKey={ProductKey.FEATURE_FLAGS}
-                thingName="feature flag"
-                description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
-                docsURL="https://posthog.com/docs/feature-flags/manual"
-                action={() => router.actions.push(newFeatureFlagUrl)}
-                isEmpty={shouldShowEmptyState}
-                customHog={FeatureFlagHog}
-                className={cn('my-0')}
-                mcpSurfaceKey="feature_flags.create"
-            />
-            {!isProductIntroVisible && <ApprovalsPromoBanner />}
+            {!shouldShowEmptyState && <ApprovalsPromoBanner />}
             <PendingApprovalsBanner />
             <div>{filtersSection}</div>
             <BulkDeleteResultsModal />
             <BulkCopyFlagsModal />
+
+            {/*
+             * Outside the selection toolbar, which unmounts as soon as the selection is cleared.
+             * The region stays mounted and only its text changes, so screen readers announce each
+             * update as a mutation — a region that appears already populated is not announced.
+             */}
+            <div className="text-muted text-sm" role="status" aria-live="polite">
+                {bulkArchiveRunning && bulkArchiveProgress
+                    ? `Archiving flags… ${bulkArchiveProgress.done} of ${bulkArchiveProgress.total}`
+                    : null}
+            </div>
 
             <LemonTable
                 dataSource={displayedFlags}
@@ -674,6 +670,30 @@ export function OverviewTab({
                                         setMatchingFlagIds(null)
                                     }}
                                 />
+                                {/* Nothing to archive when the list is already filtered to archived flags */}
+                                {filters.archived !== 'true' && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconArchive />}
+                                        data-attr="bulk-archive-flags-button"
+                                        loading={bulkArchiveRunning}
+                                        disabledReason={
+                                            ctx.selectedCount > BULK_ARCHIVE_MAX_FLAGS
+                                                ? `Archiving supports up to ${BULK_ARCHIVE_MAX_FLAGS} flags at once`
+                                                : undefined
+                                        }
+                                        onClick={() => {
+                                            openBulkArchiveFlagsDialog(ctx.selectedCount, () => {
+                                                bulkArchiveFlags([...ctx.selectedKeys])
+                                                ctx.clearSelection()
+                                                setMatchingFlagIds(null)
+                                            })
+                                        }}
+                                    >
+                                        Archive selected
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     type="primary"
                                     status="danger"

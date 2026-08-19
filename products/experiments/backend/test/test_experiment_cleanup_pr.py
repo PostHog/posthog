@@ -362,3 +362,39 @@ class TestExperimentCleanupPr(APIBaseTest):
         target = ExperimentService(team=self.team, user=self.user).get_cleanup_repository_target(experiment)
 
         self.assertEqual(target, {"repository": None, "source": "no_integration", "candidates": []})
+
+
+class TestExperimentsConfigFlagCleanupRepository(APIBaseTest):
+    @parameterized.expand(
+        [
+            # (name, submitted, expected_status, expected_stored)
+            ("valid_repo_stored_lowercased", "posthog/POSTHOG", 200, "posthog/posthog"),
+            ("repo_outside_installation", "other/repo", 400, "posthog/existing"),
+            ("malformed_repo", "not-a-repo", 400, "posthog/existing"),
+            ("null_clears", None, 200, None),
+            ("empty_string_clears", "", 200, None),
+        ]
+    )
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_flag_cleanup_repository_validation(
+        self, _name, submitted, expected_status, expected_stored, mock_resolve_github
+    ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "PostHog/posthog"}]
+        )
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.flag_cleanup_repository = "posthog/existing"
+        config.save()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/experiments_config/",
+            {"flag_cleanup_repository": submitted},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        config.refresh_from_db()
+        self.assertEqual(config.flag_cleanup_repository, expected_stored)
+        if expected_status == 200:
+            self.assertEqual(response.json()["flag_cleanup_repository"], expected_stored)

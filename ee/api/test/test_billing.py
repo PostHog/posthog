@@ -19,7 +19,9 @@ from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from ee.api.billing import BillingUsageRequestSerializer
 from ee.api.test.base import APILicensedTest
@@ -1183,6 +1185,88 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
         self.assertEqual(passed_params["teams_map"], {self.team.pk: self.team.name})
 
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=True)
+    def test_owner_only_billing_rejects_admin_usage_access(self, _mock_feature_enabled, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=False)
+    def test_admin_usage_access_allowed_when_owner_only_billing_is_off(self, mock_feature_enabled, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_usage_data.assert_called_once()
+        mock_feature_enabled.assert_called_once()
+        self.assertEqual(mock_feature_enabled.call_args.args[0], "owner-only-billing")
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=None)
+    def test_owner_only_billing_rejects_admin_usage_access_when_flag_is_unknown(
+        self, _mock_feature_enabled, mock_get_usage_data
+    ):
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+
+    @patch("ee.api.billing.capture_exception")
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", side_effect=Exception("flag lookup failed"))
+    def test_owner_only_billing_rejects_admin_usage_access_when_flag_check_raises(
+        self, _mock_feature_enabled, mock_get_usage_data, mock_capture_exception
+    ):
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+        mock_capture_exception.assert_called_once()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled")
+    def test_owner_only_billing_rejects_admin_usage_access_without_distinct_id(
+        self, mock_feature_enabled, mock_get_usage_data
+    ):
+        self.user.distinct_id = ""
+        self.user.save()
+
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+        mock_feature_enabled.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=True)
+    def test_owner_only_billing_allows_owner_usage_access(self, _mock_feature_enabled, mock_get_usage_data):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get("/api/billing/usage/", {"start_date": "2025-01-01"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_usage_data.assert_called_once()
+
+    @patch("ee.billing.billing_manager.BillingManager.update_billing")
+    @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=True)
+    def test_owner_only_billing_rejects_admin_limit_update(self, _mock_feature_enabled, mock_update_billing):
+        response = self.client.patch(
+            "/api/billing//",
+            data={"custom_limits_usd": {"events": 10}},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_update_billing.assert_not_called()
+
     def test_get_usage_permission_denied_for_member(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -1224,6 +1308,50 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         passed_params = call_args[1]
         self.assertEqual(passed_params["teams_map"], {})
         mock_get_teams_map.assert_called_once()
+
+
+class TestBillingPeriodAPI(APILicensedTest):
+    def test_member_can_read_synced_organization_period(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.usage = {
+            "period": ["2026-07-09T00:00:00Z", "2026-08-09T00:00:00Z"],
+        }
+        self.organization.save()
+
+        response = self.client.get("/api/billing/period/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json(),
+            {
+                "current_period_start": "2026-07-09T00:00:00Z",
+                "current_period_end": "2026-08-09T00:00:00Z",
+            },
+        )
+
+    def test_gateway_scoped_personal_api_key_can_read_team_period(self):
+        self.organization.usage = {
+            "period": ["2026-07-09T00:00:00Z", "2026-08-09T00:00:00Z"],
+        }
+        self.organization.save()
+        self.client.logout()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="billing-period-test",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["llm_gateway:read"],
+            scoped_teams=[self.team.pk],
+        )
+
+        response = self.client.get(
+            f"/api/billing/period/?team_id={self.team.pk}",
+            headers={"authorization": f"Bearer {raw_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["current_period_end"], "2026-08-09T00:00:00Z")
 
 
 class TestBillingPermissionDeniedForMembers(APILicensedTest):

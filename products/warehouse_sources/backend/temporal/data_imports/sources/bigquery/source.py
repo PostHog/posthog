@@ -166,6 +166,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # carrying this exact wording (so the create/validate path shows it instead of the raw
             # 404). Match it here too so the discovery activity treats it as non-retryable.
             BIGQUERY_DATASET_NOT_FOUND_ERROR: BIGQUERY_DATASET_NOT_FOUND_ERROR,
+            # `bq_client.get_table(...)` in `_build_source_response` (see `bigquery.py`) issues a
+            # direct REST GET rather than a query job, so a dataset deleted or renamed after schema
+            # discovery surfaces as "GET .../tables/<table>?prettyPrint=false: Not found: Dataset
+            # <project>:<dataset>" — with no "was not found in location" suffix, since no query job
+            # (and therefore no queried-region mismatch) is involved. The "was not found in location"
+            # key above only covers the query-job path, so this slips through and retries forever.
+            # Retrying can't recover a deleted dataset; the user must restore or rename it back, or
+            # remove it from the sync. Matched on the stable "Not found: Dataset" wording rather than
+            # the volatile project/dataset id.
+            "Not found: Dataset": BIGQUERY_DATASET_NOT_FOUND_ERROR,
             # A syntactically invalid project/dataset ID (e.g. a value carrying parentheses like
             # "(default)") is rejected as a 400 "Invalid dataset ID ..." / "Invalid project ID ...".
             # Schema discovery re-raises it as `BigQueryInvalidIdentifierError` carrying the friendly
@@ -229,6 +239,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # user must fix their key file; retrying can't recover. Matched on ngrok's stable
             # offline-endpoint code rather than the volatile tunnel subdomain in the page.
             "ERR_NGROK_3200": "We couldn't authenticate with BigQuery — your service account key's token_uri points at an offline endpoint, not Google's OAuth token endpoint. Please re-upload your service account key file and verify its token_uri.",
+            # A service-account key whose `token_uri` points at a non-globally-routable address
+            # (for example a cloud metadata endpoint). PostHog's egress proxy denies the request
+            # before it leaves our network and google-auth surfaces that denial as a `RefreshError`
+            # naming the proxy's stable rule. The proxy rejects the same non-public host on every
+            # retry, so retrying just hammers a request that can never succeed. Google's real OAuth
+            # token endpoint is always a public host, so this is a misconfigured `token_uri` — the
+            # user must fix their key file. Matched on the proxy's stable rule name rather than the
+            # volatile denied host.
+            "denied by rule 'Deny: Not Global Unicast'": "We couldn't authenticate with BigQuery — your service account key's token_uri points at an address PostHog can't reach. Please re-upload your service account key file and verify its token_uri is Google's OAuth token endpoint.",
             # Raised as a `Forbidden` (403, reason `quotaExceeded`) when the customer's BigQuery
             # project hits an administrator-configured custom cost control, e.g. "Custom quota
             # exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, which is set by
@@ -304,6 +323,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # selection or incremental field to match the table's current schema. Matched on
             # BigQuery's stable wording, not the volatile column name or [row:col] location.
             "Unrecognized name:": "BigQuery couldn't run a query for this source because it referenced a column that no longer exists on the table — usually the configured incremental field, or a column selected for syncing, was renamed or removed. Retrying won't help — please update the source's column selection or incremental field to match the table's current schema, then reconnect the source.",
+            # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
+            # `bigquery.py`) when a column selected for syncing no longer exists on the live table —
+            # the direct-read counterpart of "Unrecognized name:" above, which covers the same drift
+            # on the query-job path (incremental / view / row-filtered reads). The google.api_core
+            # InvalidArgument stringifies as "request failed: The following selected fields do not
+            # exist in the table schema: <col1>, <col2>, ...". It's a deterministic mismatch between
+            # our stored config and the customer's live schema: the same read fails identically on
+            # every retry. The user must update the source's column selection to match the table's
+            # current schema. Matched on the stable wording, not the volatile list of column names.
+            "do not exist in the table schema": "BigQuery couldn't read this table because it referenced columns that no longer exist on it — usually columns selected for syncing were renamed or removed. Retrying won't help — please update the source's column selection to match the table's current schema, then reconnect the source.",
         }
 
     def validate_credentials(
@@ -339,7 +368,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.BIG_QUERY,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["bq", "gbq", "sql"],
+            keywords=["bq", "gbq", "sql", "gcp", "google cloud"],
             featured=True,
             iconPath="/static/services/bigquery.png",
             caption=(

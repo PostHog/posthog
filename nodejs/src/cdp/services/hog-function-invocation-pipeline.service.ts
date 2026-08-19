@@ -15,13 +15,13 @@ import {
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
+import { dualRead } from '../utils/dual-store'
 import { buildHogFunctionInvocations } from '../utils/invocation-utils'
-import { mirrorCompare } from '../utils/mirror-call'
 import { HogInputsService } from './hog-inputs.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
-import { HogWatcherService, HogWatcherState } from './monitoring/hog-watcher.service'
+import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
 
 export interface HogFunctionInvocationPipelineConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
@@ -34,17 +34,18 @@ export interface HogFunctionInvocationPipelineDeps {
     hogFunctionManager: HogFunctionManagerService
     hogInputsService: HogInputsService
     hogWatcher: HogWatcherService
-    hogWatcherMirror: HogWatcherService | null
+    hogWatcherMirror: HogWatcherService
     hogMasker: HogMaskerService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     quotaLimiting: QuotaLimiting
     redis: RedisV2
-    valkeyShadow: CdpValkeyShadowPools | null
+    valkeyShadow: CdpValkeyShadowPools
 }
 
 export interface BuildHogFunctionInvocationsOptions {
     hogTypes: HogFunctionTypeType[]
     filterFn: (fn: HogFunctionType) => boolean
+    invocationFilterFn?: (fn: HogFunctionType, globals: HogFunctionInvocationGlobals) => boolean
 }
 
 /**
@@ -55,7 +56,7 @@ export interface BuildHogFunctionInvocationsOptions {
  */
 export class HogFunctionInvocationPipeline {
     private hogRateLimiter: KeyedRateLimiterService
-    private hogRateLimiterMirror: KeyedRateLimiterService | null
+    private hogRateLimiterMirror: KeyedRateLimiterService
 
     constructor(
         private config: HogFunctionInvocationPipelineConfig,
@@ -68,9 +69,7 @@ export class HogFunctionInvocationPipeline {
             ttlSeconds: config.CDP_RATE_LIMITER_TTL,
         }
         this.hogRateLimiter = new KeyedRateLimiterService(rateLimiterConfig, deps.redis)
-        this.hogRateLimiterMirror = deps.valkeyShadow
-            ? new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
-            : null
+        this.hogRateLimiterMirror = new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
     }
 
     @instrumented('cdpConsumer.handleEachBatch.queueMatchingFunctions')
@@ -88,7 +87,9 @@ export class HogFunctionInvocationPipeline {
         const possibleInvocations = (
             await Promise.all(
                 invocationGlobals.map(async (globals) => {
-                    const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
+                    const teamHogFunctions = opts.invocationFilterFn
+                        ? hogFunctionsByTeam[globals.project.id].filter((fn) => opts.invocationFilterFn!(fn, globals))
+                        : hogFunctionsByTeam[globals.project.id]
 
                     const { invocations, metrics, logs } = await buildHogFunctionInvocations(
                         this.deps.hogInputsService,
@@ -105,28 +106,29 @@ export class HogFunctionInvocationPipeline {
         ).flat()
 
         const hogFunctionIds = possibleInvocations.map((x) => x.hogFunction.id)
-        const states = await mirrorCompare(
+        const states = await dualRead(
             'hog-watcher.getEffectiveStates',
             () =>
                 instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
                     return await this.deps.hogWatcher.getEffectiveStates(hogFunctionIds)
                 }),
-            () => this.deps.hogWatcherMirror?.getEffectiveStates(hogFunctionIds)
+            () => this.deps.hogWatcherMirror.getEffectiveStates(hogFunctionIds),
+            sameWatcherStates
         )
 
         const rateLimitInputs: KeyedRateLimitRequest[] = possibleInvocations.map((x) => ({
             id: x.hogFunction.id,
             cost: 1,
         }))
-        const rateLimits = await mirrorCompare(
-            'hog-rate-limiter.rateLimitGrouped',
+        const rateLimits = await dualRead(
+            'hog-function-rate-limiter.rateLimitGrouped',
             () =>
                 instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitGrouped', async () => {
                     return await this.hogRateLimiter.rateLimitGrouped(rateLimitInputs)
                 }),
-            () => this.hogRateLimiterMirror?.rateLimitGrouped(rateLimitInputs),
-            (primary, mirror) =>
-                primary.every(([, result], index) => result.isRateLimited === mirror[index]?.[1].isRateLimited)
+            () => this.hogRateLimiterMirror.rateLimitGrouped(rateLimitInputs),
+            (primary, secondary) =>
+                primary.every(([, result], index) => result.isRateLimited === secondary[index]?.[1].isRateLimited)
         )
 
         const validInvocations: CyclotronJobInvocationHogFunction[] = []

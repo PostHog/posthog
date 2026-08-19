@@ -21,19 +21,25 @@ const GENERATING_POLL_MS = 4_000;
  */
 export function useCanvasBuilds(
   dashboardId: string | undefined,
-  options?: { enabled?: boolean; generating?: boolean },
+  options?: { enabled?: boolean; generating?: boolean; versionId?: string },
 ): {
   lifecycle: CanvasBuildLifecycle | undefined;
   isLoading: boolean;
+  /** True once the fetch has failed after its retries — lets a caller tell a
+   * permanently broken request (e.g. a deleted component canvas) from a slow
+   * one, so it can show an error instead of an endless spinner. */
+  isError: boolean;
   /** Epoch ms the current lifecycle data was fetched — signed artifact URLs
    * are minted per fetch, so this is the pinned URL's mint time. */
   dataUpdatedAt: number;
+  /** Re-run the fetch, for a retry control on the error state. */
+  refetch: () => void;
 } {
   const trpc = useHostTRPC();
   const generating = options?.generating ?? false;
-  const { data, isLoading, dataUpdatedAt } = useQuery(
+  const { data, isLoading, isError, dataUpdatedAt, refetch } = useQuery(
     trpc.dashboards.builds.queryOptions(
-      { id: dashboardId ?? "" },
+      { id: dashboardId ?? "", versionId: options?.versionId },
       {
         enabled: !!dashboardId && (options?.enabled ?? true),
         staleTime: ACTIVE_POLL_MS,
@@ -46,5 +52,13 @@ export function useCanvasBuilds(
       },
     ),
   );
-  return { lifecycle: data, isLoading, dataUpdatedAt };
+  return {
+    lifecycle: data,
+    isLoading,
+    isError,
+    dataUpdatedAt,
+    refetch: () => {
+      void refetch();
+    },
+  };
 }

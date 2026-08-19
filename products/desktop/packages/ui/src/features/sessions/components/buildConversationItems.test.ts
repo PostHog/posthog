@@ -215,6 +215,31 @@ describe("buildConversationItems", () => {
     ]);
   });
 
+  it("keeps item ids stable when older history is prepended", () => {
+    const older: AcpMessage[] = [
+      userPromptMsg(1, 1, "first question"),
+      agentMessageMsg(2, "first reply"),
+      promptResponseMsg(3, 1),
+      userPromptMsg(4, 2, "second question"),
+      agentMessageMsg(5, "second reply"),
+      promptResponseMsg(6, 2),
+    ];
+    const tail: AcpMessage[] = [
+      userPromptMsg(10, 3, "later question"),
+      agentMessageMsg(11, "later reply"),
+      consoleMsg(12, "later tool output"),
+      promptResponseMsg(13, 3),
+    ];
+
+    const tailIds = buildConversationItems(tail, null).items.map((i) => i.id);
+    const fullIds = buildConversationItems([...older, ...tail], null).items.map(
+      (i) => i.id,
+    );
+
+    expect(tailIds.length).toBeGreaterThan(0);
+    expect(fullIds.slice(-tailIds.length)).toEqual(tailIds);
+  });
+
   it("clears the compacting spinner on a successful completion status, without duplicating the row", () => {
     // A successful compaction sends a terminal `status: compacting, isComplete:
     // true`. It must flip the existing status row, not append a second one.
@@ -300,6 +325,104 @@ describe("buildConversationItems", () => {
       },
     ]);
     expect(result.isCompacting).toBe(false);
+  });
+
+  it("clears the clearing spinner on a successful completion status, without duplicating the row", () => {
+    // A successful /clear sends a terminal `status: clearing, isComplete:
+    // true`. It must flip the existing status row, not append a second one.
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "/clear"),
+        statusMsg(2, "clearing"),
+        statusMsg(3, "clearing", true),
+      ],
+      null,
+    );
+
+    const statusItems = result.items.filter(
+      (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+        i.type === "session_update" && i.update.sessionUpdate === "status",
+    );
+    expect(statusItems).toHaveLength(1);
+    expect((statusItems[0].update as { isComplete?: boolean }).isComplete).toBe(
+      true,
+    );
+    // The completion resets the flag that suppressed the generic
+    // "Generating…" footer while the clear ran.
+    expect(result.isClearing).toBe(false);
+    expect(result.isCompacting).toBe(false);
+  });
+
+  it("flags isClearing while a clear is in flight so the generic generating footer is suppressed", () => {
+    // The /clear prompt RPC keeps isPromptPending true for the entire swap,
+    // so the footer needs this flag to avoid rendering "Generating…" next to
+    // the dedicated "Clearing…" row (mirrors isCompacting).
+    const result = buildConversationItems(
+      [userPromptMsg(1, 1, "/clear"), statusMsg(2, "clearing")],
+      true,
+    );
+    expect(result.isClearing).toBe(true);
+    expect(result.isCompacting).toBe(false);
+  });
+
+  it("renders a timed-out clear as a clearing_failed status row and clears the spinner", () => {
+    // A timed-out clear emits no conversation_cleared marker, so the adapter
+    // sends a structured `clearing_failed` status: it clears the spinner (the
+    // original clearing row goes complete) and adds the outcome row.
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "/clear"),
+        statusMsg(2, "clearing"),
+        statusMsg(3, "clearing_failed", undefined, "Timed out after 30000ms."),
+      ],
+      null,
+    );
+
+    const statusItems = result.items.filter(
+      (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+        i.type === "session_update" && i.update.sessionUpdate === "status",
+    );
+    // Spinner row (now complete) + the failure row.
+    expect(statusItems.map((i) => i.update)).toEqual([
+      {
+        sessionUpdate: "status",
+        status: "clearing",
+        isComplete: true,
+        startedAt: 2,
+      },
+      {
+        sessionUpdate: "status",
+        status: "clearing_failed",
+        error: "Timed out after 30000ms.",
+      },
+    ]);
+    // The failure also releases the generating-footer suppression.
+    expect(result.isClearing).toBe(false);
+  });
+
+  it("renders a conversation_cleared divider after a /clear", () => {
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "/clear"),
+        {
+          type: "acp_message",
+          ts: 2,
+          message: {
+            jsonrpc: "2.0",
+            method: "_posthog/conversation_cleared",
+            params: { sessionId: "sdk-new" },
+          },
+        },
+      ],
+      null,
+    );
+
+    const clearedItems = result.items.filter(
+      (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+        i.type === "session_update" &&
+        i.update.sessionUpdate === "conversation_cleared",
+    );
+    expect(clearedItems).toHaveLength(1);
   });
 
   it("renders a terminal refusal as a status row carrying the explanation", () => {
@@ -822,6 +945,23 @@ describe("buildConversationItems", () => {
     });
   });
 
+  describe("lastActivityAt", () => {
+    it("is null when the thread has no events", () => {
+      expect(buildConversationItems([], null).lastActivityAt).toBeNull();
+    });
+
+    // The footer measures silence against this, so a late-arriving event must
+    // not be able to drag it backwards and report a turn as quieter than it is.
+    it("reports the newest timestamp even when an event arrives late", () => {
+      const events = [
+        userPromptMsg(10, 1, "hello"),
+        consoleMsg(30, "second"),
+        consoleMsg(20, "late arrival"),
+      ];
+      expect(buildConversationItems(events, true).lastActivityAt).toBe(30);
+    });
+  });
+
   describe("session_update timestamps", () => {
     const toolCallMsg = (ts: number, toolCallId: string): AcpMessage => ({
       type: "acp_message",
@@ -946,6 +1086,27 @@ describe("buildConversationItems", () => {
       ]);
       const distinctContexts = new Set(chunks.map((c) => c.turnContext));
       expect(distinctContexts.size).toBe(4);
+    });
+
+    it("keeps item ids distinct across implicit turns that share a timestamp", () => {
+      // Entries with a missing or unparseable timestamp all resolve to one `ts`.
+      // The virtualizer keys its measurement cache and its prepend anchor on the
+      // item id, so a duplicate anchors older history onto the wrong row.
+      const events = [
+        userPromptMsg(1, 1, "use a monitor"),
+        agentMessageMsg(2, "Monitor is running."),
+        turnCompleteMsg(3),
+        agentMessageMsg(10, "ping 1 received."),
+        backgroundTurnCompleteMsg(10),
+        agentMessageMsg(10, "ping 2 received."),
+        backgroundTurnCompleteMsg(10),
+      ];
+
+      const ids = buildConversationItems(events, true).items.map(
+        (item) => item.id,
+      );
+
+      expect(new Set(ids).size).toBe(ids.length);
     });
 
     it("computes a real duration for an implicit turn once a background reply completes it", () => {

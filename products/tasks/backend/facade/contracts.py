@@ -131,6 +131,25 @@ class WarmRunDTO:
 
 
 @dataclass(frozen=True)
+class SlackThreadReferenceDTO:
+    """A passive link from a task to a public Slack discussion."""
+
+    url: str
+    channel: str
+    created_at: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskSlackUnfurlDTO:
+    """The task metadata needed to build a Slack unfurl."""
+
+    id: UUID
+    title: str
+    created_by_id: int | None
+    latest_run_status: str | None
+
+
+@dataclass(frozen=True)
 class TaskDetailDTO:
     """The HTTP detail representation of a task.
 
@@ -140,7 +159,8 @@ class TaskDetailDTO:
     ``None``). ``latest_run`` is the most-recent run as a ``TaskRunDetailDTO`` (or ``None``).
     ``latest_run_id`` carries just that run's id for the conversation envelope, which needs the id
     to reconnect to sandbox logs but not the full (presigned-log) run payload. ``created_by``
-    mirrors core ``UserBasicSerializer`` output.
+    mirrors core ``UserBasicSerializer`` output. ``last_activity_at`` is when something last
+    happened in the task, as opposed to ``updated_at``, which is when the row was last written.
     """
 
     id: UUID
@@ -164,9 +184,11 @@ class TaskDetailDTO:
     latest_run: "TaskRunDetailDTO | None" = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    last_activity_at: datetime | None = None
     created_by: "TaskUserBasicInfo | None" = None
     latest_run_id: UUID | None = None
     channel: UUID | None = None
+    slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -244,13 +266,11 @@ class TaskMentionDTO:
 
 @dataclass(frozen=True)
 class TaskActivityDTO:
-    """One task the requesting user is involved in, for the task-centric activity feed.
+    """One entry in the requesting user's task-centric activity feed.
 
-    Unlike ``TaskMentionDTO`` (one row per mention message), this is one row per task,
-    surfacing the most recent relevant activity. ``activity_kind`` classifies the winning
-    signal so the client can pick row copy; ``snippet``/``latest_author``/``latest_message_id``
-    describe the thread message tied to ``activity_at`` (empty/None when the winning signal is
-    task creation, which has no message).
+    Lifecycle signals collapse to one row per task, while comment notifications remain
+    separate entries. Source fields describe the message or comment tied
+    to ``activity_at`` and stay empty for task creation.
     """
 
     id: UUID
@@ -263,6 +283,11 @@ class TaskActivityDTO:
     snippet: str
     latest_author: "TaskUserBasicInfo | None" = None
     latest_message_id: UUID | None = None
+    latest_comment_id: UUID | None = None
+    latest_comment_scope: str | None = None
+    latest_comment_item_id: str | None = None
+    target_scope: str | None = None
+    target_id: str | None = None
     is_unread: bool = True
 
 
@@ -272,6 +297,59 @@ class TaskActivityPageDTO:
     unread_count: int
     next_before: datetime | None = None
     next_before_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class TaskArtifactDTO:
+    id: str
+    type: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TaskCommentTargetDTO:
+    id: str
+    type: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TaskCommentSummaryDTO:
+    id: UUID
+    target: TaskCommentTargetDTO
+    content: str
+    content_truncated: bool
+    selected_text: str | None
+    created_at: datetime
+    reply_count: int
+    resolved: bool
+
+
+@dataclass(frozen=True)
+class TaskCommentPageDTO:
+    comments: list[TaskCommentSummaryDTO]
+    next: str | None
+
+
+@dataclass(frozen=True)
+class TaskCommentEntryDTO:
+    id: UUID
+    content: str
+    content_truncated: bool
+    content_next_offset: int | None
+    author: str | None
+    created_at: datetime
+    anchor: dict | None
+    canvas_version_id: str | None
+
+
+@dataclass(frozen=True)
+class TaskCommentDetailDTO:
+    id: UUID
+    target: TaskCommentTargetDTO
+    resolved: bool
+    comments: list[TaskCommentEntryDTO]
+    next: str | None
 
 
 @dataclass(frozen=True)

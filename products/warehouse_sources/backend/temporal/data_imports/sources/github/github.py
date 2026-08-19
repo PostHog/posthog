@@ -5,7 +5,7 @@ import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import pyarrow as pa
 import requests
@@ -35,7 +35,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
+    ENDPOINT_REQUIRED_PERMISSION,
     GITHUB_ENDPOINTS,
+    GRANT_DENIAL_PREFIX,
+    GRANT_NAMES,
     GithubEndpointConfig,
 )
 
@@ -47,12 +50,14 @@ GITHUB_BASE_URL = "https://api.github.com"
 # source's resolved pin; this constant is only the fallback for callers outside a source instance.
 GITHUB_DEFAULT_API_VERSION = "2022-11-28"
 
-# Managing repo webhooks needs the `admin:repo_hook` scope on a classic token, or the
-# "Repository webhooks: read and write" permission on a fine-grained token. Name both so
-# the error/setup guidance doesn't mislead whichever token type the user connected.
+# Managing repo webhooks needs the `admin:repo_hook` scope on a classic token, the "Repository
+# webhooks: read and write" permission on a fine-grained token, or the same permission on an app
+# installation. Name all three so the guidance doesn't mislead whichever way the user connected —
+# an app installation in particular can't be fixed by editing a token.
 _WEBHOOK_PERMISSION_HINT = (
-    "the `admin:repo_hook` scope (classic token) or the "
-    '"Repository webhooks: read and write" permission (fine-grained token)'
+    "the `admin:repo_hook` scope (classic token), the "
+    '"Repository webhooks: read and write" permission (fine-grained token), '
+    "or repository webhook access on the GitHub app installation"
 )
 
 
@@ -91,7 +96,8 @@ class GithubAccessDeniedError(Exception):
     """GitHub refused the call with a 403 that is not a rate limit (``_fetch_page`` classifies rate
     limits first) and not a switched-off repository feature. The connection is missing a permission,
     or the organization has not approved it, so retrying cannot help — the message carries GitHub's
-    own explanation so the curated copy can name the cause."""
+    own explanation so the curated copy can name the cause. When the denial is about one endpoint's
+    grant, the message also names the grant to add, which reaches the failed job's internal error."""
 
     pass
 
@@ -295,6 +301,12 @@ def _is_repository_too_large_for_code_frequency(response: requests.Response) -> 
     return isinstance(message, str) and "fewer than 10000 commits" in message.lower()
 
 
+def _is_topics_endpoint(page_url: str) -> bool:
+    """The repository topics endpoint (/repos/{owner}/{repo}/topics). Matched on the URL path so a
+    repository literally named `topics`, or a query string, can't be mistaken for it."""
+    return urlsplit(page_url).path.endswith("/topics")
+
+
 def _as_utc(dt: datetime) -> datetime:
     """Treat naive datetimes as UTC so tz-aware values (GitHub returns ISO 8601
     with `Z`) can be safely compared against naive cutoffs from the DB."""
@@ -345,9 +357,12 @@ def validate_credentials(
     # before the request so the message names the fix.
     repo = repository.strip()
     if repo.count("/") != 1 or not all(repo.split("/")):
+        # Name the offending entry, like the 404 message below. Without it, two malformed repos both
+        # return this identical sentence and the caller joins them into one repeated string that names
+        # neither.
         return (
             False,
-            "Enter the repository as owner/repo (for example, posthog/posthog), not a full URL or just the owner name.",
+            f"'{repo}' isn't a valid repository. Enter it as owner/repo (for example, posthog/posthog), not a full URL or just the owner name.",
         )
 
     url = f"{GITHUB_BASE_URL}/repos/{repository}"
@@ -705,6 +720,38 @@ def _is_feature_unavailable_denial(message: str) -> bool:
     return any(marker in lowered for marker in _FEATURE_UNAVAILABLE_MARKERS)
 
 
+# GitHub's wording when the connection holds no grant for the endpoint. The first two are what an
+# App installation and a fine-grained token get; the push/admin pair is what the endpoints behind
+# the administration grant (traffic, self-hosted runners) answer instead.
+_PERMISSION_DENIED_MARKERS = (
+    "resource not accessible by",
+    "must have push access",
+    "must have admin rights",
+)
+
+
+def _is_endpoint_permission_denial(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _PERMISSION_DENIED_MARKERS)
+
+
+def _grant_hint(required_permission: str | None) -> str:
+    names = GRANT_NAMES.get(required_permission) if required_permission is not None else None
+    if names is None:
+        # No mapped grant, so the denial may be an account access-level gate (collaborators needs
+        # push access) rather than a missing permission. Offer both routes instead of claiming a
+        # permission alone fixes it.
+        return (
+            " Add the missing permission to your GitHub connection, or connect with a personal "
+            "access token from an account that has the access GitHub names, then sync again."
+        )
+    fine_grained, classic_scope = names
+    return (
+        f' Grant "{fine_grained}" on a fine-grained token or app installation, '
+        f"or {classic_scope} on a classic token, then sync again."
+    )
+
+
 def _is_repository_scoped(page_url: str, repository: str) -> bool:
     """Does this URL address the repository itself or something under it? Org-scoped endpoints
     (``/orgs/{org}/...``) address a different resource, so the repository's state says nothing about
@@ -791,6 +838,7 @@ def _fetch_page(
     egress_identity: GithubEgressIdentity | None = None,
     skip_on_not_found: bool = False,
     repository: str | None = None,
+    required_permission: str | None = None,
 ) -> requests.Response:
     # One gated + recorded GET through the shared egress client. The App path bills the shared
     # per-installation budget at BATCH (deferrable bulk); the PAT path (installation_id None) skips the
@@ -828,6 +876,15 @@ def _fetch_page(
     if _is_repository_too_large_for_code_frequency(response):
         raise GithubRepositoryTooLargeError()
 
+    # GitHub answers 422 on /repos/{owner}/{repo}/topics for some repositories rather than an empty
+    # {"names": []} body. Topics are optional repository metadata, so one repository's 422 there
+    # must not fail its whole schema the way a generic 422 does — sync zero rows, the same benign
+    # skip as a switched-off feature. A genuinely broken connection still fails loudly on the
+    # repository's other tables (401/403/404), so skipping topics here cannot hide it.
+    if response.status_code == 422 and _is_topics_endpoint(page_url):
+        logger.info(f"Github: topics not available for this repository, syncing zero rows: url={page_url}")
+        raise GithubResourceUnavailableError(_github_error_message(response))
+
     # An org-scoped endpoint 404s when the repo owner is a user (no org) or the token lacks org
     # access. Signal it so the caller syncs zero rows rather than failing the schema — a benign skip
     # like an empty repository, not a real "repository not found".
@@ -839,8 +896,21 @@ def _fetch_page(
         if _is_feature_unavailable_denial(message):
             logger.info(f"Github: feature not available for this repository: url={page_url}, message={message}")
             raise GithubResourceUnavailableError(message)
-        logger.error(f"Github API error: status=403, body={response.text}, url={page_url}")
-        raise GithubAccessDeniedError(f"GitHub denied access: {message or 'no reason given'} (url={page_url})")
+        # A SAML or blocked-repository 403 denies the whole connection, so it keeps the generic
+        # wording: naming one table's grant there would send the user to the wrong setting.
+        if not _is_endpoint_permission_denial(message):
+            logger.error(f"Github API error: status=403, body={response.text}, url={page_url}")
+            raise GithubAccessDeniedError(f"GitHub denied access: {message or 'no reason given'} (url={page_url})")
+
+        # This message reaches the user as the schema's error, because GithubSource's
+        # get_non_retryable_errors keys GRANT_DENIAL_PREFIX and the permission markers to None, so
+        # curated copy never replaces it. The URL stays in the log line rather than in what the
+        # user reads.
+        grant_hint = _grant_hint(required_permission)
+        logger.error(
+            f"Github API error: status=403, body={response.text}, grant_hint={grant_hint.strip()}, url={page_url}"
+        )
+        raise GithubAccessDeniedError(f"{GRANT_DENIAL_PREFIX}: {message.rstrip('. ')}.{grant_hint}")
 
     # Only repository-scoped URLs, so an org-scoped 404 (a specific team's members, say) keeps its
     # own handling — the repository resolving says nothing about whether that org resource exists.
@@ -873,6 +943,7 @@ def _iter_pages(
     egress_identity: GithubEgressIdentity | None = None,
     skip_on_not_found: bool = False,
     repository: str | None = None,
+    required_permission: str | None = None,
 ) -> Iterator[tuple[list[dict[str, Any]], str]]:
     """Yield (items, page_url) for each page of a paginated GitHub list,
     unwrapping the envelope and following the Link header. Stops at ``max_pages``,
@@ -888,6 +959,7 @@ def _iter_pages(
                 egress_identity,
                 skip_on_not_found=skip_on_not_found,
                 repository=repository,
+                required_permission=required_permission,
             )
         except GithubResourceUnavailableError:
             logger.debug(f"Github: endpoint holds nothing for this repository, syncing zero rows: url={url}")
@@ -951,6 +1023,7 @@ def _iter_child_for_parent(
         page_cap_context={"repository": repository, fan_out_param: parent_value},
         egress_identity=egress_identity,
         repository=repository,
+        required_permission=ENDPOINT_REQUIRED_PERMISSION.get(config.name),
     ):
         for item in items:
             if item_filter and not item_filter(item):
@@ -1079,6 +1152,7 @@ def _fan_out_get_rows(
         egress_identity=egress_identity,
         skip_on_not_found=parent_org_scoped,
         repository=repository,
+        required_permission=ENDPOINT_REQUIRED_PERMISSION.get(parent_config.name),
     ):
         parents = [parent_mapper(parent) for parent in raw_parents] if parent_mapper else raw_parents
         stop_after_this_page = _should_stop_desc(parents, "desc", parent_cursor_field, parent_cutoff)
@@ -1188,6 +1262,7 @@ def get_rows(
                 egress_identity,
                 skip_on_not_found=skip_on_not_found,
                 repository=repository,
+                required_permission=ENDPOINT_REQUIRED_PERMISSION.get(endpoint),
             )
         except GithubEmptyRepositoryError:
             logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
@@ -1515,7 +1590,7 @@ def create_repo_webhook(
         return WebhookCreationResult(
             success=False,
             error=(
-                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
+                f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
                 "Add it and reconnect, or set up the webhook manually following the steps below."
             ),
         )
@@ -1545,7 +1620,7 @@ def ensure_repo_webhook(
         return WebhookCreationResult(
             success=False,
             error=(
-                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
+                f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
                 "Add it and reconnect, or set up the webhook manually following the steps below."
             ),
         )
@@ -1588,7 +1663,7 @@ def ensure_repo_webhook(
         return WebhookCreationResult(
             success=False,
             error=(
-                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository webhook. "
+                f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository webhook. "
                 "Add it and reconnect, or set up the webhook manually following the steps below."
             ),
         )
@@ -1675,7 +1750,7 @@ def delete_repo_webhook(
     if error == "permission":
         return WebhookDeletionResult(
             success=False,
-            error=f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
+            error=f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
         )
     if error is not None:
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error}")
@@ -1699,7 +1774,7 @@ def delete_repo_webhook(
     if _is_repo_hook_permission_error(response):
         return WebhookDeletionResult(
             success=False,
-            error=f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
+            error=f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
         )
     return WebhookDeletionResult(
         success=False, error=f"Failed to delete webhook: {response.status_code} {response.text}"
@@ -1710,7 +1785,7 @@ def _webhook_update_permission_result(events: list[str]) -> WebhookSyncResult:
     return WebhookSyncResult(
         success=False,
         error=(
-            f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository "
+            f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository "
             f"webhook. Add it and reconnect, or add these events to the webhook manually: {', '.join(events)}."
         ),
     )
@@ -1795,7 +1870,7 @@ def get_repo_webhook_info(
     if error == "permission":
         return ExternalWebhookInfo(
             exists=False,
-            error=f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to read repository webhooks.",
+            error=f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to read repository webhooks.",
         )
     if error is not None:
         return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {error}")

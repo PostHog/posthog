@@ -65,6 +65,11 @@ export interface AgentSession {
   logUrl?: string;
   /** Full cloud transcript entry count across the resume chain. */
   cloudTranscriptEntryCount?: number;
+  /** Absolute chain index of the first hydrated entry; >0 while older history is not loaded. */
+  transcriptWindowStart?: number;
+  isLoadingOlderTranscript?: boolean;
+  /** True while the terminal transcript is being fetched, so an empty thread shows as loading. */
+  isHydratingTranscript?: boolean;
   /** Leaf-run cursor used to reconcile live cloud log updates. */
   processedLineCount?: number;
   framework?: "claude";
@@ -82,6 +87,12 @@ export interface AgentSession {
    * means the host must cancel + resend. Drives the steer-vs-resend decision.
    */
   steering?: string;
+  /**
+   * Adapter's `/clear` capability (`_meta.posthog.conversationClear`, relayed on
+   * `_posthog/run_started`). Absent on agents that predate it — the host must not
+   * record a conversation-cleared boundary they would ignore on resume.
+   */
+  conversationClear?: boolean;
   pendingPermissions: Map<string, PermissionRequest>;
   pausedDurationMs: number;
   messageQueue: QueuedMessage[];

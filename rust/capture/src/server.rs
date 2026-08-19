@@ -95,6 +95,7 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         server_handle,
         sink,
         v1_sink_router,
+        event_restriction_service: _,
         http1_header_read_timeout_ms,
     } = components;
 

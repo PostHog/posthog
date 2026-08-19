@@ -139,7 +139,12 @@ export const ReplayButton = ({
 
     const renderButton = (filters: Partial<RecordingUniversalFilters>): JSX.Element => (
         <div onClick={handleClick}>
-            <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
+            <ViewRecordingsPlaylistButton
+                filters={filters}
+                type="tertiary"
+                size="xsmall"
+                tooltip="View session recordings for this segment"
+            />
         </div>
     )
 

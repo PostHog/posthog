@@ -4,65 +4,17 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import posthog from 'posthog-js'
 
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isEmail } from 'lib/utils/url'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import {
-    BillingPlan,
-    BillingPlanType,
-    OrganizationBasicType,
-    Region,
-    SidePanelTab,
-    TeamPublicType,
-    UserType,
-} from '~/types'
+import { BillingPlan, BillingPlanType, SidePanelTab, UserType } from '~/types'
 
 import type { BillingType } from '../../../types'
 import { parseExceptionEvent } from './exceptionUtils'
 import { openSupportModal } from './SupportModal'
 import { getSupportResponseTime } from './supportResponseTime'
-
-export function getPublicSupportSnippet(
-    cloudRegion: Region | null | undefined,
-    currentOrganization: OrganizationBasicType | null,
-    currentTeam: TeamPublicType | null,
-    includeCurrentLocation = true
-): string {
-    if (!cloudRegion) {
-        // we don't call this without region being available, so we return some value so we can see errors in visual regression tests
-        return '🚫'
-    }
-    return (
-        (includeCurrentLocation ? getCurrentLocationLink() : '') +
-        getSessionReplayLink() +
-        `\nAdmin (internal): http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
-    ).trimStart()
-}
-
-function getCurrentLocationLink(): string {
-    const cleanedCurrentUrl = window.location.href.replace(/panel=support[^&]*(&)?/, '').replace(/#$/, '')
-    return `\nLocation: ${cleanedCurrentUrl}`
-}
-
-// The recording lives in PostHog's own telemetry project, which the reporting user is not a member
-// of, so this is for PostHog staff triaging the ticket or the alert — never the user. posthog-js
-// returns a project-scoped path (`/project/<token>/replay/<id>`), so pull the session id out of the
-// `/replay/` segment rather than assuming the URL starts with the current origin.
-function getSessionReplayGolink(): string | null {
-    const replayUrl = posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 })
-    const match = replayUrl?.match(/\/replay\/([^/?#]+)([?#].*)?$/)
-    if (!match) {
-        return null
-    }
-    const [, sessionId, queryAndHash] = match
-    return `http://go/session/${sessionId}${queryAndHash ?? ''}`
-}
-
-function getSessionReplayLink(): string {
-    const golink = getSessionReplayGolink()
-    return golink ? `\nSession: ${golink}` : ''
-}
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
     support: 'Contact support',
@@ -87,6 +39,11 @@ async function waitForConversations(timeoutMs = 5000): Promise<boolean> {
 // through posthog.conversations.sendMessage (the widget endpoint), so guard against the same cap.
 export const CONVERSATIONS_MESSAGE_MAX_LENGTH = 10000
 
+// One email rule shared by the form validator and the submit guard, so the two can't drift.
+// Trimmed because pasted addresses often carry stray whitespace; requireTLD because an address
+// without one can't be delivered to, making it no better than a blank field for replying.
+const isDeliverableEmail = (email: string): boolean => isEmail(email.trim(), { requireTLD: true })
+
 /** Where the customer was when support broke for them. */
 export type SupportFailureSurface =
     | 'support_form' // the modal / side-panel support form (every "contact support" CTA)
@@ -101,6 +58,7 @@ export type SupportSendFailureReason =
     | 'send_failed' // the request threw
     | 'message_too_long' // rejected by the client-side cap before we tried
     | 'not_entitled' // plan has no ticket channel, so the draft was dropped on the floor
+    | 'invalid_email' // logged-out submit with no usable reply address, so the ticket would be orphaned
 
 /** Why a support surface couldn't function. Nothing was submitted, so no message is at risk. */
 export type SupportLoadFailureReason =
@@ -116,11 +74,12 @@ export const SUPPORT_WIDGET_UNAVAILABLE_MESSAGE =
     "We can't load the support chat, which is usually an ad blocker or a network policy."
 
 // `current_url` is explicit rather than autocapture's `$current_url`, so an alert template reading
-// these properties doesn't depend on autocapture staying enabled.
+// these properties doesn't depend on autocapture staying enabled. The recording lives in PostHog's
+// own telemetry project, so the replay link is for staff triaging the alert, never the reporter.
 function supportFailureContext(): Record<string, any> {
     return {
         session_id: posthog.get_session_id?.() ?? null,
-        session_replay_url: getSessionReplayGolink(),
+        session_replay_url: posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 }) ?? null,
         current_url: window.location.href,
     }
 }
@@ -143,9 +102,11 @@ function messagePreviewProperties(message?: string): Record<string, any> {
     }
 }
 
-// Shares its event name with the widget endpoint's own rejections so one alert covers client and
-// server. Note the backend tags itself `channel_source`, not `channel`.
-export function captureSupportTicketFailed({
+// Deliberately a different event from the widget endpoint's own `support ticket send failed`, which
+// reports requests the server rejected. That one names the offending field but has no session and no
+// draft, so only an engineer can act on it. This one means the message never left the browser, so it
+// carries what the customer wrote and someone can follow up. Two audiences, so keep them apart.
+export function captureSupportTicketBlocked({
     surface,
     reason,
     message,
@@ -160,7 +121,7 @@ export function captureSupportTicketFailed({
     is_new_ticket?: boolean
     can_create_ticket?: boolean
 }): void {
-    posthog.capture('support ticket send failed', {
+    posthog.capture('support ticket send blocked', {
         channel: 'conversations',
         surface,
         reason,
@@ -473,7 +434,13 @@ export const supportLogic = kea<supportLogicType>([
             errors: ({ name, email, message }) => {
                 return {
                     name: !values.user && !name ? 'Please enter your name' : undefined,
-                    email: !values.user && !email ? 'Please enter your email' : undefined,
+                    email: !values.user
+                        ? !email.trim()
+                            ? 'Please enter your email'
+                            : !isDeliverableEmail(email)
+                              ? 'Please enter a valid email address'
+                              : undefined
+                        : undefined,
                     message: !message ? 'Please enter a message' : undefined,
                 }
             },
@@ -564,7 +531,10 @@ export const supportLogic = kea<supportLogicType>([
             actions.updateUrlParams()
         },
         submitSupportTicket: async (formValues: SupportFormFields) => {
-            const { name, email, kind, message, exception_event } = formValues
+            const { name, kind, message, exception_event } = formValues
+            // Trimmed before validating and sending: restore-by-email matches the stored trait
+            // exactly, so stray whitespace would make the ticket unrecoverable
+            const email = formValues.email.trim()
             const { ai_conversation_id, ai_trace_id, ai_feedback_rating } = formValues
 
             // Attribute PostHog AI (/ticket, feedback) handovers to the conversation. The ticket id
@@ -589,7 +559,7 @@ export const supportLogic = kea<supportLogicType>([
             // from "the send failed" (usually transient), because they need different advice and the
             // volume of each tells us whether the email fallback is carrying real traffic.
             const sendFailed = (reason: SupportSendFailureReason, error?: unknown): void => {
-                captureSupportTicketFailed({ surface: 'support_form', reason, message, error, kind })
+                captureSupportTicketBlocked({ surface: 'support_form', reason, message, error, kind })
                 if (reason === 'widget_unavailable') {
                     warnSupportWidgetUnavailable()
                     return
@@ -597,6 +567,16 @@ export const supportLogic = kea<supportLogicType>([
                 lemonToast.error("Oops, the message couldn't be sent. Please try again in a moment.", {
                     button: EMAIL_SUPPORT_BUTTON,
                 })
+            }
+
+            // The form's own validator only runs on a form submit, and the PostHog AI handovers submit
+            // straight from a button — so the reply address is checked here, on the path every caller
+            // shares. Without one a logged-out ticket is unreachable: widget replies are in-app only,
+            // and restoring by email is the sole way back if that browser session is gone.
+            if (!values.user && !isDeliverableEmail(email)) {
+                captureSupportTicketBlocked({ surface: 'support_form', reason: 'invalid_email', message, kind })
+                lemonToast.error('Please enter a valid email address so our support engineers can reply.')
+                return
             }
 
             if (!(await waitForConversations())) {
@@ -608,7 +588,7 @@ export const supportLogic = kea<supportLogicType>([
             // matches what the widget endpoint actually receives and rejects
             const outgoingMessage = appendExceptionToMessage(message, exception_event)
             if (warnIfMessageTooLong(outgoingMessage)) {
-                captureSupportTicketFailed({
+                captureSupportTicketBlocked({
                     surface: 'support_form',
                     reason: 'message_too_long',
                     message: outgoingMessage,
