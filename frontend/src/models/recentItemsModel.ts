@@ -39,6 +39,13 @@ export interface recentItemsModelActions {
         currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
+    itemDeleted: (
+        type: string,
+        ref: string
+    ) => {
+        ref: string
+        type: string
+    }
     loadRecents: () => any
     loadRecentsFailure: (
         error: string,
@@ -89,6 +96,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
 
     actions({
         recordView: (type: string, ref: string) => ({ type, ref }),
+        itemDeleted: (type: string, ref: string) => ({ type, ref }),
     }),
 
     loaders({
@@ -178,6 +186,12 @@ export const recentItemsModel = kea<recentItemsModelType>([
                     const item = { ...state[idx], last_viewed_at: new Date().toISOString() }
                     return [item, ...state.slice(0, idx), ...state.slice(idx + 1)]
                 },
+                // Keep this inline to avoid a build cycle through ProjectTree/utils.
+                itemDeleted: (state, { type, ref }) =>
+                    state.filter((e) => {
+                        const sameType = type.endsWith('/') ? !!e.type?.startsWith(type) : e.type === type
+                        return !sameType || e.ref !== ref
+                    }),
             },
         ],
         sceneLogViewsByRef: [
@@ -189,6 +203,13 @@ export const recentItemsModel = kea<recentItemsModelType>([
                         return state
                     }
                     return { ...state, [ref]: new Date().toISOString() }
+                },
+                itemDeleted: (state, { type, ref }) => {
+                    if (type !== 'scene') {
+                        return state
+                    }
+                    const { [ref]: _discard, ...rest } = state
+                    return rest
                 },
             },
         ],
