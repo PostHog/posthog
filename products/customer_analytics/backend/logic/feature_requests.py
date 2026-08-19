@@ -7,6 +7,7 @@ from django.db.models import Case, IntegerField, Prefetch, Q, QuerySet, Value, W
 from django.db.models.functions import Lower
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models import User
 
 from products.customer_analytics.backend.facade import contracts
@@ -40,6 +41,14 @@ class FeatureRequestProductAreaConflictError(ValueError):
 
 class FeatureRequestConflictError(ValueError):
     pass
+
+
+@frozen
+class _ValidatedEvidence:
+    summary: str
+    customer_quote: str
+    source: str
+    source_url: str
 
 
 def _to_product_area_view(product_area: FeatureRequestProductArea) -> contracts.FeatureRequestProductAreaView:
@@ -700,7 +709,7 @@ def update_feature_request(
 
 def _validate_evidence(
     input: contracts.CreateFeatureRequestEvidenceInput | contracts.UpdateFeatureRequestEvidenceInput,
-) -> tuple[str, str, str, str]:
+) -> _ValidatedEvidence:
     summary = input.summary.strip()
     customer_quote = input.customer_quote.strip()
     source_url = input.source_url.strip()
@@ -714,7 +723,12 @@ def _validate_evidence(
             raise FeatureRequestValidationError("source_url", "Enter a valid HTTP or HTTPS URL.")
     if input.requested_on is not None and input.requested_on > timezone.localdate():
         raise FeatureRequestValidationError("requested_on", "The request date cannot be in the future.")
-    return summary, customer_quote, input.evidence_source, source_url
+    return _ValidatedEvidence(
+        summary=summary,
+        customer_quote=customer_quote,
+        source=input.evidence_source,
+        source_url=source_url,
+    )
 
 
 def _get_evidence_account_link(
@@ -782,7 +796,7 @@ def create_feature_request_evidence(
     actor_id: int,
     user_access_control: "UserAccessControl",
 ) -> contracts.FeatureRequestView | None:
-    summary, customer_quote, evidence_source, source_url = _validate_evidence(input)
+    validated_evidence = _validate_evidence(input)
     with transaction.atomic():
         result = _get_evidence_account_link(
             team_id=team_id,
@@ -797,10 +811,10 @@ def create_feature_request_evidence(
         evidence = FeatureRequestEvidence.objects.for_team(team_id).create(
             team_id=team_id,
             account_link=account_link,
-            summary=summary,
-            customer_quote=customer_quote,
-            source=evidence_source,
-            source_url=source_url,
+            summary=validated_evidence.summary,
+            customer_quote=validated_evidence.customer_quote,
+            source=validated_evidence.source,
+            source_url=validated_evidence.source_url,
             requested_on=input.requested_on,
             created_by_id=actor_id,
             updated_by_id=actor_id,
@@ -826,7 +840,7 @@ def update_feature_request_evidence(
     actor_id: int,
     user_access_control: "UserAccessControl",
 ) -> contracts.FeatureRequestView | None:
-    summary, customer_quote, evidence_source, source_url = _validate_evidence(input)
+    validated_evidence = _validate_evidence(input)
     with transaction.atomic():
         evidence = (
             FeatureRequestEvidence.objects.for_team(team_id)
@@ -847,10 +861,10 @@ def update_feature_request_evidence(
             return None
         feature_request, account_link = result
         before = _evidence_snapshot(evidence, account=account_link.account)
-        evidence.summary = summary
-        evidence.customer_quote = customer_quote
-        evidence.source = evidence_source
-        evidence.source_url = source_url
+        evidence.summary = validated_evidence.summary
+        evidence.customer_quote = validated_evidence.customer_quote
+        evidence.source = validated_evidence.source
+        evidence.source_url = validated_evidence.source_url
         evidence.requested_on = input.requested_on
         after = _evidence_snapshot(evidence, account=account_link.account)
         if before != after:
