@@ -185,6 +185,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
             {
                 maxAgeMs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS,
                 dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS,
+                seenTtlSeconds: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS,
                 dryRun,
             },
             dryRun ? undefined : buildFetchRunner(this.config, publisher)

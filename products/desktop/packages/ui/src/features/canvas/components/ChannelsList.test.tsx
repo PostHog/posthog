@@ -206,16 +206,16 @@ describe("ChannelsList", () => {
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
-  it("pins the personal space above the channels, with its ⌘1 shortcut", () => {
+  it("pins personal above the channels, with its ⌘1 shortcut", () => {
     renderList();
-    const me = screen.getByText("personal space");
+    const me = screen.getByText("personal");
     const eng = screen.getByText("engineering");
     expect(
       me.compareDocumentPosition(eng) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     // ChannelHotkeys binds ⌘1-9 to the same slots; the list is where they're
     // advertised now that the switcher popover is gone.
-    expect(me.parentElement?.textContent).toMatch(/personal space(⌘|Ctrl)/);
+    expect(me.parentElement?.textContent).toMatch(/personal(⌘|Ctrl)/);
   });
 
   describe("group headings", () => {
@@ -244,7 +244,7 @@ describe("ChannelsList", () => {
 
       expect(screen.getByText("engineering")).toBeTruthy();
       expect(screen.queryByText("design")).toBeNull();
-      expect(screen.queryByText("personal space")).toBeNull();
+      expect(screen.queryByText("personal")).toBeNull();
     });
 
     // Grouping is for browsing; once you've named what you want, "Starred" and
@@ -267,9 +267,9 @@ describe("ChannelsList", () => {
       mocks.channelsLayout = false;
       renderList();
       expect(screen.queryByLabelText("Search spaces")).toBeNull();
-      expect(
-        screen.getByText("personal space").parentElement?.textContent,
-      ).toBe("personal space");
+      expect(screen.getByText("personal").parentElement?.textContent).toBe(
+        "personal",
+      );
     });
 
     it("says so when nothing matches", async () => {

@@ -54,6 +54,7 @@ export type ApiOAuthIntrospection =
           scoped_teams: number[]
           scoped_organizations: string[]
           client_name?: string
+          client_id?: string
       }
     | {
           active: false

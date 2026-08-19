@@ -183,7 +183,7 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     await menu.shown;
     const submenu = findItem(menu.lastItems, "File to…").submenu ?? [];
     expect(labels(submenu)).toEqual([
-      "personal space",
+      "personal",
       "#beta",
       "#delta",
       "#alpha",
@@ -293,7 +293,7 @@ describe("ContextMenuService.showBulkTaskContextMenu", () => {
     });
     await menu.shown;
     const submenu = findItem(menu.lastItems, "File to…").submenu ?? [];
-    expect(labels(submenu)).toEqual(["#design", "personal space", "#support"]);
+    expect(labels(submenu)).toEqual(["#design", "personal", "#support"]);
   });
 
   it("gates archive on confirmation", async () => {

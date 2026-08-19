@@ -5,7 +5,7 @@ describe('versionChanges', () => {
     const version = (overrides: Partial<VersionConfig> = {}): VersionConfig => ({
         version: 1,
         scannerType: 'classifier',
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.7-flash',
         provider: 'google',
         emitsSignals: true,
         samplingRate: 1,
@@ -28,7 +28,7 @@ describe('versionChanges', () => {
                 version({ version: 2, scannerConfig: afterConfig })
             )
             expect(changes).toEqual([
-                { field: 'multi_label', label: 'Multiple tags per session', kind: 'value', before, after },
+                { field: 'multi_label', label: 'Multiple categories per session', kind: 'value', before, after },
             ])
         })
 

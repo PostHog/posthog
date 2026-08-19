@@ -4,9 +4,11 @@ Tests for summarization API endpoint.
 Tests cover title field presence, request validation, and response format.
 """
 
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from rest_framework import status
@@ -355,3 +357,99 @@ class TestSummarizationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("AI data processing must be approved", response.data["detail"])
+
+
+class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
+    def _approve_ai_processing(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_summarizes_a_span_by_event_uuid(self, mock_summarize):
+        self._approve_ai_processing()
+        mock_summarize.return_value = SummarizationResponse(
+            title="Span Summary",
+            flow_diagram="Start\n    |\nComplete",
+            summary_bullets=[SummaryBullet(text="Span fetched documents", line_refs="L1")],
+            interesting_notes=[],
+        )
+
+        span_uuid = uuid.uuid4()
+        timestamp = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+        _create_event(
+            event="$ai_span",
+            distinct_id="user-1",
+            team=self.team,
+            timestamp=timestamp,
+            event_uuid=str(span_uuid),
+            properties={
+                "$ai_trace_id": "trace-1",
+                "$ai_span_id": "span-1",
+                "$ai_span_name": "fetch-docs",
+                "$ai_input_state": {"query": "docs"},
+                "$ai_output_state": {"documents": 3},
+            },
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            {
+                "generation_id": str(span_uuid),
+                "mode": "minimal",
+                "date_from": (timestamp - timedelta(days=1)).isoformat(),
+                "date_to": (timestamp + timedelta(days=1)).isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["summary"]["title"], "Span Summary")
+        # The formatter upper-cases the span name in its header.
+        self.assertIn("fetch-docs", response.data["text_repr"].lower())
+
+    def test_unknown_event_uuid_is_reported_as_not_found(self):
+        self._approve_ai_processing()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            {"generation_id": str(uuid.uuid4()), "mode": "minimal", "date_from": "-7d"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn("not found", response.data["detail"])
+
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_returns_cached_trace_when_source_trace_is_unavailable(self, mock_summarize):
+        self._approve_ai_processing()
+        mock_summarize.return_value = SummarizationResponse(
+            title="Cached Trace Summary",
+            flow_diagram="Start\n    |\nComplete",
+            summary_bullets=[SummaryBullet(text="Trace completed", line_refs="L1")],
+            interesting_notes=[],
+        )
+        trace_id = f"cached-trace-{uuid.uuid4()}"
+
+        initial_response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            {
+                "summarize_type": "trace",
+                "mode": "minimal",
+                "data": {
+                    "trace": {"id": trace_id, "properties": {"$ai_span_name": "cached-trace"}},
+                    "hierarchy": [],
+                },
+            },
+            format="json",
+        )
+        cached_response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            {"trace_id": trace_id, "mode": "minimal", "date_from": "-7d"},
+            format="json",
+        )
+
+        self.assertEqual(initial_response.status_code, status.HTTP_200_OK, initial_response.data)
+        self.assertEqual(cached_response.status_code, status.HTTP_200_OK, cached_response.data)
+        self.assertEqual(cached_response.data["summary"]["title"], "Cached Trace Summary")
+        self.assertEqual(mock_summarize.call_count, 1)

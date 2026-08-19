@@ -58,11 +58,9 @@ describe("useTaskChannels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(result.current.channels.map((c) => c.id)).toEqual(["1", "p1"]);
-    // Relabelled on the way in: the row is `me` on the backend and
-    // "personal space" everywhere a person reads it.
     expect(result.current.personalChannel).toEqual({
       ...personal,
-      name: "personal space",
+      name: "personal",
     });
   });
 

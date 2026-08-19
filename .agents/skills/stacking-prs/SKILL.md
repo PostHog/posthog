@@ -64,6 +64,7 @@ gh stack sync --prune    # also delete local branches for merged PRs
 - `gh stack view --short` shows status (`--json` for scripting); a `⚠` means that layer needs a rebase, which blocks merging. `gh stack checkout <stack-number|PR|URL>` pulls down and tracks a stack you don't have locally, including a teammate's.
 - `gh stack modify` interactively reorders, folds, drops, or renames layers. `gh stack unstack` removes the stack on GitHub (`--local` to only drop local tracking).
 - Batch work before syncing. Each sync force-pushes and re-runs a full CI matrix for every rebased layer, so sync when you need the rebase, not to track master.
+- Layer branches move without you: ReviewHog and other bots push fix commits straight onto PR branches. `gh stack sync` fetches first and pushes with `--force-with-lease`, so it refuses when a branch moved; treat that refusal as "someone committed here, go read it", not "retry". Before any manual `git push` or rebase of a layer, `git fetch origin` and fast-forward onto the remote head. Never plain force-push a layer branch.
 - The `ci:preflight` pre-push hook runs on these pushes like any other; never bypass it.
 
 ## Merging

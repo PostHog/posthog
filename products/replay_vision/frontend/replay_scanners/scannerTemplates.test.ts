@@ -24,7 +24,7 @@ describe('newScanner', () => {
         expect(newScanner(input)).toMatchObject({
             scanner_type: 'monitor',
             scanner_config: { prompt: '' },
-            name: '',
+            name: 'New monitor',
         })
     })
 

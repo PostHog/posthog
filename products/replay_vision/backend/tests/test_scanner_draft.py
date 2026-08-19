@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
+from posthog.schema import RecordingsQuery
+
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
@@ -19,11 +21,11 @@ from products.replay_vision.backend.scanner_draft import (
     _generate,
     _LlmDraft,
 )
+from products.replay_vision.backend.tag_suggestions import _ProductTaxonomy
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 _GENERATE_PATH = "products.replay_vision.backend.scanner_draft._generate"
 _CORE_MEMORY_FLAG_PATH = "products.replay_vision.backend.scanner_draft.is_core_memory_disabled"
-_GOAL_DRAFT_FLAG_PATH = "products.replay_vision.backend.api.scanners.posthoganalytics.feature_enabled"
 
 
 def _access_control(*, allow: bool) -> MagicMock:
@@ -159,6 +161,116 @@ class TestFinalize:
         with pytest.raises(DraftError):
             _finalize(_draft(scanner_type="classifier", tags=["!!!", "***"]))
 
+    def test_monitor_carries_allow_inconclusive_only_when_on(self):
+        # Off stays absent, mirroring the wizard toggle's default; on any other type it's not a valid key.
+        assert "allow_inconclusive" not in _finalize(_draft()).scanner_config
+        assert _finalize(_draft(allow_inconclusive=True)).scanner_config["allow_inconclusive"] is True
+        assert (
+            "allow_inconclusive"
+            not in _finalize(_draft(scanner_type="summarizer", allow_inconclusive=True)).scanner_config
+        )
+
+    def test_filters_build_a_recordings_query_grounded_in_the_taxonomy(self):
+        result = _finalize(
+            _draft(filter_screens=["/checkout"], filter_events=["checkout_started"]),
+            allowed_screens=["/checkout", "/cart"],
+            allowed_events=["checkout_started", "payment_failed"],
+        )
+
+        assert result.query == {
+            "kind": "RecordingsQuery",
+            "properties": [
+                {"type": "recording", "key": "visited_page", "value": ["/checkout"], "operator": "icontains"}
+            ],
+            "events": [{"id": "checkout_started", "name": "checkout_started", "type": "events", "order": 0}],
+        }
+        # The wizard and the scan pipeline both parse this as a RecordingsQuery; shape drift must fail here.
+        RecordingsQuery.model_validate(result.query)
+
+    @pytest.mark.parametrize(
+        "screens,events,expected_keys",
+        [
+            (["/checkout"], ["checkout_started"], {"kind", "properties", "events"}),
+            (["/checkout"], [], {"kind", "properties"}),
+            ([], ["checkout_started"], {"kind", "events"}),
+            ([], [], None),
+        ],
+    )
+    def test_query_carries_only_the_keys_with_surviving_filters(self, screens, events, expected_keys):
+        result = _finalize(
+            _draft(filter_screens=screens, filter_events=events),
+            allowed_screens=["/checkout"],
+            allowed_events=["checkout_started"],
+        )
+
+        if expected_keys is None:
+            assert result.query is None
+        else:
+            assert result.query is not None
+            # A key must be absent, not an empty list, when its filter kind didn't survive.
+            assert set(result.query) == expected_keys
+            RecordingsQuery.model_validate(result.query)
+
+    def test_hallucinated_filters_are_dropped(self):
+        # A filter value the product never emits would silently make the scanner match zero sessions.
+        result = _finalize(
+            _draft(filter_screens=["/imaginary"], filter_events=["made_up_event"]),
+            allowed_screens=["/checkout"],
+            allowed_events=["checkout_started"],
+        )
+
+        assert result.query is None
+
+    @pytest.mark.parametrize("screen", ["/", "/en", "/a/b"])
+    def test_short_screens_cannot_ground_a_filter(self, screen):
+        # An icontains match on "/" or "/en" catches nearly every URL: the draft would render
+        # as narrowing while narrowing nothing.
+        result = _finalize(_draft(filter_screens=[screen]), allowed_screens=[screen, "/checkout"])
+
+        assert result.query is None
+
+    def test_short_screen_does_not_consume_the_screen_cap(self):
+        result = _finalize(_draft(filter_screens=["/en", "/checkout"]), allowed_screens=["/en", "/checkout"])
+
+        assert result.query is not None
+        assert [p["value"] for p in result.query["properties"]] == [["/checkout"]]
+
+    def test_dropping_proposed_filter_values_emits_a_structured_warning(self):
+        with patch("products.replay_vision.backend.scanner_draft.logger.warning") as warn:
+            grounded = _finalize(
+                _draft(filter_screens=["/checkout"], filter_events=["checkout_started"]),
+                allowed_screens=["/checkout"],
+                allowed_events=["checkout_started"],
+                team_id=42,
+            )
+            assert grounded.query is not None
+            warn.assert_not_called()
+
+            _finalize(
+                _draft(filter_screens=["/imaginary"], filter_events=["made_up_event"]),
+                allowed_screens=["/checkout"],
+                allowed_events=["checkout_started"],
+                team_id=42,
+            )
+
+        warn.assert_called_once()
+        kwargs = warn.call_args.kwargs
+        assert kwargs["team_id"] == 42
+        assert kwargs["dropped_screens"] == 1
+        assert kwargs["dropped_events"] == 1
+        assert kwargs["scans_every_session"] is True
+
+    def test_filters_are_stripped_capped_and_deduped(self):
+        result = _finalize(
+            _draft(filter_screens=["/alpha", "/beta"], filter_events=[" e1", "e1", "e2", "e3"]),
+            allowed_screens=["/alpha", "/beta"],
+            allowed_events=["e1", "e2", "e3"],
+        )
+
+        assert result.query is not None
+        assert [p["value"] for p in result.query["properties"]] == [["/alpha"]]
+        assert [e["id"] for e in result.query["events"]] == ["e1", "e2"]
+
 
 class TestDraftGrounding(_VisionAPITestCase):
     def test_existing_scanners_respect_object_rbac(self):
@@ -271,13 +383,6 @@ class TestGenerate:
 
 
 class TestDraftScannerEndpoint(_VisionAPITestCase):
-    def setUp(self) -> None:
-        super().setUp()
-        # The endpoint is flag-gated server-side; default it open so every test isn't about the flag.
-        flag_patcher = patch(_GOAL_DRAFT_FLAG_PATH, return_value=True)
-        flag_patcher.start()
-        self.addCleanup(flag_patcher.stop)
-
     @property
     def draft_url(self) -> str:
         return f"{self.scanners_url}draft/"
@@ -317,6 +422,26 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
                 "multi_label": False,
             },
             "rationale": "A classifier fits because you want the mix of visit intents, not a single yes/no.",
+            "query": None,
+        }
+
+    @patch(_GENERATE_PATH)
+    @patch("products.replay_vision.backend.scanner_draft._product_taxonomy")
+    def test_returns_drafted_session_filters_grounded_in_taxonomy(self, mock_taxonomy, mock_generate):
+        mock_taxonomy.return_value = _ProductTaxonomy(events=["checkout_started"], screens=["/checkout"])
+        mock_generate.return_value = _draft(
+            filter_screens=["/checkout"], filter_events=["checkout_started", "made_up_event"]
+        )
+
+        resp = self.client.post(self.draft_url, data={"goal": "watch sessions that reach checkout"}, format="json")
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["query"] == {
+            "kind": "RecordingsQuery",
+            "properties": [
+                {"type": "recording", "key": "visited_page", "value": ["/checkout"], "operator": "icontains"}
+            ],
+            "events": [{"id": "checkout_started", "name": "checkout_started", "type": "events", "order": 0}],
         }
 
     @patch(_CORE_MEMORY_FLAG_PATH, return_value=False)
@@ -372,9 +497,12 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
     @patch(_CORE_MEMORY_FLAG_PATH, return_value=False)
     @patch(_GENERATE_PATH)
     def test_scoped_token_requests_exclude_business_context(self, mock_generate, _flag):
-        # Core memory's own API is INTERNAL (session-only); a scoped key must not read it through here.
+        # Core memory's own API is INTERNAL (session-only), and org/project names sit behind their
+        # own read scopes; a scoped key must not recover either through the model's output.
         mock_generate.return_value = _draft()
         CoreMemory.objects.create(team=self.team, text="Acme sells anvils to coyotes.")
+        self.organization.name = "Acme Corp"
+        self.organization.save()
         value = self._personal_api_key(["replay_scanner:write", "session_recording:read"])
 
         resp = self.client.post(
@@ -382,7 +510,9 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         )
 
         assert resp.status_code == status.HTTP_200_OK, resp.json()
-        assert "Acme sells anvils to coyotes." not in mock_generate.call_args.kwargs["user_content"]
+        user_content = mock_generate.call_args.kwargs["user_content"]
+        assert "Acme sells anvils to coyotes." not in user_content
+        assert "Acme Corp" not in user_content
 
     @patch(_GENERATE_PATH)
     def test_scope_enforcement_for_personal_api_keys(self, mock_generate):
@@ -415,18 +545,6 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             resp = self.client.post(self.draft_url, data={"goal": "find rage clicks"}, format="json")
 
         assert resp.status_code == status.HTTP_403_FORBIDDEN, resp.json()
-        mock_generate.assert_not_called()
-
-    @patch(_GENERATE_PATH)
-    def test_flag_off_is_a_clean_403(self, mock_generate):
-        # The frontend hides the box when the flag is off; the endpoint must not stay reachable regardless.
-        mock_generate.return_value = _draft()
-
-        with patch(_GOAL_DRAFT_FLAG_PATH, return_value=False):
-            resp = self.client.post(self.draft_url, data={"goal": "find rage clicks"}, format="json")
-
-        assert resp.status_code == status.HTTP_403_FORBIDDEN
-        assert "not available" in resp.content.decode()
         mock_generate.assert_not_called()
 
     def test_is_gated_by_the_shared_ai_throttles(self):

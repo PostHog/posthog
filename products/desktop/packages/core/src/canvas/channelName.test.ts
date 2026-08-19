@@ -30,10 +30,9 @@ describe("normalizeChannelName", () => {
 
 describe("channelDisplayLabel", () => {
   it.each([
-    ["me", undefined, "personal space"],
-    ["personal", undefined, "personal space"],
-    ["personal space", undefined, "personal space"],
-    ["personal", "personal" as const, "personal space"],
+    ["me", undefined, "personal"],
+    ["personal", undefined, "personal"],
+    ["personal", "personal" as const, "personal"],
     ["personal", "public" as const, "#personal"],
     ["engineering", "public" as const, "#engineering"],
   ])("formats %j (%s) as %j", (name, channelType, expected) => {

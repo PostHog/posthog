@@ -29,10 +29,13 @@ const log = logger.scope("analytics");
 // posthog's frontend/src/scenes/inbox/inboxAnalytics.ts.
 const INBOX_CLIENT = "code" as const;
 
+export type HostInfoProperties = { platform: string; arch: string };
+
 let isInitialized = false;
 
 // Cached so it can be re-applied after posthog.reset() clears super properties.
 let registeredAppVersion: string | null = null;
+let registeredHostInfo: HostInfoProperties | null = null;
 
 // posthog.reset() wipes super properties, so these are re-registered after each reset.
 function registerPersistentSuperProperties() {
@@ -41,7 +44,17 @@ function registerPersistentSuperProperties() {
     ...(registeredAppVersion !== null
       ? { app_version: registeredAppVersion }
       : {}),
+    ...(registeredHostInfo !== null
+      ? hostInfoProperties(registeredHostInfo)
+      : {}),
   });
+}
+
+function hostInfoProperties({ platform, arch }: HostInfoProperties): {
+  os_platform: string;
+  os_arch: string;
+} {
+  return { os_platform: platform, os_arch: arch };
 }
 
 type PendingFlagListener = {
@@ -176,6 +189,16 @@ export function registerAppVersion(appVersion: string) {
   }
 
   posthog.register({ app_version: appVersion });
+}
+
+export function registerHostInfo(hostInfo: HostInfoProperties) {
+  registeredHostInfo = hostInfo;
+
+  if (!isInitialized) {
+    return;
+  }
+
+  posthog.register(hostInfoProperties(hostInfo));
 }
 
 export function identifyUser(

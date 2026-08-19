@@ -1520,6 +1520,11 @@ class EmailSendTestThrottle(UserRateThrottle):
     rate = "6/minute"
 
 
+class EmailForwardingChallengeThrottle(UserRateThrottle):
+    scope = "email_forwarding_challenge"
+    rate = "6/minute"
+
+
 class ComposeTicketBurstThrottle(UserRateThrottle):
     scope = "compose_ticket_burst"
     rate = "10/minute"

@@ -167,17 +167,21 @@ export function ArtifactPreview({
     (state) => state.setCommentResolutions,
   );
   const focus = useCommentNavigationStore((state) => state.focusByTask[taskId]);
+  // Take each request once: focus is durable, so otherwise stepping the pager
+  // off a commented version snaps straight back to it.
+  const takenNonce = useRef<number | null>(null);
   useEffect(() => {
     if (
       !focus ||
       focus.target.scope !== "task_artifact" ||
-      focus.target.itemId === activeArtifactId ||
+      takenNonce.current === focus.nonce ||
       !versions.some((version) => version.id === focus.target.itemId)
     ) {
       return;
     }
+    takenNonce.current = focus.nonce;
     setSelectedVersionId(focus.target.itemId);
-  }, [activeArtifactId, focus, versions]);
+  }, [focus, versions]);
   const editing = useArtifactEditing({
     sessionService,
     artifactResult,

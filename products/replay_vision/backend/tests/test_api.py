@@ -43,6 +43,7 @@ from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries import SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
+from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -53,6 +54,7 @@ from products.replay_vision.backend.tests.helpers import (
     seed_scanner_spend,
     snapshot_for as _snapshot_for,
 )
+from products.signals.backend.facade.api import SignalSourceSliceOutcomes
 from products.signals.backend.models import SignalSourceConfig
 
 
@@ -80,7 +82,7 @@ class _VisionAPITestCase(APIBaseTest):
             "name": "my-scanner",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "did the user check out?"},
-            "model": ScannerModel.GEMINI_3_6_FLASH,
+            "model": ScannerModel.GEMINI_3_7_FLASH,
         }
         defaults.update(overrides)
         return ReplayScanner.objects.create(**defaults)
@@ -94,7 +96,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "checkout-monitor",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "did checkout complete?"},
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_7_FLASH,
             },
             format="json",
         )
@@ -114,7 +116,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "watermark-seed",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "did checkout complete?"},
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_7_FLASH,
             },
             format="json",
         )
@@ -128,7 +130,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             "name": f"missing-{missing_field}",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "p"},
-            "model": ScannerModel.GEMINI_3_6_FLASH,
+            "model": ScannerModel.GEMINI_3_7_FLASH,
         }
         del payload[missing_field]
         resp = self.client.post(self.scanners_url, data=payload, format="json")
@@ -142,7 +144,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "explicit-provider",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_7_FLASH,
                 "provider": ScannerProvider.GOOGLE,
             },
             format="json",
@@ -158,7 +160,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"rate-{value}",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_7_FLASH,
                 "sampling_rate": value,
             },
             format="json",
@@ -174,7 +176,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"rate-ok-{value}",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_7_FLASH,
                 "sampling_rate": value,
             },
             format="json",
@@ -190,7 +192,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "dup",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_7_FLASH,
             },
             format="json",
         )
@@ -205,7 +207,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         resp = self.client.get(self.scanners_url)
         self.assertEqual(resp.status_code, 200)
@@ -257,7 +259,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"valid-{label}",
                 "scanner_type": scanner_type,
                 "scanner_config": scanner_config,
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_7_FLASH,
             },
             format="json",
         )
@@ -281,7 +283,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"invalid-{label}",
                 "scanner_type": scanner_type,
                 "scanner_config": scanner_config,
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_7_FLASH,
             },
             format="json",
         )
@@ -294,37 +296,37 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "classifier_empty_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": []},
-                "Tag vocabulary must have at least one tag.",
+                "Add at least one category.",
             ),
             (
                 "classifier_missing_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p"},
-                "Tag vocabulary must have at least one tag.",
+                "Add at least one category.",
             ),
             (
                 "classifier_blank_tag",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["bug", "   "]},
-                "Tags can't be blank.",
+                "Categories can't be blank.",
             ),
             (
                 "classifier_duplicate_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["Bug", "bug"]},
-                "Tags must be unique: 'Bug' and 'bug' are the same tag.",
+                "Categories must be unique: 'Bug' and 'bug' are the same category.",
             ),
             (
                 "classifier_slug_colliding_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["login issue", "login_issue"]},
-                "Tags must be unique: 'login issue' and 'login_issue' are the same tag.",
+                "Categories must be unique: 'login issue' and 'login_issue' are the same category.",
             ),
             (
                 "classifier_tag_without_alphanumerics",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["!!!"]},
-                "Tags must contain letters or numbers.",
+                "Categories must contain letters or numbers.",
             ),
             (
                 "monitor_missing_prompt",
@@ -366,13 +368,13 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "too_many_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": [f"tag-{i}" for i in range(101)]},
-                "Tag vocabulary can have at most 100 tags.",
+                "You can have at most 100 categories.",
             ),
             (
                 "overlong_tag",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["ok", "x" * 101]},
-                "Tags can be at most 100 characters.",
+                "Categories can be at most 100 characters.",
             ),
             (
                 "unknown_config_key",
@@ -391,7 +393,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": f"invalid-{label}",
                 "scanner_type": scanner_type,
                 "scanner_config": scanner_config,
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_7_FLASH,
             },
             format="json",
         )
@@ -460,7 +462,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "with-query",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_7_FLASH,
                 "query": {"filter_test_accounts": True},
             },
             format="json",
@@ -476,7 +478,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "stripped",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_7_FLASH,
                 "query": {"date_from": "-7d", "date_to": "-1d", "filter_test_accounts": True},
             },
             format="json",
@@ -501,7 +503,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "name": "bad-query",
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_6_FLASH,
+                "model": ScannerModel.GEMINI_3_7_FLASH,
                 "query": query,
             },
             format="json",
@@ -695,7 +697,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                     "name": "needs-recording-read",
                     "scanner_type": ScannerType.MONITOR,
                     "scanner_config": {"prompt": "p"},
-                    "model": ScannerModel.GEMINI_3_6_FLASH,
+                    "model": ScannerModel.GEMINI_3_7_FLASH,
                 },
                 format="json",
             )
@@ -735,7 +737,7 @@ class TestReplayScannerTags(_VisionAPITestCase):
             "name": name,
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "did checkout complete?"},
-            "model": ScannerModel.GEMINI_3_6_FLASH,
+            "model": ScannerModel.GEMINI_3_7_FLASH,
             **extra,
         }
 
@@ -875,7 +877,7 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
             "name": name,
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "p"},
-            "model": ScannerModel.GEMINI_3_6_FLASH,
+            "model": ScannerModel.GEMINI_3_7_FLASH,
             **extra,
         }
 
@@ -979,7 +981,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
                     "name": "telemetry-create",
                     "scanner_type": ScannerType.MONITOR,
                     "scanner_config": {"prompt": "did checkout complete?"},
-                    "model": ScannerModel.GEMINI_3_6_FLASH,
+                    "model": ScannerModel.GEMINI_3_7_FLASH,
                     "sampling_rate": 0.25,
                     "query": {"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]},
                 },
@@ -993,7 +995,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(len(created), 1)
         properties = created[0].kwargs["properties"]
         self.assertEqual(properties["scanner_type"], ScannerType.MONITOR)
-        self.assertEqual(properties["model"], ScannerModel.GEMINI_3_6_FLASH)
+        self.assertEqual(properties["model"], ScannerModel.GEMINI_3_7_FLASH)
         self.assertEqual(properties["credits_per_observation"], 15)
         self.assertEqual(properties["sampling_rate"], 0.25)
         self.assertTrue(properties["has_filters"])
@@ -1046,20 +1048,60 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         if expected_events:
             self.assertEqual(report.call_args.args[2]["edited_fields"], sorted(mutation.keys()))
 
+    @parameterized.expand(
+        [
+            ("drafted", None, 200, True),
+            ("model_failed", DraftError(), 503, False),
+        ]
+    )
+    def test_draft_reports_outcome(
+        self, _name: str, error: Exception | None, expected_status: int, expected_success: bool
+    ) -> None:
+        # A draft that reports nothing would read as user abandonment instead of a model failure.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        drafted = ScannerDraft(
+            name="stuck-in-onboarding",
+            description="Sessions where onboarding stalls",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user get stuck?"},
+            rationale="Onboarding drop-off is the stated goal",
+            query={"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]},
+        )
+        goal = "find users who get stuck in onboarding"
+        with (
+            patch(
+                "products.replay_vision.backend.api.scanners.draft_scanner_from_goal",
+                side_effect=error,
+                return_value=drafted,
+            ),
+            patch("products.replay_vision.backend.api.scanners.report_user_action") as report,
+        ):
+            resp = self.client.post(f"{self.scanners_url}draft/", data={"goal": goal}, format="json")
+
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+        drafted_events = [call for call in report.call_args_list if call.args[1] == "replay_vision_scanner_drafted"]
+        self.assertEqual(len(drafted_events), 1)
+        properties = drafted_events[0].args[2]
+        self.assertEqual(properties["success"], expected_success)
+        self.assertEqual(properties["goal_length"], len(goal))
+        # The goal is customer text; only its length may ride along.
+        self.assertNotIn("goal", properties)
+
 
 class TestScannerDigestProvisioning(_VisionAPITestCase):
     _CREATE_BODY = {
         "name": "checkout-monitor",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "did checkout complete?"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
 
     def test_create_provisions_daily_digest(self) -> None:
         resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
         self.assertEqual(resp.status_code, 201, resp.json())
         digest = VisionAction.objects.for_team(self.team.id).get(scanner_id=resp.json()["id"], is_scanner_digest=True)
-        self.assertEqual(digest.name, "Daily digest: checkout-monitor")
+        self.assertEqual(digest.name, "Featured digest: checkout-monitor")
         self.assertEqual(digest.trigger_config["rrule"], SCANNER_DIGEST_RRULE)
         self.assertEqual(digest.trigger_config["timezone"], self.team.timezone)
         self.assertEqual(digest.delivery_config, [])
@@ -1080,7 +1122,7 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
             "name": "estimate-persistence",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "p"},
-            "model": ScannerModel.GEMINI_3_6_FLASH,
+            "model": ScannerModel.GEMINI_3_7_FLASH,
         }
         payload.update(overrides)
         return payload
@@ -1167,7 +1209,7 @@ class TestScannerSignalSourceEnablement(_VisionAPITestCase):
             "name": "signal-enablement",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "p"},
-            "model": ScannerModel.GEMINI_3_6_FLASH,
+            "model": ScannerModel.GEMINI_3_7_FLASH,
         }
         payload.update(overrides)
         return payload
@@ -1310,7 +1352,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         resp = self.client.get(self.observations_url(str(other_scanner.id)))
         self.assertEqual(resp.status_code, 404)
@@ -2867,7 +2909,7 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         ReplayObservation.objects.create(
             scanner=other_scanner,
@@ -3081,7 +3123,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
                 name=name,
                 scanner_type=ScannerType.MONITOR,
                 scanner_config={"prompt": "p"},
-                model=ScannerModel.GEMINI_3_6_FLASH,
+                model=ScannerModel.GEMINI_3_7_FLASH,
                 enabled=enabled,
                 estimated_monthly_observations=estimate,
             )
@@ -3106,7 +3148,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             name="backfilled",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         ReplayScannerBackfill.objects.for_team(self.team.id).create(
             scanner=scanner,
@@ -3135,7 +3177,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             name="theirs",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             enabled=True,
             estimated_monthly_observations=500,
         )
@@ -3490,3 +3532,28 @@ class TestInlineScanAction(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.content)
         self.assertFalse(ReplayScanner.all_origins.filter(origin=ScannerOrigin.INLINE).exists())
         start_workflow.assert_not_called()
+
+
+class TestScannerSelfDrivingStatsAPI(_VisionAPITestCase):
+    def test_returns_the_scanners_signal_outcomes(self) -> None:
+        # Wiring guard: the endpoint must query the signals facade for this scanner's slice and
+        # serialize the outcome counts; a dropped extra filter would return team-wide numbers.
+        scanner = self._create_scanner()
+        outcomes = SignalSourceSliceOutcomes(signal_count=5, report_count=2, pr_count=1, merged_pr_count=1)
+        with patch(
+            "products.replay_vision.backend.api.scanners.get_outcomes_for_signal_source_slice",
+            return_value=outcomes,
+        ) as mock_outcomes:
+            response = self.client.get(f"{self.scanners_url}{scanner.id}/self_driving_stats/")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "signals_emitted": 5,
+            "reports_contributed": 2,
+            "prs_opened": 1,
+            "prs_merged": 1,
+        }
+        kwargs = mock_outcomes.call_args.kwargs
+        assert kwargs["source_product"] == "replay_vision"
+        assert kwargs["source_type"] == "scanner_finding"
+        assert kwargs["extra_equals"] == {"scanner_id": str(scanner.id)}

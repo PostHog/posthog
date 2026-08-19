@@ -15,7 +15,7 @@ from posthog.models.integration import Integration, SlackIntegration
 
 if TYPE_CHECKING:
     from ..models import DigestChannel
-    from .digest import DigestSummary
+    from .digest import DigestPRSummary, DigestSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -50,6 +50,21 @@ def _link(url: str, label: str) -> str:
     return f"<{url}|{_escape_mrkdwn(label).replace('|', '/')}>"
 
 
+def _pr_label(pr: DigestPRSummary, *, qualify: bool) -> str:
+    """``#412 Title``, or ``owner/repo#412 Title`` once the digest carries more than one repo.
+
+    A team audience collects merges from every repo it owns code in, and PR numbers only mean
+    something within a repo. Qualifying unconditionally would put the same constant prefix on
+    every line of the far more common single-repo digest.
+    """
+    number = f"{pr.repository}#{pr.pr_number}" if qualify and pr.repository else f"#{pr.pr_number}"
+    return f"{number} {pr.title}"
+
+
+def _spans_repositories(summary: DigestSummary) -> bool:
+    return len({pr.repository for pr in summary.prs}) > 1
+
+
 def _build_blocks(summary: DigestSummary) -> list[dict]:
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": "Merged PRs digest"}},
@@ -57,8 +72,9 @@ def _build_blocks(summary: DigestSummary) -> list[dict]:
     if summary.intro:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _clip(_escape_mrkdwn(summary.intro))}})
     blocks.append({"type": "divider"})
+    qualify = _spans_repositories(summary)
     for pr in summary.prs[:_MAX_PR_BLOCKS]:
-        link = _link(pr.url, f"#{pr.pr_number} {pr.title}")
+        link = _link(pr.url, _pr_label(pr, qualify=qualify))
         blocks.append(
             {
                 "type": "section",
@@ -78,7 +94,10 @@ def _build_blocks(summary: DigestSummary) -> list[dict]:
 def _build_fallback_text(summary: DigestSummary) -> str:
     # The top-level `text` fallback is parsed for mentions too, so escape it the same way.
     lines = [_escape_mrkdwn(summary.intro)] if summary.intro else []
-    lines.extend(f"#{pr.pr_number} {_escape_mrkdwn(pr.title)} — {_escape_mrkdwn(pr.summary)}" for pr in summary.prs)
+    qualify = _spans_repositories(summary)
+    lines.extend(
+        f"{_escape_mrkdwn(_pr_label(pr, qualify=qualify))} — {_escape_mrkdwn(pr.summary)}" for pr in summary.prs
+    )
     return "\n".join(lines) or "Merged PRs digest"
 
 

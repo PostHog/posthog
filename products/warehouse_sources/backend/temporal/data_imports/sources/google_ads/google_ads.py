@@ -521,6 +521,11 @@ def google_ads_source(
     name = NamingConvention.normalize_identifier(resource_name)
     table = get_schemas(config, team_id, api_version)[resource_name]
 
+    # Report tables always need a date filter, so a full-refresh schema is forced onto the
+    # incremental query path here. Record whether the pipeline itself is incremental first: only an
+    # incremental pipeline persists a cursor between runs, and the bounded windowed drain below is
+    # only sound when it does.
+    pipeline_is_incremental = should_use_incremental_field
     if table.requires_filter and not should_use_incremental_field:
         should_use_incremental_field = True
         incremental_field = "segments.date"
@@ -572,7 +577,13 @@ def google_ads_source(
         # finishes never lands a chunk, so the cursor stays empty and the next run repeats the same
         # unbounded scan — the very death spiral the windows exist to break, except nothing could
         # escape it. A first sync instead starts a bounded backfill window behind today.
-        if table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
+        #
+        # Only incremental pipelines take this path. The per-run window budget assumes the cursor
+        # lands between runs so the next run continues where this one stopped. A full-refresh run
+        # persists no cursor, so a budgeted drain restarts from the same backfill date every run,
+        # and the refresh then replaces the whole table with that same first slice of history:
+        # silent data loss that reports Completed.
+        if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
             start = (
                 _incremental_value_as_date(db_incremental_field_last_value)
                 if db_incremental_field_last_value is not None
@@ -606,8 +617,9 @@ def google_ads_source(
             resumable_source_manager.clear_state()
             return
 
-        # Not a date-partitioned report table, or a non-date cursor: single open-ended ascending
-        # scan. These have no date windows to walk, so there is nothing to bound them by.
+        # Everything else runs a single open-ended ascending scan: non-date cursors have no date
+        # windows to walk, and full-refresh report tables must extract the whole range in one run
+        # because nothing persists between runs to continue a partial walk from.
         if db_incremental_field_last_value is None:
             last_value: int | dt.datetime | dt.date | str = incremental_type_to_initial_value(incremental_field_type)
         else:

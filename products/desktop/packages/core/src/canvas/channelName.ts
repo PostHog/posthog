@@ -12,8 +12,7 @@ export const PERSONAL_CHANNEL_NAME = "me";
  * Lives in core because names reach a reader by more routes than the channel
  * list — an activity row and a mention both carry one of their own.
  */
-export const PERSONAL_CHANNEL_LABEL = "personal space";
-const LEGACY_PERSONAL_CHANNEL_LABEL = "personal";
+export const PERSONAL_CHANNEL_LABEL = "personal";
 
 /** A channel's name as a reader should see it. */
 export function channelDisplayName(name: string): string;
@@ -28,9 +27,7 @@ function isPersonalChannelLabel(
 ): boolean {
   return channelType !== undefined
     ? channelType === "personal"
-    : name === PERSONAL_CHANNEL_NAME ||
-        name === PERSONAL_CHANNEL_LABEL ||
-        name === LEGACY_PERSONAL_CHANNEL_LABEL;
+    : name === PERSONAL_CHANNEL_NAME || name === PERSONAL_CHANNEL_LABEL;
 }
 
 export function channelDisplayLabel(
@@ -47,7 +44,7 @@ export function channelDisplayReference(
   channelType?: "public" | "personal",
 ): string {
   return isPersonalChannelLabel(name, channelType)
-    ? `your ${PERSONAL_CHANNEL_LABEL}`
+    ? "your personal space"
     : `#${channelDisplayName(name)}`;
 }
 
@@ -79,7 +76,7 @@ export function normalizeChannelName(name: string): string {
  */
 const RESERVED_CHANNEL_NAMES = new Set([
   PERSONAL_CHANNEL_NAME,
-  LEGACY_PERSONAL_CHANNEL_LABEL,
+  PERSONAL_CHANNEL_LABEL,
 ]);
 
 export function validateChannelName(name: string): string | null {

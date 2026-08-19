@@ -20,7 +20,7 @@ def _make_scanner(team, **overrides) -> ReplayScanner:
         "name": "my-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "test"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -53,7 +53,7 @@ class TestReplayScanner(BaseTest):
             name="shared",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def test_str_includes_name_and_type(self) -> None:
@@ -138,7 +138,10 @@ class TestReplayScanner(BaseTest):
         # Without the reset, a re-enabled scanner backfills every session since it was disabled.
         stale = timezone.now() - timedelta(days=21)
         scanner = self._create_scanner(
-            enabled=False, last_swept_at=stale, last_seen_session_id="sess-tie", last_deep_swept_at=stale
+            enabled=False,
+            last_swept_at=stale,
+            last_seen_session_id="sess-tie",
+            deep_swept_through=stale,
         )
         scanner.enabled = True
         scanner.save(update_fields=update_fields)
@@ -146,7 +149,7 @@ class TestReplayScanner(BaseTest):
         self.assertGreater(scanner.last_swept_at, timezone.now() - timedelta(hours=1))
         self.assertEqual(scanner.last_seen_session_id, "")
         # The deep pass sweeps from here to last_swept_at, so a stale value would cover the whole gap.
-        self.assertEqual(scanner.last_deep_swept_at, scanner.last_swept_at)
+        self.assertEqual(scanner.deep_swept_through, scanner.last_swept_at)
 
     @parameterized.expand(
         [
@@ -162,7 +165,7 @@ class TestReplayScanner(BaseTest):
             enabled=enabled_before,
             last_swept_at=stale,
             last_seen_session_id="sess-tie",
-            last_deep_swept_at=stale,
+            deep_swept_through=stale,
         )
         scanner.enabled = enabled_after
         scanner.description = "touched"
@@ -170,7 +173,7 @@ class TestReplayScanner(BaseTest):
         scanner.refresh_from_db()
         self.assertEqual(scanner.last_swept_at, stale)
         self.assertEqual(scanner.last_seen_session_id, "sess-tie")
-        self.assertEqual(scanner.last_deep_swept_at, stale)
+        self.assertEqual(scanner.deep_swept_through, stale)
 
     def test_full_save_does_not_clobber_sweep_owned_columns(self) -> None:
         # A concurrent sweep stamps these via targeted updates; a full save from a stale
@@ -225,7 +228,7 @@ class TestReplayObservation(BaseTest):
             name="other-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self._create_observation(scanner_a, session_id="shared-session")
         self._create_observation(scanner_b, session_id="shared-session")
@@ -292,7 +295,7 @@ class TestReplayObservation(BaseTest):
             name="doomed",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self._create_observation(scanner, session_id="doomed-session")
         scanner_id = scanner.id
@@ -334,7 +337,7 @@ class TestScannerCreditLimit(APIBaseTest):
             name=f"limit-scanner-{ReplayScanner.objects.count()}",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             **kwargs,
         )
 
@@ -348,7 +351,7 @@ class TestScannerCreditLimit(APIBaseTest):
             name="limit-validator-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             credit_limit=limit,
         )
         with self.assertRaises(ValidationError) as ctx:

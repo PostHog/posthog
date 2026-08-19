@@ -81,6 +81,11 @@ vi.mock("@posthog/ui/features/sessions/components/StopCloudRunButton", () => ({
 vi.mock("@posthog/ui/features/diff-stats/DiffStatsBadge", () => ({
   DiffStatsBadge: () => null,
 }));
+// Reads the route, which these renders don't provide. The Code scene's answer
+// is false, and that is the row this test covers.
+vi.mock("@posthog/ui/features/navigation/useReviewInRightPanel", () => ({
+  useReviewInRightPanel: () => false,
+}));
 vi.mock("@posthog/ui/primitives/Tooltip", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
 }));
