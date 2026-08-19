@@ -719,14 +719,15 @@ class CustomPropertyDefinitionView:
 
 @stdlib_dataclass(frozen=True)
 class CustomPropertySourceView:
-    """A custom-property source: binds a materialized view's column to a definition, feeding its
-    values on each materialization.
+    """A custom-property source: binds warehouse columns to a definition, feeding its values on every
+    warehouse run of what it reads.
 
-    ``definition`` / ``saved_query`` are ids (the definition this feeds, and the data-warehouse
-    saved query read from). ``last_sync_error`` is null when the last run succeeded or hasn't run.
-    Account-target sources set ``saved_query`` + ``source_column``; person-target sources set
-    ``external_data_schema`` + ``column_property_map`` instead. Defaults exist so the wrapping
-    serializer can parse partial request bodies (see :class:`AccountView`).
+    ``definition`` / ``saved_query`` / ``external_data_schema`` are ids (the definition this feeds, and
+    the warehouse object read from). ``last_sync_error`` is null when the last run succeeded or hasn't
+    run. Account-target sources set ``saved_query`` + ``source_column``; person- and group-target
+    sources set ``column_property_map`` plus exactly one of ``external_data_schema`` (an imported
+    table) and ``saved_query`` (a materialized view). Defaults exist so the wrapping serializer can
+    parse partial request bodies (see :class:`AccountView`).
     """
 
     id: UUID | None = None
@@ -744,17 +745,20 @@ class CustomPropertySourceView:
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
-    # Person-target schedule visibility (None for account sources). ``sync_frequency_interval`` is
-    # in seconds; ``next_sync_at`` is approximate (last synced + interval), it drifts if the
-    # underlying schedule was paused. ``latest_run`` is the most recent sync/backfill run.
+    # Person/group-target schedule visibility (None for account sources). ``sync_frequency_interval``
+    # is in seconds; ``next_sync_at`` is approximate (last run + interval), it drifts if the underlying
+    # schedule was paused, and is null for a view whose frequency lives on its DAG node.
+    # ``latest_run`` is the most recent sync/backfill run.
     sync_frequency_interval_seconds: float | None = None
     next_sync_at: datetime | None = None
     latest_run: "CustomPropertySyncRunView | None" = None
-    # Person-target warehouse binding, for naming and linking to the table this source reads.
-    # ``external_data_source`` is the warehouse source owning the schema; ``table_name`` is the
-    # table as it is named in HogQL. Both None for account sources.
+    # Person/group-target warehouse binding, for naming and linking to what this source reads.
+    # ``table_name`` is the imported table as named in HogQL, or the view's name. ``external_data_source``
+    # is the warehouse source owning the schema, set only for a table binding; ``saved_query_name`` is
+    # set only for a view binding. All None for account sources.
     external_data_source: UUID | None = None
     table_name: str | None = None
+    saved_query_name: str | None = None
 
 
 @stdlib_dataclass(frozen=True)

@@ -16,6 +16,7 @@ import {
     ErrorTrackingBreakdownsQueryResponse,
 } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { UniversalFiltersGroup } from '~/types'
 
 import { errorTrackingBreakdownsQuery } from '../../queries'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
@@ -100,6 +101,7 @@ export function buildBreakdownProperties(selectedEventBreakdownProperties: Break
 export interface miniBreakdownsLogicValues {
     selectedEvent: ErrorEventType | null // errorTrackingIssueSceneLogic
     dateRange: DateRange // issueFiltersLogic
+    filterGroup: UniversalFiltersGroup // issueFiltersLogic
     filterTestAccounts: boolean // issueFiltersLogic
     isCloudOrDev: boolean | undefined // preflightLogic
     breakdownDetails: ErrorTrackingBreakdownsQueryResponse | null
@@ -206,7 +208,7 @@ export const miniBreakdownsLogic = kea<miniBreakdownsLogicType>([
     connect((props: MiniBreakdownsLogicProps) => ({
         values: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
-            ['dateRange', 'filterTestAccounts'],
+            ['dateRange', 'filterGroup', 'filterTestAccounts'],
             errorTrackingIssueSceneLogic({ id: props.issueId }),
             ['selectedEvent'],
             preflightLogic,
@@ -253,6 +255,7 @@ export const miniBreakdownsLogic = kea<miniBreakdownsLogicType>([
                         errorTrackingBreakdownsQuery({
                             issueId: props.issueId,
                             dateRange: values.dateRange,
+                            filterGroup: values.filterGroup,
                             filterTestAccounts: values.filterTestAccounts,
                             breakdownProperties: [property],
                             maxValuesPerProperty: BREAKDOWN_DETAILS_LIMIT,
@@ -271,12 +274,13 @@ export const miniBreakdownsLogic = kea<miniBreakdownsLogicType>([
                     await breakpoint(100)
                     const startTime = Date.now()
                     // Read connected values before the request because either connected logic may unmount while it runs.
-                    const { dateRange, filterTestAccounts } = values
+                    const { dateRange, filterGroup, filterTestAccounts } = values
                     const breakdownProperties = values.breakdownProperties.map((preset) => preset.property)
                     const result = await api.query(
                         errorTrackingBreakdownsQuery({
                             issueId: props.issueId,
                             dateRange,
+                            filterGroup,
                             filterTestAccounts,
                             breakdownProperties,
                             maxValuesPerProperty: LIMIT_ITEMS,
@@ -350,6 +354,11 @@ export const miniBreakdownsLogic = kea<miniBreakdownsLogicType>([
             }
         },
         filterTestAccounts: (value, oldValue) => {
+            if (oldValue !== undefined && value !== oldValue) {
+                actions.loadResponse()
+            }
+        },
+        filterGroup: (value, oldValue) => {
             if (oldValue !== undefined && value !== oldValue) {
                 actions.loadResponse()
             }
