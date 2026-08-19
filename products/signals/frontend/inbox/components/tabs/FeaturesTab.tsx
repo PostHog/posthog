@@ -15,21 +15,18 @@ import { NewFeatureModal } from './NewFeatureModal'
 
 export function FeatureDiscoveryBanner({ run }: { run: InboxFeatureDiscoveryRunApi }): JSX.Element {
     return (
-        <LemonBanner type="info">
+        <LemonBanner
+            type="info"
+            action={{
+                children: 'View task logs',
+                to: run.task_id ? urls.taskDetail(run.task_id) : undefined,
+                disabledReason: run.task_id ? undefined : 'Task logs are available after the agent starts.',
+                'data-attr': 'feature-discovery-view-task-logs',
+            }}
+        >
             Discovering features in <strong>{run.repository}</strong>
             {run.focus ? ` with the focus “${run.focus}”` : ''}. The reports will appear in Staged features when the
             agent finishes.
-            {run.task_id && (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    to={urls.taskDetail(run.task_id)}
-                    data-attr="feature-discovery-view-task-logs"
-                    className="ml-2"
-                >
-                    View task logs
-                </LemonButton>
-            )}
         </LemonBanner>
     )
 }
