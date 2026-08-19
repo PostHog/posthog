@@ -34,18 +34,28 @@ export function TaskFeedModal({
   open,
   onOpenChange,
   feed,
+  initialQuery,
+  surface = "sidebar",
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** The feed being edited; absent when creating a new one. */
   feed?: TaskFeed;
+  /** Seeds the query when creating — e.g. the command palette's "Save as
+   * feed" hands over what was already typed there. */
+  initialQuery?: string;
+  /** Where the modal was opened from, for analytics. */
+  surface?: "sidebar" | "command_menu";
   onCreated?: (feed: TaskFeed) => void;
 }) {
   const addFeed = useTaskFeedsStore((s) => s.addFeed);
   const updateFeed = useTaskFeedsStore((s) => s.updateFeed);
-  const [name, setName] = useState(feed?.name ?? "");
-  const [query, setQuery] = useState(feed?.query ?? "");
+  const seedQuery = feed?.query ?? initialQuery ?? "";
+  const [name, setName] = useState(
+    feed?.name ?? (seedQuery ? suggestFeedName(seedQuery) : ""),
+  );
+  const [query, setQuery] = useState(seedQuery);
   // Until the name is touched it follows the query; an existing feed's name
   // was already chosen, so editing never rewrites it.
   const [nameEdited, setNameEdited] = useState(!!feed);
@@ -54,10 +64,11 @@ export function TaskFeedModal({
   // starts clean and an edit always shows the feed's current values.
   useEffect(() => {
     if (!open) return;
-    setName(feed?.name ?? "");
-    setQuery(feed?.query ?? "");
+    const nextQuery = feed?.query ?? initialQuery ?? "";
+    setName(feed?.name ?? (nextQuery ? suggestFeedName(nextQuery) : ""));
+    setQuery(nextQuery);
     setNameEdited(!!feed);
-  }, [open, feed]);
+  }, [open, feed, initialQuery]);
 
   const setQueryAndSuggestName = (next: string) => {
     setQuery(next);
@@ -87,7 +98,7 @@ export function TaskFeedModal({
       updateFeed(feed.id, { name: trimmedName, query: trimmedQuery });
       track(ANALYTICS_EVENTS.TASK_FEED_ACTION, {
         action_type: "update",
-        surface: "sidebar",
+        surface,
         feed_id: feed.id,
         query_length: trimmedQuery.length,
       });
@@ -95,7 +106,7 @@ export function TaskFeedModal({
       const created = addFeed({ name: trimmedName, query: trimmedQuery });
       track(ANALYTICS_EVENTS.TASK_FEED_ACTION, {
         action_type: "create",
-        surface: "sidebar",
+        surface,
         feed_id: created.id,
         query_length: trimmedQuery.length,
       });

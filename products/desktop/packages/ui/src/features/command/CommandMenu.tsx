@@ -34,6 +34,7 @@ import {
 import type { Task } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
+import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedModal";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
@@ -49,6 +50,7 @@ import {
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { taskSearchDelay } from "@posthog/ui/features/command/taskSearchQuery";
+import { useFeedQueryCommands } from "@posthog/ui/features/command/useFeedQueryCommands";
 import { useFileSearchContext } from "@posthog/ui/features/command/useFileSearchContext";
 import {
   type Command,
@@ -75,6 +77,7 @@ import {
   navigateToArchived,
   navigateToChannel,
   navigateToCommandCenter,
+  navigateToFeed,
   navigateToInbox,
   navigateToLoops,
 } from "@posthog/ui/router/navigationBridge";
@@ -578,11 +581,29 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     spacesLayout,
   });
 
+  // Typing a filter token turns the palette into a live feed query, led by
+  // "Save as feed" — which closes the palette and hands the query to the
+  // feed modal, so a search someone wants to keep becomes a sidebar feed.
+  const [feedModalQuery, setFeedModalQuery] = useState<string | null>(null);
+  const onSaveAsFeed = useCallback(
+    (feedQuery: string) => {
+      onOpenChange(false);
+      setFeedModalQuery(feedQuery);
+    },
+    [onOpenChange],
+  );
+  const feedQuerySections = useFeedQueryCommands({
+    query,
+    enabled: open && spacesLayout,
+    onSaveAsFeed,
+  });
+
   // Commands, channels, and tasks share a single filterable list.
   const sections = useMemo(
     () =>
       prioritizeExactCommandMatches(
         [
+          ...feedQuerySections,
           ...searchSections,
           ...commandSections,
           ...channelSections,
@@ -590,7 +611,14 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         ],
         query,
       ),
-    [searchSections, commandSections, channelSections, taskSections, query],
+    [
+      feedQuerySections,
+      searchSections,
+      commandSections,
+      channelSections,
+      taskSections,
+      query,
+    ],
   );
 
   const allCommands = useMemo(
@@ -612,86 +640,100 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="w-[720px] max-w-[90vw] gap-0 p-0"
-        showCloseButton={false}
-      >
-        <Autocomplete<Command>
-          inline
-          defaultOpen
-          items={sections}
-          value={query}
-          autoHighlight="always"
-          keepHighlight
-          onValueChange={(val, eventDetails) => {
-            if (eventDetails.reason !== "input-change") return;
-            if (typeof val === "string") {
-              setQuery(val);
-            }
-          }}
-          filter={matchesCommandSearch}
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          className="w-[720px] max-w-[90vw] gap-0 p-0"
+          showCloseButton={false}
         >
-          <AutocompleteInput
-            placeholder={
-              bluebirdEnabled
-                ? `Search commands, ${spacesLayout ? "spaces" : "channels"}, and tasks…`
-                : "Search commands and tasks…"
-            }
-            autoFocus
-            showClear
-          />
-          <AutocompleteStatus
-            emptyContent={
-              <span>
-                No results for <strong>"{query}"</strong>
-              </span>
-            }
-          />
-          <AutocompleteList className="max-h-[60vh]">
-            {(section: CommandSection) => (
-              <AutocompleteGroup key={section.label} items={section.items}>
-                <AutocompleteLabel>{section.label}</AutocompleteLabel>
-                <AutocompleteCollection>
-                  {(cmd: Command) => (
-                    <AutocompleteItem
-                      key={cmd.id}
-                      value={cmd.id}
-                      onClick={() => handleSelect(cmd.id)}
-                      // Long task names wrap instead of truncating, so the
-                      // item must grow: min-height, not a fixed height. Quill
-                      // wraps our children in an inner content span; force it to
-                      // fill the row (so a trailing shortcut can `ml-auto` to the
-                      // end) and let it overflow visibly so the shortcut Kbd
-                      // boxes aren't clipped by the wrapper's `truncate`.
-                      className="group flex h-auto! min-h-7 w-full items-center gap-2 py-1.5 pr-2 text-left [&>span]:w-full [&>span]:overflow-visible"
-                    >
-                      {cmd.icon}
-                      <span className="wrap-break-word min-w-0 whitespace-normal">
-                        {cmd.label}
-                      </span>
-                      {cmd.detail && (
-                        <span className="shrink-0 text-gray-9">
-                          · {cmd.detailPrefix ?? "#"}
-                          {cmd.detail}
+          <Autocomplete<Command>
+            inline
+            defaultOpen
+            items={sections}
+            value={query}
+            autoHighlight="always"
+            keepHighlight
+            onValueChange={(val, eventDetails) => {
+              if (eventDetails.reason !== "input-change") return;
+              if (typeof val === "string") {
+                setQuery(val);
+              }
+            }}
+            filter={matchesCommandSearch}
+          >
+            <AutocompleteInput
+              placeholder={
+                bluebirdEnabled
+                  ? `Search commands, ${spacesLayout ? "spaces" : "channels"}, and tasks…`
+                  : "Search commands and tasks…"
+              }
+              autoFocus
+              showClear
+            />
+            <AutocompleteStatus
+              emptyContent={
+                <span>
+                  No results for <strong>"{query}"</strong>
+                </span>
+              }
+            />
+            <AutocompleteList className="max-h-[60vh]">
+              {(section: CommandSection) => (
+                <AutocompleteGroup key={section.label} items={section.items}>
+                  <AutocompleteLabel>{section.label}</AutocompleteLabel>
+                  <AutocompleteCollection>
+                    {(cmd: Command) => (
+                      <AutocompleteItem
+                        key={cmd.id}
+                        value={cmd.id}
+                        onClick={() => handleSelect(cmd.id)}
+                        // Long task names wrap instead of truncating, so the
+                        // item must grow: min-height, not a fixed height. Quill
+                        // wraps our children in an inner content span; force it to
+                        // fill the row (so a trailing shortcut can `ml-auto` to the
+                        // end) and let it overflow visibly so the shortcut Kbd
+                        // boxes aren't clipped by the wrapper's `truncate`.
+                        className="group flex h-auto! min-h-7 w-full items-center gap-2 py-1.5 pr-2 text-left [&>span]:w-full [&>span]:overflow-visible"
+                      >
+                        {cmd.icon}
+                        <span className="wrap-break-word min-w-0 whitespace-normal">
+                          {cmd.label}
                         </span>
-                      )}
-                      {cmd.shortcut && (
-                        <span className="ml-auto flex shrink-0 items-center gap-2 pl-2">
-                          {formatHotkeyParts(cmd.shortcut).map((part) => (
-                            <Kbd key={part}>{part}</Kbd>
-                          ))}
-                        </span>
-                      )}
-                    </AutocompleteItem>
-                  )}
-                </AutocompleteCollection>
-              </AutocompleteGroup>
-            )}
-          </AutocompleteList>
-        </Autocomplete>
-        <CommandKeyHints />
-      </DialogContent>
-    </Dialog>
+                        {cmd.detail && (
+                          <span className="shrink-0 text-gray-9">
+                            · {cmd.detailPrefix ?? "#"}
+                            {cmd.detail}
+                          </span>
+                        )}
+                        {cmd.shortcut && (
+                          <span className="ml-auto flex shrink-0 items-center gap-2 pl-2">
+                            {formatHotkeyParts(cmd.shortcut).map((part) => (
+                              <Kbd key={part}>{part}</Kbd>
+                            ))}
+                          </span>
+                        )}
+                      </AutocompleteItem>
+                    )}
+                  </AutocompleteCollection>
+                </AutocompleteGroup>
+              )}
+            </AutocompleteList>
+          </Autocomplete>
+          <CommandKeyHints />
+        </DialogContent>
+      </Dialog>
+      {/* Outside the palette's dialog: "Save as feed" closes the palette, and
+        a modal opened inside a closing dialog would unmount with it. Keyed
+        remount is free — the modal reseeds from initialQuery on open. */}
+      <TaskFeedModal
+        open={feedModalQuery !== null}
+        onOpenChange={(modalOpen) => {
+          if (!modalOpen) setFeedModalQuery(null);
+        }}
+        initialQuery={feedModalQuery ?? undefined}
+        surface="command_menu"
+        onCreated={(feed) => navigateToFeed(feed.id)}
+      />
+    </>
   );
 }

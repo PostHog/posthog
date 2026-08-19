@@ -57,6 +57,7 @@ export type CommandMenuAction =
   | "open-artifact"
   | "open-channel"
   | "open-command-center"
+  | "save-feed"
   | "open-inbox"
   | "open-archived"
   | "open-loops"
@@ -989,7 +990,7 @@ export type TaskFeedActionType = "create" | "update" | "delete" | "open";
 
 export interface TaskFeedActionProperties {
   action_type: TaskFeedActionType;
-  surface: "sidebar" | "feed_home";
+  surface: "sidebar" | "feed_home" | "command_menu";
   feed_id: string;
   /** Length of the saved query — a coarse shape signal, never the text itself. */
   query_length?: number;
