@@ -2,7 +2,6 @@ import { MakeLogicType, connect, events, kea, path, props, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { ActionType } from '~/types'
@@ -182,10 +181,8 @@ export const actionsModel = kea<actionsModelType>([
     events(({ values, actions }) => ({
         afterMount: () => {
             if (isAuthenticatedTeam(values.currentTeam)) {
-                // Don't load on shared insights/dashboards
                 actions.loadActions()
             }
         },
     })),
-    permanentlyMount(),
 ])

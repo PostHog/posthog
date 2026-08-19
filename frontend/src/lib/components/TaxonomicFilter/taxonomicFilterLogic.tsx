@@ -668,6 +668,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['primaryProperties'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
+        logic: [actionsModel],
     })),
     actions(() => ({
         moveUp: true,
