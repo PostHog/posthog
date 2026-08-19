@@ -75,10 +75,6 @@ def _snapshot_report(snapshot: dict | None) -> str | None:
     return report if isinstance(report, str) and report else None
 
 
-async def _load_ai_report(delivery_id: uuid.UUID) -> str | None:
-    return _snapshot_report(await _load_snapshot(delivery_id))
-
-
 @frozen
 class DiagnosticCounts:
     failed_step_count: int

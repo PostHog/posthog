@@ -1,6 +1,7 @@
 import json
 import time
 import asyncio
+from dataclasses import field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional
 
@@ -100,7 +101,9 @@ class FormattedQueryResult:
     formatted: str
     fallback_used: bool
     # The raw query response, for callers that need the columns and rows rather than the text.
-    response: dict
+    # repr=False: this holds customer rows, and a structlog binding or exception capture that
+    # renders locals would otherwise emit them into logs.
+    response: dict = field(repr=False)
 
 
 def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:

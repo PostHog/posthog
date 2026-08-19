@@ -27,6 +27,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_CHART_CATEGORIES,
     MAX_CHARTS_PER_REPORT,
     EnrichedPromptSpec,
     QueryPlan,
@@ -558,6 +559,7 @@ def generate_query_plan(
             # Substituted, not written into the prompt text, so the cap the planner is told matches
             # the cap the pipeline enforces.
             "max_charts": str(MAX_CHARTS_PER_REPORT),
+            "max_categories": str(MAX_CHART_CATEGORIES),
         },
     )
 
