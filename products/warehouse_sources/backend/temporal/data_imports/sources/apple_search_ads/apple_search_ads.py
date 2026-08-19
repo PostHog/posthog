@@ -67,7 +67,7 @@ class AppleSearchAdsCredentials:
     private_key: str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class AppleSearchAdsResumeConfig:
     # Offset into the current page set. Entity endpoints only ever use this field.
     offset: int = 0

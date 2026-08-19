@@ -35,7 +35,7 @@ DEFAULT_INITIAL_LOOKBACK_DAYS = 365
 MAX_INITIAL_LOOKBACK_DAYS = 11 * 365
 
 
-@dataclass
+@dataclass(frozen=True)
 class AppleSearchAdsEndpointConfig:
     name: str
     # Path under `https://api.searchads.apple.com/api/{version}`.
