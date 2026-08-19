@@ -2518,6 +2518,8 @@ importers:
 
   products/batch_exports: {}
 
+  products/billing: {}
+
   products/billing_alerts:
     dependencies:
       '@posthog/icons':
