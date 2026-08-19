@@ -2025,6 +2025,21 @@ class TestGitHubIntegrationModel(BaseTest):
         with patch.object(github, "api_request", return_value=MagicMock(status_code=status_code)):
             assert github.delete_branch("community-skills", "community-skill/x")["success"] is True
 
+    @parameterized.expand([("the ref is gone", 404, True), ("the ref is still there", 200, False)])
+    def test_delete_branch_reads_the_ref_back_after_an_ambiguous_422(self, _name: str, recheck: int, deleted: bool):
+        github = self._github_for_org()
+
+        def _request(method, path, **kwargs):
+            if method == "DELETE":
+                return MagicMock(status_code=422, text="Validation failed")
+            return MagicMock(status_code=recheck, **{"json.return_value": {"object": {"sha": "abc"}}})
+
+        with patch.object(github, "api_request", side_effect=_request):
+            result = github.delete_branch("community-skills", "community-skill/x")
+
+        # A 422 the caller reads as success is a branch left on a public repo with nobody warned.
+        assert result["success"] is deleted
+
     @parameterized.expand([("the expected commit", "mine", True), ("someone else's commit", "theirs", False)])
     def test_delete_branch_with_an_expected_sha_only_deletes_its_own_commit(
         self, _name: str, head_sha: str, deleted: bool

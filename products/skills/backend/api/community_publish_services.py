@@ -371,6 +371,10 @@ def _parent_directories(path: str) -> list[str]:
 # it is requested down to what a publish uses. A permission the installation lacks fails the mint,
 # which is the same 502 an unusable installation would produce on the first write anyway.
 PUBLISHER_TOKEN_PERMISSIONS = {"contents": "write", "pull_requests": "write", "metadata": "read"}
+# Statuses that mean the App isn't installed here or its credentials are rejected: unauthenticated,
+# not permitted, or no such installation. Rate limits never reach this set — the transport raises
+# them, including the 403 spellings.
+PUBLISHER_NOT_CONFIGURED_STATUSES = frozenset({401, 403, 404})
 
 
 def _publisher_token_request_body() -> dict[str, Any]:
@@ -414,13 +418,25 @@ def get_community_skills_publisher() -> GitHubIntegration | None:
             "Could not reach GitHub to publish this skill. Try again in a few minutes."
         ) from err
 
-    if info_response.status_code != 200 or token_response.status_code != 201:
+    failed_statuses = [
+        response.status_code
+        for response, expected in ((info_response, 200), (token_response, 201))
+        if response.status_code != expected
+    ]
+    if failed_statuses:
         logger.warning(
             "community_skills_publisher_unavailable",
             info_status=info_response.status_code,
             token_status=token_response.status_code,
         )
-        return None
+        # A missing installation or App credentials GitHub refuses are settings nobody can retry
+        # their way out of, which is the 503 this returns None for. Any other status is GitHub
+        # failing a call we were entitled to make, and has to read as a gateway error instead —
+        # answering a transient 500 with "not configured" sends the publisher to the manual path
+        # for an outage that clears on its own.
+        if all(status in PUBLISHER_NOT_CONFIGURED_STATUSES for status in failed_statuses):
+            return None
+        raise CommunitySkillPublishError("Could not reach GitHub to publish this skill. Try again in a few minutes.")
 
     account = info_response.json().get("account") or {}
     token = token_response.json().get("token")
@@ -486,10 +502,9 @@ def publish_skill_to_community(
     Raises CommunitySkillPublishError when any GitHub step fails, or
     CommunitySkillPublishNotConfiguredError when publishing is disabled.
     """
-    publisher = get_community_skills_publisher()
-    if publisher is None:
-        raise CommunitySkillPublishNotConfiguredError("Community skill publishing is not configured.")
-
+    # Rendering is pure and deterministic, so it runs before the publisher is acquired: a skill the
+    # publisher has to edit gets the 400 that says so, rather than a 502 or 503 about GitHub that
+    # sends them away to retry a publish that would never have succeeded.
     rendered = render_community_skill_files(
         slug=slug,
         name=name,
@@ -502,6 +517,10 @@ def publish_skill_to_community(
         compatibility=compatibility,
         author_handle=author_handle,
     )
+
+    publisher = get_community_skills_publisher()
+    if publisher is None:
+        raise CommunitySkillPublishNotConfiguredError("Community skill publishing is not configured.")
 
     branch = f"{COMMUNITY_SKILLS_BRANCH_PREFIX}{slug}-{publisher_branch_key(publisher_id)}"
     try:

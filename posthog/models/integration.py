@@ -3995,8 +3995,19 @@ class GitHubIntegration(GitHubIntegrationBase):
             f"/repos/{org}/{repository}/git/refs/heads/{branch_name}",
             endpoint="/repos/{owner}/{repo}/git/refs/heads/{branch}",
         )
-        if response.status_code in (204, 404, 422):
+        if response.status_code in (204, 404):
             return {"success": True, "branch_name": branch_name}
+        # GitHub answers a delete with 422 both for a reference that is already gone and for one it
+        # refused to remove, so the status alone can't tell "done" from "still there". Read the ref
+        # back: absent is the success the caller wanted, present is a branch it has to hear about.
+        if response.status_code == 422:
+            recheck_response = self.api_request(
+                "GET",
+                f"/repos/{org}/{repository}/git/ref/heads/{branch_name}",
+                endpoint="/repos/{owner}/{repo}/git/ref/heads/{branch}",
+            )
+            if recheck_response.status_code == 404:
+                return {"success": True, "branch_name": branch_name}
         return {
             "success": False,
             "error": f"Failed to delete branch {branch_name}: {response.text}",

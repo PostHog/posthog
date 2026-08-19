@@ -15,6 +15,7 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from products.skills.backend.api.community_publish_services import (
     MAX_TAG_LENGTH,
     CommunitySkillPublishError,
+    CommunitySkillPublishValidationError,
     get_community_skills_publisher,
     publish_skill_to_community,
     publisher_branch_key,
@@ -277,6 +278,42 @@ class TestCommunitySkillsPublisher:
         # blast radius this transient token has no use for.
         assert mint_body["permissions"] == {"contents": "write", "pull_requests": "write", "metadata": "read"}
 
+    @parameterized.expand(
+        [
+            ("the app is not installed here", 404, False),
+            ("github refuses the app credentials", 401, False),
+            ("github fails the mint", 500, True),
+        ]
+    )
+    def test_only_a_refused_installation_reads_as_not_configured(
+        self, _label: str, token_status: int, is_gateway_failure: bool
+    ) -> None:
+        # None here becomes the endpoint's 503, which tells the publisher this instance can't publish
+        # at all. A transient failure must not say that: it sends them to the manual path over an
+        # outage that clears by itself.
+        settings_override = override_settings(
+            COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID="4242",
+            COMMUNITY_SKILLS_GITHUB_REPO="community-skills",
+            GITHUB_APP_CLIENT_ID="client",
+            GITHUB_APP_PRIVATE_KEY="key",
+        )
+        with (
+            settings_override,
+            patch(
+                "products.skills.backend.api.community_publish_services.GitHubIntegration.client_request"
+            ) as mock_request,
+        ):
+            mock_request.side_effect = [
+                self._response(200, {"account": {"login": "PostHog", "type": "Organization"}}),
+                self._response(token_status, {}),
+            ]
+
+            if is_gateway_failure:
+                with pytest.raises(CommunitySkillPublishError):
+                    get_community_skills_publisher()
+            else:
+                assert get_community_skills_publisher() is None
+
     @override_settings(
         COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID="4242",
         COMMUNITY_SKILLS_GITHUB_REPO="community-skills",
@@ -325,6 +362,19 @@ class TestPublishSkillToCommunity:
                 body="body",
                 files=[{"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"}],
             )
+
+    def test_a_skill_that_cannot_be_published_is_rejected_before_the_publisher_is_acquired(self) -> None:
+        # Acquiring the publisher talks to GitHub, so a skill that fails rendering used to come back
+        # as 502 or 503 whenever the App was down or unconfigured — advice to retry, for a publish
+        # that can only succeed once the publisher edits the skill.
+        with patch(
+            "products.skills.backend.api.community_publish_services.get_community_skills_publisher",
+            side_effect=AssertionError("the publisher was acquired before the skill was validated"),
+        ):
+            with pytest.raises(CommunitySkillPublishValidationError):
+                publish_skill_to_community(
+                    slug="make-pr", publisher_id=TEAM_A, name="Make PR", description="", body="body"
+                )
 
     def test_commits_every_file_in_one_commit(self) -> None:
         publisher = self._publisher()

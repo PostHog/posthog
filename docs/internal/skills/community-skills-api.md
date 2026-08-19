@@ -130,3 +130,9 @@ The target repo is public, so a failed publish must not leave anything behind:
 Errors surface as `400` (invalid payload), `404` (unknown skill), `502` (GitHub refused a step), or
 `503` when the instance has no `COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID` configured. The 503 is the
 fail-safe that keeps publishing off until the GitHub App is installed.
+
+The three are kept apart on purpose, because each sends the publisher somewhere different. The skill
+is rendered before GitHub is touched, so a skill that has to be edited answers `400` even while the
+App is down. `503` is reserved for an installation GitHub says is absent or refuses the App's
+credentials for; any other failed status while minting the publish token is an outage and answers
+`502`, so a transient failure doesn't read as "this instance can't publish".
