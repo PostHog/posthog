@@ -167,3 +167,33 @@ export const Crowded: Story = {
     ),
   },
 };
+
+/** A report-generated canvas keeps its ordinary canvas identity and names Signals as its source. */
+export const SignalsCanvas: Story = {
+  args: {
+    item: {
+      ...item(run({ status: "completed" })),
+      key: "canvas:activation-drop",
+      kind: "canvas",
+      id: "activation-drop",
+      title: "Activation fell after the onboarding change",
+      source: "signal_report",
+      sourceResourceId: "report-1",
+      rawStatus: null,
+      environment: null,
+      authorUser: null,
+      authorName: "PostHog",
+      authorUuid: null,
+      templateId: "freeform",
+      task: null,
+    },
+    menu: {
+      kind: "canvas",
+      id: "activation-drop",
+      title: "Activation fell after the onboarding change",
+      isPinned: false,
+      onTogglePin: () => {},
+      onDelete: () => {},
+    },
+  },
+};
