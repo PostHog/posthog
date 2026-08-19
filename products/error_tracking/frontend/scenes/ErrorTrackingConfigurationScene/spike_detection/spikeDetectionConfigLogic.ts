@@ -151,6 +151,7 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
             null as ErrorTrackingSpikeDetectionConfig | null,
             {
                 loadConfig: async () => {
+                    // nosemgrep: prefer-codegen-api
                     return await api.errorTracking.getSpikeDetectionConfig()
                 },
             },
@@ -159,6 +160,7 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
             [] as HogFunctionType[],
             {
                 loadSpikeAlerts: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.hogFunctions.list({
                         filter_groups: [{ events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] }],
                         types: ['internal_destination'],
@@ -184,6 +186,7 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
             }),
             submit: async (formValues) => {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const updated = await api.errorTracking.updateSpikeDetectionConfig({
                         snooze_duration_minutes: formValues.snooze_duration_minutes,
                         multiplier: formValues.multiplier,

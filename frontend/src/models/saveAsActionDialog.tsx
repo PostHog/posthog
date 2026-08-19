@@ -118,6 +118,7 @@ export function openSaveAsActionDialog({ suggestedName, step, createInFolder }: 
         ),
         onSubmit: async ({ actionName }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 const action = await api.actions.create({
                     name: actionName,
                     steps: [step],

@@ -103,6 +103,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
                     try {
                         const response = await withTimeout(
                             (signal) =>
+                                // nosemgrep: prefer-codegen-api
                                 api.fileSystem.list({
                                     orderBy: '-last_viewed_at',
                                     notType: 'folder',
@@ -137,6 +138,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
 
                     try {
                         const results = await withTimeout(
+                            // nosemgrep: prefer-codegen-api
                             (signal) => api.fileSystemLogView.list({ type: 'scene', signal }),
                             LOADER_TIMEOUT_MS,
                             'loadSceneLogViews timed out'

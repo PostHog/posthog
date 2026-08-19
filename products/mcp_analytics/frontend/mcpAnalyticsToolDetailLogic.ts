@@ -124,6 +124,7 @@ async function neighborRows(
     direction: 'before' | 'after',
     dateRange: DateRange
 ): Promise<ResultRows> {
+    // nosemgrep: prefer-codegen-api
     const response = (await api.query({
         kind: NodeKind.MCPToolNeighborsQuery,
         toolName,
@@ -412,6 +413,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             null as ToolSummary | null,
             {
                 loadSummary: async (): Promise<ToolSummary | null> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolStatsQuery,
                         toolName: props.toolName,
@@ -436,6 +438,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             [] as DescriptionRevision[],
             {
                 loadDescriptions: async (): Promise<DescriptionRevision[]> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolDescriptionsQuery,
                         toolName: props.toolName,
@@ -453,6 +456,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             {
                 // Reads the same MCPToolStatsQuery as `summary`; the coverage denominator is the call count.
                 loadIntentCoverage: async (): Promise<IntentCoverage | null> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolStatsQuery,
                         toolName: props.toolName,
@@ -473,6 +477,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                 // so a superseded response fetched at a different interval (e.g. day → hour on a fast
                 // back/forward) would otherwise land and collapse a day's rows into one hourly bucket.
                 loadDailyStats: async (_: void, breakpoint): Promise<DailyToolStat[]> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolDailyStatsQuery,
                         toolName: props.toolName,
@@ -496,6 +501,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             [] as MCPToolFailureItem[],
             {
                 loadFailureBuckets: async (): Promise<MCPToolFailureItem[]> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolFailuresQuery,
                         toolName: props.toolName,
@@ -512,6 +518,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                     bucket: MCPToolFailureItem,
                     breakpoint
                 ): Promise<MCPToolFailureOccurrenceItem[]> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolFailureOccurrencesQuery,
                         toolName: props.toolName,
@@ -532,6 +539,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             [] as ResultRows,
             {
                 loadSampleIntentRows: async (): Promise<ResultRows> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolSampleIntentsQuery,
                         toolName: props.toolName,
@@ -561,6 +569,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                 // Server-resolved harness labels via the same runner as the dashboard (scoped to this
                 // tool's new-SDK calls by toolName), so the pill matches the dashboard's bucketing exactly.
                 loadByHarnessRows: async (): Promise<ResultRows> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPHarnessBreakdownQuery,
                         toolName: props.toolName,
@@ -581,6 +590,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             {
                 // The person tuple is rebuilt into the [distinct_id, _, properties] shape renderPersonCell expects.
                 loadTopUserRows: async (): Promise<ResultRows> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.MCPToolTopUsersQuery,
                         toolName: props.toolName,

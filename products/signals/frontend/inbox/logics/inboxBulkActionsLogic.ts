@@ -157,6 +157,7 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
             })
             const results = await Promise.allSettled(
                 reportIds.map((id) =>
+                    // nosemgrep: prefer-codegen-api
                     api.signalReports.setState(id, {
                         state: 'suppressed',
                         dismissal_reason: reason,

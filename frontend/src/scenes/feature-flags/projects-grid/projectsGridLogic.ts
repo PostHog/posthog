@@ -290,6 +290,7 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
                     if (!orgId) {
                         return { offset, search, next: null, results: [] }
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.organizationFeatureFlags.keys(orgId, {
                         team_ids: values.visibleColumns,
                         search,
@@ -404,6 +405,7 @@ async function drainQueue(
             actions.siblingsFailed(nextKey)
             return
         }
+        // nosemgrep: prefer-codegen-api
         const siblings = await api.organizationFeatureFlags.get(orgId, nextKey)
         actions.siblingsLoaded(nextKey, siblings)
     } catch {

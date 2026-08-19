@@ -126,7 +126,9 @@ async function fetchSessionTitles(
     const sessionIds = batch.map((id) => escapeHogQLString(id)).join(',')
 
     const dateFrom = dateRange?.dateFrom
+    // nosemgrep: prefer-codegen-api
     const eventsQuery = dateFrom ? [api.query(eventsTableQuery(sessionIds, dateFrom, dateRange?.dateTo ?? null))] : []
+    // nosemgrep: prefer-codegen-api
     const settled = await Promise.allSettled([...eventsQuery, api.query(aiEventsTableQuery(sessionIds))])
 
     if (settled.every((r) => r.status === 'rejected')) {

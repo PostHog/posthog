@@ -15,20 +15,30 @@ rules:
       severity: ERROR
       languages: [typescript, javascript]
       pattern-either:
-          - pattern: api.get(...)
-          - pattern: api.post(...)
-          - pattern: api.put(...)
-          - pattern: api.patch(...)
-          - pattern: api.delete(...)
-          - pattern: api.create(...)
-          - pattern: api.update(...)
-          # Semgrep's TypeScript parser treats generic-typed calls (api.create<T>())
-          # as a different AST shape that AST-level patterns above don't match,
-          # so fall back to a regex. Bounds the type args by `(` rather than `>` so
-          # nested generics like api.get<PaginatedResponse<Foo>>(...) still match.
-          - pattern-regex: '\bapi\.(get|post|put|patch|delete|create|update)<[^(]*>\s*\('
+          # Match calls rooted at the canonical default import. The case-sensitive
+          # word boundary avoids identifiers such as `ApiConfig` and `savedQueryApi`.
+          # Bounding generic arguments by `(` supports nested generic types.
+          - pattern-regex: >-
+                \bapi(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+\s*(?:<[^\n(]*>)?\s*\(
+          # Keep the canonical import name enforceable so renaming the client cannot
+          # bypass the call-site regex.
+          - patterns:
+                - pattern: import $API from 'lib/api'
+                - metavariable-regex:
+                      metavariable: $API
+                      regex: '^(?!api$).+'
+          # These are alternate ways to rebuild the generated transport layer.
+          - pattern: new ApiRequest(...)
+          - pattern: apiMutator(...)
+          - pattern-regex: >-
+                \bfetch\s*\(\s*[`'"]\/?api\/
       paths:
           include:
               - '/products/*/frontend/'
+              - '/frontend/src/'
           exclude:
               - '**/generated/**'
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.stories.tsx'
+              - '**/__mocks__/**'

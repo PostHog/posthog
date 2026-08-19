@@ -242,6 +242,7 @@ export const miniBreakdownsLogic = kea<miniBreakdownsLogicType>([
             null as ErrorTrackingBreakdownsQueryResponse | null,
             {
                 loadBreakdownDetails: async ({ property }: { property: string }, breakpoint) => {
+                    // nosemgrep: prefer-codegen-api
                     const result = await api.query(
                         errorTrackingBreakdownsQuery({
                             issueId: props.issueId,
@@ -266,6 +267,7 @@ export const miniBreakdownsLogic = kea<miniBreakdownsLogicType>([
                     // Read connected values before the request because either connected logic may unmount while it runs.
                     const { dateRange, filterTestAccounts } = values
                     const breakdownProperties = values.breakdownProperties.map((preset) => preset.property)
+                    // nosemgrep: prefer-codegen-api
                     const result = await api.query(
                         errorTrackingBreakdownsQuery({
                             issueId: props.issueId,

@@ -52,6 +52,7 @@ const REASON_RADIO_OPTIONS: LemonRadioOption<DismissalReasonValue>[] = DISMISSAL
  * Opens the dismiss dialog. Mirrors desktop `DismissReportDialog`: pick a reason
  * (canonical {@link DISMISSAL_REASON_OPTIONS}) plus an optional note, then suppress.
  * The caller wires `onConfirm` to the bulk-dismiss action or a direct
+ // nosemgrep: prefer-codegen-api
  * `api.signalReports.setState(id, { state: 'suppressed', dismissal_reason, dismissal_note })`.
  */
 export function openDismissReportDialog({

@@ -369,6 +369,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
             [] as ColumnConfigurationApi[],
             {
                 loadViews: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.columnConfigurations.list({
                         context_key: props.contextKey,
                     })
@@ -376,6 +377,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 },
 
                 saveCurrentAsView: async ({ name, visibility }) => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.columnConfigurations.create({
                         data: getViewData(props, name, visibility),
                     })
@@ -388,6 +390,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
                         updates = getViewData(props)
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.columnConfigurations.update({
                         id,
                         data: updates,
@@ -397,6 +400,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 },
 
                 deleteView: async ({ id }) => {
+                    // nosemgrep: prefer-codegen-api
                     await api.columnConfigurations.delete({ id })
                     return values.views.filter((v) => v.id !== id)
                 },
@@ -479,6 +483,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
                 name: !name?.trim() ? 'Name is required' : undefined,
             }),
             submit: async ({ name, visibility }) => {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.columnConfigurations.create({
                     data: getViewData(props, name, visibility),
                 })

@@ -185,6 +185,7 @@ export const linkLogic = kea<linkLogicType>([
             loadLink: async () => {
                 if (props.id && props.id !== 'new') {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.links.get(props.id)
                         return response
                     } catch (error) {
@@ -197,7 +198,9 @@ export const linkLogic = kea<linkLogicType>([
             },
             saveLink: async (updatedLink: Partial<LinkType>) => {
                 const result: LinkType = await (props.id === 'new'
+                    // nosemgrep: prefer-codegen-api
                     ? api.links.create(updatedLink)
+                    // nosemgrep: prefer-codegen-api
                     : api.links.update(props.id, updatedLink))
                 if (props.id === 'new') {
                     router.actions.replace(urls.link(result.id))
@@ -259,6 +262,7 @@ export const linkLogic = kea<linkLogicType>([
         },
         deleteLink: async ({ linkId }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.links.delete(linkId)
                 lemonToast.info('Link deleted. Existing `$linkclick` events will be kept for future analysis')
                 actions.loadLinksSuccess(values.links.filter((link) => link.id !== linkId))

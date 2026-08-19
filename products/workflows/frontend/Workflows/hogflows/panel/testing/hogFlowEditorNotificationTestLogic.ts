@@ -306,6 +306,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             [] as PersonType[],
             {
                 loadSamplePersons: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.persons.list({ limit: 5 })
                     if (!response.results || response.results.length === 0) {
                         return []
@@ -322,6 +323,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                         return []
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.persons.list({ search: searchTerm.trim(), limit: 10 })
                         return response.results
                     } catch (error) {
@@ -362,6 +364,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                         }
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
                         configuration: values.workflowSanitized,
                         globals: {
@@ -408,6 +411,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             actions.setSelectedPersonDistinctId(distinctId)
             try {
                 // First, get the person by distinct_id
+                // nosemgrep: prefer-codegen-api
                 const personResponse = await api.persons.list({ distinct_id: distinctId, limit: 1 })
                 if (!personResponse?.results?.[0]) {
                     actions.setSampleGlobalsError(`No person found with distinct_id: ${distinctId}`)

@@ -213,6 +213,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     if (!props.viewId) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api
                     return await api.dataWarehouseSavedQueries.get(props.viewId)
                 },
             },
@@ -225,6 +226,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     if (!sql) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api
                     return await api.dataWarehouseSavedQueries.checkIncremental({ query: sql })
                 },
             },
@@ -233,6 +235,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             null as PaginatedResponse<DataModelingJob> | null,
             {
                 loadDataModelingJobs: async () => {
+                    // nosemgrep: prefer-codegen-api
                     return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(
                         props.viewId,
                         values.dataModelingJobs?.results.length
@@ -248,6 +251,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                         return values.dataModelingJobs
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const res = await api.get<PaginatedResponse<DataModelingJob>>(nextUrl)
                     res.results = [...(values.dataModelingJobs?.results ?? []), ...res.results]
 

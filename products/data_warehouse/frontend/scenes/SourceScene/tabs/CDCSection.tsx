@@ -215,6 +215,7 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
             onConfirm: async () => {
                 setBusy(true)
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.externalDataSources.update_cdc_settings(source.id, {
                         cdc_auto_drop_slot: autoDrop,
                         cdc_lag_warning_threshold_mb: warnMb,
@@ -316,6 +317,7 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
             onConfirm: async () => {
                 setBusy(true)
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.externalDataSources.disable_cdc(source.id)
                     lemonToast.success('CDC disabled')
                     loadSource()
@@ -531,6 +533,7 @@ function DisabledControls({ source }: { source: ExternalDataSource }): JSX.Eleme
         setEnabling(true)
         setModalErrors(null)
         try {
+            // nosemgrep: prefer-codegen-api
             await api.externalDataSources.enable_cdc(source.id, {
                 cdc_management_mode: mode,
                 cdc_publication_name: mode === 'self_managed' && publicationName ? publicationName : null,
@@ -560,6 +563,7 @@ function DisabledControls({ source }: { source: ExternalDataSource }): JSX.Eleme
         try {
             // Use the stored-credentials endpoint: this source already exists and its secret
             // fields (password) are stripped from API responses, so we can't resend them.
+            // nosemgrep: prefer-codegen-api
             const result = await api.externalDataSources.check_cdc_prerequisites_for_source(source.id, {
                 cdc_management_mode: mode,
                 cdc_publication_name: mode === 'self_managed' && publicationName ? publicationName : null,

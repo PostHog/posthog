@@ -434,6 +434,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     // then filter this page against filters it was never requested under.
                     const params = values.paramsFromFilters
                     const filters = values.filters
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/?${toParams(params)}`
                     )
@@ -449,6 +450,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 },
                 updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${id}`,
                             payload
@@ -484,6 +486,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     via?: FeatureFlagArchivedSource
                 }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${id}`,
                             archived ? { archived: true, active: false } : { archived: false }

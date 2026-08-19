@@ -274,6 +274,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                         return null
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`/api/environments/${teamId}/default_evaluation_contexts/`)
                     return response as DefaultEvaluationContextsResponse
                 },
@@ -285,6 +286,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.create(`/api/environments/${teamId}/default_evaluation_contexts/`, {
                             context_name: contextName,
                         })
@@ -325,6 +327,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await api.delete(
                             `/api/environments/${teamId}/default_evaluation_contexts/?context_name=${encodeURIComponent(contextName)}`
                         )
@@ -353,6 +356,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await api.create(`/api/environments/${teamId}/evaluation_context_suggestions/`, {
                             context_name: contextName,
                         })
@@ -380,6 +384,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await api.delete(
                             `/api/environments/${teamId}/evaluation_context_suggestions/?context_name=${encodeURIComponent(contextName)}`
                         )

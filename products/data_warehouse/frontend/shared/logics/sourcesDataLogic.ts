@@ -135,6 +135,7 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                         signal: cache.abortController.signal,
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const res = await api.externalDataSources.list(methodOptions)
                         breakpoint()
 
@@ -163,6 +164,7 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                     }
                 },
                 updateSource: async (source: ExternalDataSource) => {
+                    // nosemgrep: prefer-codegen-api
                     const updatedSource = await api.externalDataSources.update(source.id, source)
                     return {
                         ...values.dataWarehouseSources,
@@ -179,6 +181,7 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                     source: ExternalDataSource
                     config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
                 }) => {
+                    // nosemgrep: prefer-codegen-api
                     const updatedSource = await api.externalDataSources.updateRevenueAnalyticsConfig(source.id, config)
                     return {
                         ...values.dataWarehouseSources,

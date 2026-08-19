@@ -408,6 +408,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             ...(prompt.reasoningLevel ? { reasoning_level: prompt.reasoningLevel } : {}),
                         }
 
+                        // nosemgrep: prefer-codegen-api
                         await api.stream('/api/llm_proxy/completion', {
                             method: 'POST',
                             data: requestData,

@@ -81,7 +81,6 @@ export const traceReviewsApi = {
         params?: TraceReviewListParams,
         teamId: number = ApiConfig.getCurrentTeamId()
     ): Promise<CountedPaginatedResponse<TraceReview>> {
-        // nosemgrep: prefer-codegen-api
         return api
             .get<CountedPaginatedResponse<TraceReview>>(buildTraceReviewsListUrl(teamId, params))
             .then((response) => ({
@@ -96,7 +95,6 @@ export const traceReviewsApi = {
     },
 
     create(data: TraceReviewUpsertPayload, teamId: number = ApiConfig.getCurrentTeamId()): Promise<TraceReview> {
-        // nosemgrep: prefer-codegen-api
         return api
             .create<TraceReview, TraceReviewUpsertPayload>(getTraceReviewsBaseUrl(teamId), data)
             .then(normalizeTraceReview)
@@ -107,7 +105,6 @@ export const traceReviewsApi = {
         data: Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>,
         teamId: number = ApiConfig.getCurrentTeamId()
     ): Promise<TraceReview> {
-        // nosemgrep: prefer-codegen-api
         return api
             .update<TraceReview, Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>>(
                 `${getTraceReviewsBaseUrl(teamId)}${id}/`,

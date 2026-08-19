@@ -68,6 +68,7 @@ export const deleteRevenueEventModalLogic = kea<deleteRevenueEventModalLogicType
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.dataWarehouseManagedViewsets.getViews('revenue_analytics')
                         await breakpoint(100)
 

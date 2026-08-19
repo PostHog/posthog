@@ -171,6 +171,7 @@ export const tagMetricsLogic = kea<tagMetricsLogicType>([
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.query(query)
                         return (response.results || []).map((row: [string, number]) => ({
                             tag: row[0].replace(/^"|"$/g, ''),
@@ -206,6 +207,7 @@ export const tagMetricsLogic = kea<tagMetricsLogicType>([
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.query(query)
                         return response.results?.[0]?.[0] ?? 0
                     } catch {

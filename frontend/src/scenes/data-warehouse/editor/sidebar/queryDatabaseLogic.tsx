@@ -2804,6 +2804,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         return null
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api
                         return await api.queryTabState.user(values.user?.uuid)
                     } catch (e) {
                         console.error(e)
@@ -2828,6 +2829,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                             },
                         }
 
+                        // nosemgrep: prefer-codegen-api
                         await api.queryTabState.update(queryTabState.id, newState)
 
                         return newState

@@ -171,6 +171,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 </div>
             ),
             disableClientSideRouting: true,
+            // nosemgrep: prefer-codegen-api
             to: api.integrations.authorizeUrl({
                 kind: 'slack',
                 next: urls.workflows('channels'),

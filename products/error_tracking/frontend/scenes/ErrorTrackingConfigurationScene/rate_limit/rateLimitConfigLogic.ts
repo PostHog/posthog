@@ -238,6 +238,7 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
             null as ErrorTrackingSettings | null,
             {
                 loadConfig: async () => {
+                    // nosemgrep: prefer-codegen-api
                     return await api.errorTracking.getSettings()
                 },
             },
@@ -248,6 +249,7 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                 loadVolume: async ({ bucketMinutes, force }: ChartLoadParams) => {
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(
                         {
                             kind: NodeKind.HogQLQuery,
@@ -280,6 +282,7 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
                     const appSourceId = `${values.currentTeamId}:exceptions:global`
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(
                         {
                             kind: NodeKind.HogQLQuery,
@@ -332,6 +335,7 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
             submit: async ({ project_rate_limit_value, project_rate_limit_bucket_size_minutes }) => {
                 try {
                     const payload = { project_rate_limit_value, project_rate_limit_bucket_size_minutes }
+                    // nosemgrep: prefer-codegen-api
                     await api.errorTracking.updateSettings(payload)
                     actions.resetConfigForm(payload)
                     posthog.capture('error_tracking_project_rate_limit_updated', payload)

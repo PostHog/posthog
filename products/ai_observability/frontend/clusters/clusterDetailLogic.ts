@@ -357,6 +357,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                         tags: { productKey: ProductKey.AI_OBSERVABILITY, scene: AI_OBSERVABILITY_CLUSTER_SCENE_TAG },
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.query(eventsQuery)
                     breakpoint()
 
@@ -379,6 +380,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                     const { dayStart, dayEnd } = getTimestampBoundsFromRunId(props.runId)
 
                     // Query all three cluster event types so a single URL works regardless of level
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT

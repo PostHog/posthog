@@ -277,6 +277,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                     const results = await Promise.all(
                         viewsToLoad.map(async (viewId) => {
                             try {
+                                // nosemgrep: prefer-codegen-api
                                 const data = await api.dataWarehouseSavedQueries.dependencies(viewId)
                                 return { viewId, data }
                             } catch (error) {
@@ -308,6 +309,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                     const results = await Promise.all(
                         viewsToLoad.map(async (viewId) => {
                             try {
+                                // nosemgrep: prefer-codegen-api
                                 const data = await api.dataWarehouseSavedQueries.dependencies(viewId)
                                 return { viewId, data }
                             } catch (error) {
@@ -339,6 +341,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                     const results = await Promise.all(
                         viewsToLoad.map(async (viewId) => {
                             try {
+                                // nosemgrep: prefer-codegen-api
                                 const data = await api.dataWarehouseSavedQueries.runHistory(viewId)
                                 return { viewId, data: data.run_history }
                             } catch (error) {

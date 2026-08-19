@@ -265,6 +265,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 }
 
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.hogFlowTemplates.createHogFlowTemplate({
                         ...workflow,
                         name: formValues.name || workflow.name || '',
@@ -347,6 +348,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 if (props.editTemplateId) {
                     // In edit mode, use workflow values for name/description, but load template for image_url, tags, and scope
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const template = await api.hogFlowTemplates.getHogFlowTemplate(props.editTemplateId)
                         actions.setTemplateFormValues({
                             name: workflow.name,
@@ -380,6 +382,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 }
             })
 
+            // nosemgrep: prefer-codegen-api
             await api.hogFlowTemplates.updateHogFlowTemplate(workflowTemplate.id, workflowTemplate)
             lemonToast.success('Template updated')
 

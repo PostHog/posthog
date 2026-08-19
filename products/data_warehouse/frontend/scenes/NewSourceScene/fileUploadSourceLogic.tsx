@@ -249,6 +249,7 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
 
                 let upload
                 try {
+                    // nosemgrep: prefer-codegen-api
                     upload = await api.dataWarehouseTables.uploadFile(formData)
                 } catch (e: any) {
                     captureFileUploadFailed(file_format, 'upload', e)
@@ -257,6 +258,7 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
                 }
 
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.dataWarehouseTables.createFromUpload({
                         upload_id: upload.upload_id,
                         filename: upload.filename,

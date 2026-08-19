@@ -45,6 +45,7 @@ export async function getMessageAssets(
     hogFlowId: HogFlow['id'],
     params: MessageAssetsParams = {}
 ): Promise<MessageAsset[]> {
+    // nosemgrep: prefer-codegen-api
     return await new ApiRequest().hogFlow(hogFlowId).withAction('assets').withQueryString(params).get()
 }
 
@@ -83,6 +84,7 @@ export async function getPersonPushNotifications(
 
 // Same-origin URL — used as an `<iframe src>` so the browser carries session auth.
 export function getMessageAssetContentUrl(hogFlowId: HogFlow['id'], invocationId: string, actionId: string): string {
+    // nosemgrep: prefer-codegen-api
     return new ApiRequest()
         .hogFlow(hogFlowId)
         .withAction('assets/content')

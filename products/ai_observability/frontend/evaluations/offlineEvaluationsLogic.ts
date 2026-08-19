@@ -496,6 +496,7 @@ export const offlineEvaluationsLogic = kea<offlineEvaluationsLogicType>([
                     const { dateFromClause, dateToClause } = getOfflineDateClauses(values.offlineDateFilter)
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.queryHogQL(
                             hogql`
                                 SELECT

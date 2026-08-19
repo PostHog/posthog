@@ -969,6 +969,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         session_ids: [props.sessionRecordingId],
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.recordings.getMatchingEvents(toParams(params))
                     return response.results
                 },

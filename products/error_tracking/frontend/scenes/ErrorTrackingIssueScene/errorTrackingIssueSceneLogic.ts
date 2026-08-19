@@ -637,9 +637,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     loaders(({ values, actions, props }) => ({
         issue: {
             setIssue: ({ issue }) => issue,
+            // nosemgrep: prefer-codegen-api
             loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
             createExternalReference: async ({ integrationId, config }) => {
                 if (values.issue) {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
                     posthog.capture('error_tracking_issue_pushed', {
                         issue_id: props.id,
@@ -682,6 +684,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 if (!dayjs(timestamp).isValid()) {
                     return null
                 }
+                // nosemgrep: prefer-codegen-api
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
@@ -716,6 +719,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 // A reset dispatches several filter changes in one tick. Debounce them into one query,
                 // then discard its response if a newer load supersedes it while it is in flight.
                 await breakpoint(100)
+                // nosemgrep: prefer-codegen-api
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
@@ -740,6 +744,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issueFingerprints: [
             [] as ErrorTrackingFingerprint[],
             {
+                // nosemgrep: prefer-codegen-api
                 loadIssueFingerprints: async () => await api.errorTracking.fingerprints.list(props.id),
             },
         ],
@@ -773,6 +778,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             {
                 loadSpikeEvents: async () => {
                     const { dateFrom, dateTo } = dateRangeToIsoBounds(values.dateRange)
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.errorTracking.getSpikeEvents({
                         issueIds: [props.id],
                         dateFrom,

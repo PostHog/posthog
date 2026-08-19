@@ -510,6 +510,7 @@ export const clustersLogic = kea<clustersLogicType>([
                         tags: { productKey: ProductKey.AI_OBSERVABILITY, scene: AI_OBSERVABILITY_CLUSTERS_SCENE_TAG },
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.query(eventsQuery)
                     breakpoint()
 
@@ -535,6 +536,7 @@ export const clustersLogic = kea<clustersLogicType>([
                     // emitted ~daily but a team can go several days without a fresh one, and a
                     // narrow window made the page go empty the moment the last run aged out.
                     // MAX_CLUSTERING_RUNS still bounds the result.
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
@@ -573,6 +575,7 @@ export const clustersLogic = kea<clustersLogicType>([
                     const level = getLevelFromRunId(runId)
                     const eventName = eventNameForLevel(level)
 
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT

@@ -680,6 +680,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     const sentCustomColumns = values.customColumns
                     const sentExpressions = sentCustomColumns ?? []
 
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.logs.query({
                         query: {
                             limit: values.initialLogsLimit ?? DEFAULT_LOGS_PAGE_SIZE,
@@ -732,6 +733,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     }
 
                     await breakpoint(300)
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.logs.query({
                         query: {
                             limit: limit ?? DEFAULT_LOGS_PAGE_SIZE,
@@ -767,6 +769,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     const signal = sparklineController.signal
                     actions.cancelInProgressSparkline(sparklineController)
 
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.logs.sparkline({
                         query: {
                             orderBy: values.orderBy,
@@ -1153,6 +1156,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
 
             try {
                 const start = Date.now()
+                // nosemgrep: prefer-codegen-api
                 const response = await api.logs.query({
                     query: {
                         limit: DEFAULT_LOGS_PAGE_SIZE,

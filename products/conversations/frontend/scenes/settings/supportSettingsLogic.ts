@@ -892,6 +892,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             {
                 loadGithubIntegrations: async () => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.integrations.list()
                         return (response.results || [])
                             .filter((i: any) => i.kind === 'github')
@@ -1192,6 +1193,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             window.location.href = response.url
         },
         generateNewToken: async () => {
+            // nosemgrep: prefer-codegen-api
             const response = await api.projects.generateConversationsPublicToken(values.currentTeam?.id)
             actions.updateCurrentTeam(response)
             lemonToast.success('New token generated')

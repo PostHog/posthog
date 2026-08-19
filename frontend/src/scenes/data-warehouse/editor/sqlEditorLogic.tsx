@@ -1506,6 +1506,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as { nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null,
             {
                 loadUpstream: async (payload: { modelId: string }) => {
+                    // nosemgrep: prefer-codegen-api
                     return await api.dataModelingNodes.lineage({ savedQueryId: payload.modelId })
                 },
             },
@@ -2144,6 +2145,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 let incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null = null
                 if (values.featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]) {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
                             query: selectedRef.current ?? values.queryInput ?? '',
                         })
@@ -2172,6 +2174,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             folderName: (name) => (!name?.trim() ? 'You must enter a folder name' : undefined),
                         },
                         onSubmit: async ({ folderName }) => {
+                            // nosemgrep: prefer-codegen-api
                             const folder = await api.dataWarehouseSavedQueryFolders.create({ name: folderName.trim() })
                             folderOptions.splice(folderOptions.length - 1, 0, {
                                 value: folder.id,
@@ -2260,6 +2263,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                                             onSubmit: async (dagData) => {
                                                                 try {
                                                                     const newDag =
+                                                                        // nosemgrep: prefer-codegen-api
                                                                         await api.dataModelingDags.create(dagData)
                                                                     await dataModelingLogic.asyncActions.loadDags()
                                                                     onSelect(newDag.id)
@@ -2462,6 +2466,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     let nextView = view
 
                     if (!nextView.query) {
+                        // nosemgrep: prefer-codegen-api
                         nextView = await api.dataWarehouseSavedQueries.get(view.id)
                     }
 
@@ -2650,6 +2655,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             saveAsEndpointSubmit: async ({ name, description, queryOverride }) => {
                 const biEditorState = getActiveBIEditorState()
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const endpoint = await api.endpoint.create({
                         name: slugify(name),
                         description: description || undefined,
@@ -2951,6 +2957,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             updateView: async ({ view, draftId }) => {
                 const biEditorState = getActiveBIEditorState()
+                // nosemgrep: prefer-codegen-api
                 const latestView = await api.dataWarehouseSavedQueries.get(view.id)
                 // A real conflict means someone else changed the query text since this edit began.
                 // Detect it by comparing the server's current query against the baseline this edit
@@ -3008,6 +3015,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // check — both the frontend guard and the backend's edited_history_id check — keys off
                     // this head; without re-basing, reverting the query and saving again is misread as a
                     // foreign edit and wrongly raises "View has been edited by another user".
+                    // nosemgrep: prefer-codegen-api
                     const refreshedView = await api.dataWarehouseSavedQueries.get(view.id)
                     if (refreshedView?.latest_history_id && values.activeTab?.view?.id === view.id) {
                         actions.updateTab({
@@ -3491,6 +3499,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Fetch the full view with query if not already loaded
                     if (!view.query) {
                         try {
+                            // nosemgrep: prefer-codegen-api
                             view = await api.dataWarehouseSavedQueries.get(viewId)
                         } catch {
                             lemonToast.error('Failed to load view details')

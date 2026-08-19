@@ -205,6 +205,7 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
                         ]
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(query)) as Record<string, any>
 
                     return {
@@ -221,8 +222,10 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
                 saveRule: async () => {
                     const rule = values.rule
                     if (rule.id === 'new') {
+                        // nosemgrep: prefer-codegen-api
                         await api.errorTracking.createRule(ErrorTrackingRuleType.Suppression, rule)
                     } else {
+                        // nosemgrep: prefer-codegen-api
                         await api.errorTracking.updateRule(ErrorTrackingRuleType.Suppression, rule)
                     }
                     return true
@@ -234,6 +237,7 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
             {
                 deleteRule: async () => {
                     const rule = values.rule
+                    // nosemgrep: prefer-codegen-api
                     await api.errorTracking.deleteRule(ErrorTrackingRuleType.Suppression, rule.id)
                     return true
                 },

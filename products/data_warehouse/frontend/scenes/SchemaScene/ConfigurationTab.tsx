@@ -391,6 +391,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         const applyUpdate = async (): Promise<void> => {
             setSaving(true)
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.externalDataSchemas.update(schema.id, {
                     should_sync: true,
                     sync_type: syncType,
@@ -554,6 +555,7 @@ function ApiVersionSection({
     const persist = async (resyncAfter: boolean): Promise<void> => {
         setSaving(true)
         try {
+            // nosemgrep: prefer-codegen-api
             await api.externalDataSchemas.update(schema.id, { api_version: draftVersion })
             if (resyncAfter) {
                 resyncSchema(schema)
@@ -882,6 +884,7 @@ function ScheduleSection({
     const handleSave = async (): Promise<void> => {
         setSaving(true)
         try {
+            // nosemgrep: prefer-codegen-api
             await api.externalDataSources.bulkUpdateSchemas(sourceId, [
                 {
                     id: schema.id,

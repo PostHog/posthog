@@ -279,6 +279,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                         })
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     await api.externalDataSchemas.update(schema.id, schema)
                     actions.loadSources()
 
@@ -453,16 +454,19 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         deleteSelfManagedTable: async ({ tableId }) => {
+            // nosemgrep: prefer-codegen-api
             await api.dataWarehouseTables.delete(tableId)
             actions.loadDatabase()
         },
         refreshSelfManagedTableSchema: async ({ tableId }) => {
             lemonToast.info('Updating schema...')
+            // nosemgrep: prefer-codegen-api
             await api.dataWarehouseTables.refreshSchema(tableId)
             lemonToast.success('Schema updated')
             actions.loadDatabase()
         },
         deleteSource: async ({ source }) => {
+            // nosemgrep: prefer-codegen-api
             await api.externalDataSources.delete(source.id)
             actions.loadSources()
             actions.sourceLoadingFinished(source)
@@ -493,6 +497,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             })
 
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.externalDataSources.reload(source.id)
                 actions.loadSources()
 
@@ -538,6 +543,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         },
         deleteJoin: ({ join }): void => {
             void deleteWithUndo({
+                // nosemgrep: prefer-codegen-api
                 endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
                 object: {
                     id: join.id,

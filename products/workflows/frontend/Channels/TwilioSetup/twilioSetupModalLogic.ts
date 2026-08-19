@@ -131,6 +131,7 @@ export const twilioSetupModalLogic = kea<twilioSetupModalLogicType>([
             }),
             submit: async () => {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const integration = await api.integrations.create({
                         kind: 'twilio',
                         config: {

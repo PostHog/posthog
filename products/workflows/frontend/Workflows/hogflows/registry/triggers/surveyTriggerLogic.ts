@@ -103,6 +103,7 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
             [] as Survey[],
             {
                 loadSurveys: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.surveys.list({ limit: SURVEYS_PAGE_SIZE, archived: false })
                     return response.results
                 },
@@ -112,6 +113,7 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
             [] as Survey[],
             {
                 loadMoreSurveys: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.surveys.list({
                         limit: SURVEYS_PAGE_SIZE,
                         offset: values.allSurveys.length,
@@ -129,6 +131,7 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
                     if (!surveyIds) {
                         return {}
                     }
+                    // nosemgrep: prefer-codegen-api
                     return await api.surveys.getResponsesCount(surveyIds)
                 },
             },

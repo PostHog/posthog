@@ -57,6 +57,7 @@ export const optOutSceneLogic = kea<optOutSceneLogicType>([
                 }
 
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const newPreferencesUrl = await api.messaging.generateMessagingPreferencesLink(
                         recipient ?? values.user.email
                     )

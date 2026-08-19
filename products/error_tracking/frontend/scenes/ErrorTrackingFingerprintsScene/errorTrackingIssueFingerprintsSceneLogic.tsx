@@ -231,9 +231,11 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
 
     loaders(({ values, props }) => ({
         issue: {
+            // nosemgrep: prefer-codegen-api
             loadIssue: async () => await api.errorTracking.getIssue(props.id),
         },
         issueFingerprints: {
+            // nosemgrep: prefer-codegen-api
             loadIssueFingerprints: async () => await api.errorTracking.fingerprints.list(props.id),
             unmerge: ({ fingerprint }: { fingerprint: string }) =>
                 (values.issueFingerprints || []).filter((f: ErrorTrackingFingerprint) => f.fingerprint !== fingerprint),
@@ -246,6 +248,7 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
                         issue.first_seen,
                         fingerprints.map((fingerprint) => fingerprint.fingerprint)
                     )
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.queryHogQL(query, {
                         scene: 'ErrorTrackingIssueFingerprints',
                         productKey: 'error_tracking',

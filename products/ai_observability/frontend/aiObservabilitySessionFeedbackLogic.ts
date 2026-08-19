@@ -136,6 +136,7 @@ export const aiObservabilitySessionFeedbackLogic = kea<aiObservabilitySessionFee
             }
 
             try {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.query(feedbackQuery)
                 const feedback: SessionFeedback[] = (response.results || []).map((row: any[]) => ({
                     rating: row[0] || '',
@@ -173,6 +174,7 @@ export const aiObservabilitySessionFeedbackLogic = kea<aiObservabilitySessionFee
             }
 
             try {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.query(ticketsQuery)
                 const tickets: SessionSupportTicket[] = (response.results || []).map((row: any[]) => ({
                     ticketId: row[0] || '',

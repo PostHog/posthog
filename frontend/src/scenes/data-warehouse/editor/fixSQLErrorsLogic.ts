@@ -62,6 +62,7 @@ export const fixSQLErrorsLogic = kea<fixSQLErrorsLogicType>([
             null as Response | null,
             {
                 fixErrors: async ({ query, error, connectionId }) => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.fixHogQLErrors.fix(query, error, connectionId)
 
                     return response as Response

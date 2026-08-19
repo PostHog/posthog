@@ -68,6 +68,7 @@ export const disableRevenueSourceModalLogic = kea<disableRevenueSourceModalLogic
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.dataWarehouseManagedViewsets.getViews('revenue_analytics')
                         await breakpoint(100)
 

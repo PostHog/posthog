@@ -293,6 +293,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             null as ErrorTrackingSettings | null,
             {
                 loadConfig: async () => {
+                    // nosemgrep: prefer-codegen-api
                     return await api.errorTracking.getSettings()
                 },
             },
@@ -304,6 +305,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
                     await breakpoint(300)
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -350,6 +352,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
                     await breakpoint(300)
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(
                         {
                             kind: NodeKind.HogQLQuery,
@@ -397,6 +400,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                     const totalMinutes = option.minutes * option.bucketCount
                     await breakpoint(300)
                     // The per-issue rate limiter emits app_metrics2 rows keyed by the issue id directly.
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(
                         {
                             kind: NodeKind.HogQLQuery,
@@ -451,6 +455,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             submit: async ({ per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes }) => {
                 try {
                     const payload = { per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes }
+                    // nosemgrep: prefer-codegen-api
                     await api.errorTracking.updateSettings(payload)
                     actions.resetConfigForm(payload)
                     posthog.capture('error_tracking_per_issue_rate_limit_updated', payload)

@@ -121,6 +121,7 @@ export const mcpNotificationExamplesLogic = kea<mcpNotificationExamplesLogicType
             {} as MCPNotificationExamples,
             {
                 loadExamples: async (): Promise<MCPNotificationExamples> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: EXAMPLES_QUERY,
