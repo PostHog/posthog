@@ -483,8 +483,7 @@ class TestOAuthModels(TestCase):
 
         self.assertEqual(OAuthAccessToken.objects.filter(user=self.user, application=app).count(), 0)
         self.assertEqual(OAuthGrant.objects.filter(user=self.user, application=app).count(), 0)
-        refresh_token.refresh_from_db()
-        self.assertIsNotNone(refresh_token.revoked)
+        self.assertFalse(OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists())
 
     def test_revoke_oauth_session_with_null_user_still_revokes_specific_token(self):
         app = OAuthApplication.objects.create(
@@ -591,8 +590,7 @@ class TestOAuthModels(TestCase):
         self.assertFalse(OAuthAccessToken.objects.filter(id=first_access_token.id).exists())
         self.assertFalse(OAuthAccessToken.objects.filter(id=second_access_token.id).exists())
         self.assertFalse(OAuthGrant.objects.filter(id=grant.id).exists())
-        refresh_token.refresh_from_db()
-        self.assertIsNotNone(refresh_token.revoked)
+        self.assertFalse(OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists())
 
     @freeze_time("2026-01-01 00:00:00")
     def test_revoke_application_sessions_revokes_across_all_users_and_leaves_other_apps(self):

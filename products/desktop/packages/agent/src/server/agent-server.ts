@@ -21,6 +21,7 @@ import {
   type Adapter,
   buildPrOutput,
   getErrorMessage,
+  isIgnoredSkillPath,
   type McpServerConnection,
   mergePrUrls,
   parseMcpToolName,
@@ -652,9 +653,10 @@ export class AgentServer {
     // veto, not silent auto-approval.
     return (
       mode === "default" ||
-      mode === "auto" ||
       mode === "read-only" ||
-      mode === "plan"
+      mode === "plan" ||
+      // codex relays every approval, so relaying "auto" prompts for what it runs unattended.
+      (mode === "auto" && this.getRuntimeAdapter() !== "codex")
     );
   }
 
@@ -3281,6 +3283,12 @@ export class AgentServer {
         normalizedEntryName.startsWith("/") ||
         normalizedEntryName.split("/").includes("..")
       ) {
+        continue;
+      }
+      // Bundles from clients that predate export-side filtering can still
+      // carry ignored entries; drop them so the sandbox skill matches what
+      // current clients would have uploaded.
+      if (isIgnoredSkillPath(normalizedEntryName)) {
         continue;
       }
 

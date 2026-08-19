@@ -121,6 +121,19 @@ def delete_expired_exported_assets() -> None:
 
 
 @shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+def fail_stuck_video_exports() -> None:
+    """Give up on video exports whose render workflow died without recording a reason.
+
+    The workflow records its own failures, but not the ones where it never got to run: its execution
+    timeout firing, a dispatch failure, a lost worker. Without this sweep those rows stay
+    indistinguishable from a render still in progress.
+    """
+    from products.exports.backend.stuck_exports import fail_stuck_video_exports as run_sweep
+
+    run_sweep()
+
+
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
 @skip_team_scope_audit
 def delete_expired_delegation_invites() -> None:
     """Delete delegation invites that have passed their expiry.

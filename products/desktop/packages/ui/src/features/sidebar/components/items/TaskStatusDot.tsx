@@ -20,10 +20,15 @@ import { DotRingSpinner } from "@posthog/ui/primitives/DotRingSpinner";
 import type { ReactElement, ReactNode } from "react";
 
 const DOT_SIZE = 8;
-// Exactly the plain dot's box. Anything larger and a working row's label starts
-// further right than its neighbours' — the icon column has to hold one width or
-// the list stops looking like a list.
-const SPINNER_SIZE = DOT_SIZE;
+// Drawn at the row-icon size the rest of the app spins at, not at the dot's own
+// 8px: eight dots inside an 8px box are 1.6px across, and that reads as a smudge
+// rather than as something turning, which leaves the one row that is working the
+// faintest mark in the list.
+const SPINNER_SIZE = 12;
+// The box the ring is centered in and measured by. It stays the plain dot's, so
+// the icon column holds one width and a working row's label lines up with its
+// neighbours' — the ring's extra width spills evenly into the row's padding.
+const SPINNER_BOX = DOT_SIZE;
 // Enough to still find the dot if you look for it, not enough to count as one of
 // the list's live rows.
 const FAINT_OPACITY = 0.4;
@@ -38,13 +43,14 @@ const TOOLTIP_DELAY_MS = 200;
  * that can't receive the pointer can't be hovered, can't swallow a click meant
  * for the row underneath, and can't have its text dragged into a selection.
  */
-function RowTooltip({
+export function RowTooltip({
   label,
   side,
   children,
 }: {
   label: string;
-  side: "top" | "right";
+  /** Where the row sits: `bottom` for the window header, which has no room above. */
+  side: "top" | "right" | "bottom";
   children: ReactElement;
 }) {
   return (
@@ -74,12 +80,20 @@ function dotMark(dot: TaskDot, decorative = false): ReactElement {
     return (
       <span
         {...naming}
-        className="flex shrink-0 items-center justify-center"
+        className="relative flex shrink-0 items-center justify-center"
         // The spinner draws its dots in `currentColor`, so the tone is set
         // here rather than passed down.
-        style={{ color: TONE_ICON_VAR[dot.tone], width: SPINNER_SIZE }}
+        style={{
+          color: TONE_ICON_VAR[dot.tone],
+          width: SPINNER_BOX,
+          height: SPINNER_BOX,
+        }}
       >
-        <DotRingSpinner size={SPINNER_SIZE} />
+        <DotRingSpinner
+          size={SPINNER_SIZE}
+          // Out of flow, so the box measures the dot rather than the ring.
+          className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2"
+        />
       </span>
     );
   }
