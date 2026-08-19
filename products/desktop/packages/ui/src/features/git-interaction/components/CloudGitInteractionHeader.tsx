@@ -118,7 +118,6 @@ export function CloudGitInteractionHeader({
     <>
       <div className="no-drag flex items-center">
         <QuillButton
-          variant="outline"
           size="sm"
           disabled={inProgress}
           onClick={() =>

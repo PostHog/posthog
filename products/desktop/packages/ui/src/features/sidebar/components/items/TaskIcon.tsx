@@ -13,7 +13,6 @@ import {
   Lifebuoy,
   Pause,
   PushPin,
-  Robot,
   SlackLogo,
   WarningCircle,
 } from "@phosphor-icons/react";
@@ -50,7 +49,6 @@ const ORIGIN_PRODUCT_META: Record<string, OriginProductMeta> = {
   session_summaries: { Icon: FilmSlate, label: "Session summary" },
   error_tracking: { Icon: Bug, label: "Error tracking" },
   eval_clusters: { Icon: Flask, label: "Evals" },
-  automation: { Icon: Robot, label: "Automation" },
 };
 
 export function getOriginProductMeta(
