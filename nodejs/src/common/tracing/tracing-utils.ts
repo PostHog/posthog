@@ -28,6 +28,14 @@ const instrumentedFunctionTimeout = new Counter({
     labelNames: ['function'],
 })
 
+// AbortSignal.timeout() rejects with a DOMException named 'TimeoutError' whose stack holds only
+// node:internal frames. Every request timeout then hashes to one error-tracking fingerprint, which
+// hides a real timeout regression in any single operation. These timeouts are handled and already
+// counted by instrumented_function_timeout_total, so we do not report them as exceptions.
+function isRequestTimeoutError(error: unknown): boolean {
+    return error instanceof Error && error.name === 'TimeoutError'
+}
+
 const logTime = (startTime: number, statsKey: string, error?: any): void => {
     logger.info('⏱️', `${statsKey} took ${Math.round(performance.now() - startTime)}ms`, {
         error,
@@ -146,8 +154,10 @@ export async function instrumentFn<T>(
         if (logExecutionTime) {
             logTime(startTime, key, error)
         }
-        if (sendException) {
-            captureException(error)
+        if (sendException && !isRequestTimeoutError(error)) {
+            // Pass the instrumentation key so exceptions group per operation instead of collapsing
+            // into a single bucket when the error carries no plugin-server stack frame.
+            captureException(error, { tags: { instrumentation_key: key } })
         }
         throw error
     } finally {
