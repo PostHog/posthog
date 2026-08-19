@@ -171,10 +171,10 @@ class Person(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
-    # used to prevent race conditions with set and set_once
+    # Legacy columns, no longer read for property precedence. They once tracked per-key update
+    # times and the last operation (set vs set_once), but the person service now writes both empty
+    # and merge precedence is positional. See docs/published/handbook/engineering/person-processing.md.
     properties_last_updated_at = models.JSONField(default=dict, null=True, blank=True)
-
-    # used for evaluating if we need to override the value or not (value: set or set_once)
     properties_last_operation = models.JSONField(null=True, blank=True)
 
     # DO_NOTHING: Team deletion handled manually via Person.objects.filter(team_id=...).delete()

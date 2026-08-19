@@ -121,7 +121,7 @@ A distinct ID must be associated with exactly one user, so it'd be invalid to us
 Every person has a single UUID, generated deterministically from `(team_id, distinct_id)` at creation time using UUIDv5.
 
 ```typescript
-// nodejs/src/worker/ingestion/person-uuid.ts
+// nodejs/src/ingestion/common/persons/person-uuid.ts
 function uuidFromDistinctId(teamId: number, distinctId: string): string {
   return uuidv5(`${teamId}:${distinctId}`, PERSON_UUIDV5_NAMESPACE)
 }
@@ -241,38 +241,31 @@ The Kafka partition key for most events is `<token>:<distinct_id>`:
 
 ### 2. Ingestion pipeline (Node.js)
 
-**Location**: `nodejs/src/worker/ingestion/`
+**Location**: `nodejs/src/ingestion/`
 
 The ingestion pipeline processes events in batches. For person processing:
 
 #### 2.1 Prefetch step
 
-**Location**: `nodejs/src/worker/ingestion/event-pipeline/prefetchPersonsStep.ts`
+**Location**: `nodejs/src/ingestion/pipelines/analytics/steps/prefetchPersonsStep.ts`
 
 - Batch-fetches persons for all distinct_ids in the batch
 - Populates a cache to avoid repeated database lookups
 
-#### 2.2 Personless batch step
+#### 2.2 Personless step
 
-**Location**: `nodejs/src/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep.ts`
+**Location**: `nodejs/src/ingestion/common/steps/event-processing/process-personless-step.ts`
 
-For events with `$process_person_profile: false`:
+For events with `$process_person_profile: false`, this step resolves the person for the distinct ID:
 
-- Batch-inserts into `posthog_personlessdistinctid` table
-- Checks and caches whether the distinct_id was already merged (`is_merged` flag)
+- It reuses an existing real person from the prefetch cache when one is found. It may set `force_upgrade` when the person was created more than a minute earlier and the team has not opted out of person processing.
+- When no real person exists, it builds a deterministic fake person from the team ID and distinct ID.
 
-```sql
--- nodejs/src/worker/ingestion/persons/repositories/postgres-person-repository.ts
-INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
-VALUES ($1, $2, false, now())
-ON CONFLICT (team_id, distinct_id) DO UPDATE
-SET is_merged = posthog_personlessdistinctid.is_merged
-RETURNING is_merged
-```
+PostHog also tracks personless distinct IDs (with an `is_merged` flag) so a later `$identify` knows whether an override is needed. See `posthog_personlessdistinctid` in the PostgreSQL tables section below.
 
 #### 2.3 Person processing step
 
-**Location**: `nodejs/src/worker/ingestion/event-pipeline/processPersonsStep.ts`
+**Location**: `nodejs/src/ingestion/common/steps/event-processing/process-persons-step.ts`
 
 Two branches based on `$process_person_profile`:
 
@@ -292,12 +285,12 @@ Two branches based on `$process_person_profile`:
 
 #### 2.4 Merge handling
 
-**Location**: `nodejs/src/worker/ingestion/persons/person-merge-service.ts`
+**Location**: `nodejs/src/ingestion/common/persons/person-merge-service.ts`
 
 When `$identify` is called with `$anon_distinct_id`:
 
 ```typescript
-// nodejs/src/worker/ingestion/persons/person-merge-service.ts
+// nodejs/src/ingestion/common/persons/person-merge-service.ts
 async mergeDistinctIds(
     otherPersonDistinctId: string,    // e.g., "anon-123"
     mergeIntoDistinctId: string,      // e.g., "user@example.com"
@@ -311,6 +304,27 @@ async mergeDistinctIds(
 1. **Only one person exists**: Add the missing distinct_id to that person
 2. **Both persons exist**: Merge them (move all distinct_ids, merge properties, delete source person)
 3. **Neither exists**: Create a new person with both distinct_ids
+
+**Which side wins a property conflict?**
+
+A merge never reads timestamps to decide which value wins. The order is fixed:
+
+1. The identified person keeps every property key it already holds.
+2. The anonymous person fills only the keys the identified person does not have.
+3. The merge event's own `$set` then overwrites any key.
+4. The merge event's own `$set_once` fills only the keys that are still absent.
+
+So on a key conflict the identified person wins, and the anonymous person only fills gaps.
+Step 3 applies `$set` last, so a `$set` on the `$identify` call overwrites the merged value.
+This is why a `$set` on identify makes the anonymous session's value win.
+
+`$initial_*` properties get no special treatment.
+They are ordinary `$set_once` keys, so they sit in the weakest layer and only fill keys that are still absent.
+
+The Node.js pipeline combines both persons' properties with an object spread in `mergeDistinctIds` (`nodejs/src/ingestion/common/persons/person-merge-service.ts`).
+The identified person is spread last and so wins each shared key.
+The pipeline then applies the event operations in `nodejs/src/ingestion/common/persons/person-update.ts`: `$set_once` writes a key only when it is missing, and `$set` overwrites.
+The Rust person service folds properties in the same order in `fold_person_document` (`rust/personhog-leader/src/service.rs`).
 
 **When are overrides created?**
 
@@ -494,13 +508,12 @@ WHERE team_id = X AND distinct_id = 'anon-123'
 
 | File                                                                                  | Purpose                                         |
 | ------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `nodejs/src/worker/ingestion/person-uuid.ts`                                          | Deterministic UUID generation                   |
-| `nodejs/src/worker/ingestion/event-pipeline/processPersonsStep.ts`                    | Entry point for person processing               |
-| `nodejs/src/worker/ingestion/event-pipeline/processPersonlessStep.ts`                 | Personless event handling                       |
-| `nodejs/src/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep.ts` | Batch personless tracking                       |
-| `nodejs/src/worker/ingestion/persons/person-merge-service.ts`                         | Merge/identify handling, override version logic |
-| `nodejs/src/worker/ingestion/persons/person-create-service.ts`                        | Person creation                                 |
-| `nodejs/src/worker/ingestion/persons/repositories/postgres-person-repository.ts`      | PostgreSQL queries for person operations        |
+| `nodejs/src/ingestion/common/persons/person-uuid.ts`                                  | Deterministic UUID generation                   |
+| `nodejs/src/ingestion/common/steps/event-processing/process-persons-step.ts`          | Entry point for person processing               |
+| `nodejs/src/ingestion/common/steps/event-processing/process-personless-step.ts`       | Personless event handling                       |
+| `nodejs/src/ingestion/common/persons/person-merge-service.ts`                         | Merge/identify handling, override version logic |
+| `nodejs/src/ingestion/common/persons/person-create-service.ts`                        | Person creation                                 |
+| `nodejs/src/common/persons/repositories/postgres-person-repository.ts`                | PostgreSQL queries for person operations        |
 
 ### PostgreSQL schema (Python/Django)
 
