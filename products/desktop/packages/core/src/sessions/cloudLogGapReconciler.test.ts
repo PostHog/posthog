@@ -25,7 +25,7 @@ function request(
     taskRunId: "r1",
     expectedCount: 5,
     currentCount: 0,
-    newEntries: [],
+    entryBatches: [],
     logUrl: "https://logs/r1",
     ...over,
   };
@@ -97,7 +97,7 @@ describe("CloudLogGapReconciler", () => {
     new CloudLogGapReconciler(deps).reconcile(
       request({
         expectedCount: 4,
-        newEntries: streamedEntries,
+        entryBatches: [{ endCount: 4, entries: streamedEntries }],
       }),
     );
     await tick();
@@ -107,6 +107,35 @@ describe("CloudLogGapReconciler", () => {
       [...fetchedEntries, entry("c"), entry("d")],
       "https://logs/r1",
       4,
+    );
+  });
+
+  it("uses batch positions when a coalesced snapshot regresses", async () => {
+    const fetchedEntries = [entry("a"), entry("b")];
+    const { deps, commit } = createDeps({
+      fetch: {
+        rawEntries: fetchedEntries,
+        totalLineCount: 2,
+        parseFailureCount: 0,
+      },
+    });
+
+    new CloudLogGapReconciler(deps).reconcile(
+      request({
+        expectedCount: 5,
+        entryBatches: [
+          { endCount: 5, entries: [entry("d"), entry("e")] },
+          { endCount: 3, entries: [entry("a"), entry("b"), entry("c")] },
+        ],
+      }),
+    );
+    await tick();
+
+    expect(commit).toHaveBeenCalledWith(
+      "r1",
+      [...fetchedEntries, entry("c"), entry("d"), entry("e")],
+      "https://logs/r1",
+      5,
     );
   });
 

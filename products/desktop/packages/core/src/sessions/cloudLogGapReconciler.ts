@@ -121,7 +121,7 @@ export class CloudLogGapReconciler {
       taskRunId,
       expectedCount,
       currentCount,
-      newEntries,
+      entryBatches,
       logUrl,
     } = request;
 
@@ -129,15 +129,17 @@ export class CloudLogGapReconciler {
       await this.deps.fetchLogs(logUrl, taskRunId, expectedCount);
 
     const missingLineCount = expectedCount - totalLineCount;
+    const streamedTail = this.buildStreamedTail(
+      entryBatches,
+      totalLineCount,
+      expectedCount,
+    );
     if (
       missingLineCount > 0 &&
-      newEntries.length >= missingLineCount &&
+      streamedTail?.length === missingLineCount &&
       parseFailureCount === 0
     ) {
-      rawEntries = [
-        ...rawEntries,
-        ...newEntries.slice(newEntries.length - missingLineCount),
-      ];
+      rawEntries = [...rawEntries, ...streamedTail];
       totalLineCount = expectedCount;
     }
 
@@ -191,7 +193,32 @@ export class CloudLogGapReconciler {
       expectedCount,
       fetchedCount: rawEntries.length,
       parseFailureCount,
-      entriesReceived: newEntries.length,
+      entriesReceived: entryBatches.reduce(
+        (total, batch) => total + batch.entries.length,
+        0,
+      ),
     });
+  }
+
+  private buildStreamedTail(
+    batches: CloudLogGapReconcileRequest["entryBatches"],
+    startCount: number,
+    endCount: number,
+  ): StoredLogEntry[] | undefined {
+    const entriesByIndex = new Map<number, StoredLogEntry>();
+    for (const batch of batches) {
+      const batchStart = batch.endCount - batch.entries.length;
+      batch.entries.forEach((entry, offset) => {
+        entriesByIndex.set(batchStart + offset, entry);
+      });
+    }
+
+    const tail: StoredLogEntry[] = [];
+    for (let index = startCount; index < endCount; index += 1) {
+      const entry = entriesByIndex.get(index);
+      if (!entry) return undefined;
+      tail.push(entry);
+    }
+    return tail;
   }
 }
