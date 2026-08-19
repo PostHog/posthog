@@ -643,6 +643,7 @@ jobs:
             selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
             skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
             run_legacy: ${{ steps.fallback.outputs.run_legacy }}
+            run_legacy_reason: ${{ steps.fallback.outputs.run_legacy_reason }}
             turbo_result: ${{ steps.fallback.outputs.turbo_result }}
         steps:
             # Ahead of the checkout on purpose: this reads job outputs only, and when it
@@ -683,6 +684,7 @@ jobs:
                   echo "reason=$reason" >> "$GITHUB_OUTPUT"
                   # Surface the raw inputs too, so the telemetry can audit the decision.
                   echo "run_legacy=${RUN_LEGACY:-}" >> "$GITHUB_OUTPUT"
+                  echo "run_legacy_reason=${RUN_LEGACY_REASON:-}" >> "$GITHUB_OUTPUT"
                   echo "turbo_result=${TURBO_RESULT:-}" >> "$GITHUB_OUTPUT"
 
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
