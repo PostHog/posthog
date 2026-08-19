@@ -1,3 +1,4 @@
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
   useChannelMutations,
   useChannels,
@@ -13,7 +14,9 @@ export function useReportSpace(enabled = true): {
 } {
   const { channels, isLoading } = useChannels();
   const { createChannel } = useChannelMutations();
+  const currentProjectId = useAuthStateValue((state) => state.currentProjectId);
   const creationStarted = useRef(false);
+  const provisioningProjectId = useRef(currentProjectId);
   const [creationFailed, setCreationFailed] = useState(false);
   const reportSpace = channels.find(
     (channel) =>
@@ -22,7 +25,15 @@ export function useReportSpace(enabled = true): {
   );
 
   useEffect(() => {
+    if (provisioningProjectId.current === currentProjectId) return;
+    provisioningProjectId.current = currentProjectId;
+    creationStarted.current = false;
+    setCreationFailed(false);
+  }, [currentProjectId]);
+
+  useEffect(() => {
     if (
+      provisioningProjectId.current !== currentProjectId ||
       !enabled ||
       isLoading ||
       reportSpace ||
@@ -46,7 +57,14 @@ export function useReportSpace(enabled = true): {
         });
       },
     );
-  }, [createChannel, creationFailed, enabled, isLoading, reportSpace]);
+  }, [
+    createChannel,
+    creationFailed,
+    currentProjectId,
+    enabled,
+    isLoading,
+    reportSpace,
+  ]);
 
   return {
     reportSpaceId: enabled ? (reportSpace?.id ?? null) : null,
