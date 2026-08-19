@@ -2925,15 +2925,21 @@ class TestPrinter(BaseTest):
             # An ISO 8601 literal with a `T`/`Z` used to compile to `toDateOrNull`, which parses only
             # `YYYY-MM-DD` and silently returned NULL — crashing downstream date math. It now parses
             # best-effort like `toDateTime`, then narrows to a Date.
-            ("iso_with_tz", "toDate('2024-01-01T00:00:00Z')", "toDate(parseDateTime64BestEffort("),
+            ("iso_with_tz", "toDate('2024-01-01T00:00:00Z')", "toDate(parseDateTime64BestEffortOrNull("),
             ("date_only", "toDate('2024-01-01')", "toDate(toDateTime("),
             ("string_column", "toDate(event)", "toDate(parseDateTime64BestEffortOrNull(events.event, 6, "),
+            # An unparseable or empty literal keeps NULL (the `-OrNull` variant), matching the string
+            # column path, rather than the throwing `parseDateTime64BestEffort` that would fail the query.
+            ("invalid_literal", "toDate('garbage')", "toDate(parseDateTime64BestEffortOrNull("),
+            ("empty_literal", "toDate('')", "toDate(parseDateTime64BestEffortOrNull("),
         ]
     )
     def test_to_date_string_parses_best_effort(self, _name: str, expr: str, expected_fragment: str):
         sql = self._select(f"SELECT {expr} FROM events")
         self.assertIn(expected_fragment, sql)
         self.assertNotIn("toDateOrNull", sql)
+        # The throwing best-effort variant must never be used for the toDate parse path.
+        self.assertNotIn("parseDateTime64BestEffort(", sql)
 
     def test_to_date_datetime_column_stays_bare(self):
         # A DateTime argument still narrows with a plain `toDate` (no best-effort parse, no timezone arg).

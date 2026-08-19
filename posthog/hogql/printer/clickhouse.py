@@ -293,6 +293,12 @@ class ClickHousePrinter(BasePrinter):
                 # These two CH functions require a precision argument before timezone
                 args = [*args[:-1], "6", *args[-1:]]
 
+        if parse_string_to_date and relevant_clickhouse_name == "parseDateTime64BestEffort":
+            # The literal optimization above picks the throwing variant for a string that matches no
+            # strict pattern. For toDate keep NULL on unparseable or empty input, matching the string
+            # column path; the throwing variant would fail the whole query on one bad value.
+            relevant_clickhouse_name = "parseDateTime64BestEffortOrNull"
+
         if node.name == "toStartOfWeek" and len(node.args) == 1:
             # If week mode hasn't been specified, use the project's default.
             # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)

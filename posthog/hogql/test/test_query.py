@@ -115,6 +115,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [(10, 10, 10), (40, None, None), (3, None, None)])
 
+    def test_to_date_string_parsing_returns_null_on_unparseable_input(self):
+        # A valid ISO 8601 string parses, and an unparseable or empty literal returns NULL rather
+        # than failing the query with a ClickHouse parse error.
+        response = execute_hogql_query(
+            "SELECT toDate('2024-01-01T00:00:00Z'), toDate('2024-03-04'), toDate('garbage'), toDate('')",
+            team=self.team,
+        )
+        self.assertEqual(
+            response.results,
+            [(datetime.date(2024, 1, 1), datetime.date(2024, 3, 4), None, None)],
+        )
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query(self):
         with freeze_time("2020-01-10"):
