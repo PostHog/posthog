@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.
     INCREMENTAL_OVERLAP_DAYS,
     MAX_STATIONS,
     METEOSTAT_ENDPOINTS,
+    MINIMUM_START_DATE,
     MeteostatEndpointConfig,
 )
 
@@ -27,7 +28,7 @@ NO_STATIONS_ERROR = "No weather station IDs configured"
 _TIME_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MeteostatResumeConfig:
     # Index into the configured station list of the station currently being fetched.
     station_index: int
@@ -58,6 +59,20 @@ def _coerce_date(value: Any) -> Optional[date]:
             return date.fromisoformat(value.strip())
         except ValueError:
             return None
+    return None
+
+
+def start_date_error(start_date: Optional[str]) -> Optional[str]:
+    """Validation-time check for a too-old `start_date`.
+
+    A parsed value earlier than `MINIMUM_START_DATE` is rejected here (credential validation)
+    so a new source can't be configured to run away, and re-checked in `_get_rows` so a
+    previously stored configuration can't either. An unparseable value is left to the existing
+    per-field validation rather than duplicated here.
+    """
+    parsed = _coerce_date(start_date) if start_date else None
+    if parsed is not None and parsed < MINIMUM_START_DATE:
+        return f"Start date can't be earlier than {MINIMUM_START_DATE.isoformat()}."
     return None
 
 
@@ -126,7 +141,9 @@ def _get_rows(
     session = make_tracked_session(redact_values=(api_key,))
     headers = _request_headers(api_key)
 
-    base_start = _coerce_date(start_date) or DEFAULT_START_DATE
+    # Re-checked here (not just at credential validation) so a configuration stored before this
+    # floor existed can't schedule a runaway backfill either.
+    base_start = max(_coerce_date(start_date) or DEFAULT_START_DATE, MINIMUM_START_DATE)
     if should_use_incremental_field:
         last_value = _coerce_date(db_incremental_field_last_value)
         if last_value is not None:

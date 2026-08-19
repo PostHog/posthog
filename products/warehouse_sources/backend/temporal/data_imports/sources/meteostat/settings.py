@@ -12,7 +12,7 @@ DAILY_ENDPOINT = "Daily"
 MONTHLY_ENDPOINT = "Monthly"
 
 
-@dataclass
+@dataclass(frozen=True)
 class MeteostatEndpointConfig:
     name: str
     path: str
@@ -73,6 +73,14 @@ DEFAULT_UNITS = "metric"
 # reaches, keeping the request count predictable against the RapidAPI free tier's 500
 # requests/month cap. Users can set an earlier start date once they've sized their plan.
 DEFAULT_START_DATE = date(2015, 1, 1)
+
+# Hard floor for any configured start date, including previously stored configurations. Without
+# this, an authenticated user (or a stale stored config) can set an arbitrarily old start date —
+# e.g. `0001-01-01` — and, fanned out across MAX_STATIONS, schedule an effectively unbounded
+# number of sequential request windows and Redis checkpoints against a single resumable sync.
+# Automated station networks with any meaningful density don't predate this by much, so it costs
+# little real history while keeping the worst case bounded and predictable.
+MINIMUM_START_DATE = date(1950, 1, 1)
 
 # Historical values can be revised by the underlying weather services for several days after
 # they first land, so incremental syncs re-fetch a trailing window instead of resuming exactly

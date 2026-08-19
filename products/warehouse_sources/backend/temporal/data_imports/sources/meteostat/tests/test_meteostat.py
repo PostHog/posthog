@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.
     _parse_station_ids,
     _parse_timestamp,
     meteostat_source,
+    start_date_error,
     validate_station,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.settings import (
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.
     HOURLY_ENDPOINT,
     MAX_STATIONS,
     METEOSTAT_ENDPOINTS,
+    MINIMUM_START_DATE,
     MONTHLY_ENDPOINT,
 )
 
@@ -106,6 +108,22 @@ class TestHelpers:
     )
     def test_coerce_date(self, _name, value, expected):
         assert _coerce_date(value) == expected
+
+    @parameterized.expand(
+        [
+            ("too_old", "0001-01-01", False),
+            ("exactly_at_floor", MINIMUM_START_DATE.isoformat(), True),
+            ("comfortably_after_floor", "2015-01-01", True),
+            ("none", None, True),
+            ("unparsable_left_to_other_validation", "not-a-date", True),
+        ]
+    )
+    def test_start_date_error(self, _name, value, expect_none):
+        error = start_date_error(value)
+        if expect_none:
+            assert error is None
+        else:
+            assert error is not None and MINIMUM_START_DATE.isoformat() in error
 
     @parameterized.expand(
         [
@@ -237,6 +255,18 @@ class TestGetRows:
 
         with pytest.raises(requests.HTTPError):
             _run(DAILY_ENDPOINT, session, station_ids="10637", start_date="2026-07-20")
+
+    @freeze_time("2026-07-21")
+    def test_start_date_before_floor_is_clamped(self):
+        # A too-old start_date is re-checked (not just rejected at credential validation) so a
+        # previously stored configuration can't schedule a runaway backfill either.
+        session = mock.MagicMock(spec=requests.Session)
+        session.get.return_value = _response(json_body={"data": []})
+
+        _run(DAILY_ENDPOINT, session, station_ids="10637", start_date="0001-01-01")
+
+        params = _requested_params(session)
+        assert params[0]["start"] == MINIMUM_START_DATE.isoformat()
 
 
 class TestMeteostatSourceResponse:

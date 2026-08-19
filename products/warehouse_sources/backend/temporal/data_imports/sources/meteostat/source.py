@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.
     MeteostatResumeConfig,
     _parse_station_ids,
     meteostat_source,
+    start_date_error,
     validate_station,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.settings import (
@@ -91,6 +92,10 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
             return False, "Add at least one weather station ID to sync."
         if len(stations) > MAX_STATIONS:
             return False, f"Too many station IDs. List at most {MAX_STATIONS}."
+
+        error = start_date_error(config.start_date)
+        if error is not None:
+            return False, error
 
         return validate_station(config.api_key, stations[0])
 
