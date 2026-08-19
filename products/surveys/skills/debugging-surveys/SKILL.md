@@ -151,18 +151,26 @@ inverted.
 `survey dismissed` (explicit close), `survey abandoned` (`handlePageUnload` →
 `sendSurveyAbandonedEvent`). `$survey_partially_completed` appears on `dismissed` and `abandoned`
 only, never on `sent`. All of them carry `sessionRecordingUrl`, so a disputed submission can often
-be **watched** instead of theorised about. A populated URL only proves a session id was captured,
+be **watched** instead of theorized about. A populated URL only proves a session id was captured,
 not that a recording exists: replay is off by default, and the default cloud retention of 30 days is
 well short of these queries' 180-day window. Open the link before offering it as evidence.
 
-### Never guess response property keys
+### Read answers with `getSurveyResponse`, never a guessed key
 
-Response keys come in three formats and the current one is UUID-keyed
-(`$survey_response_<questionId>`). Guessing which UUID belongs to which question is the fastest
-route to a wrong conclusion: it silently reads one question's answers under another's label, and
-the resulting ratio looks like a serious bug. Either take the ids from `questions[].id` and name
-the columns explicitly, or unroll `$survey_questions`. Formats and query templates:
-[references/reading-responses.md](references/reading-responses.md),
+**`getSurveyResponse(<index>, '<questionId>')`** is the HogQL helper the product itself reads
+answers with (`posthog/hogql/functions/survey.py`, used across
+`products/surveys/backend/responses/`). Prefer it over hand-writing a property key: response keys
+come in three formats, and the helper coalesces the current UUID-keyed one
+(`$survey_response_<questionId>`) with the legacy index-keyed one, so it returns what the customer's
+own results table shows. Pass `true` as a third argument for multiple-choice questions. A
+hand-written `properties.$survey_response_<uuid>` misses legacy-keyed answers, and inside a
+`countIf` that silently converts a real answer into "unanswered" and inflates the incomplete ratio.
+
+Whichever you use, **the index and id must come from `questions[]` in the survey JSON.** Guessing
+which UUID belongs to which question is the fastest route to a wrong conclusion: it reads one
+question's answers under another's label, and the resulting ratio looks like a serious bug. If you
+have no survey JSON, unroll `$survey_questions`, which carries the question text alongside the
+answer. Formats and templates: [references/reading-responses.md](references/reading-responses.md),
 [references/diagnostic-queries.md](references/diagnostic-queries.md).
 
 **Sanity check the mapping before trusting the numbers:** if a column you labelled as a
@@ -194,7 +202,7 @@ is expensive and hard to walk back — restructuring destroys the comparability 
 already collected, and reordering questions risks the UUID problem below. Clear all four gates
 before writing "this is a bug":
 
-1. **Read the survey JSON**, per-question `branching`, `optional`, `skipSubmitButton` and `scale` included. Most "impossible" behaviour is configured behaviour.
+1. **Read the survey JSON**, per-question `branching`, `optional`, `skipSubmitButton` and `scale` included. Most "impossible" behavior is configured behavior.
 2. **Reproduce it in Preview.**
 3. **Read the SDK source for the handler you're accusing.** Grep the symbol; don't reason from what a setting is named. `enable_partial_responses` and "all questions answered" both mean something narrower than they sound.
 4. **Re-check your own query before trusting a shocking ratio.** "89% of responses are incomplete" is more often a bad response-key mapping than a real defect.
@@ -230,8 +238,8 @@ Usually not a bug — see [How a response actually gets stored](#how-a-response-
 ### "The respondent says they didn't mean to submit"
 
 - **`skipSubmitButton`, shown in the editor as "Automatically submit on selection".** When true no submit button renders at all (`BottomSection.tsx`) and one click both records the answer and advances — `setRating(response)` then `handleSubmit(response)` → `onNextButtonClick` in the same handler invocation, no debounce, no confirm. Rating and single-choice-without-open-choice only (`canQuestionSkipSubmitButton`); web-only. It is **on by default in every survey template** (`constants.tsx`) and in quick-create, so customers rarely know they enabled it.
-- **It compounds with popup placement.** `appearance.position: middle_center`, a large `maxWidth`, and a non-zero `surveyPopupDelaySeconds` mean the popup materialises seconds after the trigger under a cursor that's still moving, and the next click lands on an answer. Consecutive auto-submitting questions let someone click through most of a survey without reading it.
-- **Diagnose with shown→sent latency,** then confirm from the replay (`sessionRecordingUrl` on `survey sent`). A cluster of sub-10-second completions on a multi-question survey is the signature; genuine respondents take longer and leave text behind. Fix is to uncheck the setting — **not** to move the question, since the behaviour follows the question wherever it sits.
+- **It compounds with popup placement.** `appearance.position: middle_center`, a large `maxWidth`, and a non-zero `surveyPopupDelaySeconds` mean the popup materializes seconds after the trigger under a cursor that's still moving, and the next click lands on an answer. Consecutive auto-submitting questions let someone click through most of a survey without reading it.
+- **Diagnose with shown→sent latency,** then confirm from the replay (`sessionRecordingUrl` on `survey sent`). A cluster of sub-10-second completions on a multi-question survey is the signature; genuine respondents take longer and leave text behind. Fix is to uncheck the setting — **not** to move the question, since the behavior follows the question wherever it sits.
 
 ### "Responses show as zero in the UI but raw events exist"
 

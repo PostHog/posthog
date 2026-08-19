@@ -44,6 +44,16 @@ single event can carry both the current and the legacy format:
 Question ids are UUIDs assigned by the backend, so **the key does not tell you which question it
 belongs to.** Read `questions[].id` from the survey JSON and name your columns from it.
 
+Rather than picking a format yourself, read answers with the HogQL helper
+`getSurveyResponse(<index>, '<questionId>')` (`posthog/hogql/functions/survey.py`). It builds the
+UUID key and coalesces it with the legacy index key, which is what every first-party read in
+`products/surveys/backend/` does, so your numbers match the customer's results table. A third
+argument `true` unpacks multiple-choice arrays. Both the index and the id must be literal constants.
+
+Only the **web** SDK sets `$survey_completed` and `$survey_submission_id`. React Native's
+`sendSurveyEvent` sets neither, and an `api`-type survey carries whatever the customer's own code
+captures — so a missing `$survey_completed` is not by itself evidence of an old SDK.
+
 ## `$survey_questions`
 
 Present on every `survey sent` / `dismissed` / `abandoned` event: an array of
