@@ -1,17 +1,30 @@
-from types import SimpleNamespace
-from typing import cast
+from typing import Any
 
 from unittest.mock import patch
 
 from prometheus_client import REGISTRY
-from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
-from slack_sdk.web.slack_response import SlackResponse
+from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
+from slack_sdk.http_retry.request import HttpRequest
+from slack_sdk.http_retry.response import HttpResponse
+from slack_sdk.http_retry.state import RetryState
 
 from posthog.egress.slack.client import SlackWebClient
 
 
-def _request_count(status_code: str, source: str) -> float:
+class ImmediateRateLimitRetryHandler(RateLimitErrorRetryHandler):
+    def prepare_for_next_attempt(
+        self,
+        *,
+        state: RetryState,
+        request: HttpRequest,
+        response: HttpResponse | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        state.next_attempt_requested = True
+        state.increment_current_attempt()
+
+
+def _request_count(status_code: str) -> float:
     return (
         REGISTRY.get_sample_value(
             "slack_api_requests_total",
@@ -20,34 +33,36 @@ def _request_count(status_code: str, source: str) -> float:
                 "method": "POST",
                 "endpoint": "conversations.history",
                 "status_code": status_code,
-                "source": source,
+                "source": "test",
             },
         )
         or 0
     )
 
 
-def test_slack_web_client_records_successful_and_api_error_responses() -> None:
-    client = SlackWebClient(token="xoxb-test", source="test", workspace_id="T123")
-    success = cast(SlackResponse, SimpleNamespace(status_code=200, headers={}))
-    rate_limited = cast(SlackResponse, SimpleNamespace(status_code=429, headers={"Retry-After": "30"}))
-    success_before = _request_count("200", "test")
-    error_before = _request_count("429", "test")
+def test_slack_web_client_records_each_retry_attempt() -> None:
+    client = SlackWebClient(token="xoxb-test", source="test", workspace_id="T123", app_id="posthog")
+    client.retry_handlers.append(ImmediateRateLimitRetryHandler(max_retry_count=1))
+    responses: list[dict[str, Any]] = [
+        {
+            "status": 429,
+            "headers": {"Retry-After": ["30"]},
+            "body": '{"ok": false, "error": "ratelimited"}',
+        },
+        {"status": 200, "headers": {}, "body": '{"ok": true}'},
+    ]
+    success_before = _request_count("200")
+    rate_limited_before = _request_count("429")
 
-    with patch.object(WebClient, "api_call", return_value=success):
-        assert client.api_call("conversations.history") is success
+    with patch.object(client, "_perform_urllib_http_request_internal", side_effect=responses):
+        assert client.conversations_history(channel="C123")["ok"] is True
 
-    with patch.object(
-        WebClient,
-        "api_call",
-        side_effect=SlackApiError("rate_limited", rate_limited),
-    ):
-        try:
-            client.api_call("conversations.history")
-        except SlackApiError:
-            pass
-        else:
-            raise AssertionError("SlackApiError was not raised")
-
-    assert _request_count("200", "test") == success_before + 1
-    assert _request_count("429", "test") == error_before + 1
+    assert _request_count("200") == success_before + 1
+    assert _request_count("429") == rate_limited_before + 1
+    assert (
+        REGISTRY.get_sample_value(
+            "slack_api_rate_limit_reset_timestamp_seconds",
+            {"workspace_id": "T123", "resource": "posthog:conversations.history"},
+        )
+        is not None
+    )

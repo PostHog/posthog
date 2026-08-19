@@ -192,6 +192,7 @@ def _download_slack_file(url: str, bot_token: str) -> bytes | None:
             next_url,
             source="slack_app_attachments",
             endpoint="files.download",
+            app_id="posthog",
             headers={"Authorization": f"Bearer {bot_token}"},
             timeout=SLACK_DOWNLOAD_TIMEOUT_SECONDS,
             allow_redirects=False,

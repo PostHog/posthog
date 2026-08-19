@@ -55,7 +55,7 @@ def get_support_slack_bot_token(team: "Team") -> str:
 
 def get_support_slack_workspace_id(team: "Team") -> str | None:
     config = get_or_create_team_extension(team, TeamConversationsSlackConfig)
-    return config.slack_team_id
+    return config.slack_team_id or None
 
 
 def team_exists_for_slack_workspace(slack_team_id: str) -> bool:

@@ -108,8 +108,9 @@ Slack Web API calls use `SlackWebClient` (and `SlackAsyncWebClient` where needed
 request volume, method, status, source, and workspace are recorded consistently. Slack applies Web API
 limits per method, workspace, and app, with additional special limits such as per-channel message
 posting. Installation age and Marketplace status can also change the limits for history methods.
-Slack does not return remaining-budget headers, so Slack egress records `Retry-After` from 429 responses
-but does not proactively limit requests. Callers continue to own reactive retries.
+Slack does not return remaining-budget headers, so Slack egress records each HTTP attempt and the
+app-and-method-specific `Retry-After` from 429 responses. It does not proactively limit requests.
+Callers continue to own reactive retries.
 
 Incoming webhooks and interactivity `response_url` calls are not Slack Web API calls. Their secret URL is
 the budget identity, and persisting or labeling by it would expose credentials. Keep their error handling

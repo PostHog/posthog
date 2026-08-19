@@ -175,6 +175,7 @@ def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
             "https://slack.com/api/oauth.v2.access",
             source="conversations_oauth",
             endpoint="oauth.v2.access",
+            app_id="support",
             data={
                 "client_id": client_id,
                 "client_secret": client_secret,

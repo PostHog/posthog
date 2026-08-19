@@ -1540,6 +1540,7 @@ class OauthIntegration:
                 res,
                 source="oauth",
                 workspace_id=None,
+                app_id="posthog",
                 method="POST",
                 endpoint="oauth.v2.access",
             )
@@ -2172,6 +2173,7 @@ class SlackIntegration:
             self.integration.sensitive_config["access_token"],
             source="integration",
             workspace_id=self.integration.integration_id,
+            app_id="posthog",
         )
 
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> "AsyncWebClient":
@@ -2183,6 +2185,7 @@ class SlackIntegration:
             self.integration.sensitive_config["access_token"],
             source="integration",
             workspace_id=self.integration.integration_id,
+            app_id="posthog",
             session=session,
         )
 

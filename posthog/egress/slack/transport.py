@@ -12,6 +12,9 @@ class SlackEgressBudgetExhausted(EgressBudgetExhausted):
 
 
 class SlackClient(EgressClient):
+    def __init__(self, app_id: str) -> None:
+        self._app_id = app_id
+
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json"}
 
@@ -31,6 +34,7 @@ class SlackClient(EgressClient):
             response,
             source=source,
             workspace_id=scope,
+            app_id=self._app_id,
             method=method,
             endpoint=endpoint or "unknown",
         )
@@ -55,9 +59,6 @@ class SlackClient(EgressClient):
         return SlackEgressBudgetExhausted(f"Slack egress budget exhausted for workspace {scope}")
 
 
-_slack_client = SlackClient()
-
-
 def slack_request(
     method: str,
     url: str,
@@ -65,15 +66,16 @@ def slack_request(
     source: str,
     endpoint: str,
     workspace_id: str | None = None,
+    app_id: str = "unknown",
     timeout: float | tuple[float, float] | None = None,
     session: requests.Session | None = None,
     **kwargs: Any,
 ) -> requests.Response:
-    return _slack_client.request(
+    return SlackClient(app_id).request(
         method,
         url,
         source=source,
-        scope=workspace_id,
+        scope=workspace_id or None,
         endpoint=endpoint,
         timeout=timeout,
         session=session,

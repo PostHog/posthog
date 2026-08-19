@@ -149,6 +149,7 @@ def get_slack_client(team: Team) -> WebClient:
             token=bot_token,
             source="conversations",
             workspace_id=get_support_slack_workspace_id(team),
+            app_id="support",
         )
     raise ValueError("Support Slack bot token is not configured")
 

@@ -70,6 +70,7 @@ def _slack_get(url: str, **kwargs: Any) -> requests.Response:
         url,
         source="warehouse",
         endpoint=url.rsplit("/", 1)[-1],
+        app_id="warehouse_source",
         session=make_tracked_session(),
         **kwargs,
     )
@@ -96,6 +97,7 @@ def _slack_post(url: str, **kwargs: Any) -> requests.Response:
         url,
         source="warehouse",
         endpoint=url.rsplit("/", 1)[-1],
+        app_id="warehouse_source",
         session=make_tracked_session(),
         **kwargs,
     )

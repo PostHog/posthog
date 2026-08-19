@@ -39,20 +39,18 @@ _metrics = EgressMetrics(
 )
 
 
-def _header(headers: Mapping[str, str], name: str) -> str | None:
+def _header(headers: Mapping[str, object], name: str) -> str | None:
     lowered_name = name.lower()
-    return next((value for key, value in headers.items() if key.lower() == lowered_name), None)
+    value = next((value for key, value in headers.items() if key.lower() == lowered_name), None)
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list) and value and isinstance(value[0], str):
+        return value[0]
+    return None
 
 
 def _parse_slack_rate_limit(response: requests.Response) -> RateLimitSnapshot:
-    retry_after = _header(response.headers, "Retry-After")
-    if response.status_code != 429 or retry_after is None:
-        return RateLimitSnapshot()
-    try:
-        reset_at = time.time() + float(retry_after)
-    except (TypeError, ValueError):
-        reset_at = None
-    return RateLimitSnapshot(resource="retry_after", reset_at=reset_at)
+    return RateLimitSnapshot()
 
 
 slack_egress = EgressObservability(SLACK_DOMAIN, _metrics, _parse_slack_rate_limit)
@@ -64,17 +62,28 @@ def record_slack_api_response(
     *,
     source: str,
     workspace_id: str | None,
+    app_id: str,
     method: str,
     endpoint: str,
 ) -> None:
+    normalized_workspace_id = workspace_id or None
+    typed_response = cast(requests.Response, response)
     slack_egress.record_response(
-        cast(requests.Response, response),
+        typed_response,
         source=source,
-        scope=workspace_id,
+        scope=normalized_workspace_id,
         method=method,
         endpoint=endpoint,
     )
+    retry_after = _header(typed_response.headers, "Retry-After")
+    if normalized_workspace_id is None or typed_response.status_code != 429 or retry_after is None:
+        return
+    try:
+        reset_at = time.time() + float(retry_after)
+    except ValueError:
+        return
+    _metrics.reset_gauge.labels(normalized_workspace_id, f"{app_id}:{endpoint}").set(reset_at)
 
 
 def record_slack_api_exception(*, source: str, workspace_id: str | None, method: str, endpoint: str) -> None:
-    slack_egress.record_exception(source=source, scope=workspace_id, method=method, endpoint=endpoint)
+    slack_egress.record_exception(source=source, scope=workspace_id or None, method=method, endpoint=endpoint)

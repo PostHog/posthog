@@ -46,6 +46,7 @@ def list_support_bot_channels(team: "Team", *, members_only: bool = False) -> li
         token=bot_token,
         source="conversations",
         workspace_id=get_support_slack_workspace_id(team),
+        app_id="support",
     )
     channels: list[dict[str, Any]] = []
     cursor = None
