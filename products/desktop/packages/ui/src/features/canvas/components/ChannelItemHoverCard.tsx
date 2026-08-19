@@ -10,6 +10,7 @@ import {
   type SpacePreviewPayload,
 } from "@posthog/ui/features/canvas/components/SpacePreview";
 import type { TaskRowMenuProps } from "@posthog/ui/features/canvas/components/TaskRowMenu";
+import { useIsPinDragging } from "@posthog/ui/features/sidebar/pinDragStore";
 import {
   createContext,
   type ReactNode,
@@ -98,6 +99,14 @@ export function ChannelItemPreviewCardProvider({
     handle.close();
   }, [handle]);
 
+  // A drag passes the pointer over row after row, and each one would hand the
+  // card to the next: a card the size of this one then sits over the list you
+  // are dragging across. It stands down for the length of the drag.
+  const dragging = useIsPinDragging();
+  useEffect(() => {
+    if (dragging) close();
+  }, [dragging, close]);
+
   // Which row's keypress the open card belongs to, if any.
   const keyboardTrigger = useRef<string | null>(null);
   const card = useMemo<ChannelPreviewCard>(
@@ -127,7 +136,7 @@ export function ChannelItemPreviewCardProvider({
           the card, which would take the menu down with it. */}
       <PreviewCard.Root
         handle={handle}
-        open={open || submenuOpen}
+        open={(open || submenuOpen) && !dragging}
         onOpenChange={setOpen}
       >
         {({ payload }) =>

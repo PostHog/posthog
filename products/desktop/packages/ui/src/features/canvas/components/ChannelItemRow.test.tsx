@@ -258,16 +258,24 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
   });
 
-  it("makes tasks draggable into the Command Center", () => {
-    renderRow(item());
-    const setData = vi.fn();
-    const dataTransfer = { setData, effectAllowed: "none" };
+  // The cursor is the only thing saying what the release will do, and a pinned
+  // session dragged out of the pinned run is moved rather than copied.
+  it.each([
+    { pinned: false, effectAllowed: "copyMove" },
+    { pinned: true, effectAllowed: "move" },
+  ])(
+    "makes tasks draggable, pinned=$pinned as $effectAllowed",
+    ({ pinned, effectAllowed }) => {
+      renderRow(item({ pinned }));
+      const setData = vi.fn();
+      const dataTransfer = { setData, effectAllowed: "none" };
 
-    fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
+      fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
 
-    expect(setData).toHaveBeenCalledWith("text/x-task-id", "task-1");
-    expect(dataTransfer.effectAllowed).toBe("copy");
-  });
+      expect(setData).toHaveBeenCalledWith("text/x-task-id", "task-1");
+      expect(dataTransfer.effectAllowed).toBe(effectAllowed);
+    },
+  );
 
   it("does not make canvases draggable into the Command Center", () => {
     renderRow(

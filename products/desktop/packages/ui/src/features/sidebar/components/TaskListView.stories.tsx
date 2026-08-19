@@ -1,6 +1,7 @@
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
 import { fn } from "storybook/test";
 import { TaskListView } from "./TaskListView";
 
@@ -42,9 +43,35 @@ const flatTasks = [
   createTask("task-3", "Update empty states", 1_710_000_000_000, false),
 ];
 
+function StatefulTaskList(args: React.ComponentProps<typeof TaskListView>) {
+  const [pinnedIds, setPinnedIds] = useState(
+    () => new Set(pinnedTasks.map((task) => task.id)),
+  );
+  const withPinned = (task: TaskData): TaskData => ({
+    ...task,
+    isPinned: pinnedIds.has(task.id),
+  });
+  const all = [...pinnedTasks, ...flatTasks].map(withPinned);
+  return (
+    <TaskListView
+      {...args}
+      pinnedTasks={all.filter((task) => task.isPinned)}
+      flatTasks={all.filter((task) => !task.isPinned)}
+      onTaskTogglePin={(taskId) =>
+        setPinnedIds((current) => {
+          const next = new Set(current);
+          if (!next.delete(taskId)) next.add(taskId);
+          return next;
+        })
+      }
+    />
+  );
+}
+
 const meta = {
   title: "Sidebar/Task list drag and drop",
   component: TaskListView,
+  render: (args) => <StatefulTaskList {...args} />,
   parameters: {
     layout: "centered",
   },

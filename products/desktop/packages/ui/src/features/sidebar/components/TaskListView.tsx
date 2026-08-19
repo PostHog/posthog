@@ -21,29 +21,19 @@ import { SidebarSection } from "@posthog/ui/features/sidebar/components/SidebarS
 import { TaskRow } from "@posthog/ui/features/sidebar/components/TaskRow";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import {
-  getPinDropAction,
   getPinnedInsertionIndex,
-  isPointInsideRect,
   type TaskTimestampKey,
 } from "@posthog/ui/features/sidebar/taskListDragAndDrop";
+import { usePinDrag } from "@posthog/ui/features/sidebar/usePinDrag";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
-import { playTrashSound } from "@posthog/ui/utils/sounds";
 import {
   AnimatePresence,
   LayoutGroup,
   motion,
-  useMotionValue,
   useReducedMotion,
 } from "framer-motion";
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { Fragment, useCallback, useEffect, useMemo } from "react";
 
 interface TaskListViewProps {
   pinnedTasks: TaskData[];
@@ -69,13 +59,6 @@ interface TaskListViewProps {
   onTaskEditCancel: () => void;
   onGroupContextMenu?: (groupId: string, e: React.MouseEvent) => void;
   hasMore: boolean;
-}
-
-interface TaskDragState {
-  task: TaskData;
-  sourcePinned: boolean;
-  overPinned: boolean;
-  previewWidth: number;
 }
 
 function SectionLabel({ label }: { label: string }) {
@@ -120,14 +103,11 @@ export function TaskListView({
   const isOnTaskInput =
     view.type === "task-input" || view.type === "task-pending";
   const prefersReducedMotion = useReducedMotion();
-  const pinnedDropZoneRef = useRef<HTMLDivElement>(null);
-  const dragStateRef = useRef<TaskDragState | null>(null);
-  const dragCanceledRef = useRef(false);
-  const clearDragFrameRef = useRef<number | null>(null);
-  const dragOffsetRef = useRef({ x: 0, y: 0 });
-  const previewX = useMotionValue(-10_000);
-  const previewY = useMotionValue(-10_000);
-  const [dragState, setDragState] = useState<TaskDragState | null>(null);
+  const pinDrag = usePinDrag<TaskData>({
+    isPinned: (task) => task.isPinned,
+    togglePin: (task) => onTaskTogglePin(task.id),
+  });
+  const dragState = pinDrag.drag;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset pagination when filters change
   useEffect(() => {
@@ -141,71 +121,6 @@ export function TaskListView({
     () => groupTasksByRelativeDate(flatTasks, timestampKey),
     [flatTasks, timestampKey],
   );
-
-  const setOverPinned = useCallback((overPinned: boolean) => {
-    const current = dragStateRef.current;
-    if (!current || current.overPinned === overPinned) return;
-    if (current.sourcePinned && current.overPinned && !overPinned) {
-      playTrashSound();
-    }
-    const next = { ...current, overPinned };
-    dragStateRef.current = next;
-    setDragState(next);
-  }, []);
-
-  const clearDrag = useCallback(() => {
-    dragStateRef.current = null;
-    if (clearDragFrameRef.current !== null) {
-      window.cancelAnimationFrame(clearDragFrameRef.current);
-    }
-    clearDragFrameRef.current = window.requestAnimationFrame(() => {
-      dragCanceledRef.current = false;
-      setDragState(null);
-      previewX.set(-10_000);
-      previewY.set(-10_000);
-      clearDragFrameRef.current = null;
-    });
-  }, [previewX, previewY]);
-
-  const applyDrop = useCallback(
-    (state: TaskDragState, overPinned: boolean) => {
-      const action = getPinDropAction(state.sourcePinned, overPinned);
-      if (action !== null) {
-        onTaskTogglePin(state.task.id);
-      }
-      clearDrag();
-    },
-    [clearDrag, onTaskTogglePin],
-  );
-
-  useEffect(() => {
-    const handleWindowDragOver = (event: DragEvent) => {
-      const current = dragStateRef.current;
-      if (!current) return;
-      previewX.set(event.clientX - dragOffsetRef.current.x);
-      previewY.set(event.clientY - dragOffsetRef.current.y);
-      setOverPinned(
-        isPointInsideRect(
-          { x: event.clientX, y: event.clientY },
-          pinnedDropZoneRef.current?.getBoundingClientRect() ?? null,
-        ),
-      );
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && dragStateRef.current) {
-        dragCanceledRef.current = true;
-      }
-    };
-    window.addEventListener("dragover", handleWindowDragOver);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("dragover", handleWindowDragOver);
-      window.removeEventListener("keydown", handleKeyDown);
-      if (clearDragFrameRef.current !== null) {
-        window.cancelAnimationFrame(clearDragFrameRef.current);
-      }
-    };
-  }, [previewX, previewY, setOverPinned]);
 
   const handleFolderDragOver: DragDropEvents["dragover"] = useCallback(
     (event) => {
@@ -224,83 +139,6 @@ export function TaskListView({
     [],
   );
 
-  const handleTaskDragStart = useCallback(
-    (task: TaskData, event: React.DragEvent) => {
-      const rect = event.currentTarget.getBoundingClientRect();
-      const overPinned = isPointInsideRect(
-        { x: event.clientX, y: event.clientY },
-        pinnedDropZoneRef.current?.getBoundingClientRect() ?? null,
-      );
-      const next: TaskDragState = {
-        task,
-        sourcePinned: task.isPinned,
-        overPinned,
-        previewWidth: rect.width,
-      };
-      const emptyDragImage = document.createElement("div");
-      emptyDragImage.style.position = "fixed";
-      emptyDragImage.style.top = "-10px";
-      emptyDragImage.style.width = "1px";
-      emptyDragImage.style.height = "1px";
-      document.body.appendChild(emptyDragImage);
-      event.dataTransfer.setDragImage(emptyDragImage, 0, 0);
-      window.requestAnimationFrame(() => emptyDragImage.remove());
-
-      if (clearDragFrameRef.current !== null) {
-        window.cancelAnimationFrame(clearDragFrameRef.current);
-        clearDragFrameRef.current = null;
-      }
-      dragOffsetRef.current = {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      };
-      previewX.set(rect.left);
-      previewY.set(rect.top);
-      dragCanceledRef.current = false;
-      dragStateRef.current = next;
-      setDragState(next);
-    },
-    [previewX, previewY],
-  );
-
-  const handleTaskDragEnd = useCallback(
-    (event: React.DragEvent) => {
-      event.preventDefault();
-      const current = dragStateRef.current;
-      if (!current) return;
-      if (dragCanceledRef.current) {
-        clearDrag();
-        return;
-      }
-      applyDrop(current, current.overPinned);
-    },
-    [applyDrop, clearDrag],
-  );
-
-  const handlePinnedDragOver = useCallback(
-    (event: React.DragEvent) => {
-      if (!dragStateRef.current) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.dataTransfer.dropEffect = dragStateRef.current.sourcePinned
-        ? "move"
-        : "copy";
-      setOverPinned(true);
-    },
-    [setOverPinned],
-  );
-
-  const handlePinnedDrop = useCallback(
-    (event: React.DragEvent) => {
-      const current = dragStateRef.current;
-      if (!current) return;
-      event.preventDefault();
-      event.stopPropagation();
-      applyDrop(current, true);
-    },
-    [applyDrop],
-  );
-
   const rowTransition = prefersReducedMotion
     ? { duration: 0 }
     : {
@@ -310,7 +148,7 @@ export function TaskListView({
       };
 
   const renderTaskRow = (task: TaskData, depth = 0) => {
-    const isDragged = dragState?.task.id === task.id;
+    const isDragged = dragState?.item.id === task.id;
     return (
       <motion.div
         key={task.id}
@@ -342,8 +180,8 @@ export function TaskListView({
             onTaskEditSubmit(task.id, task.title, newTitle)
           }
           onEditCancel={onTaskEditCancel}
-          onDragStart={(event) => handleTaskDragStart(task, event)}
-          onDragEnd={handleTaskDragEnd}
+          onDragStart={(event) => pinDrag.onItemDragStart(task, event)}
+          onDragEnd={pinDrag.onItemDragEnd}
           timestamp={task[timestampKey]}
           depth={depth}
         />
@@ -352,10 +190,10 @@ export function TaskListView({
   };
 
   const pinnedTasksWithoutSource = pinnedTasks.filter(
-    (task) => task.id !== dragState?.task.id,
+    (task) => task.id !== dragState?.item.id,
   );
   const pinnedInsertionIndex = dragState
-    ? getPinnedInsertionIndex(pinnedTasks, dragState.task, timestampKey)
+    ? getPinnedInsertionIndex(pinnedTasks, dragState.item, timestampKey)
     : -1;
   const showPinnedPlaceholder = Boolean(dragState?.overPinned);
   const pinnedPlaceholderBeforeTaskId =
@@ -382,13 +220,20 @@ export function TaskListView({
 
   return (
     <LayoutGroup id="sidebar-task-list">
-      <div className="flex flex-col">
+      {/* The list is the drop target, not the window: releasing over a command
+          centre tile is that tile's drop, and must not also unpin what it
+          filed. Pin and unpin stay reachable from the row's hover actions and
+          its context menu, so the drag adds no keyboard-only path. */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
+      <div
+        className="flex min-h-full flex-1 flex-col"
+        onDragOver={pinDrag.listProps.onDragOver}
+        onDrop={pinDrag.listProps.onDrop}
+      >
         {showPinnedSection ? (
           <motion.div
-            ref={pinnedDropZoneRef}
+            ref={pinDrag.pinnedZoneRef}
             layout
-            onDragOver={handlePinnedDragOver}
-            onDrop={handlePinnedDrop}
             className={cn(
               "rounded-md py-0.5 transition-colors",
               dragState && "min-h-10",
@@ -560,8 +405,8 @@ export function TaskListView({
         {dragState ? (
           <motion.div
             style={{
-              x: previewX,
-              y: previewY,
+              x: pinDrag.previewX,
+              y: pinDrag.previewY,
               width: dragState.previewWidth,
             }}
             className="pointer-events-none fixed top-0 left-0 z-50"
@@ -586,7 +431,7 @@ export function TaskListView({
               )}
             >
               <TaskRow
-                task={dragState.task}
+                task={dragState.item}
                 isActive={false}
                 isSelected={false}
                 hideHoverActions
@@ -598,7 +443,7 @@ export function TaskListView({
                 onTogglePin={() => undefined}
                 onEditSubmit={() => undefined}
                 onEditCancel={() => undefined}
-                timestamp={dragState.task[timestampKey]}
+                timestamp={dragState.item[timestampKey]}
               />
               <AnimatePresence>
                 {isUnpinIntent ? (
