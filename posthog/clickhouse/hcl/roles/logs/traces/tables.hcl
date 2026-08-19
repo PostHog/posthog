@@ -1,6 +1,7 @@
-# The trace-spans suite, hosted by the local logs node and both prod logs envs
-# (dev has no traces). Env deltas are patch_table / patch_materialized_view
-# blocks in the env layers, never second definitions.
+# The trace-spans suite, hosted by the local logs node and both prod logs envs.
+# The dev trace suite predates this shape and is not composed here. Env deltas are
+# patch_table / patch_materialized_view blocks in the env layers, never second
+# definitions.
 database "posthog" {
   table "trace_attributes" {
     order_by     = ["team_id", "attribute_type", "time_bucket", "resource_fingerprint", "attribute_key", "attribute_value"]
