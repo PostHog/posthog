@@ -2,7 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { workflowsIncidentReplayLogic } from './workflowsIncidentReplayLogic'
 
@@ -44,20 +47,25 @@ export function WorkflowsIncidentReplayBanner(): JSX.Element | null {
                         const status = replayStatusById[workflow.id]
                         return (
                             <li key={workflow.id} className="flex items-center gap-2">
-                                <LemonButton
-                                    type="secondary"
-                                    size="xsmall"
-                                    data-attr="workflows-incident-replay-button"
-                                    loading={status === 'pending'}
-                                    disabledReason={
-                                        status === 'queued'
-                                            ? 'Replay queued. Failed sends are being retried. Refresh the page to replay again once it finishes.'
-                                            : undefined
-                                    }
-                                    onClick={() => replayWorkflow(workflow.id)}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Workflow}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    {status === 'queued' ? 'Replay queued' : 'Replay failed sends'}
-                                </LemonButton>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        data-attr="workflows-incident-replay-button"
+                                        loading={status === 'pending'}
+                                        disabledReason={
+                                            status === 'queued'
+                                                ? 'Replay queued. Failed sends are being retried. Refresh the page to replay again once it finishes.'
+                                                : undefined
+                                        }
+                                        onClick={() => replayWorkflow(workflow.id)}
+                                    >
+                                        {status === 'queued' ? 'Replay queued' : 'Replay failed sends'}
+                                    </LemonButton>
+                                </AccessControlAction>
                                 <LemonButton size="xsmall" to={urls.workflow(workflow.id, 'workflow')}>
                                     {workflow.name}
                                 </LemonButton>
