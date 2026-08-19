@@ -1,5 +1,6 @@
 from typing import cast
 
+from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -62,9 +63,20 @@ class InstrumentationCheckActionSerializer(serializers.Serializer):
     check = serializers.ChoiceField(choices=CHECK_KEYS, help_text="Key of the check to dismiss or restore.")
 
 
+class _SingletonSchema(AutoSchema):
+    """Prevents drf-spectacular from wrapping the ``list`` response in an array.
+
+    The checklist is one graded object per project, not a collection.
+    """
+
+    def _is_list_view(self, serializer: object = None) -> bool:
+        return False
+
+
 class AIObservabilityInstrumentationChecklistViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Instrumentation coverage for a project's AI events."""
 
+    schema = _SingletonSchema()
     scope_object = "llm_analytics"
     # ScopeBasePermission maps only the default action names, so leaving a custom action off this list
     # gives it a null scope, which 403s every personal API key, OAuth token and MCP call while browser
