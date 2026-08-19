@@ -134,9 +134,9 @@ def get_hogql_metadata(
             if "mismatched input '<EOF>' expecting" in error or "unexpected token in expression: Eof" in error:
                 error = "Unexpected end of query"
             if e.end and e.start and e.end < e.start:
-                response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start))
+                response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start, fix=e.fix))
             else:
-                response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end))
+                response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end, fix=e.fix))
         elif (
             settings.DEBUG
         ):  # We don't want to accidentally expose too much data via errors, so expose only when debug is enabled
