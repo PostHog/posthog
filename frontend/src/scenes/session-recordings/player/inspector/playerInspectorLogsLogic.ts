@@ -99,6 +99,9 @@ export interface playerInspectorLogsLogicActions {
     markLogsInitialLoadRequested: () => {
         value: true
     }
+    setLogsLoadError: (hasError: boolean) => {
+        hasError: boolean
+    }
     setLogsHasMore: (hasMore: boolean) => {
         hasMore: boolean
     }
@@ -132,6 +135,7 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
     actions(() => ({
         setLogsHasMore: (hasMore: boolean) => ({ hasMore }),
         setLogsNextCursor: (cursor: string | undefined) => ({ cursor }),
+        setLogsLoadError: (hasError: boolean) => ({ hasError }),
         markLogsInitialLoadRequested: true,
     })),
     reducers(() => ({
@@ -157,11 +161,8 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
             false,
             {
                 loadLogs: () => false,
-                loadLogsSuccess: () => false,
-                loadLogsFailure: () => true,
                 loadMoreLogs: () => false,
-                loadMoreLogsSuccess: () => false,
-                loadMoreLogsFailure: () => true,
+                setLogsLoadError: (_, { hasError }) => hasError,
             },
         ],
     })),
@@ -186,8 +187,12 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
                         actions.setLogsNextCursor(response.nextCursor)
                         return response.results
                     } catch (error) {
+                        // A busy ClickHouse answers with a retryable error. The inspector already shows
+                        // this through logsLoadError and the recording still plays, so record the error
+                        // state instead of re-throwing into error tracking.
                         console.error('Failed to load backend logs for session replay', error)
-                        throw error
+                        actions.setLogsLoadError(true)
+                        return []
                     }
                 },
                 loadMoreLogs: async () => {
@@ -211,8 +216,11 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
                         actions.setLogsNextCursor(capped ? undefined : response.nextCursor)
                         return capped ? combined.slice(0, MAX_LOG_ENTRIES) : combined
                     } catch (error) {
+                        // Keep the logs already loaded and flag the error instead of re-throwing, so a
+                        // retryable ClickHouse failure does not file an error tracking issue.
                         console.error('Failed to load more backend logs for session replay', error)
-                        throw error
+                        actions.setLogsLoadError(true)
+                        return values.logs
                     }
                 },
             },
