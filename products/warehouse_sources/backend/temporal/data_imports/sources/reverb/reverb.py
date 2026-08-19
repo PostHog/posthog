@@ -1,9 +1,10 @@
 import re
-import dataclasses
 from datetime import UTC, datetime
 from typing import Any, Optional
 
 from requests import Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
@@ -38,7 +39,7 @@ BASE_URL = "https://api.reverb.com/api"
 _PAYOUT_ID_RE = re.compile(r"/my/payouts/(\d+)/line_items")
 
 
-@dataclasses.dataclass
+@frozen
 class ReverbResumeConfig:
     next_page: Optional[int] = None
 
