@@ -64,8 +64,8 @@ posthog:query-llm-traces-list
 { "dateRange": { "date_from": "-7d" }, "filterTestAccounts": true }
 ```
 
-Then read each with `query-llm-trace`. Pass the trace's `id` from the list as the `traceId` argument —
-the tool requires `traceId`, and it does not accept an `id` field:
+Then read each with `query-llm-trace`. Its one required argument is `traceId`, and the value to pass is
+the trace's `id` from the list:
 
 ```json
 posthog:query-llm-trace
