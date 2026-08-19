@@ -534,7 +534,7 @@ class TestTableDiscovery:
             "realtime_database_messages_lobby",
         ]
 
-    @pytest.mark.parametrize("status", [403, 404])
+    @pytest.mark.parametrize("status", [400, 403, 404])
     def test_unreachable_firestore_does_not_hide_the_other_tables(self, status: int) -> None:
         session = FakeSession(
             request_responses=[FakeResponse(status_code=status, payload={"error": {"status": "PERMISSION_DENIED"}})],

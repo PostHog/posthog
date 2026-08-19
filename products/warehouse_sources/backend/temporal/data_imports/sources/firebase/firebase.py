@@ -578,9 +578,10 @@ def get_tables(credentials: FirebaseCredentials) -> list[str]:
         tables.extend(firestore_table_name(collection_id) for collection_id in collection_ids)
     except requests.HTTPError as e:
         # A project with no Firestore database answers 404, and a service account without the
-        # Datastore role answers 403. Neither should hide the tables the source can still read.
+        # Datastore role answers 403. A project in Datastore mode, or a database id that names no
+        # real database, answers 400. None should hide the tables the source can still read.
         status = e.response.status_code if e.response is not None else None
-        if status not in (403, 404):
+        if status not in (400, 403, 404):
             raise
         LOGGER.warning(f"Skipping Firestore collections for Firebase project {credentials.project_id}: {status}")
 
