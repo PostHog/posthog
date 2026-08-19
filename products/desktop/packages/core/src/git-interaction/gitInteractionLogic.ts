@@ -1,6 +1,6 @@
 import type { GitMenuAction, GitMenuActionId } from "./types";
 
-interface GitState {
+export interface GitState {
   repoPath?: string;
   isRepo: boolean;
   isRepoLoading: boolean;
