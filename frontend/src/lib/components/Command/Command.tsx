@@ -7,11 +7,11 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { Search } from '../Search/Search'
 import { SearchItem } from '../Search/searchLogic'
-import { commandLogic } from './commandLogic'
+import { commandLogic, toCommandHistoryItem } from './commandLogic'
 
 export function Command(): JSX.Element {
-    const { isCommandOpen } = useValues(commandLogic)
-    const { closeCommand } = useActions(commandLogic)
+    const { currentTeamId, isCommandOpen, recentlySelectedItems } = useValues(commandLogic)
+    const { closeCommand, recordCommandSelection } = useActions(commandLogic)
 
     const handleItemSelect = useCallback(
         (item: SearchItem, openInNewTab?: boolean) => {
@@ -31,6 +31,13 @@ export function Command(): JSX.Element {
         [closeCommand]
     )
 
+    const handleItemClick = useCallback(
+        (item: SearchItem) => {
+            recordCommandSelection(toCommandHistoryItem(item, currentTeamId))
+        },
+        [currentTeamId, recordCommandSelection]
+    )
+
     const handleAskAiClick = useCallback(() => {
         closeCommand()
     }, [closeCommand])
@@ -41,8 +48,10 @@ export function Command(): JSX.Element {
             <Search.Root
                 logicKey="command"
                 isActive={isCommandOpen}
+                onItemClick={handleItemClick}
                 onItemSelect={handleItemSelect}
                 onAskAiClick={handleAskAiClick}
+                recentlySelectedItems={recentlySelectedItems}
                 showAskAiLink
             >
                 <Search.Input autoFocus />

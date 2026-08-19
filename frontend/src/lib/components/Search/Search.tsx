@@ -40,6 +40,7 @@ import { fileSystemTypes } from '~/products'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import type { UserTheme } from '~/types'
 
+import type { CommandHistoryItem } from '../Command/commandLogic'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { RECENTS_LIMIT, STARRED_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
 import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, formatRelativeTimeShort, getCategoryDisplayName } from './utils'
@@ -72,6 +73,7 @@ const PLACEHOLDER_CYCLE_INTERVAL = 3000
 const SETTINGS_THEME_ITEM_QUERY = ['dark', 'light', 'theme', 'appearance']
 
 const EMPTY_SUGGESTED_ITEMS: SearchItem[] = []
+const EMPTY_COMMAND_HISTORY_ITEMS: CommandHistoryItem[] = []
 
 // ============================================================================
 // Hooks
@@ -371,8 +373,12 @@ export interface SearchRootProps {
     logicKey?: SearchLogicProps['logicKey']
     /** Whether the search is active (for placeholder animation) */
     isActive?: boolean
+    /** Called after a non-theme item is selected. */
+    onItemClick?: (item: SearchItem) => void
     /** Callback when an item is selected. `openInNewTab` is true when activated with Cmd/Ctrl. */
     onItemSelect?: (item: SearchItem, openInNewTab?: boolean) => void
+    /** Items selected in this search surface, displayed before other default results. */
+    recentlySelectedItems?: CommandHistoryItem[]
     /** Whether to show the Ask AI link */
     showAskAiLink?: boolean
     /** Callback when Ask AI is clicked */
@@ -389,7 +395,9 @@ function SearchRoot({
     children,
     logicKey = 'default',
     isActive = true,
+    onItemClick,
     onItemSelect,
+    recentlySelectedItems = EMPTY_COMMAND_HISTORY_ITEMS,
     showAskAiLink = true,
     onAskAiClick,
     className = '',
@@ -430,6 +438,11 @@ function SearchRoot({
     // Compute filteredItems synchronously to avoid render gap between loading and content
     const filteredItems = useMemo(() => {
         const normalizedSuggestedItems = suggestedItems.map((item) => ({ ...item, category: 'suggested' }))
+        const itemsById = new Map(allItems.map((item) => [item.id, item]))
+        const normalizedRecentlySelectedItems = recentlySelectedItems
+            .map((item) => itemsById.get(item.id) ?? item)
+            .filter((item) => !!item.href || itemsById.has(item.id))
+            .map((item) => ({ ...item, category: 'recently-selected' }))
         let items: SearchItem[]
         if (searchValue.trim()) {
             // Client-side fuzzy filter for recents/tools/starred; keep server results as-is
@@ -438,8 +451,14 @@ function SearchRoot({
             const filteredClientItems = filterSearchItems(clientItems, searchValue)
             items = [...filteredClientItems, ...serverItems]
         } else {
-            // When not searching, show recents, starred, and tools
-            items = allItems.filter((item) => ['recents', 'starred', 'tools'].includes(item.category))
+            const recentlySelectedIds = new Set(normalizedRecentlySelectedItems.map((item) => item.id))
+            items = [
+                ...normalizedRecentlySelectedItems,
+                ...allItems.filter(
+                    (item) =>
+                        ['recents', 'starred', 'tools'].includes(item.category) && !recentlySelectedIds.has(item.id)
+                ),
+            ]
         }
 
         // Add a direct shortcut to the theme setting when searching for dark/light/theme
@@ -476,7 +495,7 @@ function SearchRoot({
         }
 
         return [...normalizedSuggestedItems, ...items]
-    }, [allItems, searchValue, suggestedItems, isDarkModeOn])
+    }, [allItems, searchValue, suggestedItems, recentlySelectedItems, isDarkModeOn])
 
     useEffect(() => {
         if (!isActive) {
@@ -532,6 +551,7 @@ function SearchRoot({
                     return
                 }
             }
+            onItemClick?.(item)
             if (onItemSelect) {
                 onItemSelect(item, openInNewTab)
             } else if (item.href) {
@@ -542,7 +562,7 @@ function SearchRoot({
                 }
             }
         },
-        [onItemSelect, onAskAiClick, updateUser, toggleTheme, logicKey]
+        [onItemClick, onItemSelect, onAskAiClick, updateUser, toggleTheme, logicKey]
     )
 
     const groupedItems = useMemo(() => {
@@ -564,8 +584,8 @@ function SearchRoot({
             loadingByCategory.set(cat.key, cat.isLoading ?? false)
         }
 
-        // Fixed order: ai first (when searching), then recents, starred, tools, create, then everything else
-        const orderedCategories = ['suggested', 'recents', 'starred', 'tools', 'create']
+        // Fixed order: ai first (when searching), then recent selections, recents, starred, tools, create, then everything else
+        const orderedCategories = ['suggested', 'recently-selected', 'recents', 'starred', 'tools', 'create']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
@@ -578,6 +598,7 @@ function SearchRoot({
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
                 : (category === 'suggested' && items.length > 0) ||
+                  (category === 'recently-selected' && items.length > 0) ||
                   category === 'recents' ||
                   category === 'tools' ||
                   (category === 'starred' && (items.length > 0 || isLoading))
@@ -798,6 +819,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
 
 function SearchStatus(): JSX.Element {
     const { isSearching, searchValue, filteredItems } = useSearchContext()
+    const hasRecentlySelectedItems = filteredItems.some((item) => item.category === 'recently-selected')
 
     const statusMessage = useMemo(() => {
         if (isSearching) {
@@ -813,12 +835,12 @@ function SearchStatus(): JSX.Element {
         }
         if (filteredItems.length > 0) {
             if (!searchValue.trim()) {
-                return 'Recents and tools'
+                return hasRecentlySelectedItems ? 'Recent selections and tools' : 'Recents and tools'
             }
             return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
         }
         return 'Type to search...'
-    }, [isSearching, searchValue, filteredItems.length])
+    }, [isSearching, searchValue, filteredItems.length, hasRecentlySelectedItems])
 
     return (
         <Autocomplete.Status className="px-3 pb-2 text-xs text-muted flex items-center">
