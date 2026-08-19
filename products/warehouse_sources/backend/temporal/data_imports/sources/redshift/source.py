@@ -158,6 +158,13 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             "server does not support SSL": None,
             "does not exist": None,
             "QueryTimeoutException": None,
+            # `QueryTimeoutException` above only matches once Temporal's `ApplicationError` wraps
+            # the failure with the class name (workflow layer) — the activity-level check matches
+            # `str(e)` on the raw exception, which is just the message with no class name. Match
+            # the stable prefix too (not the incremental field name, which varies per table) so a
+            # table missing the SORTKEY stops retrying at the activity layer instead of burning a
+            # full retry budget on a 10-minute query that will time out identically every time.
+            "10 min timeout statement reached": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             "Network is unreachable": None,

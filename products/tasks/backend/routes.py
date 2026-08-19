@@ -4,6 +4,7 @@ import products.tasks.backend.presentation.views.api as tasks
 import products.tasks.backend.presentation.views.loops as loops
 import products.tasks.backend.presentation.views.seat_api as seats
 import products.tasks.backend.presentation.views.channels_api as channels
+import products.tasks.backend.presentation.views.task_usage_api as task_usage
 import products.tasks.backend.presentation.views.sandbox_pricing_api as sandbox_pricing
 
 
@@ -45,3 +46,4 @@ def register_routes(routers: RouterRegistry) -> None:
         r"code/sandbox-pricing", sandbox_pricing.SandboxComputePricingViewSet, "sandbox_compute_pricing"
     )
     routers.root.register(r"seats", seats.SeatViewSet, "seats")
+    routers.root.register(r"code/internal/task_usage", task_usage.InternalTaskUsageViewSet, "internal_task_usage")
