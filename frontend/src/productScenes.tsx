@@ -129,6 +129,15 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ReplayVisionActionRun: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionRunScene'),
     CodeReview: () => import('../../products/review_hog/frontend/CodeReviewScene'),
     Inbox: () => import('../../products/signals/frontend/inbox/InboxScene'),
+    InvestigationsDemo: () => import('../../products/signals/frontend/investigations-demo/InvestigationsInboxScene'),
+    InvestigationsDemoFocus: () =>
+        import('../../products/signals/frontend/investigations-demo/InvestigationsFocusScene'),
+    InvestigationsDemoReport: () =>
+        import('../../products/signals/frontend/investigations-demo/InvestigationsReportScene'),
+    InvestigationsDemoResolved: () =>
+        import('../../products/signals/frontend/investigations-demo/InvestigationsResolvedScene'),
+    InvestigationsDemoMonitor: () =>
+        import('../../products/signals/frontend/investigations-demo/InvestigationsMonitorScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
     CommunitySkills: () => import('../../products/skills/frontend/CommunitySkillsScene'),
