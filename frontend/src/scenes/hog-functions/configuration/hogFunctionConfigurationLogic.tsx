@@ -411,8 +411,8 @@ export interface hogFunctionConfigurationLogicValues {
     template: HogFunctionTemplateType | null
     templateHasChanged: boolean | '' | undefined
     templateId: string | undefined
-    templateLoading: boolean
     templateLoadError: boolean
+    templateLoading: boolean
     templateNotFound: boolean
     type: HogFunctionTypeType
     unsavedConfiguration: {
@@ -718,7 +718,7 @@ export interface hogFunctionConfigurationLogicMeta {
         surveyIdFromFilters: (configuration: HogFunctionConfigurationType) => string | null
         type: (configuration: HogFunctionConfigurationType, hogFunction: HogFunctionType | null) => HogFunctionTypeType
         hasGroupsAddon: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         useMapping: (
             hogFunction: HogFunctionType | null,
@@ -1015,8 +1015,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     const res = await retryWithBackoff(() => api.hogFunctions.getTemplate(props.templateId!), {
                         maxAttempts: 3,
                         shouldRetry: (error) =>
-                            (error instanceof ApiError && error.status === undefined) ||
-                            isTransientServerError(error),
+                            (error instanceof ApiError && error.status === undefined) || isTransientServerError(error),
                     })
 
                     if (!res) {

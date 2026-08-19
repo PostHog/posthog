@@ -274,9 +274,6 @@ export interface alertWizardLogicActions {
     resetWizard: () => {
         value: true
     }
-    retryLoadTemplate: () => {
-        value: true
-    }
     restoreWizardState: (state: {
         destinationKey: string | null
         step: WizardStep
@@ -287,6 +284,9 @@ export interface alertWizardLogicActions {
             step: WizardStep
             triggerKey: HogFunctionSubTemplateIdType | null
         }
+    }
+    retryLoadTemplate: () => {
+        value: true
     }
     setAlertCreationView: (view: AlertCreationView) => {
         view: AlertCreationView
