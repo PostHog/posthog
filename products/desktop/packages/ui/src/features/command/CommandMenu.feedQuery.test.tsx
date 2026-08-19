@@ -77,6 +77,13 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
   useFeedQueryPlan: () => ({ plan: undefined, isLoading: false }),
 }));
 
+const mocks = vi.hoisted(() => ({ navigateToFeed: vi.fn() }));
+vi.mock("@posthog/ui/router/navigationBridge", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  navigateToFeed: mocks.navigateToFeed,
+}));
+
+import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import { CommandMenu } from "./CommandMenu";
 
 describe("CommandMenu feed queries", () => {
@@ -92,8 +99,8 @@ describe("CommandMenu feed queries", () => {
       screen.getByPlaceholderText(/Search or filter/),
       "created-by:@me ",
     );
-    // The results are debounced; the save action must already be offered.
-    expect(await screen.findByText("Save as feed…")).toBeTruthy();
+    // The footer advertises the save shortcut; the results are debounced.
+    expect(await screen.findByText(/save search/)).toBeTruthy();
     expect(
       await screen.findByText(
         "Fix billing address validation",
@@ -101,6 +108,38 @@ describe("CommandMenu feed queries", () => {
         { timeout: 2000 },
       ),
     ).toBeTruthy();
+
+    // ⌘S hands the query to the save modal.
+    await user.keyboard("{Meta>}s{/Meta}");
+    expect(
+      await screen.findByText("Save search", { selector: "span" }),
+    ).toBeTruthy();
+  });
+
+  it("opens a saved search from the saved: filter", async () => {
+    useTaskFeedsStore.setState({
+      feeds: [
+        {
+          id: "feed-1",
+          name: "My failing tasks",
+          query: "created-by:@me status:failed",
+          createdAt: "2026-08-01T00:00:00Z",
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <CommandMenu open onOpenChange={() => {}} />
+      </Theme>,
+    );
+
+    await user.type(
+      screen.getByPlaceholderText(/Search or filter/),
+      "saved:fail",
+    );
+    await user.click(await screen.findByText("My failing tasks"));
+    expect(mocks.navigateToFeed).toHaveBeenCalledWith("feed-1");
   });
 
   it("completes a key then a value from the always-on suggestions", async () => {

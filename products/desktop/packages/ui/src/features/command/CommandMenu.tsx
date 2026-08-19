@@ -26,6 +26,7 @@ import {
   Dialog,
   DialogContent,
   Kbd,
+  KbdGroup,
 } from "@posthog/quill";
 import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import {
@@ -43,7 +44,6 @@ import { TaskFeedModal } from "@posthog/ui/features/canvas/components/TaskFeedMo
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useTaskChannelMap } from "@posthog/ui/features/canvas/hooks/useTaskChannelMap";
-import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { CommandKeyHints } from "@posthog/ui/features/command/CommandKeyHints";
@@ -729,33 +729,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     caret,
     enabled: open && spacesLayout,
     onApply: onApplyFilter,
-    onSaveAsFeed,
   });
-  const { scope, hasFilterTokens, searchText, keyChips } = feedQuery;
-
-  // Saved feeds, listed under `type:feed`.
-  const feeds = useTaskFeedsStore((s) => s.feeds);
-  const feedSections = useMemo<CommandSection[]>(() => {
-    if (scope !== "feed") return [];
-    return [
-      {
-        label: "Feeds",
-        items: feeds.map((feed) => ({
-          id: `feed-open-${feed.id}`,
-          label: feed.name,
-          detail: feed.query,
-          detailPrefix: "",
-          keywords: `${query} ${feed.name} ${feed.query}`,
-          icon: <MagnifyingGlassIcon className="h-3 w-3 text-gray-11" />,
-          action: "open-feed" as CommandMenuAction,
-          onRun: () => {
-            closeSettingsDialog();
-            navigateToFeed(feed.id);
-          },
-        })),
-      },
-    ];
-  }, [scope, feeds, query, closeSettingsDialog]);
+  const { scope, hasFilterTokens, searchText, keyChips, matchCount } =
+    feedQuery;
 
   // Commands, channels, and tasks share a single filterable list. With the
   // query language always on, what narrows them is the query's *free text*
@@ -770,7 +746,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     return prioritizeExactCommandMatches(
       [
         ...feedQuery.sections,
-        ...feedSections,
         ...(showRemoteSearch ? searchSections : []),
         ...(showCommands ? commandSections : []),
         ...(showChannels ? channelSections : []),
@@ -780,7 +755,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     );
   }, [
     feedQuery.sections,
-    feedSections,
     searchSections,
     commandSections,
     channelSections,
@@ -824,6 +798,17 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   // Tab completes: the first key chip while typing a bare word, otherwise
   // the highlighted (or first) value suggestion — mirroring the feed editor.
   const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    // ⌘S saves the query as a saved search — the footer advertises it.
+    if (
+      event.key.toLowerCase() === "s" &&
+      (event.metaKey || event.ctrlKey) &&
+      hasFilterTokens
+    ) {
+      event.preventDefault();
+      track(ANALYTICS_EVENTS.COMMAND_MENU_ACTION, { action_type: "save-feed" });
+      onSaveAsFeed(query.trim());
+      return;
+    }
     if (event.key !== "Tab") return;
     if (keyChips.length > 0) {
       event.preventDefault();
@@ -979,7 +964,20 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               )}
             </AutocompleteList>
           </Autocomplete>
-          <CommandKeyHints />
+          <CommandKeyHints>
+            {hasFilterTokens && (
+              <div className="flex items-center gap-2">
+                <KbdGroup>
+                  <Kbd>{formatHotkeyParts("mod+s").join("")}</Kbd>
+                </KbdGroup>
+                <span className="text-xs">
+                  save search
+                  {matchCount != null &&
+                    ` · ${matchCount} ${matchCount === 1 ? "task" : "tasks"}`}
+                </span>
+              </div>
+            )}
+          </CommandKeyHints>
         </DialogContent>
       </Dialog>
       {/* Outside the palette's dialog: "Save as feed" closes the palette, and

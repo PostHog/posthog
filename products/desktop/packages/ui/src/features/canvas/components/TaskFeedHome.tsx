@@ -76,17 +76,17 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
       surface: "feed_home",
       feed_id: feed.id,
     });
-    toast.success("Feed deleted");
+    toast.success("Saved search deleted");
     void navigate({ to: "/website" });
   }, [feed, removeFeed, navigate]);
 
   if (!feed) {
     return (
       <div className="flex h-full min-w-0 flex-col items-center justify-center gap-2 bg-gray-1 px-4 text-center">
-        <Heading className="font-bold text-xl">Feed not found</Heading>
+        <Heading className="font-bold text-xl">Saved search not found</Heading>
         <Text className="max-w-md text-(--gray-9)">
-          This feed doesn't exist on this device. Feeds are saved locally, so a
-          feed created elsewhere won't appear here.
+          This saved search doesn't exist on this device. Searches are saved
+          locally, so one saved elsewhere won't appear here.
         </Text>
       </div>
     );
@@ -95,13 +95,10 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
   // Pinned above the cards, sharing their width: what the feed is showing and
   // the two things you can do to it. Doubles as the header of the empty state.
   const queryBar = (
-    <div className="mb-2 flex w-full items-start gap-2 rounded-xl border border-(--gray-4) bg-(--gray-2) px-4 py-3">
-      <MagnifyingGlassIcon
-        size={14}
-        className="mt-1.5 shrink-0 text-(--gray-9)"
-      />
+    <div className="mb-2 flex w-full items-center gap-2 rounded-xl border border-(--gray-4) bg-(--gray-2) px-4 py-3">
+      <MagnifyingGlassIcon size={14} className="shrink-0 text-(--gray-9)" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="flex min-w-0 items-baseline gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <FeedQueryHighlight query={feed.query} className="min-w-0 truncate" />
           {isLoading ? (
             <Skeleton className="h-3 w-12 shrink-0 self-center" />
@@ -128,7 +125,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
         variant="outline"
         size="xs"
         onClick={() => setEditOpen(true)}
-        aria-label="Edit feed"
+        aria-label="Edit saved search"
       >
         <PencilSimpleIcon size={12} />
         Edit
@@ -137,7 +134,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
         variant="outline"
         size="xs"
         onClick={handleDelete}
-        aria-label="Delete feed"
+        aria-label="Delete saved search"
       >
         <TrashIcon size={12} />
         Delete
@@ -152,7 +149,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
       {queryBar}
       {!isLoading && tasks.length === 0 && (
         <div className="flex flex-col items-center gap-1 px-4 py-16 text-center">
-          <Text className="font-medium">No tasks match this feed yet</Text>
+          <Text className="font-medium">No tasks match this search yet</Text>
           <Text className="text-(--gray-9) text-sm">
             New tasks appear here as soon as they match the query.
           </Text>

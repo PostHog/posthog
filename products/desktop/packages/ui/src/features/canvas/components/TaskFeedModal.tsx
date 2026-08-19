@@ -124,12 +124,13 @@ export function TaskFeedModal({
           <Flex direction="column" gap="1">
             <Dialog.Title mb="0">
               <Text className="font-semibold text-base">
-                {feed ? "Edit feed" : "New feed"}
+                {feed ? "Edit saved search" : "Save search"}
               </Text>
             </Dialog.Title>
             <Dialog.Description>
               <Text className="text-(--gray-9) text-sm">
-                A feed is a saved search that keeps up with matching tasks.
+                A saved search keeps up with matching tasks, ready to reopen
+                from the palette.
               </Text>
             </Dialog.Description>
           </Flex>
@@ -227,7 +228,7 @@ export function TaskFeedModal({
             <Button variant="outline">Cancel</Button>
           </Dialog.Close>
           <Button variant="primary" disabled={!canSubmit} onClick={submit}>
-            {feed ? "Save" : "Create feed"}
+            {feed ? "Save" : "Save search"}
           </Button>
         </Flex>
       </Dialog.Content>

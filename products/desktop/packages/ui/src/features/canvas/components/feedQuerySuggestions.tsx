@@ -8,6 +8,7 @@ import {
   GitMergeIcon,
   GitPullRequestIcon,
   HashIcon,
+  MagnifyingGlassIcon,
   PackageIcon,
   PencilSimpleIcon,
   PushPinIcon,
@@ -128,18 +129,26 @@ const KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
 ];
 
 /** Only offered where results have kinds to scope (the command palette). */
-const TYPE_KEY_SUGGESTION: FeedQuerySuggestion = {
-  insert: "type:",
-  label: "type:",
-  hint: "task, space, command, feed",
-  icon: keyIcon(<SquaresFourIcon size={14} />),
-};
+const PALETTE_KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
+  {
+    insert: "type:",
+    label: "type:",
+    hint: "task, space, command, saved",
+    icon: keyIcon(<SquaresFourIcon size={14} />),
+  },
+  {
+    insert: "saved:",
+    label: "saved:",
+    hint: "open a saved search",
+    icon: keyIcon(<MagnifyingGlassIcon size={14} />),
+  },
+];
 
 const TYPE_VALUES: FeedQuerySuggestion[] = [
   { insert: "task", label: "task", hint: "only tasks" },
   { insert: "space", label: "space", hint: "only spaces" },
   { insert: "command", label: "command", hint: "only commands" },
-  { insert: "feed", label: "feed", hint: "only saved feeds" },
+  { insert: "saved", label: "saved", hint: "only saved searches" },
 ].map((s) => ({ ...s, icon: keyIcon(<SquaresFourIcon size={14} />) }));
 
 const IS_VALUES = ["archived", "pinned", "running", "done", "failed"];
@@ -341,7 +350,7 @@ export function useFeedQuerySuggestions(
       case null: {
         const prefix = bare.toLowerCase();
         const keys = includeType
-          ? [...KEY_SUGGESTIONS, TYPE_KEY_SUGGESTION]
+          ? [...KEY_SUGGESTIONS, ...PALETTE_KEY_SUGGESTIONS]
           : KEY_SUGGESTIONS;
         return {
           heading: "Filters",

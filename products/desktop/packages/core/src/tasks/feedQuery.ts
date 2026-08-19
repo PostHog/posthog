@@ -32,7 +32,8 @@ export type FeedQueryKey =
   | "is"
   | "pr"
   | "ci"
-  | "type";
+  | "type"
+  | "saved";
 
 const KEY_ALIASES: Record<string, FeedQueryKey> = {
   "created-by": "created-by",
@@ -53,6 +54,7 @@ const KEY_ALIASES: Record<string, FeedQueryKey> = {
   pr: "pr",
   ci: "ci",
   type: "type",
+  saved: "saved",
 };
 
 export const TASK_RUN_STATUSES: readonly TaskRunStatus[] = [
@@ -110,7 +112,7 @@ export const CI_VALUES = [
 
 /** What `type:` can scope. Only the command palette acts on non-task kinds;
  * a feed carries tasks, so its planner flags the rest as ignored. */
-export const TYPE_VALUES = ["task", "space", "command", "feed"] as const;
+export const TYPE_VALUES = ["task", "space", "command", "saved"] as const;
 export type TypeValue = (typeof TYPE_VALUES)[number];
 
 /** Friendlier spellings onto the backend's snapshot vocabulary
@@ -766,6 +768,19 @@ export function planFeedQuery(
           message: `Feeds only carry tasks, so "${token.raw}" is ignored here`,
         });
       }
+    }
+  }
+
+  const savedGroup = groups.get("saved");
+  if (savedGroup) {
+    // `saved:` opens a saved search from the command palette; inside one it
+    // has nothing to filter.
+    for (const token of [...savedGroup.positives, ...savedGroup.negatives]) {
+      issues.push({
+        raw: token.raw,
+        kind: "unsupported",
+        message: `"saved:" opens saved searches from the command palette, so it is ignored here`,
+      });
     }
   }
 

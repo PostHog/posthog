@@ -108,21 +108,6 @@ vi.mock(
 vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
   RenameChannelModal: () => null,
 }));
-// The feed modal's live match-count preview and the query input's teammate
-// suggestions reach react-query and the auth stack, neither of which this
-// file mounts.
-vi.mock("@posthog/ui/features/canvas/hooks/useTaskFeedResults", () => ({
-  useTaskFeedResults: () => ({ tasks: [], isLoading: false, issues: [] }),
-  useFeedQueryPlan: () => ({ plan: undefined, isLoading: false }),
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
-  useOrgMembers: () => ({
-    members: [],
-    isLoading: false,
-    isError: false,
-    isComplete: true,
-  }),
-}));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
   useRouterState: () => "/website",
@@ -139,7 +124,6 @@ import {
   requestSpaceSearchFocus,
   useSpaceTreeStore,
 } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
-import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelsList } from "./ChannelsList";
 
@@ -196,7 +180,6 @@ describe("ChannelsList", () => {
     });
     mocks.totals = {};
     useCurrentChannelStore.setState({ currentChannelId: null });
-    useTaskFeedsStore.setState({ feeds: [] });
     mocks.tasks = [
       {
         id: "task-new",
@@ -592,70 +575,6 @@ describe("ChannelsList", () => {
         expect(screen.queryByLabelText("Search spaces")).toBeNull(),
       );
       expect(document.activeElement).toBe(document.body);
-    });
-  });
-
-  describe("feeds", () => {
-    const FEED = {
-      id: "feed-id",
-      name: "billing work",
-      query: "billing",
-      createdAt: "2026-08-01T00:00:00Z",
-    };
-
-    beforeEach(() => {
-      useTaskFeedsStore.setState({ feeds: [FEED] });
-    });
-
-    // A feed is a saved view of the main window, not a space — opening one
-    // navigates right away and leaves the sidebar list where it is.
-    it("opens a feed in the main window without leaving the list", async () => {
-      const user = userEvent.setup();
-      renderList();
-      act(() => showChannelList());
-
-      await user.click(screen.getByText("billing work"));
-
-      expect(mocks.navigate).toHaveBeenCalledWith(
-        expect.objectContaining({ params: { feedId: FEED.id } }),
-      );
-      expect(consumeKeepListForNextRoute()).toBe(true);
-    });
-
-    it("creates a feed from the New feed row and opens it", async () => {
-      const user = userEvent.setup();
-      renderList();
-
-      await user.click(screen.getByText("New feed…"));
-      await user.type(screen.getByLabelText("Name"), "my prs");
-      await user.type(screen.getByLabelText("Query"), "pull request");
-      await user.click(screen.getByRole("button", { name: "Create feed" }));
-
-      const created = useTaskFeedsStore
-        .getState()
-        .feeds.find((f) => f.name === "my prs");
-      expect(created?.query).toBe("pull request");
-      expect(mocks.navigate).toHaveBeenCalledWith(
-        expect.objectContaining({ params: { feedId: created?.id } }),
-      );
-    });
-
-    it("matches feeds in the sidebar search", async () => {
-      const user = userEvent.setup();
-      renderList();
-
-      await user.type(screen.getByLabelText("Search spaces"), "billing");
-
-      expect(screen.getByText("billing work")).toBeTruthy();
-      expect(screen.queryByText("engineering")).toBeNull();
-    });
-
-    it("stays off the legacy channels layout", () => {
-      mocks.channelsLayout = false;
-      renderList();
-
-      expect(screen.queryByText("Feeds")).toBeNull();
-      expect(screen.queryByText("billing work")).toBeNull();
     });
   });
 });

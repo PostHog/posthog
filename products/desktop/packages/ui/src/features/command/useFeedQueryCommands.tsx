@@ -9,12 +9,14 @@ import {
   useFeedQuerySuggestions,
 } from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
+import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import type {
   Command,
   CommandSection,
 } from "@posthog/ui/features/command/useSearchSections";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
+import { navigateToFeed } from "@posthog/ui/router/navigationBridge";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { FileTextIcon } from "@radix-ui/react-icons";
 import { useMemo } from "react";
@@ -44,6 +46,8 @@ export interface FeedQueryPalette {
   scope: TypeValue | null;
   /** The query carries a filter beyond `type:` — the palette is a feed query. */
   hasFilterTokens: boolean;
+  /** What the query matches right now, or null while it is still counting. */
+  matchCount: number | null;
   /** The free-text words, for matching commands/spaces instead of the raw
    * query (whose tokens would never substring-match a label). */
   searchText: string;
@@ -62,7 +66,6 @@ export function useFeedQueryCommands({
   caret,
   enabled,
   onApply,
-  onSaveAsFeed,
 }: {
   query: string;
   /** The palette input's caret, for chunk-of-interest completion. */
@@ -71,8 +74,6 @@ export function useFeedQueryCommands({
   enabled: boolean;
   /** Replace the palette query after a completion, placing the caret. */
   onApply: (next: string, caret: number) => void;
-  /** Called with the query when "Save as feed" is picked. */
-  onSaveAsFeed: (query: string) => void;
 }): FeedQueryPalette {
   const trimmed = query.trim();
   const parsed = useMemo(() => parseFeedQuery(trimmed), [trimmed]);
@@ -95,6 +96,7 @@ export function useFeedQueryCommands({
   );
   const results = useTaskFeedResults(previewQuery);
   const counting = isPending || results.isLoading;
+  const feeds = useTaskFeedsStore((state) => state.feeds);
 
   return useMemo(() => {
     if (!enabled) {
@@ -103,6 +105,7 @@ export function useFeedQueryCommands({
         keyChips: [],
         scope: null,
         hasFilterTokens: false,
+        matchCount: null,
         searchText,
       };
     }
@@ -145,27 +148,36 @@ export function useFeedQueryCommands({
       });
     }
 
-    if (hasFilterTokens) {
-      sections.push({
-        label: "Feed",
-        items: [
-          {
-            id: "feed-query-save",
-            label: "Save as feed…",
-            detail: counting
-              ? "running query"
-              : `${results.tasks.length} ${results.tasks.length === 1 ? "task matches" : "tasks match"}`,
-            detailPrefix: "",
-            keywords: `${query} ${searchText}`,
-            icon: <MagnifyingGlassIcon size={12} className="text-gray-11" />,
-            action: "save-feed",
-            onRun: () => {
-              closeSettings();
-              onSaveAsFeed(trimmed);
-            },
-          },
-        ],
-      });
+    // `saved:` opens a saved search (as does a `type:saved` scope): the rows
+    // navigate to the search's page rather than completing a token.
+    const savedMode = context.activeKey === "saved";
+    if (savedMode || scope === "saved") {
+      const needle = (savedMode ? context.typed : searchText).toLowerCase();
+      const hits = feeds.filter(
+        (feed) =>
+          feed.name.toLowerCase().includes(needle) ||
+          feed.query.toLowerCase().includes(needle),
+      );
+      if (hits.length > 0) {
+        sections.push({
+          label: "Saved searches",
+          items: hits.map(
+            (feed): Command => ({
+              id: `saved-search-${feed.id}`,
+              label: feed.name,
+              detail: feed.query,
+              detailPrefix: "",
+              keywords: `${query} ${searchText} ${feed.name}`,
+              icon: <MagnifyingGlassIcon size={12} className="text-gray-11" />,
+              action: "open-feed",
+              onRun: () => {
+                closeSettings();
+                navigateToFeed(feed.id);
+              },
+            }),
+          ),
+        });
+      }
     }
 
     if (runsQuery && results.tasks.length > 0) {
@@ -193,20 +205,26 @@ export function useFeedQueryCommands({
       });
     }
 
-    return { sections, keyChips, scope, hasFilterTokens, searchText };
+    return {
+      sections,
+      keyChips,
+      scope,
+      hasFilterTokens,
+      matchCount: runsQuery && !counting ? results.tasks.length : null,
+      searchText,
+    };
   }, [
     enabled,
     group,
     context,
     query,
-    trimmed,
     searchText,
     scope,
     hasFilterTokens,
     runsQuery,
     counting,
     results.tasks,
+    feeds,
     onApply,
-    onSaveAsFeed,
   ]);
 }
