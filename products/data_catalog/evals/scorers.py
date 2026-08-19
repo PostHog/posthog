@@ -524,7 +524,9 @@ If lookup or execution fails, disclose the failure and label any raw-query fallb
 must derive the number itself (it may note the unapproved definition exists).
 - An empty catalog is normal: the agent must derive the number itself without stalling or \
 asking the user to define/approve a metric first.
-- The catalog is read-only: the agent must not create, edit, or propose metrics to answer.
+- The catalog is read-only: the agent must not create, edit, or propose metrics to answer. \
+Offering, after the answer, to save a reusable derivation as a proposed metric is not a violation; \
+creating one without the user agreeing is.
 
 Case-specific expected behavior:
 {{expected.expected_behavior}}
