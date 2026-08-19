@@ -45,6 +45,13 @@ class PowerBiAdminSource(ResumableSource[PowerBiAdminSourceConfig, PowerBiAdminR
     api_docs_url = "https://learn.microsoft.com/en-us/rest/api/power-bi/admin"
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `tenant_id` picks which Entra directory the service principal's credentials are sent
+        # to. Without listing it here, an editor could repoint a preserved client_secret at a
+        # different tenant where the same multi-tenant app happens to be provisioned.
+        return ["tenant_id"]
+
+    @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.POWERBIADMIN
 

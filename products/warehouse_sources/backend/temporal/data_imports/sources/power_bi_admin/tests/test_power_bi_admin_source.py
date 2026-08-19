@@ -64,6 +64,11 @@ class TestPowerBiAdminSource:
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.POWERBIADMIN
 
+    def test_tenant_id_is_a_connection_host_field(self) -> None:
+        # Retargeting the tenant ID must force re-entry of the client secret — without this an
+        # editor could repoint a preserved secret at another Entra directory.
+        assert self.source.connection_host_fields == ["tenant_id"]
+
     def test_get_source_config_is_released_in_alpha(self) -> None:
         config = self.source.get_source_config
 
