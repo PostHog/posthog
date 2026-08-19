@@ -55,6 +55,7 @@ class TestRequestUntaggedFollowupConfirmationActivity(TestCase):
             event={"channel": "C001", "user": "U_BOB", "ts": "1001.0000", "thread_ts": "1000.0000", "text": "and this"},
             integration_id=self.integration.id,
             slack_team_id="T_SLACK",
+            user_id=self.user.id,
             untagged_followup=True,
         )
 
