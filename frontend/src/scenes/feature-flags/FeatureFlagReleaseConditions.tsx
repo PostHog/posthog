@@ -43,6 +43,8 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
+
 import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
@@ -583,6 +585,7 @@ export function FeatureFlagReleaseConditions({
                     it.
                 </LemonBanner>
             )}
+            <FractionalRolloutWarning filterGroups={filterGroups} className="mb-3" />
             {!readOnly &&
                 !filterGroups.every(
                     (group) => filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2

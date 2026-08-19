@@ -622,6 +622,20 @@ class CreatedTaskDTO:
 
 
 @dataclass(frozen=True)
+class WorkflowTaskDTO:
+    """Outcome of a workflow's "Create AI task" action.
+
+    ``created`` is False when the request replayed an already-used idempotency key and the
+    ids belong to the previously created task. ``run_id`` is ``None`` only for a replayed
+    task whose run has since been deleted.
+    """
+
+    task_id: UUID
+    run_id: UUID | None
+    created: bool
+
+
+@dataclass(frozen=True)
 class CodeInviteRedeemResult:
     """Outcome of attempting to redeem a PostHog Desktop invite.
 
