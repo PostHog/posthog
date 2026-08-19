@@ -36,24 +36,40 @@ MAX_WORKFLOW_EMAIL_SENDERS = 10
 FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
 
 
+def _sender_integration_ids(from_value: dict) -> set[int]:
+    return {
+        integration_id
+        for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
+        if isinstance(integration_id, int) and not isinstance(integration_id, bool)
+    }
+
+
 def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     """Reject a literal custom sender address the send path would refuse.
 
     The runtime only sends from an address on the selected integration's verified domain; an
     off-domain override is discarded at send time with a run-log warning the author never sees.
     Catching it at save time puts the error in front of the person who can fix it. Only newly
-    written literals are checked: templated addresses resolve at render time, and values already
-    stored on the workflow are grandfathered so legacy placeholder data (cleaned up by a separate
-    backfill) does not block unrelated edits.
+    written sender configurations are checked: templated addresses resolve at render time, and a
+    value already stored on the workflow (live or draft) is grandfathered so legacy placeholder
+    data (cleaned up by a separate backfill) does not block unrelated edits.
     """
     override = (from_value.get("email") or "").strip()
     # A brace means a Liquid or Hog template that only resolves at send time.
     if not override or "{" in override:
         return
 
-    existing_from = context.get("existing_email_from") or {}
-    if override == (existing_from.get("email") or "").strip():
-        return
+    existing = context.get("existing_email_from") or []
+    # Grandfather only a fully unchanged sender configuration: the address AND the selected
+    # sender set must match a stored variant. Keeping the address while switching senders must
+    # re-check it against the new sender's domain, or the pair silently falls back at send time.
+    for stored in existing if isinstance(existing, list) else [existing]:
+        if not isinstance(stored, dict):
+            continue
+        if override == (stored.get("email") or "").strip() and _sender_integration_ids(
+            from_value
+        ) == _sender_integration_ids(stored):
+            return
 
     get_team = context.get("get_team")
     if get_team is None:
@@ -69,19 +85,25 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
             }
         )
 
-    integration_ids = [
-        integration_id
-        for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
-        if isinstance(integration_id, int) and not isinstance(integration_id, bool)
-    ]
+    integration_ids = _sender_integration_ids(from_value)
     if not integration_ids:
         return
 
     override_domain = override.split("@")[1].lower()
-    integrations = Integration.objects.filter(team_id=get_team().id, id__in=integration_ids, kind="email")
-    for integration in integrations:
-        config = integration.config or {}
-        integration_domain = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
+    # An empty cached domain means the id resolved to no email integration for this team; the
+    # save is not blocked on it (there is no domain to compare), matching the uncached behavior.
+    shared_cache = context.get("email_integration_domain_cache")
+    domain_cache: dict[int, str] = shared_cache if isinstance(shared_cache, dict) else {}
+    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in domain_cache]
+    if missing_ids:
+        for integration in Integration.objects.filter(team_id=get_team().id, id__in=missing_ids, kind="email"):
+            config = integration.config or {}
+            domain_cache[integration.id] = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
+        for integration_id in missing_ids:
+            domain_cache.setdefault(integration_id, "")
+
+    for integration_id in sorted(integration_ids):
+        integration_domain = domain_cache.get(integration_id) or ""
         if integration_domain and override_domain != integration_domain:
             raise serializers.ValidationError(
                 {
