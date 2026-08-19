@@ -4,11 +4,17 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { ApiConfig } from 'lib/api'
 import api from 'lib/api'
 import { ErrorTrackingSettings } from 'lib/components/Errors/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+
+import {
+    errorTrackingSettingsRetrieveSettingsRetrieve,
+    errorTrackingSettingsUpdateSettingsPartialUpdate,
+} from 'products/error_tracking/frontend/generated/api'
 
 import {
     DEFAULT_BUCKET_MINUTES,
@@ -293,8 +299,9 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             null as ErrorTrackingSettings | null,
             {
                 loadConfig: async () => {
-                    // nosemgrep: prefer-codegen-api
-                    return await api.errorTracking.getSettings()
+                    return (await errorTrackingSettingsRetrieveSettingsRetrieve(
+                        String(ApiConfig.getCurrentProjectId())
+                    )) as unknown as ErrorTrackingSettings
                 },
             },
         ],
@@ -452,8 +459,10 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             submit: async ({ per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes }) => {
                 try {
                     const payload = { per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes }
-                    // nosemgrep: prefer-codegen-api
-                    await api.errorTracking.updateSettings(payload)
+                    await errorTrackingSettingsUpdateSettingsPartialUpdate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        payload
+                    )
                     actions.resetConfigForm(payload)
                     posthog.capture('error_tracking_per_issue_rate_limit_updated', payload)
                     lemonToast.success('Settings saved')

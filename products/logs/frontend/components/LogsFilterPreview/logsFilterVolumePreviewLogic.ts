@@ -1,9 +1,11 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 
 import { FilterLogicalOperator, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+
+import { logsSparklineCreate } from 'products/logs/frontend/logsApi'
 
 import { LogsFilterPreviewMetric, LogsFilterPreviewPoint } from './logsFilterVolumePreview'
 
@@ -122,8 +124,7 @@ export const logsFilterVolumePreviewLogic = kea<logsFilterVolumePreviewLogicType
                     if (!isFilterGroupNonEmpty(values.filterGroup)) {
                         return null
                     }
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.logs.sparkline({
+                    const response = await logsSparklineCreate(String(ApiConfig.getCurrentProjectId()), {
                         query: {
                             dateRange: { date_from: '-24h', date_to: null },
                             filterGroup: wrapFilterGroup(values.filterGroup) as PropertyGroupFilter,

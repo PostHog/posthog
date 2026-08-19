@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props } fro
 import Papa from 'papaparse'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -10,6 +10,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { PropertyGroupFilter, SidePanelTab } from '~/types'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+import { logsExportCreate } from 'products/logs/frontend/generated/api'
 
 import { ParsedLogMessage } from '../../types'
 import type { LogsOrderBy } from '../../types'
@@ -157,11 +158,10 @@ export const logsExportLogic = kea<logsExportLogicType>([
             }
             posthog.capture('logs exported', { format: 'csv', source: 'server', totalLogsCount })
             try {
-                // nosemgrep: prefer-codegen-api
-                await api.logs.exportQuery({
+                await logsExportCreate(String(ApiConfig.getCurrentProjectId()), {
                     query,
                     columns: getExportColumns(values.attributeColumns),
-                })
+                } as unknown as Parameters<typeof logsExportCreate>[1])
                 actions.openSidePanel(SidePanelTab.Exports)
                 lemonToast.info('Export starting...')
             } catch (e) {

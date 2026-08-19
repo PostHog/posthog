@@ -9,6 +9,8 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, EarlyAccessFeatureAssignee, EarlyAccessFeatureType } from '~/types'
 
+import { earlyAccessFeaturesApi } from 'products/early_access_features/frontend/earlyAccessFeaturesApi'
+
 const search = createFeaturePreviewSearch<EarlyAccessFeatureType>()
 
 // The waitlist survey id lives in the untyped `payload` bag, so pin its shape in one place.
@@ -120,8 +122,7 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
         earlyAccessFeatures: {
             __default: [] as EarlyAccessFeatureType[],
             loadEarlyAccessFeatures: async () => {
-                // nosemgrep: prefer-codegen-api
-                const response = await api.earlyAccessFeatures.list()
+                const response = await earlyAccessFeaturesApi.list()
                 return response.results
             },
         },
@@ -188,8 +189,7 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
             const previousAssignee = values.earlyAccessFeatures.find((feature) => feature.id === id)?.assignee ?? null
             actions.setFeatureAssignee(id, assignee)
             try {
-                // nosemgrep: prefer-codegen-api
-                await api.earlyAccessFeatures.update(id, { assignee })
+                await earlyAccessFeaturesApi.update(id, { assignee })
             } catch {
                 lemonToast.error('Failed to update assignee')
                 actions.setFeatureAssignee(id, previousAssignee)

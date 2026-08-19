@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingNode } from '~/types'
 
-import { generatedDataModelingNodes } from 'products/data_modeling/frontend/dataModelingApi'
+import { dataModelingNodesApi } from 'products/data_modeling/frontend/dataModelingApi'
 
 import type { DataWarehouseSavedQuery } from '../../types'
 
@@ -88,7 +88,7 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
         nodes: {
             __default: [] as DataModelingNode[],
             loadNodes: async () => {
-                const response = await generatedDataModelingNodes.list()
+                const response = await dataModelingNodesApi.list()
                 return response.results
             },
         },

@@ -6,7 +6,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { uuid } from 'lib/utils/dom'
@@ -25,6 +25,8 @@ import {
     PropertyGroupFilter,
     PropertyGroupFilterValue,
 } from '~/types'
+
+import { hogFlowsInvocationsCreate } from 'products/workflows/frontend/generated/api'
 
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import type { TriggerAction } from '../../../workflowLogic'
@@ -995,20 +997,23 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             },
             submit: async (testInvocation: HogflowTestInvocation) => {
                 try {
-                    // nosemgrep: prefer-codegen-api
-                    const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
-                        configuration: values.workflowSanitized,
-                        globals: {
-                            ...JSON.parse(testInvocation.globals),
-                            // Merge order: defaults < accumulated (variables set by previous test steps take precedence)
-                            variables: {
-                                ...values.workflowVariableDefaults,
-                                ...values.accumulatedVariables,
+                    const apiResponse = (await hogFlowsInvocationsCreate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        values.workflow.id,
+                        {
+                            configuration: values.workflowSanitized,
+                            globals: {
+                                ...JSON.parse(testInvocation.globals),
+                                // Merge order: defaults < accumulated (variables set by previous test steps take precedence)
+                                variables: {
+                                    ...values.workflowVariableDefaults,
+                                    ...values.accumulatedVariables,
+                                },
                             },
-                        },
-                        mock_async_functions: testInvocation.mock_async_functions,
-                        current_action_id: values.selectedNodeId ?? undefined,
-                    })
+                            mock_async_functions: testInvocation.mock_async_functions,
+                            current_action_id: values.selectedNodeId ?? undefined,
+                        } as unknown as Parameters<typeof hogFlowsInvocationsCreate>[2]
+                    )) as unknown as HogflowTestResult
 
                     const result: HogflowTestResult = {
                         ...apiResponse,

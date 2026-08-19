@@ -38,8 +38,8 @@ import {
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 import {
-    generatedExternalDataSchemas,
-    generatedExternalDataSources,
+    externalDataSchemasApi,
+    externalDataSourcesApi,
 } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
@@ -690,7 +690,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             {
                 loadSource: async () => {
                     try {
-                        return await generatedExternalDataSources.get(values.sourceId)
+                        return await externalDataSourcesApi.get(values.sourceId)
                     } catch (error: any) {
                         // Source soft-deleted. Bounce to the list and swallow
                         // the failure so kea-loaders doesn't toast "Not found".
@@ -712,12 +712,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     try {
                         let result: ExternalDataJob[]
                         if (values.jobs.length === 0) {
-                            result = await generatedExternalDataSources.jobs(values.sourceId, null, null, schemas)
+                            result = await externalDataSourcesApi.jobs(values.sourceId, null, null, schemas)
                         } else {
                             // Re-fetch recent jobs without an `after` filter to get updated statuses.
                             // The API returns up to 50 jobs sorted by created_at desc, so this
                             // will refresh the status of recent jobs (e.g. Running -> Completed).
-                            const freshJobs = await generatedExternalDataSources.jobs(
+                            const freshJobs = await externalDataSourcesApi.jobs(
                                 values.sourceId,
                                 null,
                                 null,
@@ -753,7 +753,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     const hasJobs = values.jobs.length > 0
                     if (hasJobs) {
                         const lastJobCreatedAt = values.jobs[values.jobs.length - 1].created_at
-                        const oldJobs = await generatedExternalDataSources.jobs(
+                        const oldJobs = await externalDataSourcesApi.jobs(
                             values.sourceId,
                             lastJobCreatedAt,
                             null,
@@ -777,7 +777,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             {
                 // Opens a connection to the customer DB, so it's on-demand (never polled).
                 loadCdcStatus: async () => {
-                    return await generatedExternalDataSources.cdc_status(values.sourceId)
+                    return await externalDataSourcesApi.cdc_status(values.sourceId)
                 },
             },
         ],
@@ -1128,7 +1128,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     const batchSchemaUpdates = Object.values(pendingSchemaUpdates)
 
                     try {
-                        const updatedSchemas = await generatedExternalDataSources.bulkUpdateSchemas(
+                        const updatedSchemas = await externalDataSourcesApi.bulkUpdateSchemas(
                             values.sourceId,
                             batchSchemaUpdates.map(({ schema, changedFields }) =>
                                 buildSchemaUpdatePayload(schema, changedFields)
@@ -1304,7 +1304,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         deleted = 0,
                         auto_enabled = 0,
                         total_tables_seen = 0,
-                    } = await generatedExternalDataSources.refreshSchemas(values.sourceId)
+                    } = await externalDataSourcesApi.refreshSchemas(values.sourceId)
                     actions.loadSource()
                     posthog.capture('schemas refreshed', {
                         sourceType: values.source?.source_type,
@@ -1375,7 +1375,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
             syncNow: async () => {
                 try {
-                    await generatedExternalDataSources.reload(values.sourceId)
+                    await externalDataSourcesApi.reload(values.sourceId)
                     actions.loadSource()
                     actions.loadJobs()
                     lemonToast.success('Sync started')
@@ -1396,7 +1396,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 actions.loadSourceSuccess(clonedSource)
 
                 try {
-                    await generatedExternalDataSchemas.reload(schema.id)
+                    await externalDataSchemasApi.reload(schema.id)
 
                     posthog.capture('schema reloaded', { sourceType: clonedSource.source_type })
                 } catch (e: any) {
@@ -1417,7 +1417,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 actions.loadSourceSuccess(clonedSource)
 
                 try {
-                    await generatedExternalDataSchemas.resync(schema.id)
+                    await externalDataSchemasApi.resync(schema.id)
 
                     posthog.capture('schema resynced', { sourceType: clonedSource.source_type })
                 } catch (e: any) {
@@ -1430,7 +1430,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
             cancelSchema: async ({ schema }) => {
                 try {
-                    await generatedExternalDataSchemas.cancel(schema.id)
+                    await externalDataSchemasApi.cancel(schema.id)
 
                     actions.loadSource()
                     posthog.capture('schema sync cancelled', { sourceType: values.source?.source_type })
@@ -1457,7 +1457,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 actions.loadSourceSuccess(clonedSource)
 
                 try {
-                    await generatedExternalDataSchemas.delete_data(schema.id)
+                    await externalDataSchemasApi.delete_data(schema.id)
 
                     posthog.capture('schema data deleted', { sourceType: clonedSource.source_type })
                     lemonToast.success(`Data for ${schema.label ?? schema.name} has been deleted`)
@@ -1486,7 +1486,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
                 const defaultsCount = payloads.filter((payload) => payload.apply_sync_defaults).length
                 try {
-                    const updatedSchemas = await generatedExternalDataSources.bulkUpdateSchemas(
+                    const updatedSchemas = await externalDataSourcesApi.bulkUpdateSchemas(
                         values.sourceId,
                         payloads
                     )
@@ -1541,7 +1541,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     lemonToast.warning('None of the selected schemas are enabled with a sync method')
                     return
                 }
-                const failed = await runBulkSchemaAction(eligible, (id) => generatedExternalDataSchemas.reload(id))
+                const failed = await runBulkSchemaAction(eligible, (id) => externalDataSchemasApi.reload(id))
                 actions.loadSource()
                 actions.loadJobs()
                 posthog.capture('schemas bulk synced', {
@@ -1557,7 +1557,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 )
             },
             bulkResync: async ({ schemas }) => {
-                const failed = await runBulkSchemaAction(schemas, (id) => generatedExternalDataSchemas.resync(id))
+                const failed = await runBulkSchemaAction(schemas, (id) => externalDataSchemasApi.resync(id))
                 actions.loadSource()
                 actions.loadJobs()
                 posthog.capture('schemas bulk resynced', {
@@ -1567,7 +1567,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 reportBulkResult('Resyncing', schemas.length, failed, 0)
             },
             bulkDeleteData: async ({ schemas }) => {
-                const failed = await runBulkSchemaAction(schemas, (id) => generatedExternalDataSchemas.delete_data(id))
+                const failed = await runBulkSchemaAction(schemas, (id) => externalDataSchemasApi.delete_data(id))
                 actions.loadSource()
                 posthog.capture('schemas bulk data deleted', {
                     sourceType: values.source?.source_type,

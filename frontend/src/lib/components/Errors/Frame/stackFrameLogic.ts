@@ -2,7 +2,9 @@ import { MakeLogicType, actions, afterMount, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
+
+import { errorTrackingStackFramesBatchGetCreate } from 'products/error_tracking/frontend/generated/api'
 
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord, ErrorTrackingSymbolSet } from '../types'
 
@@ -93,15 +95,25 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                     if (rawIds.length === 0) {
                         return values.stackFrameRecords
                     }
-                    // nosemgrep: prefer-codegen-api
-                    const { results } = await api.errorTracking.stackFrames(rawIds)
+                    const { results } = await errorTrackingStackFramesBatchGetCreate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        { raw_ids: rawIds }
+                    )
 
-                    return mapStackFrameRecords(results, values.stackFrameRecords)
+                    return mapStackFrameRecords(
+                        results as unknown as ErrorTrackingStackFrameRecord[],
+                        values.stackFrameRecords
+                    )
                 },
                 loadForSymbolSet: async ({ symbolSetId }) => {
-                    // nosemgrep: prefer-codegen-api
-                    const { results } = await api.errorTracking.symbolSetStackFrames(symbolSetId)
-                    return mapStackFrameRecords(results, values.stackFrameRecords)
+                    const { results } = await errorTrackingStackFramesBatchGetCreate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        { symbol_set: symbolSetId } as Parameters<typeof errorTrackingStackFramesBatchGetCreate>[1]
+                    )
+                    return mapStackFrameRecords(
+                        results as unknown as ErrorTrackingStackFrameRecord[],
+                        values.stackFrameRecords
+                    )
                 },
             },
         ],

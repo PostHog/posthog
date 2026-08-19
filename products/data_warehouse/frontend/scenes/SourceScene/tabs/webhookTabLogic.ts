@@ -9,7 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { ExternalDataSource, WebhookInfo } from '~/types'
 
-import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
+import { externalDataSourcesApi } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
 import { getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
@@ -223,7 +223,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             null as WebhookInfo | null,
             {
                 loadWebhookInfo: async () => {
-                    return await generatedExternalDataSources.getWebhookInfo(props.id)
+                    return await externalDataSourcesApi.getWebhookInfo(props.id)
                 },
             },
         ],
@@ -391,7 +391,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
         },
         createWebhook: async () => {
             try {
-                const result = await generatedExternalDataSources.createWebhook(props.id)
+                const result = await externalDataSourcesApi.createWebhook(props.id)
                 actions.setCreateWebhookResult(result)
                 if (result.success) {
                     if ((result.pending_inputs?.length ?? 0) === 0) {
@@ -427,7 +427,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
                 return
             }
             try {
-                await generatedExternalDataSources.updateWebhookInputs(props.id, payload)
+                await externalDataSourcesApi.updateWebhookInputs(props.id, payload)
                 lemonToast.success('Webhook inputs saved')
                 // Clear typed plaintext immediately so the form doesn't keep the rotated
                 // secret in client state. `loadWebhookInfoSuccess` will then re-seed
@@ -440,7 +440,7 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
         },
         deleteWebhook: async () => {
             try {
-                const result = await generatedExternalDataSources.deleteWebhook(props.id)
+                const result = await externalDataSourcesApi.deleteWebhook(props.id)
                 if (result.success) {
                     lemonToast.success(
                         result.external_deleted

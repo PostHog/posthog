@@ -1,12 +1,14 @@
 import { MakeLogicType, actions, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import { ApiConfig, CountedPaginatedResponse } from 'lib/api'
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
+
+import { errorTrackingReleasesList } from 'products/error_tracking/frontend/generated/api'
 
 export const RESULTS_PER_PAGE = 20
 
@@ -40,10 +42,10 @@ export interface releasesLogicActions {
         errorObject?: any
     }
     loadReleasesSuccess: (
-        releaseResponse: CountedPaginatedResponse<ErrorTrackingRelease>,
+        releaseResponse: ErrorTrackingReleaseResponse,
         payload?: void
     ) => {
-        releaseResponse: CountedPaginatedResponse<ErrorTrackingRelease>
+        releaseResponse: ErrorTrackingReleaseResponse
         payload?: void
     }
     setPage: (page: number) => {
@@ -103,12 +105,11 @@ export const releasesLogic = kea<releasesLogicType>([
         releaseResponse: {
             loadReleases: async (_, breakpoint) => {
                 await breakpoint(100)
-                // nosemgrep: prefer-codegen-api
-                const res = await api.errorTracking.releases.list({
+                const res = await errorTrackingReleasesList(String(ApiConfig.getCurrentProjectId()), {
                     limit: RESULTS_PER_PAGE,
                     offset: (values.page - 1) * RESULTS_PER_PAGE,
                 })
-                return res
+                return res as unknown as ErrorTrackingReleaseResponse
             },
         },
     })),

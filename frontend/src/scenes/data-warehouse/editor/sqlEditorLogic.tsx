@@ -89,7 +89,7 @@ import {
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
 import { DagSelector, openCreateDagDialog } from 'products/data_modeling/frontend/DagSelector'
-import { generatedDataModelingDags, generatedDataModelingNodes } from 'products/data_modeling/frontend/dataModelingApi'
+import { dataModelingDagsApi, dataModelingNodesApi } from 'products/data_modeling/frontend/dataModelingApi'
 import { warehouseSavedQueryFoldersCreate } from 'products/data_warehouse/frontend/generated/api'
 import {
     warehouseSavedQueriesCheckIncrementalCreate,
@@ -1513,7 +1513,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as { nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null,
             {
                 loadUpstream: async (payload: { modelId: string }) => {
-                    return await generatedDataModelingNodes.lineage({ savedQueryId: payload.modelId })
+                    return await dataModelingNodesApi.lineage({ savedQueryId: payload.modelId })
                 },
             },
         ],
@@ -2273,7 +2273,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                                             onSubmit: async (dagData) => {
                                                                 try {
                                                                     const newDag =
-                                                                        await generatedDataModelingDags.create(dagData)
+                                                                        await dataModelingDagsApi.create(dagData)
                                                                     await dataModelingLogic.asyncActions.loadDags()
                                                                     onSelect(newDag.id)
                                                                     lemonToast.success('DAG created')

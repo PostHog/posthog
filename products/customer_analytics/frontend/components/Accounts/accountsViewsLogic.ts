@@ -5,13 +5,18 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import {
+    columnConfigurationsCreate,
+    columnConfigurationsDestroy,
+    columnConfigurationsList,
+    columnConfigurationsPartialUpdate,
+} from 'products/product_analytics/frontend/generated/api'
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { UserType } from '../../../../../frontend/src/types'
@@ -423,8 +428,9 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             [] as ColumnConfigurationApi[],
             {
                 loadViews: async (): Promise<ColumnConfigurationApi[]> => {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.columnConfigurations.list({ context_key: ACCOUNTS_COLUMN_CONFIG_KEY })
+                    const response = await columnConfigurationsList(String(getCurrentTeamId()), {
+                        context_key: ACCOUNTS_COLUMN_CONFIG_KEY,
+                    })
                     return response.results
                 },
                 updateView: async ({
@@ -436,13 +442,11 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 }): Promise<ColumnConfigurationApi[]> => {
                     const data =
                         Object.keys(updates).length === 0 ? serializeAccountsView(values.liveViewState) : updates
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.columnConfigurations.update({ id, data })
+                    const response = await columnConfigurationsPartialUpdate(String(getCurrentTeamId()), id, data)
                     return values.views.map((view) => (view.id === id ? response : view))
                 },
                 deleteView: async ({ id }: { id: string }): Promise<ColumnConfigurationApi[]> => {
-                    // nosemgrep: prefer-codegen-api
-                    await api.columnConfigurations.delete({ id })
+                    await columnConfigurationsDestroy(String(getCurrentTeamId()), id)
                     return values.views.filter((view) => view.id !== id)
                 },
                 patchViewProperties: async ({
@@ -452,8 +456,9 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                     id: string
                     properties: AccountsViewProperties
                 }): Promise<ColumnConfigurationApi[]> => {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.columnConfigurations.update({ id, data: { properties } })
+                    const response = await columnConfigurationsPartialUpdate(String(getCurrentTeamId()), id, {
+                        properties,
+                    })
                     return values.views.map((view) => (view.id === id ? response : view))
                 },
             },
@@ -558,14 +563,11 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             defaults: { name: '', visibility: 'private' as ViewVisibility },
             errors: ({ name }: { name: string }) => ({ name: !name?.trim() ? 'Name is required' : undefined }),
             submit: async ({ name, visibility }: { name: string; visibility: ViewVisibility }) => {
-                // nosemgrep: prefer-codegen-api
-                const response = await api.columnConfigurations.create({
-                    data: {
-                        ...serializeAccountsView(values.liveViewState),
-                        context_key: ACCOUNTS_COLUMN_CONFIG_KEY,
-                        name: name.trim(),
-                        visibility,
-                    },
+                const response = await columnConfigurationsCreate(String(getCurrentTeamId()), {
+                    ...serializeAccountsView(values.liveViewState),
+                    context_key: ACCOUNTS_COLUMN_CONFIG_KEY,
+                    name: name.trim(),
+                    visibility,
                 })
                 actions.loadViews()
                 actions.applyView(response)

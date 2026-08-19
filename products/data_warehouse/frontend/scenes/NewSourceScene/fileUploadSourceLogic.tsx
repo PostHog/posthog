@@ -9,7 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
-import { generatedWarehouseTablesApi } from '../../warehouseTablesApi'
+import { warehouseTablesApi } from '../../warehouseTablesApi'
 import { FileUploadFormat, fileUploadSourceType } from './fileUploadSource'
 
 // Mirrors MAX_FILE_UPLOAD_SIZE_BYTES on the backend. Checked here too so an oversized file fails
@@ -249,7 +249,7 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
 
                 let upload
                 try {
-                    upload = await generatedWarehouseTablesApi.uploadFile(formData)
+                    upload = await warehouseTablesApi.uploadFile(formData)
                 } catch (e: any) {
                     captureFileUploadFailed(file_format, 'upload', e)
                     lemonToast.error(e.data?.message ?? e.message ?? 'Could not upload the file.')
@@ -257,7 +257,7 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
                 }
 
                 try {
-                    await generatedWarehouseTablesApi.createFromUpload({
+                    await warehouseTablesApi.createFromUpload({
                         upload_id: upload.upload_id,
                         filename: upload.filename,
                         file_format,

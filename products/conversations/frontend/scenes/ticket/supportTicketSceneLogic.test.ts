@@ -41,13 +41,6 @@ jest.mock('~/lib/api', () => {
                 ...actual.default?.persons,
                 list: jest.fn().mockResolvedValue({ results: [] }),
             },
-            conversationsTickets: {
-                ...actual.default?.conversationsTickets,
-                submitAiFeedback: jest.fn().mockResolvedValue(undefined),
-                get: jest.fn(),
-                update: jest.fn(),
-                list: jest.fn().mockResolvedValue({ results: [] }),
-            },
             tags: {
                 ...actual.default?.tags,
                 list: jest.fn().mockResolvedValue([]),
@@ -62,15 +55,25 @@ jest.mock('products/business_knowledge/frontend/generated/api', () => ({
 }))
 
 jest.mock('products/conversations/frontend/generated/api', () => ({
+    conversationsTicketsAiFeedbackCreate: jest.fn().mockResolvedValue(undefined),
+    conversationsTicketsList: jest.fn().mockResolvedValue({ results: [] }),
+    conversationsTicketsPartialUpdate: jest.fn(),
+    conversationsTicketsRetrieve: jest.fn(),
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
 }))
 
 import api from '~/lib/api'
 
-import { conversationsTicketsNotesPartialUpdate } from 'products/conversations/frontend/generated/api'
+import {
+    conversationsTicketsAiFeedbackCreate,
+    conversationsTicketsList,
+    conversationsTicketsNotesPartialUpdate,
+    conversationsTicketsPartialUpdate,
+    conversationsTicketsRetrieve,
+} from 'products/conversations/frontend/generated/api'
 
-const submitAiFeedbackMock = api.conversationsTickets.submitAiFeedback as jest.Mock
+const submitAiFeedbackMock = conversationsTicketsAiFeedbackCreate as jest.Mock
 
 function makeAiComment(id: string, isPrivate: boolean = true): CommentType {
     return {
@@ -156,7 +159,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
             })
 
         expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
-        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith(expect.any(String), 'ticket-1', {
             message_id: 'msg-ai-1',
             rating: 'good',
         })
@@ -172,7 +175,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
             })
 
         expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
-        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith(expect.any(String), 'ticket-1', {
             message_id: 'msg-ai-1',
             rating: 'bad',
         })
@@ -185,7 +188,7 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
         await new Promise((r) => setTimeout(r, 10))
 
         expect(submitAiFeedbackMock).toHaveBeenCalledTimes(1)
-        expect(submitAiFeedbackMock).toHaveBeenCalledWith('ticket-1', {
+        expect(submitAiFeedbackMock).toHaveBeenCalledWith(expect.any(String), 'ticket-1', {
             message_id: 'msg-ai-1',
             rating: 'bad',
             feedback_text: 'Wrong answer',
@@ -342,8 +345,8 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 
     const createResponseMock = api.createResponse as jest.Mock
-    const ticketGetMock = api.conversationsTickets.get as jest.Mock
-    const ticketUpdateMock = api.conversationsTickets.update as jest.Mock
+    const ticketGetMock = conversationsTicketsRetrieve as jest.Mock
+    const ticketUpdateMock = conversationsTicketsPartialUpdate as jest.Mock
 
     // Unlike makeTicket(), API responses always carry priority/assignee; without them the
     // hasUnsavedChanges comparison against the seeded local reducers never settles to false.
@@ -382,6 +385,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         }).toDispatchActions(['updateTicket', 'setTicket'])
 
         expect(ticketUpdateMock).toHaveBeenCalledWith(
+            expect.any(String),
             '42',
             expect.objectContaining({ status: statusAfterSend, assignee: presetAssignee })
         )
@@ -423,7 +427,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
                     resolveFirst = () => resolve({ ...loadedTicket(), status: 'resolved' })
                 })
         )
-        ticketUpdateMock.mockImplementationOnce((_id: string, data: Record<string, unknown>) =>
+        ticketUpdateMock.mockImplementationOnce((_projectId: string, _id: string, data: Record<string, unknown>) =>
             Promise.resolve({ ...loadedTicket(), ...data })
         )
 
@@ -437,7 +441,11 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(ticketUpdateMock).toHaveBeenCalledTimes(2)
-        expect(ticketUpdateMock).toHaveBeenLastCalledWith('42', expect.objectContaining({ status: 'pending' }))
+        expect(ticketUpdateMock).toHaveBeenLastCalledWith(
+            expect.any(String),
+            '42',
+            expect.objectContaining({ status: 'pending' })
+        )
         expect(logic.values.status).toBe('pending')
         expect(logic.values.ticketUpdating).toBe(false)
     })
@@ -448,7 +456,7 @@ describe('supportTicketSceneLogic send outcome handling', () => {
 
     const createResponseMock = api.createResponse as jest.Mock
     const commentsListMock = api.comments.list as jest.Mock
-    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const ticketGetMock = conversationsTicketsRetrieve as jest.Mock
     const captureMock = posthog.capture as jest.Mock
 
     const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
@@ -615,8 +623,8 @@ describe('supportTicketSceneLogic send outcome handling', () => {
 describe('supportTicketSceneLogic tag pool refresh', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 
-    const ticketGetMock = api.conversationsTickets.get as jest.Mock
-    const ticketUpdateMock = api.conversationsTickets.update as jest.Mock
+    const ticketGetMock = conversationsTicketsRetrieve as jest.Mock
+    const ticketUpdateMock = conversationsTicketsPartialUpdate as jest.Mock
     const tagsListMock = api.tags.list as jest.Mock
 
     const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
@@ -676,8 +684,8 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 
     const personsListMock = api.persons.list as jest.Mock
-    const ticketsListMock = api.conversationsTickets.list as jest.Mock
-    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const ticketsListMock = conversationsTicketsList as jest.Mock
+    const ticketGetMock = conversationsTicketsRetrieve as jest.Mock
 
     beforeEach(() => {
         initKeaTests()
@@ -721,14 +729,14 @@ describe('supportTicketSceneLogic loadPreviousTickets email gating', () => {
             logic.mount()
         }).toDispatchActions(['loadPreviousTicketsSuccess'])
 
-        expect(ticketsListMock).toHaveBeenLastCalledWith(expectedParams)
+        expect(ticketsListMock).toHaveBeenLastCalledWith(expect.any(String), expectedParams)
     })
 })
 
 describe('supportTicketSceneLogic private note editing', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 
-    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const ticketGetMock = conversationsTicketsRetrieve as jest.Mock
     const noteUpdateMock = conversationsTicketsNotesPartialUpdate as jest.Mock
     const createResponseMock = api.createResponse as jest.Mock
 

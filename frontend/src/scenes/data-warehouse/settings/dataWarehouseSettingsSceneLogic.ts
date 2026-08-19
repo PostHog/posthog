@@ -18,7 +18,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 
-import { generatedWarehouseTablesApi } from 'products/data_warehouse/frontend/warehouseTablesApi'
+import { warehouseTablesApi } from 'products/data_warehouse/frontend/warehouseTablesApi'
 
 import type {
     DatabaseSchemaDataWarehouseTable,
@@ -450,7 +450,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             actions.setEditSchemaIsLoading(true)
 
             try {
-                await generatedWarehouseTablesApi.updateSchema(tableId, schemaUpdates)
+                await warehouseTablesApi.updateSchema(tableId, schemaUpdates)
                 actions.refreshDatabaseSchema()
 
                 if (values.selectedRow) {
@@ -478,7 +478,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             actions.toggleEditSchemaMode(false)
         },
         deleteDataWarehouseTable: async ({ tableId }) => {
-            await generatedWarehouseTablesApi.delete(tableId)
+            await warehouseTablesApi.delete(tableId)
             actions.selectRow(null)
             lemonToast.success('Table successfully deleted')
         },

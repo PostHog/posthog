@@ -10,6 +10,7 @@ import type {
     SetupPlanResponseApi,
     SuggestionApi,
 } from 'products/marketing_analytics/frontend/generated/api.schemas'
+import { externalDataSourcesApi } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { utmAuditLogic } from './utmAuditLogic'
@@ -422,8 +423,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
                 const failed: string[] = []
                 for (const target of targets) {
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        await api.externalDataSources.reload(target.source_id)
+                        await externalDataSourcesApi.reload(target.source_id)
                     } catch {
                         failed.push(target.display_name)
                     }

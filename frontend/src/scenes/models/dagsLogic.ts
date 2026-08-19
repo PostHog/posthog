@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { DataModelingDAG, DataModelingSyncInterval } from '~/types'
 
-import { generatedDataModelingDags } from 'products/data_modeling/frontend/dataModelingApi'
+import { dataModelingDagsApi } from 'products/data_modeling/frontend/dataModelingApi'
 
 export const SYNC_FREQUENCY_OPTIONS: { value: DataModelingSyncInterval; label: string }[] = [
     { value: '15min', label: '15 minutes' },
@@ -81,11 +81,11 @@ export const dagsLogic = kea<dagsLogicType>([
         dags: {
             __default: [] as DataModelingDAG[],
             loadDags: async (): Promise<DataModelingDAG[]> => {
-                const response = await generatedDataModelingDags.list()
+                const response = await dataModelingDagsApi.list()
                 return response.results
             },
             updateDag: async (dag: DataModelingDAG): Promise<DataModelingDAG[]> => {
-                const updated = await generatedDataModelingDags.update(dag.id, {
+                const updated = await dataModelingDagsApi.update(dag.id, {
                     name: dag.name,
                     description: dag.description,
                     sync_frequency: dag.sync_frequency,
@@ -93,7 +93,7 @@ export const dagsLogic = kea<dagsLogicType>([
                 return values.dags.map((d) => (d.id === updated.id ? updated : d))
             },
             deleteDag: async (dag: DataModelingDAG): Promise<DataModelingDAG[]> => {
-                await generatedDataModelingDags.delete(dag.id)
+                await dataModelingDagsApi.delete(dag.id)
                 return values.dags.filter((d) => d.id !== dag.id)
             },
         },

@@ -17,6 +17,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { ApiConfig } from 'lib/api'
 import api from 'lib/api'
 import {
     ErrorEventProperties,
@@ -42,6 +43,12 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, IntegrationType, UniversalFiltersGroup } from '~/types'
 
+import {
+    errorTrackingExternalReferencesCreate,
+    errorTrackingFingerprintsList,
+    errorTrackingIssuesRetrieve,
+    errorTrackingSpikeEventsList,
+} from 'products/error_tracking/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalSourceProductApi } from 'products/signals/frontend/generated/api.schemas'
@@ -60,6 +67,7 @@ import {
     triggerFilterActions,
     updateFilterSearchParams,
 } from '../../components/IssueFilters/issueFiltersLogic'
+import type { ErrorTrackingSpikeEventApi } from '../../generated/api.schemas'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
@@ -285,10 +293,10 @@ export interface errorTrackingIssueSceneLogicActions {
         errorObject?: any
     }
     loadSpikeEventsSuccess: (
-        spikeEvents: ErrorTrackingSpikeEvent[],
+        spikeEvents: ErrorTrackingSpikeEventApi[],
         payload?: any
     ) => {
-        spikeEvents: ErrorTrackingSpikeEvent[]
+        spikeEvents: ErrorTrackingSpikeEventApi[]
         payload?: any
     }
     loadSummary: () => {
@@ -637,18 +645,23 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     loaders(({ values, actions, props }) => ({
         issue: {
             setIssue: ({ issue }) => issue,
-            // nosemgrep: prefer-codegen-api
-            loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
+            loadIssue: async () =>
+                (await errorTrackingIssuesRetrieve(String(ApiConfig.getCurrentProjectId()), props.id, {
+                    fingerprint: props.fingerprint,
+                })) as unknown as ErrorTrackingRelationalIssue,
             createExternalReference: async ({ integrationId, config }) => {
                 if (values.issue) {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
+                    const response = await errorTrackingExternalReferencesCreate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        { integration_id: integrationId, issue: props.id, config: config }
+                    )
+                    const externalReference = response as unknown as ErrorTrackingExternalReference
                     posthog.capture('error_tracking_issue_pushed', {
                         issue_id: props.id,
-                        destination: response.integration.kind,
+                        destination: externalReference.integration.kind,
                     })
                     const externalIssues = values.issue.external_issues ?? []
-                    return { ...values.issue, external_issues: [...externalIssues, response] }
+                    return { ...values.issue, external_issues: [...externalIssues, externalReference] }
                 }
                 return null
             },
@@ -742,8 +755,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issueFingerprints: [
             [] as ErrorTrackingFingerprint[],
             {
-                // nosemgrep: prefer-codegen-api
-                loadIssueFingerprints: async () => await api.errorTracking.fingerprints.list(props.id),
+                loadIssueFingerprints: async () => {
+                    const response = await errorTrackingFingerprintsList(String(ApiConfig.getCurrentProjectId()), {
+                        issue_id: props.id,
+                    })
+                    return response.results as unknown as ErrorTrackingFingerprint[]
+                },
             },
         ],
         linkedReports: [
@@ -776,11 +793,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             {
                 loadSpikeEvents: async () => {
                     const { dateFrom, dateTo } = dateRangeToIsoBounds(values.dateRange)
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.errorTracking.getSpikeEvents({
-                        issueIds: [props.id],
-                        dateFrom,
-                        dateTo,
+                    const response = await errorTrackingSpikeEventsList(String(ApiConfig.getCurrentProjectId()), {
+                        issue_ids: props.id,
+                        date_from: dateFrom,
+                        date_to: dateTo,
                     })
                     return response.results
                 },

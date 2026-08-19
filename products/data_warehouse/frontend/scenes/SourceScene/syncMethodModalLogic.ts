@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { ExternalDataSourceSchema, SchemaIncrementalFieldsResponse } from '~/types'
 
-import { generatedExternalDataSchemas } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
+import { externalDataSchemasApi } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 
@@ -109,7 +109,7 @@ export const syncMethodModalLogic = kea<syncMethodModalLogicType>([
             {
                 loadSchemaIncrementalFields: async (schemaId: string) => {
                     try {
-                        return await generatedExternalDataSchemas.incremental_fields(schemaId)
+                        return await externalDataSchemasApi.incremental_fields(schemaId)
                     } catch (e: any) {
                         lemonToast.error(e?.data?.message ?? e?.message ?? e)
                         throw e

@@ -2,8 +2,10 @@ import { MakeLogicType, actions, afterMount, kea, path, reducers, selectors } fr
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { createFuse, Fuse } from 'lib/utils/fuseSearch'
+
+import { hogFlowTemplatesDestroy, hogFlowTemplatesList } from 'products/workflows/frontend/workflowApiCompat'
 
 import type { HogFlowTemplate } from '../hogflows/types'
 
@@ -111,13 +113,11 @@ export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
             [] as HogFlowTemplate[],
             {
                 loadWorkflowTemplates: async (): Promise<HogFlowTemplate[]> => {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.hogFlowTemplates.getHogFlowTemplates()
+                    const response = await hogFlowTemplatesList(String(ApiConfig.getCurrentProjectId()))
                     return response.results as HogFlowTemplate[]
                 },
                 deleteHogflowTemplate: async ({ template }) => {
-                    // nosemgrep: prefer-codegen-api
-                    await api.hogFlowTemplates.deleteHogFlowTemplate(template.id)
+                    await hogFlowTemplatesDestroy(String(ApiConfig.getCurrentProjectId()), template.id)
                     return values.workflowTemplates.filter((t) => t.id !== template.id)
                 },
             },

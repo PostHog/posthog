@@ -16,13 +16,13 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { taskApi } from 'products/posthog_ai/frontend/taskApi'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     signalsReportArtefactsDiff,
@@ -44,6 +44,7 @@ import type {
     ReportChartApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
+import { signalReportsApi } from 'products/signals/frontend/signalReportApi'
 
 import {
     deriveTaskPurpose,
@@ -578,10 +579,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as SignalReportArtefact[] | null,
             {
                 loadReportArtefacts: async () => {
-                    // nosemgrep: prefer-codegen-api
-                    const response: SignalReportArtefactResponse = await api.signalReports.artefacts(props.reportId, {
-                        limit: ARTEFACT_FETCH_LIMIT,
-                    })
+                    const response: SignalReportArtefactResponse = await signalReportsApi.artefacts(
+                        props.reportId,
+                        {
+                            limit: ARTEFACT_FETCH_LIMIT,
+                        }
+                    )
                     return response.results
                 },
             },
@@ -635,8 +638,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     const entries = await Promise.all(
                         [...associations.entries()].map(async ([taskId, meta]): Promise<ReportTaskEntry | null> => {
                             try {
-                                // nosemgrep: prefer-codegen-api
-                                const task = await api.tasks.get(taskId)
+                                const task = await taskApi.get(taskId)
                                 return { task, ...meta }
                             } catch {
                                 // A deleted/inaccessible task drops out of the list rather than failing the load.
@@ -661,8 +663,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 // Filtered server-side via `query` (the backend ranks + caps at 100) so the picker
                 // isn't limited to the alphabetical first page. Empty query loads the default page.
                 loadAvailableReviewers: async ({ query }: { query?: string } = {}) => {
-                    // nosemgrep: prefer-codegen-api
-                    return await api.signalReports.availableReviewers(query)
+                    return await signalReportsApi.availableReviewers(query)
                 },
             },
         ],
@@ -1168,8 +1169,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // failure clear the optimistic override so the UI snaps back. Mirrors desktop `useUpdateSuggestedReviewers`.
         updateReviewers: async ({ content }) => {
             try {
-                // nosemgrep: prefer-codegen-api
-                await api.signalReports.setReviewers(props.reportId, content)
+                await signalReportsApi.setReviewers(props.reportId, content)
                 await actions.loadReportArtefacts()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')

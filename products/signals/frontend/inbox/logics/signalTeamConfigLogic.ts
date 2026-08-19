@@ -3,8 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-
+import { signalTeamConfigApi } from '../../signalsApi'
 import { captureInboxSettingsChanged } from '../inboxAnalytics'
 import type { SignalReportPriority, SignalTeamConfig } from '../types'
 
@@ -126,7 +125,7 @@ export type signalTeamConfigLogicType = MakeLogicType<
 
 /**
  * Team-level Self-driving config (singleton per team). Wraps the
- * `signals/team_config` endpoint via `api.signalTeamConfig`. Surfaces the
+ * `signals/team_config` endpoint. Surfaces the
  * team-wide default PR auto-start threshold (which seeds every user's effective
  * threshold until they set a personal override in `userAutonomyLogic`) and the
  * team-wide default Slack notification channel, where every actionable report is
@@ -161,8 +160,7 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 null as SignalTeamConfig | null,
                 {
                     loadTeamConfig: async () => {
-                        // nosemgrep: prefer-codegen-api
-                        return await api.signalTeamConfig.get()
+                        return await signalTeamConfigApi.get()
                     },
                     // Partial update of the singleton, e.g. `{ default_slack_notification_channel: null }`
                     // to clear the team channel. One action serves every patchable field.
@@ -172,8 +170,7 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                         patch: Partial<SignalTeamConfig>
                         clearDraftOnSuccess: boolean
                     }) => {
-                        // nosemgrep: prefer-codegen-api
-                        const update = updateQueue.then(() => api.signalTeamConfig.update(patch))
+                        const update = updateQueue.then(() => signalTeamConfigApi.update(patch))
                         updateQueue = update.then(
                             () => undefined,
                             () => undefined

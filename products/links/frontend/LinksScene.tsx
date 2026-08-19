@@ -8,7 +8,7 @@ import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -18,11 +18,13 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { LinkType } from '~/types'
 
 import { linksEmptyState } from './emptyState/linksEmptyState'
+import type { LinkApi } from './generated/api.schemas'
 import { LinkMetricSparkline } from './LinkMetricSparkline'
 import { linksLogic } from './linksLogic'
+
+type LinkType = LinkApi
 
 export const scene: SceneExport = {
     component: LinksScene,
@@ -55,7 +57,12 @@ export function LinksScene(): JSX.Element {
                 )
             },
         },
-        createdByColumn<LinkType>() as LemonTableColumn<LinkType, keyof LinkType | undefined>,
+        {
+            title: 'Created by',
+            render: function Render(_: unknown, link: LinkType) {
+                return link.created_by.first_name || link.created_by.email
+            },
+        },
         createdAtColumn<LinkType>() as LemonTableColumn<LinkType, keyof LinkType | undefined>,
         {
             title: 'Last 7 days',

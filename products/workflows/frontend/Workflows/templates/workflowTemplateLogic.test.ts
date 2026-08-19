@@ -3,25 +3,22 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { resetContext } from 'kea'
 import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 import { HogFunctionTemplateType } from '~/types'
 
+import {
+    hogFlowTemplatesCreate,
+    hogFlowTemplatesPartialUpdate,
+    hogFlowTemplatesRetrieve,
+} from '../../workflowApiCompat'
 import { HogFlow, HogFlowAction } from '../hogflows/types'
 import { workflowLogic } from '../workflowLogic'
 import { workflowTemplateLogic } from './workflowTemplateLogic'
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 
-jest.mock('lib/api', () => ({
-    ...jest.requireActual('lib/api'),
-    hogFlowTemplates: {
-        createHogFlowTemplate: jest.fn(),
-        updateHogFlowTemplate: jest.fn(),
-        getHogFlowTemplate: jest.fn(),
-    },
-}))
+jest.mock('../../generated/api')
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
     lemonToast: {
@@ -30,7 +27,11 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
     },
 }))
 
-const mockApi = api.hogFlowTemplates as jest.Mocked<typeof api.hogFlowTemplates>
+const mockApi = {
+    createHogFlowTemplate: jest.mocked(hogFlowTemplatesCreate),
+    updateHogFlowTemplate: jest.mocked(hogFlowTemplatesPartialUpdate),
+    getHogFlowTemplate: jest.mocked(hogFlowTemplatesRetrieve),
+}
 const mockToast = require('lib/lemon-ui/LemonToast').lemonToast
 
 describe('workflowTemplateLogic', () => {
@@ -169,7 +170,7 @@ describe('workflowTemplateLogic', () => {
                     saveAsTemplateModalVisible: false,
                 })
 
-            expect(mockApi.getHogFlowTemplate).toHaveBeenCalledWith('template-id')
+            expect(mockApi.getHogFlowTemplate).toHaveBeenCalledWith(expect.any(String), 'template-id')
             expect(mockToast.error).toHaveBeenCalledWith('Template not found')
         })
     })
@@ -292,7 +293,7 @@ describe('workflowTemplateLogic', () => {
             }).toDispatchActions(['submitTemplateFormRequest', 'submitTemplateFormSuccess'])
 
             expect(mockApi.createHogFlowTemplate).toHaveBeenCalledTimes(1)
-            const callArg = mockApi.createHogFlowTemplate.mock.calls[0][0]
+            const callArg = mockApi.createHogFlowTemplate.mock.calls[0][1]
 
             expect(callArg.name).toBe('My Template')
             expect(callArg.description).toBe('Template Description')
@@ -329,7 +330,7 @@ describe('workflowTemplateLogic', () => {
                 logic.actions.submitTemplateForm()
             })
 
-            const callArg = mockApi.createHogFlowTemplate.mock.calls[0][0]
+            const callArg = mockApi.createHogFlowTemplate.mock.calls[0][1]
             expect(callArg.name).toBe('Template Name')
             expect(callArg.description).toBe('Test Description') // Falls back to workflow description
         })
@@ -359,7 +360,7 @@ describe('workflowTemplateLogic', () => {
                 logic.actions.submitTemplateForm()
             })
 
-            const callArg = mockApi.createHogFlowTemplate.mock.calls[0][0]
+            const callArg = mockApi.createHogFlowTemplate.mock.calls[0][1]
             const functionAction = callArg.actions?.find(
                 (a: HogFlowAction) => a.id === 'function-action-1' && a.type === 'function'
             )
@@ -396,7 +397,7 @@ describe('workflowTemplateLogic', () => {
                 logic.actions.submitTemplateForm()
             })
 
-            const callArg = mockApi.createHogFlowTemplate.mock.calls[0][0]
+            const callArg = mockApi.createHogFlowTemplate.mock.calls[0][1]
             expect(callArg.scope).toBe('team')
         })
     })
@@ -456,6 +457,7 @@ describe('workflowTemplateLogic', () => {
 
             // Verify API call with correct data
             expect(mockApi.updateHogFlowTemplate).toHaveBeenCalledWith(
+                expect.any(String),
                 'template-id',
                 expect.objectContaining({
                     name: 'Updated Workflow',
@@ -468,7 +470,7 @@ describe('workflowTemplateLogic', () => {
             )
 
             // Verify workflow reload
-            expect(mockApi.getHogFlowTemplate).toHaveBeenCalledWith('template-id')
+            expect(mockApi.getHogFlowTemplate).toHaveBeenCalledWith(expect.any(String), 'template-id')
 
             // Verify template list reload
             await expectLogic(templatesLogic).toDispatchActions(['loadWorkflowTemplates'])

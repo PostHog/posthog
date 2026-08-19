@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { ApiConfig } from 'lib/api'
 import api from 'lib/api'
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
@@ -8,8 +9,14 @@ import { dayjs } from 'lib/dayjs'
 import { DateRange, ErrorTrackingIssue, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import type { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
+import {
+    errorTrackingIssuesRetrieve,
+    errorTrackingSpikeEventsList,
+} from 'products/error_tracking/frontend/generated/api'
 import { errorTrackingIssueQuery } from 'products/error_tracking/frontend/queries'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
+
+import type { ErrorTrackingSpikeEventApi } from '../../../../../error_tracking/frontend/generated/api.schemas'
 
 export type InboxErrorTrackingIssueSourceType = 'issue_created' | 'issue_reopened' | 'issue_spiking'
 
@@ -74,10 +81,10 @@ export interface inboxErrorTrackingIssueLogicActions {
         errorObject?: any
     }
     loadSpikeEventsSuccess: (
-        spikeEvents: ErrorTrackingSpikeEvent[],
+        spikeEvents: ErrorTrackingSpikeEventApi[],
         payload?: any
     ) => {
-        spikeEvents: ErrorTrackingSpikeEvent[]
+        spikeEvents: ErrorTrackingSpikeEventApi[]
         payload?: any
     }
     loadSummary: () => any
@@ -158,8 +165,11 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
             {
                 loadIssue: async () => {
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        return await api.errorTracking.getIssue(props.issueId, props.fingerprint)
+                        return (await errorTrackingIssuesRetrieve(
+                            String(ApiConfig.getCurrentProjectId()),
+                            props.issueId,
+                            { fingerprint: props.fingerprint }
+                        )) as unknown as ErrorTrackingRelationalIssue
                     } catch (error: any) {
                         // 308 means the issue was merged into another; surface the target for the fallback.
                         if (error?.status === 308 && error?.data && 'issue_id' in error.data) {
@@ -203,11 +213,10 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
             {
                 loadSpikeEvents: async () => {
                     const { date_from, date_to } = defaultDateRange()
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.errorTracking.getSpikeEvents({
-                        issueIds: [props.issueId],
-                        dateFrom: date_from ?? undefined,
-                        dateTo: date_to ?? undefined,
+                    const response = await errorTrackingSpikeEventsList(String(ApiConfig.getCurrentProjectId()), {
+                        issue_ids: props.issueId,
+                        date_from: date_from ?? undefined,
+                        date_to: date_to ?? undefined,
                     })
                     return response.results
                 },

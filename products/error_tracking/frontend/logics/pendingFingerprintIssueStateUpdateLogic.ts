@@ -1,13 +1,14 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
 
-import api from 'lib/api'
-import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import { ApiConfig } from 'lib/api'
 
 import {
     ErrorTrackingIssue,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingRelationalIssue,
 } from '~/queries/schema/schema-general'
+
+import { errorTrackingFingerprintsList } from 'products/error_tracking/frontend/generated/api'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { issuesDataNodeLogic } from './issuesDataNodeLogic'
@@ -201,10 +202,8 @@ async function resolveFingerprintsForIssues(
     if (toFetch.length > 0) {
         const responses = await Promise.all(
             toFetch.map((id) =>
-                // nosemgrep: prefer-codegen-api
-                api.errorTracking.fingerprints
-                    .list(id)
-                    .then((rows: ErrorTrackingFingerprint[]) => [id, rows.map((r) => r.fingerprint)] as const)
+                errorTrackingFingerprintsList(String(ApiConfig.getCurrentProjectId()), { issue_id: id })
+                    .then(({ results }) => [id, results.map((row) => row.fingerprint)] as const)
                     .catch(() => [id, [] as string[]] as const)
             )
         )

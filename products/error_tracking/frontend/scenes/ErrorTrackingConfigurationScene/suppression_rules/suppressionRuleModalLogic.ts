@@ -6,6 +6,12 @@ import api from 'lib/api'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import {
+    errorTrackingRulesCreate,
+    errorTrackingRulesDestroy,
+    errorTrackingRulesUpdate,
+} from 'products/error_tracking/frontend/errorTrackingRuleApi'
+
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingRuleType, ErrorTrackingSuppressionRule } from '../rules/types'
 
@@ -221,11 +227,9 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
                 saveRule: async () => {
                     const rule = values.rule
                     if (rule.id === 'new') {
-                        // nosemgrep: prefer-codegen-api
-                        await api.errorTracking.createRule(ErrorTrackingRuleType.Suppression, rule)
+                        await errorTrackingRulesCreate(ErrorTrackingRuleType.Suppression, rule)
                     } else {
-                        // nosemgrep: prefer-codegen-api
-                        await api.errorTracking.updateRule(ErrorTrackingRuleType.Suppression, rule)
+                        await errorTrackingRulesUpdate(ErrorTrackingRuleType.Suppression, rule)
                     }
                     return true
                 },
@@ -236,8 +240,7 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
             {
                 deleteRule: async () => {
                     const rule = values.rule
-                    // nosemgrep: prefer-codegen-api
-                    await api.errorTracking.deleteRule(ErrorTrackingRuleType.Suppression, rule.id)
+                    await errorTrackingRulesDestroy(ErrorTrackingRuleType.Suppression, rule.id)
                     return true
                 },
             },

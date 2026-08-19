@@ -2,9 +2,15 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { userLogic } from 'scenes/userLogic'
+
+import {
+    hogFlowTemplatesCreate,
+    hogFlowTemplatesPartialUpdate,
+    hogFlowTemplatesRetrieve,
+} from 'products/workflows/frontend/workflowApiCompat'
 
 import type { UserType } from '../../../../../frontend/src/types'
 import type { HogFlowTemplate } from '../hogflows/types'
@@ -265,8 +271,7 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 }
 
                 try {
-                    // nosemgrep: prefer-codegen-api
-                    await api.hogFlowTemplates.createHogFlowTemplate({
+                    await hogFlowTemplatesCreate(String(ApiConfig.getCurrentProjectId()), {
                         ...workflow,
                         name: formValues.name || workflow.name || '',
                         description: formValues.description || workflow.description || '',
@@ -348,8 +353,10 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 if (props.editTemplateId) {
                     // In edit mode, use workflow values for name/description, but load template for image_url, tags, and scope
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        const template = await api.hogFlowTemplates.getHogFlowTemplate(props.editTemplateId)
+                        const template = await hogFlowTemplatesRetrieve(
+                            String(ApiConfig.getCurrentProjectId()),
+                            props.editTemplateId
+                        )
                         actions.setTemplateFormValues({
                             name: workflow.name,
                             description: workflow.description || '', // Use current workflow description
@@ -382,8 +389,11 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 }
             })
 
-            // nosemgrep: prefer-codegen-api
-            await api.hogFlowTemplates.updateHogFlowTemplate(workflowTemplate.id, workflowTemplate)
+            await hogFlowTemplatesPartialUpdate(
+                String(ApiConfig.getCurrentProjectId()),
+                workflowTemplate.id,
+                workflowTemplate
+            )
             lemonToast.success('Template updated')
 
             // Update the template list in workflowTemplatesLogic

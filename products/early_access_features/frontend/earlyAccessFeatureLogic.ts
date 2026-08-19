@@ -7,7 +7,6 @@ import React from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -34,6 +33,8 @@ import {
     PropertyOperator,
     Region,
 } from '~/types'
+
+import { earlyAccessFeaturesApi } from 'products/early_access_features/frontend/earlyAccessFeaturesApi'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 import { GAPromotionDialogContent } from './GAPromotionDialogContent'
@@ -261,8 +262,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             loadEarlyAccessFeature: async () => {
                 if (props.id && props.id !== 'new') {
                     try {
-                        // nosemgrep: prefer-codegen-api
-                        const response = await api.earlyAccessFeatures.get(props.id)
+                        const response = await earlyAccessFeaturesApi.get(props.id)
                         return response
                     } catch (error: any) {
                         actions.setEarlyAccessFeatureMissing()
@@ -276,13 +276,11 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             ) => {
                 let result: EarlyAccessFeatureType
                 if (props.id === 'new') {
-                    // nosemgrep: prefer-codegen-api
-                    result = await api.earlyAccessFeatures.create(
+                    result = await earlyAccessFeaturesApi.create(
                         updatedEarlyAccessFeature as NewEarlyAccessFeatureType
                     )
                 } else {
-                    // nosemgrep: prefer-codegen-api
-                    result = await api.earlyAccessFeatures.update(
+                    result = await earlyAccessFeaturesApi.update(
                         props.id,
                         updatedEarlyAccessFeature as EarlyAccessFeatureType
                     )
@@ -584,8 +582,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         },
         deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {
             try {
-                // nosemgrep: prefer-codegen-api
-                await api.earlyAccessFeatures.delete(earlyAccessFeatureId)
+                await earlyAccessFeaturesApi.delete(earlyAccessFeatureId)
                 lemonToast.info(
                     'Early access feature deleted. Remember to delete corresponding feature flag if necessary'
                 )

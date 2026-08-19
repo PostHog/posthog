@@ -1,11 +1,11 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { toggleSubscriptionEnabled } from 'products/subscriptions/frontend/components/Subscriptions/toggleSubscriptionEnabled'
+import { subscriptionDeleteEndpoint } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 import { SubscriptionApi, SubscriptionsListResourceType } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -205,8 +205,7 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
             // optimistically gone while the report is alive and still delivering.
             let callbackFired = false
             await deleteWithUndo({
-                // nosemgrep: prefer-codegen-api
-                endpoint: api.subscriptions.determineDeleteEndpoint(),
+                endpoint: subscriptionDeleteEndpoint(),
                 object: { id: report.id, name: report.title ?? 'Report' },
                 callback: (undo) => {
                     callbackFired = true

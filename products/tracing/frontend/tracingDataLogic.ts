@@ -17,7 +17,6 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -41,6 +40,7 @@ import {
 } from './durationBuckets'
 import { type HeatmapBrushSelection, heatmapBrushToFilters } from './heatmapBrush'
 import { traceLookupDateRange } from './traceLinks'
+import { tracingApi } from './tracingApi'
 import {
     type TracingFilters,
     type TracingOrderBy,
@@ -356,18 +356,10 @@ export interface tracingDataLogicActions {
         errorObject?: any
     }
     fetchLatencyHeatmapSuccess: (
-        rawLatencyHeatmap: {
-            bucket_ns: number
-            count: number
-            time: string
-        }[],
+        rawLatencyHeatmap: LatencyHeatmapRow[],
         payload?: any
     ) => {
-        rawLatencyHeatmap: {
-            bucket_ns: number
-            count: number
-            time: string
-        }[]
+        rawLatencyHeatmap: LatencyHeatmapRow[]
         payload?: any
     }
     fetchMatchingCounts: () => any
@@ -468,18 +460,10 @@ export interface tracingDataLogicActions {
         errorObject?: any
     }
     fetchSparklineSuccess: (
-        rawSparklineData: {
-            count: number
-            service: string
-            time: string
-        }[],
+        rawSparklineData: SparklineRow[],
         payload?: any
     ) => {
-        rawSparklineData: {
-            count: number
-            service: string
-            time: string
-        }[]
+        rawSparklineData: SparklineRow[]
         payload?: any
     }
     handleFilterChange: (
@@ -885,8 +869,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSpans(controller)
 
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.tracing.listSpans(
+                    const response = await tracingApi.listSpans(
                         {
                             dateRange: values.utcDateRange,
                             orderBy: values.filters.orderBy,
@@ -921,8 +904,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             ? { offset: values.listRows.length }
                             : { after: values.nextCursor ?? undefined }
 
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.tracing.listSpans(
+                    const response = await tracingApi.listSpans(
                         {
                             dateRange: values.utcDateRange,
                             orderBy: values.filters.orderBy,
@@ -949,8 +931,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             [] as Span[],
             {
                 loadTraceSpans: async ({ traceId, ts }: { traceId: string; ts?: string | null }): Promise<Span[]> => {
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.tracing.getTrace(traceId, {
+                    const response = await tracingApi.getTrace(traceId, {
                         dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
@@ -965,8 +946,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         return values.traceSpans
                     }
                     const { traceId, ts } = values.traceLoadContext
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.tracing.getTrace(traceId, {
+                    const response = await tracingApi.getTrace(traceId, {
                         dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
@@ -1015,8 +995,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const currentEndMs = snapshot?.currentEndMs ?? values.currentWindowMs.endMs
                     const previousStartMs = snapshot?.previousStartMs ?? values.previousWindowMs.startMs
 
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.tracing.tree(
+                    const response = await tracingApi.tree(
                         {
                             spanName: params.spanName,
                             serviceName: params.serviceName,
@@ -1076,8 +1055,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         actions.setLastAggregationWindow(window)
                     }
 
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.tracing.aggregate(
+                    const response = await tracingApi.aggregate(
                         {
                             dateRange: {
                                 date_from: new Date(window.currentStartMs).toISOString(),
@@ -1127,8 +1105,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressSparkline(controller)
 
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.tracing.sparkline(
+                    const response = await tracingApi.sparkline(
                         {
                             dateRange: values.utcDateRange,
                             serviceNames:
@@ -1166,8 +1143,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressMatchingCounts(controller)
 
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.tracing.count(
+                    const response = await tracingApi.count(
                         {
                             dateRange: values.utcDateRange,
                             serviceNames:
@@ -1204,8 +1180,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressLatencyHeatmap(controller)
 
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.tracing.latencyHeatmap(
+                    const response = await tracingApi.latencyHeatmap(
                         {
                             dateRange: values.utcDateRange,
                             serviceNames:
@@ -1232,8 +1207,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const controller = new AbortController()
                     actions.cancelInProgressDurationHistogram(controller)
 
-                    // nosemgrep: prefer-codegen-api
-                    const response = await api.tracing.durationHistogram(
+                    const response = await tracingApi.durationHistogram(
                         {
                             dateRange: values.utcDateRange,
                             serviceNames:

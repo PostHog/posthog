@@ -2,8 +2,10 @@ import { MakeLogicType, kea, key, listeners, path, props, reducers, selectors } 
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
+
+import { logsExplainLogWithAICreate } from 'products/logs/frontend/logsApi'
 
 import { LogExplanation } from './types'
 
@@ -93,8 +95,10 @@ export const logExploreAILogic = kea<logExploreAILogicType>([
                 if (!values.dataProcessingAccepted) {
                     throw new Error('AI data processing must be approved before generating explanations')
                 }
-                // nosemgrep: prefer-codegen-api
-                return await api.logs.explain(props.logUuid, props.logTimestamp)
+                return await logsExplainLogWithAICreate(String(ApiConfig.getCurrentProjectId()), {
+                    uuid: props.logUuid,
+                    timestamp: props.logTimestamp,
+                })
             },
         },
     })),

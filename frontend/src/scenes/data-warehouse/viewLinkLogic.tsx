@@ -11,7 +11,7 @@ import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { DataWarehouseViewLink, DataWarehouseViewLinkValidation } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
-import { generatedWarehouseViewLinks } from 'products/data_warehouse/frontend/warehouseRelationsApi'
+import { warehouseViewLinksApi } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import type { DatabaseSchemaTable } from '../../queries/schema/schema-general'
 import { ViewLinkKeyLabel } from './ViewLinkModal'
@@ -490,7 +490,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 if (values.joinToEdit?.id && values.selectedSourceTable) {
                     // Edit join
                     try {
-                        await generatedWarehouseViewLinks.update(values.joinToEdit.id, {
+                        await warehouseViewLinksApi.update(values.joinToEdit.id, {
                             source_table_name: source_table_name ?? values.selectedSourceTable.name,
                             source_table_key,
                             joining_table_name,
@@ -510,7 +510,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 } else if (values.selectedSourceTable) {
                     // Create join
                     try {
-                        await generatedWarehouseViewLinks.create({
+                        await warehouseViewLinksApi.create({
                             source_table_name: source_table_name ?? values.selectedSourceTable.name,
                             source_table_key,
                             joining_table_name,
@@ -623,7 +623,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             }
             actions.validateJoinStarted()
             try {
-                const response = await generatedWarehouseViewLinks.validate({
+                const response = await warehouseViewLinksApi.validate({
                     source_table_name: values.selectedSourceTableName,
                     source_table_key: sourceTableKey,
                     joining_table_name: values.selectedJoiningTableName,

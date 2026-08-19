@@ -6,6 +6,12 @@ import api from 'lib/api'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import {
+    errorTrackingRulesCreate,
+    errorTrackingRulesDestroy,
+    errorTrackingRulesUpdate,
+} from 'products/error_tracking/frontend/errorTrackingRuleApi'
+
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingGroupingRule, ErrorTrackingRuleType } from '../rules/types'
 
@@ -212,11 +218,9 @@ export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
                 saveRule: async () => {
                     const rule = values.rule
                     if (rule.id === 'new') {
-                        // nosemgrep: prefer-codegen-api
-                        await api.errorTracking.createRule(ErrorTrackingRuleType.Grouping, rule)
+                        await errorTrackingRulesCreate(ErrorTrackingRuleType.Grouping, rule)
                     } else {
-                        // nosemgrep: prefer-codegen-api
-                        await api.errorTracking.updateRule(ErrorTrackingRuleType.Grouping, rule)
+                        await errorTrackingRulesUpdate(ErrorTrackingRuleType.Grouping, rule)
                     }
                     return true
                 },
@@ -227,8 +231,7 @@ export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
             {
                 deleteRule: async () => {
                     const rule = values.rule
-                    // nosemgrep: prefer-codegen-api
-                    await api.errorTracking.deleteRule(ErrorTrackingRuleType.Grouping, rule.id)
+                    await errorTrackingRulesDestroy(ErrorTrackingRuleType.Grouping, rule.id)
                     return true
                 },
             },

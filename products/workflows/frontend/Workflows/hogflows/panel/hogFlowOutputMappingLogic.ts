@@ -1,7 +1,9 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
+
+import { hogFlowsInvocationsCreate } from 'products/workflows/frontend/generated/api'
 
 import type { CyclotronJobInvocationGlobals, HogFunctionTemplateType } from '../../../../../../frontend/src/types'
 import { WorkflowLogicProps, sanitizeWorkflow, workflowLogic } from '../../workflowLogic'
@@ -408,13 +410,16 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                         delete currentAction.output_variable
                     }
 
-                    // nosemgrep: prefer-codegen-api
-                    const result: HogflowTestResult = await api.hogFlows.createTestInvocation(workflow.id, {
-                        configuration: config,
-                        globals,
-                        mock_async_functions: false,
-                        current_action_id: selectedNode.data.id,
-                    })
+                    const result = (await hogFlowsInvocationsCreate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        workflow.id,
+                        {
+                            configuration: config,
+                            globals,
+                            mock_async_functions: false,
+                            current_action_id: selectedNode.data.id,
+                        } as unknown as Parameters<typeof hogFlowsInvocationsCreate>[2]
+                    )) as unknown as HogflowTestResult
 
                     if (result.execResult != null) {
                         actions.setTestResultData(result.execResult)
