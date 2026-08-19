@@ -27,7 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_net
 USER_AGENT = "PostHog-DataWarehouse/1.0 (+https://posthog.com)"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MightyNetworksResumeConfig:
     # Next 1-indexed page to fetch. None means "start from page 1".
     next_page: Optional[int] = None
