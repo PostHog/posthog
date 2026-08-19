@@ -131,7 +131,7 @@ def _workspaces_resource(api_key: str) -> Resource:
     return Resource(_generator, name=WORKSPACES_ENDPOINT, hints={"table_format": "delta"})
 
 
-class _BillingUsageSelector(JSONPath):  # type: ignore[misc]
+class _BillingUsageSelector(JSONPath):
     """Flatten `{"billingUsage": [{"metric", "description", "usage": [...]}]}` into one row per
     usage item, stamped with its parent `metric` and `description`. A declarative `data_selector`
     can select a nested list but can't also carry fields down from that list's parent object, so

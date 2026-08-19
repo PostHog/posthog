@@ -19,7 +19,7 @@ BILLING_USAGE_DEFAULT_LOOKBACK_DAYS = 30
 BILLING_USAGE_AGGREGATE_BY = "day"
 
 
-@dataclass
+@dataclass(frozen=True)
 class SinglestoreEndpointConfig:
     name: str
     # Path appended to the versioned base URL (https://api.singlestore.com/v1).

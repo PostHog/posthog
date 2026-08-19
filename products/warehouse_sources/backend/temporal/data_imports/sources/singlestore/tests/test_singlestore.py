@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -9,6 +9,7 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.singlestore.settings import (
     BILLING_USAGE_ENDPOINT,
     ORGANIZATION_ENDPOINT,
@@ -248,7 +249,7 @@ class TestBillingUsage:
                 if should_use_incremental_field
                 else None,
             )
-        resource = response.items()
+        resource = cast(Resource, response.items())
         assert resource._hints.get("write_disposition") == expected
 
 
