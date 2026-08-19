@@ -37,6 +37,7 @@ import { ChannelItemRow } from "./ChannelItemRow";
 const actions = {
   open: () => {},
   togglePin: () => {},
+  setPinned: () => {},
   archive: () => {},
   remove: () => {},
 };
