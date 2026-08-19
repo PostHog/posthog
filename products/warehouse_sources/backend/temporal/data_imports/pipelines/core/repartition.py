@@ -1077,6 +1077,10 @@ async def repartition_table_in_place(
                         # Fences the resume: only valid while live stays at this version (see the
                         # resume path). A merge that commits between attempts bumps it and invalidates.
                         "live_version": live_version,
+                        # Stamped on every checkpoint write, so it moves forward only while the rewrite
+                        # keeps advancing. The import gate reads it to decide whether this rewrite is
+                        # still live enough to be worth pausing ingestion for.
+                        "held_at": datetime.now(UTC).isoformat(),
                     },
                 )
             raise
