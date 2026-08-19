@@ -139,10 +139,12 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Code quality (depot-ubuntu-24.04)
         needs: changes
-        # Forks stay on GitHub-hosted: this job runs fork-controlled install/build steps, and
-        # Depot runners inject the org-wide sccache credentials ambiently (see ci-frontend.yml
-        # frontend-typescript-checks). Keeping untrusted PRs off Depot stops a fork from reading
-        # the shared cache token. Same rationale on the build/tests/rust_ingestion_e2e jobs below.
+        # Fork PRs run on GitHub-hosted runners, not Depot. This job runs install and
+        # build steps from the PR, and Depot exposes the shared sccache token as an
+        # environment variable. A fork could read that token and write to the Rust
+        # build cache that master consumes, so untrusted PRs must not run on Depot.
+        # (ci-frontend.yml frontend-typescript-checks does the same, for the same reason.)
+        # The build, tests, and rust_ingestion_e2e jobs below use the same runner rule.
         runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 10
         steps:
@@ -208,7 +210,7 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Build (depot-ubuntu-24.04)
         needs: changes
-        # Forks off Depot — see the lint job above.
+        # Fork PRs stay off Depot for the reason on the lint job above.
         runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 10
         steps:
@@ -271,7 +273,7 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Tests ${{matrix.shard}}/3 (depot-ubuntu-24.04-4)
         needs: changes
-        # Forks off Depot — see the lint job above.
+        # Fork PRs stay off Depot for the reason on the lint job above.
         runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         # Tests fit comfortably in 30, but a rust change misses the turbo cache and cold-builds the
         # replay-anonymizer addon's whole dependency tree first (no rust caching in this job yet).
@@ -551,7 +553,7 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true'
         name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
         needs: changes
-        # Forks off Depot — see the lint job above.
+        # Fork PRs stay off Depot for the reason on the lint job above.
         runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         timeout-minutes: 30
         env:

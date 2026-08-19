@@ -295,10 +295,11 @@ jobs:
 
     integration-tests:
         name: Integration Tests (depot-ubuntu-24.04-4)
-        # Forks stay on GitHub-hosted: this job checks out and runs fork code, and Depot runners
-        # inject the org-wide sccache credentials ambiently (see ci-frontend.yml
-        # frontend-typescript-checks). Keeping untrusted PRs off Depot stops a fork from reading
-        # the shared cache token.
+        # Fork PRs run on GitHub-hosted runners, not Depot. This job checks out and
+        # runs code from the PR, and Depot exposes the shared sccache token as an
+        # environment variable. A fork could read that token and write to the Rust
+        # build cache that master consumes, so untrusted PRs must not run on Depot.
+        # (ci-frontend.yml frontend-typescript-checks does the same, for the same reason.)
         runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         needs: changes
         # Sized for a schema-cache miss (full migrate from scratch), not just a hit.
