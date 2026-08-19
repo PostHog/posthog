@@ -67,7 +67,9 @@ class Command(BaseCommand):
             return
 
         self._confirm(f"Expire {len(to_expire)} invite(s)? Type 'yes' to continue: ", yes=options["yes"])
-        count = matched.expire(now)
+        # Expire exactly the invites shown in the preview. Re-running the filter here would also
+        # catch invites created during the confirmation prompt, expiring rows the operator never saw.
+        count = CodeInvite.objects.filter(pk__in=[invite.pk for invite in to_expire]).expire(now)
         self.stdout.write(self.style.SUCCESS(f"Expired {count} invite(s)."))
 
     def _apply_filters(self, queryset: CodeInviteQuerySet, options: dict[str, Any]) -> CodeInviteQuerySet:
