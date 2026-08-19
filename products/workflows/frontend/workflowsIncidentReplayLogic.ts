@@ -137,6 +137,11 @@ export const workflowsIncidentReplayLogic = kea<workflowsIncidentReplayLogicType
                     // so a workflow drops off once its replay drains, and stays while a >10k replay
                     // still has a leftover. A check that errors keeps its row (never hide the
                     // recovery path on a transient failure).
+                    //
+                    // No `before`: replay lifecycle rows land in the partition of their own
+                    // scheduled_at (replay time), so capping at the window end would hide them and
+                    // a replayed invocation would read as failed forever. `after` alone bounds the
+                    // partition scan; the failed-status collapse then reflects the true latest state.
                     const projectId = String(values.currentProjectId)
                     const needle = INCIDENT_ERROR_MESSAGE_PREFIX.toLowerCase()
                     const stillFailing = await Promise.all(
@@ -145,7 +150,6 @@ export const workflowsIncidentReplayLogic = kea<workflowsIncidentReplayLogicType
                                 const invocations = await hogFlowsInvocationResultsRetrieve(projectId, row.id, {
                                     status: 'failed',
                                     after: INCIDENT_WINDOW_START,
-                                    before: INCIDENT_WINDOW_END,
                                     limit: 500,
                                 })
                                 return invocations.some((invocation) =>
