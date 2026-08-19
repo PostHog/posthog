@@ -33,20 +33,11 @@ REQUIRED_SENTRY_SCOPES = (
 # carry a floor rather than the 1970 sentinel the issue endpoints tolerate.
 SENTRY_RETENTION_DAYS = 90
 
-# The issues listing cannot drive a warehouse fan-out with row-set parity, so issue_events
-# and issue_hashes stay on parent_source="api" and only issue_tag_values reads the warehouse,
-# gated on having an incremental watermark. Sentry's issue search matches groups against the
-# events snuba still holds, and snuba holds events only for the org's PLAN retention (30 or
-# 90 days) — a per-customer bound that is silent, unqueryable, and clamps any wider request.
-# A 90-day snapshot floor therefore fans out over up to 3x the issues the API lists on a
-# 30-day-retention org: all alive (their group objects outlive event retention, so child
-# fetches return 200, not 404), all invisible to the API listing. Measured in production as
-# 8,213 fanned issues against ~1.7k on the API path, with zero stale 404s.
-#
-# The request default window is 90 days (`MAX_STATS_PERIOD`, `src/sentry/api/utils.py`), and
-# a present-but-empty `query=` disables the `is:unresolved` default (verified live: absent
-# query returned 502 issues, empty query 512, exactly the 10 resolved ones apart). Neither
-# fact rescues parity, because retention clamps below the request window per org.
+# The issues listing only returns issues whose events still exist in Sentry's event store,
+# and events are kept for the org's plan retention (30 or 90 days) — a per-customer bound
+# that is unqueryable and clamps any wider request. A snapshot scan cannot reproduce it, so
+# issue_events and issue_hashes stay on parent_source="api", and issue_tag_values reads the
+# warehouse only when an incremental watermark bounds the scan, with this window as the cap.
 SENTRY_FANOUT_PARENT_WINDOW = timedelta(days=90)
 
 ISSUES_PARENT_ROW_FILTER = ParentRowFilter(field="lastSeen", not_older_than=SENTRY_FANOUT_PARENT_WINDOW)
