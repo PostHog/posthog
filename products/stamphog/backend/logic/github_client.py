@@ -85,9 +85,6 @@ def _is_own_sticky_comment(comment: dict, expected_login: str | None) -> bool:
 _MAX_PAGES = 20
 _PER_PAGE = 100
 
-# The most files get_pr_files can return. A PR at this count was truncated, not fully listed, so a
-# caller that must see the whole diff has to treat the result as an unusable prefix.
-MAX_PR_FILES = _MAX_PAGES * _PER_PAGE
 
 # GitHub's compare endpoint returns at most this many file entries and does not say when it stopped,
 # so a response at the cap is a prefix rather than the diff.
