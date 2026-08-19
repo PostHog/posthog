@@ -7,7 +7,6 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
-from django.test import override_settings
 from django.utils import timezone
 
 import dagster
@@ -48,7 +47,6 @@ from posthog.models.data_deletion_request import (
     auto_approve_pending_requests,
 )
 from posthog.models.deletion_targets import DeletionTarget, UnreachableTargetError, is_present
-from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.test.persons import create_person
 
@@ -1987,35 +1985,26 @@ def test_delete_person_events_op_runs_lightweight_delete_per_shard(cluster: Clic
     assert surviving == [other_uuid]
 
 
-@pytest.mark.parametrize(
-    "target",
-    [
-        pytest.param(
-            DeletionTarget(data_table="sharded_events_on_another_cluster", read_table="events", optional=True),
-            id="storage_table_on_no_data_node",
-        ),
-        pytest.param(
-            DeletionTarget(
-                data_table=EVENTS_DATA_TABLE(), read_table="events", cluster_setting="CLICKHOUSE_EVENTS_CLUSTER"
-            ),
-            id="storage_table_registered_on_another_cluster",
-        ),
-    ],
-)
 @pytest.mark.django_db
-def test_is_present_refuses_a_target_this_handle_cannot_sweep(target: DeletionTarget, cluster: ClickhouseCluster):
+def test_is_present_refuses_a_target_this_handle_cannot_sweep(cluster: ClickhouseCluster):
     # Mutations dispatch over the shards of the one cluster this handle enumerates, so a storage
-    # table anywhere else is unreachable however it got that way. Reporting it simply absent drops
+    # table rolled out on another one is on no host it can reach. Reporting it simply absent drops
     # it from resolve_targets and every sweep then completes without touching it, which is the
-    # failure these guards exist to stop. Both cases stand a proxy that reads rows in front of a
-    # storage table this handle cannot mutate.
-    with override_settings(CLICKHOUSE_EVENTS_CLUSTER="events"):
-        cluster.any_host(_truncate_writable_events).result()
-        assert is_present(cluster, target) is False
+    # failure this guard exists to stop. Standing in for that: a storage table no host carries,
+    # behind a proxy that still reads rows.
+    target = DeletionTarget(
+        data_table="sharded_events_on_another_cluster",
+        read_table="events",
+        optional=True,
+        cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
+    )
 
-        cluster.any_host(partial(_insert_events, [(TEAM_ID, "$pageview", str(uuid4()), datetime.now())])).result()
-        with pytest.raises(UnreachableTargetError):
-            is_present(cluster, target)
+    cluster.any_host(_truncate_writable_events).result()
+    assert is_present(cluster, target) is False
+
+    cluster.any_host(partial(_insert_events, [(TEAM_ID, "$pageview", str(uuid4()), datetime.now())])).result()
+    with pytest.raises(UnreachableTargetError):
+        is_present(cluster, target)
 
 
 @pytest.mark.django_db

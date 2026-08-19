@@ -311,11 +311,7 @@ def WRITABLE_EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
     return EVENTS_JSON_TABLE_BASE_SQL.format(
         table_name=WRITABLE_EVENTS_JSON_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=Distributed(
-            data_table=EVENTS_JSON_DATA_TABLE,
-            sharding_key="sipHash64(distinct_id)",
-            cluster=settings.CLICKHOUSE_EVENTS_CLUSTER,
-        ),
+        engine=Distributed(data_table=EVENTS_JSON_DATA_TABLE, sharding_key="sipHash64(distinct_id)"),
         properties_json_type=EVENTS_PROPERTIES_JSON_TYPE(),
         person_properties_json_type=PERSON_PROPERTIES_JSON_TYPE(),
         compatibility_columns="",
@@ -327,11 +323,7 @@ def DISTRIBUTED_EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
     return EVENTS_JSON_TABLE_BASE_SQL.format(
         table_name=DISTRIBUTED_EVENTS_JSON_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=Distributed(
-            data_table=EVENTS_JSON_DATA_TABLE,
-            sharding_key="sipHash64(distinct_id)",
-            cluster=settings.CLICKHOUSE_EVENTS_CLUSTER,
-        ),
+        engine=Distributed(data_table=EVENTS_JSON_DATA_TABLE, sharding_key="sipHash64(distinct_id)"),
         properties_json_type=EVENTS_PROPERTIES_JSON_TYPE(),
         person_properties_json_type=PERSON_PROPERTIES_JSON_TYPE(),
         compatibility_columns=EVENTS_JSON_PROXY_COMPATIBILITY_COLUMNS,

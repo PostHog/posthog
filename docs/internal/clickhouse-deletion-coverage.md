@@ -40,9 +40,15 @@ Two gates keep that from passing silently.
 - `is_present` refuses a registered target whose storage table is on no data node here while its Distributed proxy still returns rows (`UnreachableTargetError`). Absent from everywhere and empty is still treated as not yet migrated, which is the ordinary pre-rollout state.
 - `assert_sweep_complete` runs after the immediate person-removal and event-removal sweeps and counts survivors through the proxy, so rows a mutation never reached fail the request instead of completing it (`UnsweptRowsError`).
 
+Both gates probe hosts rather than compare cluster names.
+Two cluster names can cover the same nodes, which is what the dev stack and CI do, so a name comparison would refuse deployments that can in fact sweep the table.
+`DeletionTarget.cluster_setting` names where a storage table lives for the refusal message and for the dispatch below; it does not decide reachability.
+`sharded_events_json` carries `CLICKHOUSE_EVENTS_CLUSTER`, which names the `events` cluster.
+
 Neither gate makes an off-cluster table sweepable.
-Reaching one needs a second handle built with `get_cluster(cluster=...)` and a per-target record of which cluster holds it, which does not exist yet.
-`sharded_events_json` is the table this will be decided for.
+Reaching one needs a second handle built with `get_cluster(cluster=...)`, and every sweep loop reading its shards from the handle that holds the target rather than from the one the job was given.
+The pending-deletes dictionary the `deletes_job` predicate joins against has to be bootstrapped on that second cluster too.
+None of that exists yet.
 
 ## Covered tables
 

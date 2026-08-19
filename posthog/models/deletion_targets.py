@@ -74,9 +74,10 @@ class DeletionTarget:
 
     data_table: str
     read_table: str
-    # Name of the Django setting holding the cluster its storage table is on. A setting name rather
-    # than the resolved value so a deployment that has not split the rollout, and a test, can point
-    # it back at the main cluster without this module having been imported at the wrong moment.
+    # Name of the Django setting holding the cluster its storage table is on, for the refusal
+    # message and for the per-cluster dispatch that does not exist yet. Reachability is decided by
+    # probing the hosts, not by comparing this against the handle's cluster: two cluster names can
+    # cover the same nodes, which is what the dev stack and CI do.
     cluster_setting: str = "CLICKHOUSE_CLUSTER"
     # Guarded on system.tables: the table sits behind a migration that may not have run everywhere.
     optional: bool = False
@@ -187,8 +188,8 @@ def _has_any_rows(client: Client, table: str) -> bool:
     return bool(client.execute(f"SELECT 1 FROM {settings.CLICKHOUSE_DATABASE}.{table} LIMIT 1"))
 
 
-def _assert_no_rows_behind_the_proxy(cluster: ClickhouseCluster, target: DeletionTarget, why: str) -> None:
-    """Fail when a target this handle cannot mutate still returns rows through its Distributed proxy.
+def _assert_no_rows_behind_the_proxy(cluster: ClickhouseCluster, target: DeletionTarget) -> None:
+    """Fail when a storage table no host here carries still has rows behind its Distributed proxy.
 
     A ``ClickhouseCluster`` addresses exactly one cluster: hosts come from ``system.clusters`` for
     that one name, and only hosts whose ``hostClusterRole`` macro is ``data`` carry a shard number,
@@ -209,33 +210,25 @@ def _assert_no_rows_behind_the_proxy(cluster: ClickhouseCluster, target: Deletio
         return
 
     raise UnreachableTargetError(
-        f"{target.data_table} is registered for deletion and {why}, while its Distributed proxy "
-        f"{target.read_table} still returns rows. Sweeping without it would report an erasure that "
-        f"did not happen. See {COVERAGE_DOC}."
+        f"{target.data_table} is registered for deletion with its storage on cluster "
+        f"{target.cluster_name!r}, and no data node of {cluster.data_cluster_name!r} carries it, "
+        f"while its Distributed proxy {target.read_table} still returns rows. Sweeping without it "
+        f"would report an erasure that did not happen. See {COVERAGE_DOC}."
     )
 
 
 def is_present(cluster: ClickhouseCluster, target: DeletionTarget) -> bool:
     """Whether this handle can sweep the target, refusing rather than skipping when it cannot.
 
-    Presence on the data nodes is ``any`` rather than ``all``: on a partially-migrated cluster the
-    mutation fails loudly on the hosts missing the table, which is preferable to silently skipping
-    a deletion.
+    ``any`` data node rather than ``all``: on a partially-migrated cluster the mutation fails loudly
+    on the hosts missing the table, which is preferable to silently skipping a deletion.
     """
-    if target.cluster_name != cluster.data_cluster_name:
-        _assert_no_rows_behind_the_proxy(
-            cluster,
-            target,
-            f"lives on cluster {target.cluster_name!r}, which this job's handle for "
-            f"{cluster.data_cluster_name!r} enumerates no host of",
-        )
-        return False
     if not target.optional:
         return True
     results = cluster.map_hosts_by_role(partial(_table_exists, table=target.data_table), NodeRole.DATA).result()
     if any(results.values()):
         return True
-    _assert_no_rows_behind_the_proxy(cluster, target, "exists on no data node of this cluster")
+    _assert_no_rows_behind_the_proxy(cluster, target)
     return False
 
 

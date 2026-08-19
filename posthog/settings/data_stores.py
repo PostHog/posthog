@@ -316,10 +316,10 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
-# Where the native-JSON events tables are rolled out. Defaults to the main cluster, which is
-# what self-hosted and the dev stack run; a deployment that gives them their own cluster sets
-# this so the deletion registry knows the storage tables are not reachable from the main handle.
-CLICKHOUSE_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_EVENTS_CLUSTER", CLICKHOUSE_CLUSTER)
+# The cluster the native-JSON events tables are rolled out on. Named here so the deletion
+# registry can say where a storage table lives; whether a given deployment can reach it is
+# decided by probing the hosts, not by comparing this against the handle's cluster.
+CLICKHOUSE_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_EVENTS_CLUSTER", "events")
 # CI uses this to run the test suite against both schemas. Production reads use the instance settings.
 CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
