@@ -46,8 +46,9 @@ jobs:
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
         runs-on: depot-ubuntu-24.04
         # Covers two bounded build attempts plus the post-build image-boot verification before
-        # dispatch.
-        timeout-minutes: 60
+        # dispatch. Keep it above the sum of the two step budgets below, so a slow build ends as a
+        # step failure the retry ladder can act on rather than a job cancellation that skips it.
+        timeout-minutes: 80
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -119,7 +120,13 @@ jobs:
               continue-on-error: true
               # A hung build has to end as a step failure, not a job timeout: the retry ladder below
               # is gated on `outcome == 'failure'`, and a cancelled job skips every step it guards.
-              timeout-minutes: 25
+              # The bound has to sit above the slowest healthy build, not inside the distribution:
+              # a merge-queue batch starts a dozen of these at once and contention on the shared
+              # Depot builder stretches a normal build several times over. Timing out there cancels
+              # the build server-side and makes the retry re-pay it, turning slowness into a red
+              # master. A genuine hang still ends fast, because the Depot stream drops its keepalive
+              # well before this bound.
+              timeout-minutes: 35
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
@@ -197,7 +204,7 @@ jobs:
               id: build_retry
               if: steps.build.outcome == 'failure' && steps.preflight_retry.outputs.digest == ''
               continue-on-error: true
-              timeout-minutes: 25
+              timeout-minutes: 35
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: . # match the CI build's context so master reuses the shared Depot layer cache
