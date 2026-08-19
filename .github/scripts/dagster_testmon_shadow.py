@@ -33,10 +33,16 @@ def dagster_roots() -> list[str]:
     return roots
 
 
-def build_pytest_arguments(roots: list[str], group: int, concurrency: int, use_optimal_chunks: bool) -> list[str]:
-    splitting_arguments = ["--splitting-algorithm=duration_based_chunks"]
+def build_pytest_arguments(
+    roots: list[str], group: int, concurrency: int, split_plan: Path, use_optimal_chunks: bool
+) -> list[str]:
+    splitting_arguments = ["--splitting-algorithm=duration_based_chunks", f"--durations-path={split_plan}"]
     if use_optimal_chunks:
-        splitting_arguments = ["--splitting-algorithm=optimal_chunks", "--split-granularity=file"]
+        splitting_arguments = [
+            "--splitting-algorithm=optimal_chunks",
+            "--split-granularity=file",
+            f"--split-plan-path={split_plan}",
+        ]
 
     return [
         *roots,
@@ -48,6 +54,8 @@ def build_pytest_arguments(roots: list[str], group: int, concurrency: int, use_o
         "--collect-only",
         "--testmon",
         "--testmon-forceselect",
+        "-p",
+        "no:cov",
         "-q",
     ]
 
@@ -58,8 +66,10 @@ def selection_status(exit_code: ExitCode, selected_tests: list[str]) -> str:
     return "error"
 
 
-def collect_selection(datafile: Path, roots: list[str], group: int, concurrency: int) -> dict[str, object]:
-    if not datafile.exists():
+def collect_selection(
+    datafile: Path, split_plan: Path, roots: list[str], group: int, concurrency: int
+) -> dict[str, object]:
+    if not datafile.exists() or not split_plan.exists():
         return {
             "concurrency": concurrency,
             "group": group,
@@ -76,6 +86,7 @@ def collect_selection(datafile: Path, roots: list[str], group: int, concurrency:
             roots=roots,
             group=group,
             concurrency=concurrency,
+            split_plan=split_plan,
             use_optimal_chunks=supports_optimal_chunks(),
         ),
         plugins=[collector],
@@ -111,11 +122,13 @@ def main() -> int:
     parser.add_argument("--concurrency", type=int, required=True)
     parser.add_argument("--datafile", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--split-plan", type=Path, required=True)
     parser.add_argument("--root", action="append", dest="roots")
     args = parser.parse_args()
 
     result = collect_selection(
         datafile=args.datafile,
+        split_plan=args.split_plan,
         roots=args.roots or dagster_roots(),
         group=args.group,
         concurrency=args.concurrency,

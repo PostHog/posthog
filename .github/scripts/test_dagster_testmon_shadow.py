@@ -35,6 +35,7 @@ def test_build_pytest_arguments_keeps_testmon_selection_enabled() -> None:
         roots=["posthog/dags", "products/signals/dags"],
         group=2,
         concurrency=3,
+        split_plan=Path("dagster-split-plan.json"),
         use_optimal_chunks=True,
     )
 
@@ -47,9 +48,12 @@ def test_build_pytest_arguments_keeps_testmon_selection_enabled() -> None:
         "2",
         "--splitting-algorithm=optimal_chunks",
         "--split-granularity=file",
+        "--split-plan-path=dagster-split-plan.json",
         "--collect-only",
         "--testmon",
         "--testmon-forceselect",
+        "-p",
+        "no:cov",
         "-q",
     ]
 
@@ -57,6 +61,7 @@ def test_build_pytest_arguments_keeps_testmon_selection_enabled() -> None:
 def test_missing_testmon_data_is_unavailable(tmp_path: Path) -> None:
     result = dagster_testmon_shadow.collect_selection(
         datafile=tmp_path / ".testmondata",
+        split_plan=tmp_path / "split-plan.json",
         roots=["posthog/dags"],
         group=1,
         concurrency=3,
@@ -91,6 +96,8 @@ def test_shadow_selection_uses_executed_code_blocks(
     test_path = tmp_path / "test_app.py"
     test_path.write_text("from app import covered\n\ndef test_covered():\n    assert covered() == 1\n")
     datafile = tmp_path / ".testmondata"
+    split_plan = tmp_path / "split-plan.json"
+    split_plan.write_text("{}")
     output = tmp_path / "selection.json"
     env = {**os.environ, "TESTMON_DATAFILE": str(datafile)}
     env.pop("DJANGO_SETTINGS_MODULE", None)
@@ -119,6 +126,8 @@ def test_shadow_selection_uses_executed_code_blocks(
             str(datafile),
             "--output",
             str(output),
+            "--split-plan",
+            str(split_plan),
             "--root",
             str(test_path),
         ],

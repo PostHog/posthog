@@ -310,6 +310,7 @@ jobs:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
             TESTMON_DATAFILE: .testmondata-dagster-${{ matrix.group }}
+            TESTMON_SPLIT_PLAN: .testmondata-dagster-split-plan-${{ matrix.group }}.json
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -475,10 +476,16 @@ jobs:
               id: testmon-cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ${{ env.TESTMON_DATAFILE }}
-                  key: dagster-testmon-v1-py3.13-shard-${{ matrix.group }}-${{ steps.testmon-cache-date.outputs.date }}
+                  path: |
+                      ${{ env.TESTMON_DATAFILE }}
+                      ${{ env.TESTMON_SPLIT_PLAN }}
+                  key: dagster-testmon-v2-py3.13-shard-${{ matrix.group }}-${{ steps.testmon-cache-date.outputs.date }}
                   restore-keys: |
-                      dagster-testmon-v1-py3.13-shard-${{ matrix.group }}-
+                      dagster-testmon-v2-py3.13-shard-${{ matrix.group }}-
+
+            - name: Prepare Dagster testmon split plan
+              if: ${{ steps.testmon-cache.outputs.cache-matched-key == '' }}
+              run: cp .test_durations "$TESTMON_SPLIT_PLAN"
 
             - name: Measure affected Dagster tests
               if: ${{ github.event_name == 'pull_request' && hashFiles('.github/scripts/dagster_testmon_shadow.py') != '' }}
@@ -488,6 +495,7 @@ jobs:
                       --group ${{ matrix.group }} \
                       --concurrency ${{ matrix.concurrency }} \
                       --datafile "$TESTMON_DATAFILE" \
+                      --split-plan "$TESTMON_SPLIT_PLAN" \
                       --output dagster-testmon-selection-${{ matrix.group }}.json
 
             - name: Run Dagster tests
@@ -507,7 +515,7 @@ jobs:
                   if python -c "import testmon" 2>/dev/null; then
                       if [[ "${{ github.event_name }}" == "push" && "${{ steps.testmon-cache.outputs.cache-hit }}" != "true" ]] || \
                          [[ "${{ github.event_name }}" == "pull_request" && "${{ steps.testmon-cache.outputs.cache-matched-key }}" == "" ]]; then
-                          TESTMON_ARGS=(--testmon-noselect)
+                          TESTMON_ARGS=(--testmon-noselect -p no:cov)
                       fi
                   fi
                   pytest posthog/dags products/**/dags \
@@ -525,8 +533,10 @@ jobs:
               if: ${{ github.event_name == 'push' && success() && steps.testmon-cache.outputs.cache-hit != 'true' }}
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ${{ env.TESTMON_DATAFILE }}
-                  key: dagster-testmon-v1-py3.13-shard-${{ matrix.group }}-${{ steps.testmon-cache-date.outputs.date }}
+                  path: |
+                      ${{ env.TESTMON_DATAFILE }}
+                      ${{ env.TESTMON_SPLIT_PLAN }}
+                  key: dagster-testmon-v2-py3.13-shard-${{ matrix.group }}-${{ steps.testmon-cache-date.outputs.date }}
 
             - name: Upload testmon shadow selection
               if: ${{ github.event_name == 'pull_request' && !cancelled() }}
@@ -542,7 +552,9 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: dagster-testmon-bootstrap-${{ matrix.group }}
-                  path: ${{ env.TESTMON_DATAFILE }}
+                  path: |
+                      ${{ env.TESTMON_DATAFILE }}
+                      ${{ env.TESTMON_SPLIT_PLAN }}
                   include-hidden-files: true
                   if-no-files-found: ignore
                   retention-days: 7
