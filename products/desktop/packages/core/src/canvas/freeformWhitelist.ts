@@ -43,7 +43,12 @@ export const FREEFORM_WHITELIST: WhitelistEntry[] = [
   {
     name: "@posthog/quill",
     version: QUILL_VERSION,
-    esm: `${ESM}/@posthog/quill@${QUILL_VERSION}?external=react,react-dom`,
+    // `deps` pins quill's Base UI to the version the canvas builder bundles.
+    // Left floating (quill declares ^1.4.0), esm.sh resolves the newest Base
+    // UI, and its 1.7.0 build emits literal `#prehydration/...` specifiers
+    // that browsers read as URL fragments — the esm.sh homepage comes back as
+    // text/html and the whole quill module graph fails to load.
+    esm: `${ESM}/@posthog/quill@${QUILL_VERSION}?external=react,react-dom&deps=@base-ui/react@1.6.0`,
   },
   // One charting library (the conventional React pick).
   {
