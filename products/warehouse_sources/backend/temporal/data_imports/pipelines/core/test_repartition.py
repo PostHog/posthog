@@ -87,8 +87,7 @@ def _write_month_partitioned(path: str, rows: list[tuple[int, datetime.datetime]
     )
     result = append_partition_key_to_table(table, None, None, ["created_at"], "datetime", "month", logger)
     assert result is not None
-    partitioned, *_ = result
-    deltalake.write_deltalake(path, partitioned, partition_by=PARTITION_KEY)
+    deltalake.write_deltalake(path, result.table, partition_by=PARTITION_KEY)
     return deltalake.DeltaTable(path)
 
 
@@ -419,9 +418,8 @@ class TestSelectCoarsenTarget:
                 table, None, None, ["created_at"], "datetime", partition_format, logger
             )
             assert result is not None
-            partitioned, *_ = result
             sizes: dict[str | None, int] = {}
-            for key in partitioned.column(PARTITION_KEY).to_pylist():
+            for key in result.table.column(PARTITION_KEY).to_pylist():
                 sizes[key] = sizes.get(key, 0) + 1
             return sizes
 
@@ -446,9 +444,8 @@ class TestSelectCoarsenTarget:
                 table, None, None, ["created_at"], "datetime", partition_format, logger
             )
             assert result is not None
-            partitioned, *_ = result
             sizes: dict[str | None, int] = {}
-            for key in partitioned.column(PARTITION_KEY).to_pylist():
+            for key in result.table.column(PARTITION_KEY).to_pylist():
                 sizes[key] = sizes.get(key, 0) + 1
             return sizes
 

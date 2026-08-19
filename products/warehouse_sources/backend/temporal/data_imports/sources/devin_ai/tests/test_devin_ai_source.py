@@ -57,6 +57,17 @@ class TestGetSchemas:
         assert schemas["secrets"].should_sync_default is False
         assert schemas["sessions"].should_sync_default is True
 
+    def test_members_table_is_discovered_full_refresh_with_user_id_key(self) -> None:
+        # The set-equality assertions above compare get_schemas against the same dict the schemas come
+        # from, so only an explicit name check catches the members table going missing from discovery.
+        schemas = {s.name: s for s in DevinAISource().get_schemas(_config(), team_id=1)}
+        members = schemas["members"]
+        assert members.supports_incremental is False
+        assert members.supports_append is False
+        # user_id is the merge key: anything else would duplicate members across full refreshes.
+        assert members.detected_primary_keys == ["user_id"]
+        assert members.should_sync_default is True
+
     def test_names_filter_restricts_output(self) -> None:
         schemas = DevinAISource().get_schemas(_config(), team_id=1, names=["sessions"])
         assert [s.name for s in schemas] == ["sessions"]

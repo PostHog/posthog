@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PendingBatch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+    CLAIMABLE_BATCHES,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     RUNS_RECONCILED_TOTAL,
 )
@@ -1579,6 +1580,11 @@ class TestReconcileFailedRuns:
                 return_value=42.0,
             ),
             patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
+                new_callable=AsyncMock,
+                return_value=7,
+            ),
+            patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
                 new_callable=AsyncMock,
             ) as mock_failed_runs,
@@ -1605,9 +1611,15 @@ class TestReconcileFailedRuns:
                 new_callable=AsyncMock,
                 return_value=1234.5,
             ) as mock_probe,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
+                new_callable=AsyncMock,
+                return_value=321,
+            ) as mock_depth,
         ):
             await consumer._reconcile_failed_runs()
         assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 1234.5
+        assert CLAIMABLE_BATCHES._value.get() == 321
 
         mock_probe.return_value = None  # empty queue -> gauge resets to 0
         with patch(
@@ -1615,9 +1627,15 @@ class TestReconcileFailedRuns:
             new_callable=AsyncMock,
             return_value=[],
         ):
-            with patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
-                mock_probe,
+            with (
+                patch(
+                    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_oldest_unclaimed_batch_age_seconds",
+                    mock_probe,
+                ),
+                patch(
+                    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_claimable_batch_count",
+                    mock_depth,
+                ),
             ):
                 await consumer._reconcile_failed_runs()
         assert OLDEST_UNCLAIMED_BATCH_SECONDS._value.get() == 0.0
@@ -2024,6 +2042,97 @@ class TestPerGroupConnectionIsolation:
             await consumer._process_group((1, "schema-1"), [_make_batch()])
 
         group_conn.close.assert_awaited_once()
+
+
+class TestUnlockGroup:
+    @pytest.mark.asyncio
+    async def test_retries_on_fresh_connection_when_group_conn_is_poisoned(self):
+        # A heartbeat query cancelled mid-flight can leave the per-group psycopg
+        # connection unable to accept another command ("another command is already
+        # in progress"). This must retry on a fresh connection instead of just
+        # capturing the error and leaving the group's lease dangling until its TTL
+        # expires.
+        consumer = _make_consumer()
+        poisoned_conn = _make_healthy_conn()
+        fresh_conn = _make_healthy_conn()
+        batches = [_make_batch()]
+
+        mock_unlock = AsyncMock(side_effect=[psycopg.OperationalError("another command is already in progress"), None])
+
+        with (
+            patch.object(consumer._adapter, "unlock", mock_unlock),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=fresh_conn) as mock_connect,
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._unlock_group(poisoned_conn, batches, team_id=1, schema_id="schema-1")
+
+        mock_connect.assert_awaited_once()
+        assert [call.args[0] for call in mock_unlock.await_args_list] == [poisoned_conn, fresh_conn]
+        fresh_conn.close.assert_awaited_once()
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_gives_up_and_reports_when_retry_also_fails(self):
+        consumer = _make_consumer()
+        poisoned_conn = _make_healthy_conn()
+        fresh_conn = _make_healthy_conn()
+        batches = [_make_batch()]
+
+        retry_error = psycopg.OperationalError("connection refused")
+        mock_unlock = AsyncMock(
+            side_effect=[psycopg.OperationalError("another command is already in progress"), retry_error]
+        )
+
+        with (
+            patch.object(consumer._adapter, "unlock", mock_unlock),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=fresh_conn),
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._unlock_group(poisoned_conn, batches, team_id=1, schema_id="schema-1")
+
+        mock_capture.assert_called_once_with(retry_error)
+        fresh_conn.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_advisory_lock_adapter_does_not_retry_with_a_fresh_connection(self):
+        # Advisory locks are session-scoped: releasing on a different connection
+        # wouldn't hold the lock, so retrying there would silently leak it.
+        consumer = _make_consumer()
+        poisoned_conn = _make_healthy_conn()
+        batches = [_make_batch()]
+
+        mock_unlock = AsyncMock(side_effect=psycopg.OperationalError("another command is already in progress"))
+
+        with (
+            patch.object(consumer._adapter, "unlock", mock_unlock),
+            patch.object(consumer._adapter, "per_group_connections", False),
+            patch.object(consumer, "_connect", new_callable=AsyncMock) as mock_connect,
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._unlock_group(poisoned_conn, batches, team_id=1, schema_id="schema-1")
+
+        mock_connect.assert_not_called()
+        mock_unlock.assert_awaited_once()
+        mock_capture.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_reports_original_error_when_reconnecting_for_retry_fails(self):
+        consumer = _make_consumer()
+        poisoned_conn = _make_healthy_conn()
+        batches = [_make_batch()]
+
+        connect_error = OSError("connection refused")
+        mock_unlock = AsyncMock(side_effect=psycopg.OperationalError("another command is already in progress"))
+
+        with (
+            patch.object(consumer._adapter, "unlock", mock_unlock),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=connect_error),
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._unlock_group(poisoned_conn, batches, team_id=1, schema_id="schema-1")
+
+        mock_unlock.assert_awaited_once()
+        mock_capture.assert_called_once_with(connect_error)
 
 
 class TestGroupByKey:

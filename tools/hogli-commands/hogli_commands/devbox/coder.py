@@ -27,6 +27,7 @@ from typing import Any, NoReturn
 
 import click
 import requests
+from hogli import telemetry
 from hogli.manifest import load_manifest
 
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
@@ -119,9 +120,15 @@ class CoderUserInfo(dict[str, str]):
     """Normalized subset of Coder user fields used by hogli."""
 
 
-def _fail(message: str) -> NoReturn:
-    """Print a short actionable error and exit."""
+def _fail(message: str, *, cause: str | None = None) -> NoReturn:
+    """Print a short actionable error and exit.
+
+    ``cause`` is a stable slug recorded on the command's telemetry event.
+    Without it every distinct failure reads as one undifferentiated error.
+    """
     click.echo(click.style(message, fg="red"))
+    if cause:
+        telemetry.add_command_properties(devbox_failure_cause=cause)
     raise SystemExit(1)
 
 
@@ -402,7 +409,8 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
             "Tailscale is not installed.\n"
             f"  {_tailscale_install_hint()}\n"
             f"  See {_TAILSCALE_RUNBOOK_URL} for joining the PostHog tailnet.\n"
-            f"  Then {setup_hint}"
+            f"  Then {setup_hint}",
+            cause="tailscale_not_installed",
         )
 
     # CLI is resolvable, but the daemon is not running -- the user needs to
@@ -417,14 +425,16 @@ def ensure_tailscale_connected(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
             "  To use the CLI from your shell, symlink it once:\n"
             f"    sudo ln -sfn {_MACOS_TAILSCALE_CLI} /usr/local/bin/tailscale\n"
             f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
-            f"  Then {setup_hint}"
+            f"  Then {setup_hint}",
+            cause="tailscale_not_connected_cli_missing",
         )
 
     _fail(
         "Tailscale is installed but not connected.\n"
         f"  {_tailscale_connect_hint()}\n"
         f"  See {_TAILSCALE_RUNBOOK_URL} if you have not yet been added to the tailnet.\n"
-        f"  Then {setup_hint}"
+        f"  Then {setup_hint}",
+        cause="tailscale_not_connected",
     )
 
 
@@ -448,6 +458,10 @@ def ensure_tailscale_routes_accepted() -> None:
     if _tailscale_routes_accepted():
         return
 
+    # The fix below is silent, so without this the number of hosts that land
+    # here stays unknowable.
+    telemetry.add_command_properties(devbox_routes_were_off=True)
+
     tailscale_path = _resolve_tailscale()
     if not tailscale_path:
         return
@@ -460,7 +474,10 @@ def ensure_tailscale_routes_accepted() -> None:
     result = subprocess.run(cmd, env=_tailscale_env(tailscale_path))
     if result.returncode != 0:
         manual = "tailscale set --accept-routes" if sys.platform == "darwin" else "sudo tailscale set --accept-routes"
-        _fail(f"Failed to enable Tailscale subnet routes. Run manually: {manual}")
+        _fail(
+            f"Failed to enable Tailscale subnet routes. Run manually: {manual}",
+            cause="accept_routes_failed",
+        )
 
 
 def coder_reachable(timeout: float = 5.0) -> bool:
@@ -481,8 +498,12 @@ class CoderReachabilityDiagnosis:
     fix rather than a list of commands the user has to interpret. ``facts``
     is a short list of diagnostic data (tailnet name, resolved IP, peer
     health) that is safe to share verbatim when asking for help.
+
+    ``code`` is the same cause as a stable slug. ``cause`` interpolates
+    hostnames and peer names, so it cannot be grouped on.
     """
 
+    code: str
     cause: str
     next_step: str
     facts: list[str]
@@ -542,6 +563,7 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
     if resolved_ip is None:
         facts.append(f"DNS for {host}: failed")
         return CoderReachabilityDiagnosis(
+            code="dns_lookup_failed",
             cause=f"DNS lookup for {host} failed.",
             next_step=(
                 "MagicDNS may be off or you may be on the wrong tailnet. "
@@ -555,6 +577,7 @@ def _diagnose_unreachable_coder() -> CoderReachabilityDiagnosis:
     if _tcp_reachable(host, 443):
         facts.append(f"TCP {host}:443: open")
         return CoderReachabilityDiagnosis(
+            code="https_probe_failed",
             cause=f"TCP to {host}:443 works but the HTTPS probe failed.",
             next_step=(
                 "The Coder deployment may be restarting, or your system clock "
@@ -591,6 +614,7 @@ def _diagnose_blocked_route(
 
     if not routers:
         return CoderReachabilityDiagnosis(
+            code="no_subnet_routes_advertised",
             cause="No peer on your tailnet advertises subnet routes.",
             next_step=(
                 "Either you are not on the PostHog tailnet (check the name "
@@ -604,6 +628,7 @@ def _diagnose_blocked_route(
     if not online_routers:
         names = ", ".join(str(p.get("HostName") or "?") for p in routers)
         return CoderReachabilityDiagnosis(
+            code="subnet_router_offline",
             cause=f"Subnet router peer is offline ({names}).",
             next_step=(
                 "Wait a minute and retry. If it stays offline, reach out to Team DevEx — the relay likely needs a bounce."
@@ -612,6 +637,7 @@ def _diagnose_blocked_route(
         )
 
     return CoderReachabilityDiagnosis(
+        code="tcp_blocked",
         cause="TCP is blocked despite an online subnet router on your tailnet.",
         next_step=(
             "A non-Tailscale VPN or a local firewall is likely intercepting, "
@@ -647,7 +673,7 @@ def ensure_coder_reachable() -> None:
             *(f"  - {fact}" for fact in diagnosis.facts),
         ]
     )
-    _fail(body)
+    _fail(body, cause=diagnosis.code)
 
 
 def _encode_ssh_option(value: str) -> str:
@@ -830,7 +856,7 @@ def ensure_coder_authenticated() -> None:
         return
 
     if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     coder_url = get_coder_url()
     click.echo(f"Logging in to {coder_url}...")
@@ -846,10 +872,10 @@ def ensure_runtime_ready() -> None:
     ensure_coder_reachable()
 
     if not coder_installed():
-        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}")
+        _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     if not coder_authenticated():
-        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}")
+        _fail(f"Coder login is not ready for {get_coder_url()}. {RUNTIME_SETUP_HINT}", cause="coder_login_not_ready")
 
     _warn_version_mismatch()
 

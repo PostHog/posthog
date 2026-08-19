@@ -87,3 +87,17 @@ class TestFramerSource:
         tables = FramerSource().get_documented_tables()
         assert [table["name"] for table in tables] == list(ENDPOINTS)
         assert all(table["sync_methods"] == ["Full refresh"] for table in tables)
+
+    def test_broken_code_component_is_non_retryable(self) -> None:
+        # Framer's headless loader raises this identically on every retry when a project's
+        # code component references a module the headless runtime can't resolve — a project
+        # config defect, not a transient server condition.
+        observed_error = (
+            "Framer API error METHOD_ERROR: getCollectionItems2: ensureComponentsInLoader: Some modules are missing."
+        )
+        assert any(key in observed_error for key in FramerSource().get_non_retryable_errors())
+
+    def test_pool_exhausted_stays_retryable(self) -> None:
+        observed_error = "Framer API error POOL_EXHAUSTED: busy"
+        assert not any(key in observed_error for key in FramerSource().get_non_retryable_errors())
+        assert any(key in observed_error for key in FramerSource().get_retryable_errors())
