@@ -1180,6 +1180,23 @@ def _every_mention_is_a_path_segment(event: dict[str, Any]) -> bool:
     return bool(trailing_slashes) and all(trailing_slashes)
 
 
+def _path_mention_drop_properties(event: dict[str, Any]) -> dict[str, Any]:
+    """Analytics context specific to a ``path_mention`` drop.
+
+    The drop count on its own can't separate a harmless package paste from a real request
+    the gate ate, so it can't tell us whether the gate is tuned right. Word count splits
+    them: a message that is only ``@PostHog/posthog-js`` counts one word, and anything
+    higher means prose surrounded the path, which is the shape worth reviewing.
+    """
+    text = event.get("text")
+    if not isinstance(text, str):
+        text = ""
+    return {
+        "slack_mention_count": len(_MENTION_WITH_TRAILING_SLASH_RE.findall(text)),
+        "slack_message_word_count": len(text.split()),
+    }
+
+
 def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     """Return a short reason if this app_mention shouldn't trigger the coding agent, else None.
 
@@ -1988,14 +2005,20 @@ def route_posthog_code_event_to_relevant_region(
         if event_type == "app_mention":
             ignore_reason = _app_mention_ignore_reason(event)
             if ignore_reason:
+                drop_context: dict[str, Any] = (
+                    _path_mention_drop_properties(event) if ignore_reason == "path_mention" else {}
+                )
                 logger.info(
                     "slack_app_event_app_mention_ignored",
                     reason=ignore_reason,
                     slack_team_id=slack_team_id,
                     channel=event.get("channel"),
                     message_ts=event.get("ts"),
+                    **drop_context,
                 )
-                _report_slack_mention_dropped(event, slack_team_id, reason=f"ignored:{ignore_reason}", replied=False)
+                _report_slack_mention_dropped(
+                    event, slack_team_id, reason=f"ignored:{ignore_reason}", replied=False, **drop_context
+                )
                 return ROUTE_HANDLED_LOCALLY
         else:
             ignore_reason = _thread_message_ignore_reason(event)

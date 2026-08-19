@@ -419,16 +419,29 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
     @parameterized.expand(
         [
-            ("edited_field", {"edited": {"user": "U123", "ts": "1234.7777"}}, "ignored:edit"),
-            ("message_changed_subtype", {"subtype": "message_changed"}, "ignored:edit"),
-            ("bot_id", {"bot_id": "B0ALERT"}, "ignored:bot_author"),
-            ("bot_profile", {"bot_profile": {"name": "Mendral", "id": "B0ALERT"}}, "ignored:bot_author"),
+            ("edited_field", {"edited": {"user": "U123", "ts": "1234.7777"}}, "ignored:edit", {}),
+            ("message_changed_subtype", {"subtype": "message_changed"}, "ignored:edit", {}),
+            ("bot_id", {"bot_id": "B0ALERT"}, "ignored:bot_author", {}),
+            ("bot_profile", {"bot_profile": {"name": "Mendral", "id": "B0ALERT"}}, "ignored:bot_author", {}),
             # Still dropped, but under its own reason so the volume of app-posted-as-a-human
             # mentions is measurable rather than hidden inside the bot bucket.
-            ("app_id", {"app_id": "A0ALERT"}, "ignored:app_authored"),
-            ("bot_message_subtype", {"subtype": "bot_message"}, "ignored:bot_author"),
-            ("slackbot_user", {"user": "USLACKBOT"}, "ignored:bot_author"),
-            ("path_mention", {"text": "<@U0BOT>/react-native-plugin"}, "ignored:path_mention"),
+            ("app_id", {"app_id": "A0ALERT"}, "ignored:app_authored", {}),
+            ("bot_message_subtype", {"subtype": "bot_message"}, "ignored:bot_author", {}),
+            ("slackbot_user", {"user": "USLACKBOT"}, "ignored:bot_author", {}),
+            # The word count is what tells a bare package paste from a real request the gate
+            # ate, so it has to survive onto the captured event, not just the log line.
+            (
+                "path_mention",
+                {"text": "<@U0BOT>/react-native-plugin"},
+                "ignored:path_mention",
+                {"slack_mention_count": 1, "slack_message_word_count": 1},
+            ),
+            (
+                "path_mention_with_prose",
+                {"text": "have a look at <@U0BOT>/posthog-js"},
+                "ignored:path_mention",
+                {"slack_mention_count": 1, "slack_message_word_count": 5},
+            ),
         ]
     )
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
@@ -440,6 +453,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         _name,
         ignore_marker: dict,
         expected_drop_reason: str,
+        expected_extra_properties: dict,
         mock_sync_connect,
         mock_asyncio_run,
         mock_capture,
@@ -465,6 +479,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert capture_kwargs["event"] == SLACK_MENTION_DROPPED_EVENT
         assert capture_kwargs["properties"]["drop_reason"] == expected_drop_reason
         assert capture_kwargs["properties"]["replied"] is False
+        for key, value in expected_extra_properties.items():
+            assert capture_kwargs["properties"][key] == value
 
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
