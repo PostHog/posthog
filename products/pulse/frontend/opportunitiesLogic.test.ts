@@ -19,6 +19,7 @@ const openOpportunity: OpportunityApi = {
     summary: 's',
     suggested_action: 'a',
     evidence: [{ type: 'insight', ref: 'abc123', label: 'Signups', url: '/insights/abc123' }],
+    goal_relevant: false,
     first_seen_brief: 'brief-1',
     created_at: '2026-06-01T00:00:00Z',
     created_by: null,
