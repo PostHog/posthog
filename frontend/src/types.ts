@@ -40,6 +40,7 @@ import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
+import type { OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CoreEvent,
@@ -363,6 +364,8 @@ export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisi
 export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
+    /** Settings an organization admin enforces, which the member cannot change back. */
+    notification_locks?: OrganizationNotificationLockApi[]
     active_realtime_notification_types?: readonly string[]
     requires_credential_review?: boolean
     events_column_config: ColumnConfig

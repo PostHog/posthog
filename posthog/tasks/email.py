@@ -36,7 +36,11 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES, build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
-from posthog.models.organization_notification_lock import effective_notification_settings, notification_locks_for_users
+from posthog.models.organization_notification_lock import (
+    effective_notification_settings,
+    notification_locks_for_users,
+    pipeline_lock_for_team,
+)
 from posthog.models.scoping import with_team_scope
 from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
@@ -96,8 +100,7 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
             organization_id=team.organization_id
         )
     )
-    # Resolved once for the whole organization, because resolving inside the loop would run a
-    # lock query per member on every fan-out.
+    # Resolved once, or this is a query per member on every fan-out.
     locks_by_user = notification_locks_for_users([membership.user_id for membership in memberships])
     for membership in memberships:
         if not should_send_notification(
@@ -182,11 +185,14 @@ def get_members_to_notify_for_pipeline_error(
         List of organization memberships to notify
     """
     members_to_notify = get_members_to_notify(team, "plugin_disabled")
+    locks_by_user = notification_locks_for_users([member.user_id for member in members_to_notify])
 
     return [
         member
         for member in members_to_notify
-        if should_send_pipeline_error_notification(member.user, failure_rate, pipeline_id)
+        if should_send_pipeline_error_notification(
+            member.user, failure_rate, pipeline_id, team_id=team.id, locks=locks_by_user.get(member.user_id, {})
+        )
     ]
 
 
@@ -284,6 +290,8 @@ def should_send_pipeline_error_notification(
     user: User,
     failure_rate: float = 1.0,
     pipeline_id: Optional[str] = None,
+    team_id: Optional[int] = None,
+    locks: Optional[dict[tuple[str, str], bool]] = None,
 ) -> bool:
     """
     Determines if a data pipeline error notification should be sent to a user.
@@ -296,7 +304,15 @@ def should_send_pipeline_error_notification(
     Returns:
         bool: True if the notification should be sent, False otherwise
     """
-    settings = effective_notification_settings(user)
+    if locks is None:
+        locks = notification_locks_for_users([user.id]).get(user.id, {})
+
+    # Governed per project, stored per pipeline, so it cannot be merged into the settings below.
+    enforced = pipeline_lock_for_team(locks, team_id)
+    if enforced is not None:
+        return not enforced
+
+    settings = effective_notification_settings(user, locks=locks)
 
     # Check per-pipeline opt-out
     if pipeline_id is not None:
@@ -434,10 +450,12 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     invitee: User = User.objects.get(uuid=invitee_uuid)
     organization: Organization = Organization.objects.get(id=organization_id)
     # Don't send this email to the new member themselves; respect per-user org notification prefs
+    candidates = list(organization.members.exclude(email=invitee.email))
+    locks_by_user = notification_locks_for_users([user.id for user in candidates])
     members_to_email = [
         user
-        for user in organization.members.exclude(email=invitee.email)
-        if user.should_send_organization_member_join_email(organization_id)
+        for user in candidates
+        if user.should_send_organization_member_join_email(organization_id, locks=locks_by_user.get(user.id, {}))
     ]
     if len(members_to_email) == 0:
         return
@@ -1644,6 +1662,7 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
     emails_sent = 0
 
     # Send a unique email to each member with functions filtered by their threshold
+    digest_locks = notification_locks_for_users([membership.user_id for membership in memberships_to_email])
     for membership in memberships_to_email:
         user = membership.user
 
@@ -1656,6 +1675,8 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
                 user,
                 float(f.get("failure_rate", 0) or 0) / 100,
                 pipeline_id=f"hog_function:{f['id']}" if f.get("id") else None,
+                team_id=team_id,
+                locks=digest_locks.get(user.id, {}),
             )
         ]
 

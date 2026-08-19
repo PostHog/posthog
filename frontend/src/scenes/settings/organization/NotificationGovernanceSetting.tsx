@@ -2,16 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
 
-import { LOCKABLE_NOTIFICATION_SETTINGS } from '../shared/notificationSettingDescriptors'
+import { NOTIFICATION_CONCEPTS } from '../shared/notificationSettingDescriptors'
+import { NotificationConceptRow } from './NotificationConceptRow'
 import { notificationGovernanceLogic } from './notificationGovernanceLogic'
-import { NotificationGovernanceRow } from './NotificationGovernanceRow'
 
 export function NotificationGovernanceSetting(): JSX.Element {
-    const { members, pipelines, pendingChangeCount, affectedMemberCount, savingChanges } =
-        useValues(notificationGovernanceLogic)
+    const { members, pendingChangeCount, affectedMemberCount, savingChanges } = useValues(notificationGovernanceLogic)
     const { discardChanges, saveChanges } = useActions(notificationGovernanceLogic)
 
-    if (members === null || pipelines === null) {
+    if (members === null) {
         return (
             <div className="flex items-center gap-2 py-2">
                 <Spinner className="text-lg" />
@@ -36,18 +35,14 @@ export function NotificationGovernanceSetting(): JSX.Element {
     }
 
     return (
-        <div className="space-y-3">
-            <p className="text-muted text-sm">
-                Set an email notification for your members and they cannot change it back themselves. Anything you leave
-                alone stays under their own control. Removing a setting here gives them their own choice back.
-            </p>
+        <div className="deprecated-space-y-3">
             <LemonBanner type="info">
-                These settings belong to the person rather than to one organization, so a setting you fix here also
+                These settings belong to the person rather than to one organization, so an override you set here also
                 applies to that member's other organizations, if they belong to any.
             </LemonBanner>
 
-            {LOCKABLE_NOTIFICATION_SETTINGS.map((descriptor) => (
-                <NotificationGovernanceRow key={descriptor.setting} descriptor={descriptor} />
+            {NOTIFICATION_CONCEPTS.map((concept) => (
+                <NotificationConceptRow key={concept.setting} concept={concept} />
             ))}
 
             {pendingChangeCount > 0 && (

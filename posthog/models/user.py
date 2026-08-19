@@ -17,6 +17,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import STRIPPED_EMAIL_EXPRESSION, EmailLookupHandler, EmailNormalizer
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.organization_notification_lock import effective_notification_settings
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
@@ -592,9 +593,15 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             **(self.partial_notification_settings if self.partial_notification_settings else {}),
         }
 
-    def should_send_organization_member_join_email(self, organization_id: str) -> bool:
-        """Whether to email this user when someone joins the given organization (default: True)."""
-        disabled = self.notification_settings.get("organization_member_join_email_disabled") or {}
+    def should_send_organization_member_join_email(
+        self, organization_id: str, locks: dict[tuple[str, str], bool] | None = None
+    ) -> bool:
+        """Whether to email this user when someone joins the given organization (default: True).
+
+        Pass `locks` when resolving many users, so a fan-out does not run one query per member.
+        """
+        settings = effective_notification_settings(self, locks=locks)
+        disabled = settings.get("organization_member_join_email_disabled") or {}
         return not bool(disabled.get(str(organization_id), False))
 
     def leave(self, *, organization: Organization) -> None:

@@ -3,64 +3,51 @@ from collections.abc import Collection
 
 from django.db import models
 
-from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import UUIDModel
 
-# Email notification settings an organization may enforce, mapped to what a scope ID means for
-# each. Deliberately an allowlist rather than "everything in Notifications minus a few":
-#
-# - Security alerts are absent, because losing sight of an exposed API key is an account-security
-#   problem rather than a notification preference.
-# - The realtime in-app map is absent, because v1 governs email only.
-# - `data_pipeline_error_threshold` is absent, because it holds a rate rather than a switch.
+# What an organization may enforce, mapped to what a rule's scope ID means. An allowlist, so
+# security alerts, the in-app map, and the master switches stay out of reach. A member who turns
+# their own master switch off therefore cannot be reached by a project rule.
 LOCKABLE_NOTIFICATION_SETTINGS: dict[str, str] = {
-    "plugin_disabled": "",
-    "pipeline_notifications_disabled": "pipeline",
-    "all_weekly_digest_disabled": "",
+    "pipeline_notifications_disabled": "team",
     "project_weekly_digest_disabled": "team",
-    "error_tracking_issue_assigned": "",
-    "error_tracking_weekly_digest": "",
     "error_tracking_weekly_digest_project_enabled": "team",
-    "web_analytics_weekly_digest": "",
     "web_analytics_weekly_digest_project_enabled": "team",
+    "organization_member_join_email_disabled": "organization",
+    "error_tracking_issue_assigned": "",
     "discussions_mentioned": "",
     "materialized_view_sync_failed": "",
     "materialized_view_sync_failed_daily": "",
     "materialized_view_sync_failed_immediate": "",
-    "organization_member_join_email_disabled": "organization",
 }
+
+# Stored per pipeline but governed per project, so these cannot be merged into the stored map by
+# key and are resolved where the failing pipeline's team is known.
+PROJECT_RESOLVED_SETTINGS = frozenset({"pipeline_notifications_disabled"})
 
 
 class OrganizationMemberNotificationLock(UUIDModel):
-    """An email notification setting an organization enforces on its members.
+    """An email notification setting an organization enforces on one of its members.
 
-    The lock carries the value, and the member's own stored preference is left untouched, so
-    removing a lock restores whatever the member had chosen. Send-time resolution order is
-    member lock, then all-members lock, then the member's own setting, then the default.
+    The rule carries the value and the member's stored preference is left untouched, so removing a
+    rule restores their own choice. Every rule names one person and one scope.
     """
 
-    # db_constraint=False on both FKs: posthog_organization is read on nearly every request, and
-    # adding a real FK constraint takes a lock on the parent that queues behind live writes.
+    # db_constraint=False: posthog_organization is hot, and the FK constraint would lock it.
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
         related_name="member_notification_locks",
         db_constraint=False,
     )
-    # Null means the lock applies to every member of the organization, including those who join
-    # later. A row naming a membership overrides the organization-wide row for that member.
     organization_membership = models.ForeignKey(
         "posthog.OrganizationMembership",
         on_delete=models.CASCADE,
         related_name="notification_locks",
-        null=True,
-        blank=True,
         db_constraint=False,
     )
     setting = models.CharField(max_length=64)
-    # Identifies what the setting applies to when it is not a single switch: a team ID for the
-    # per-project digests, a pipeline ID for pipeline failure emails. Empty means the setting
-    # itself. Empty rather than null so the unique constraints below can compare it.
+    # A team ID, an organization ID, or empty for a single switch. See the allowlist above.
     scope_id = models.CharField(max_length=160, default="", db_default="", blank=True)
     locked_value = models.BooleanField()
     created_by = models.ForeignKey(
@@ -76,65 +63,38 @@ class OrganizationMemberNotificationLock(UUIDModel):
 
     class Meta:
         constraints = [
-            # Split in two because Postgres treats null memberships as distinct, which would let
-            # an organization accumulate duplicate all-members locks for one setting.
-            models.UniqueConstraint(
-                fields=["organization", "setting", "scope_id"],
-                condition=models.Q(organization_membership__isnull=True),
-                name="unique_org_wide_notification_lock",
-            ),
             models.UniqueConstraint(
                 fields=["organization", "organization_membership", "setting", "scope_id"],
-                condition=models.Q(organization_membership__isnull=False),
                 name="unique_member_notification_lock",
-            ),
+            )
         ]
         indexes = [models.Index(fields=["organization", "setting"])]
 
     def __str__(self) -> str:
-        target = self.organization_membership_id or "all members"
-        return f"{self.setting}={self.locked_value} for {target}"
+        return f"{self.setting}={self.locked_value} for membership {self.organization_membership_id}"
 
 
 def notification_locks_for_users(user_ids: Collection[int]) -> dict[int, dict[tuple[str, str], bool]]:
-    """Locks in force for each of these users, keyed by (setting, scope_id).
+    """Rules in force for each user, keyed by (setting, scope_id).
 
-    A row naming the user's membership beats an organization-wide row for the same setting. These
-    settings are stored once per user rather than once per membership, so a user who belongs to
-    several organizations collects the locks of all of them.
+    Settings are stored per user, not per membership, so someone in several organizations collects
+    the rules of all of them.
     """
-    memberships = list(
-        OrganizationMembership.objects.filter(user_id__in=user_ids).values("id", "user_id", "organization_id")
+    locks = OrganizationMemberNotificationLock.objects.filter(organization_membership__user_id__in=user_ids).values(
+        "organization_membership__user_id", "setting", "scope_id", "locked_value"
     )
-    if not memberships:
-        return {}
-
-    locks = OrganizationMemberNotificationLock.objects.filter(
-        organization_id__in={membership["organization_id"] for membership in memberships}
-    ).values("organization_id", "organization_membership_id", "setting", "scope_id", "locked_value")
-
-    org_wide: dict[str, dict[tuple[str, str], bool]] = defaultdict(dict)
-    per_membership: dict[str, dict[tuple[str, str], bool]] = defaultdict(dict)
-    for lock in locks:
-        key = (lock["setting"], lock["scope_id"] or "")
-        if lock["organization_membership_id"] is None:
-            org_wide[str(lock["organization_id"])][key] = lock["locked_value"]
-        else:
-            per_membership[str(lock["organization_membership_id"])][key] = lock["locked_value"]
 
     by_user: dict[int, dict[tuple[str, str], bool]] = defaultdict(dict)
-    for membership in memberships:
-        by_user[membership["user_id"]].update(org_wide.get(str(membership["organization_id"]), {}))
-        by_user[membership["user_id"]].update(per_membership.get(str(membership["id"]), {}))
+    for lock in locks:
+        key = (lock["setting"], lock["scope_id"] or "")
+        by_user[lock["organization_membership__user_id"]][key] = lock["locked_value"]
     return dict(by_user)
 
 
 def effective_notification_settings(user, locks: dict[tuple[str, str], bool] | None = None) -> dict:
-    """What this user's notification settings actually resolve to once locks apply.
+    """This user's settings once their organization's rules apply.
 
-    Pass `locks` when resolving many users at once, so a fan-out over an organization's members
-    does not run one lock query per member. `notification_locks_for_users` returns them in the
-    right shape.
+    Pass `locks` when resolving many users, so a fan-out does not run one query per member.
     """
     if locks is None:
         locks = notification_locks_for_users([user.id]).get(user.id, {})
@@ -142,15 +102,14 @@ def effective_notification_settings(user, locks: dict[tuple[str, str], bool] | N
 
 
 def apply_notification_locks(settings: dict, locks: dict[tuple[str, str], bool]) -> dict:
-    """The member's stored settings with their organization's locks laid over the top.
-
-    The stored settings are never modified, so removing a lock restores whatever the member chose.
-    """
+    """Stored settings with the organization's rules laid over the top, leaving the stored ones intact."""
     if not locks:
         return settings
 
     merged = dict(settings)
     for (setting, scope_id), value in locks.items():
+        if setting in PROJECT_RESOLVED_SETTINGS:
+            continue
         if not scope_id:
             merged[setting] = value
             continue
@@ -158,3 +117,10 @@ def apply_notification_locks(settings: dict, locks: dict[tuple[str, str], bool])
         scoped[scope_id] = value
         merged[setting] = scoped
     return merged
+
+
+def pipeline_lock_for_team(locks: dict[tuple[str, str], bool], team_id: int | None) -> bool | None:
+    """The value an organization enforces for a project's pipeline failure emails, if any."""
+    if team_id is None:
+        return None
+    return locks.get(("pipeline_notifications_disabled", str(team_id)))

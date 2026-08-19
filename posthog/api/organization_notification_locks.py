@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import cast
 
 from django.db import transaction
@@ -10,8 +11,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import OrganizationNotificationLockSerializer
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.organization_notification_lock import (
     LOCKABLE_NOTIFICATION_SETTINGS,
     OrganizationMemberNotificationLock,
@@ -40,21 +42,6 @@ _Memberships = list[OrganizationMembership]
 _Members = list[dict]
 
 
-class OrganizationNotificationLockSerializer(serializers.Serializer):
-    setting = serializers.ChoiceField(
-        choices=sorted(LOCKABLE_NOTIFICATION_SETTINGS),
-        help_text="Notification setting this lock enforces.",
-    )
-    scope_id = serializers.CharField(
-        allow_blank=True,
-        help_text="What the setting applies to: a project ID, pipeline ID, or organization ID. Empty for a setting that is a single switch.",
-    )
-    locked_value = serializers.BooleanField(help_text="The value the organization enforces.")
-    applies_to_all_members = serializers.BooleanField(
-        help_text="True when the lock covers every member, including members who join later."
-    )
-
-
 class OrganizationNotificationMemberSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(help_text="Numeric ID of the member, used as the key when saving changes.")
     uuid = serializers.UUIDField(help_text="Stable public identifier of the member.")
@@ -72,15 +59,12 @@ class OrganizationNotificationMemberSerializer(serializers.Serializer):
     )
     locks = OrganizationNotificationLockSerializer(
         many=True,
-        help_text="Locks in force for this member, including organization-wide ones they inherit.",
+        help_text="Rules in force for this member.",
     )
 
 
 class OrganizationNotificationLockChangeSerializer(serializers.Serializer):
-    user_id = serializers.IntegerField(
-        allow_null=True,
-        help_text="Member to change. Null applies the change to every member, including future joiners.",
-    )
+    user_id = serializers.IntegerField(help_text="Member this rule applies to.")
     setting = serializers.ChoiceField(
         choices=sorted(LOCKABLE_NOTIFICATION_SETTINGS),
         help_text="Notification setting to lock or unlock.",
@@ -88,11 +72,11 @@ class OrganizationNotificationLockChangeSerializer(serializers.Serializer):
     scope_id = serializers.CharField(
         allow_blank=True,
         default="",
-        help_text="What the setting applies to. Empty for a setting that is a single switch.",
+        help_text="Project ID for a setting that breaks down by project, organization ID for the member-join email, empty for a single switch.",
     )
     locked_value = serializers.BooleanField(
         allow_null=True,
-        help_text="Value to enforce, or null to remove the lock and give the member their own choice back.",
+        help_text="Value to enforce, or null to remove the rule and give the member their own setting back.",
     )
 
 
@@ -110,7 +94,6 @@ def _represent_lock(lock: OrganizationMemberNotificationLock) -> dict:
         "setting": lock.setting,
         "scope_id": lock.scope_id,
         "locked_value": lock.locked_value,
-        "applies_to_all_members": lock.organization_membership_id is None,
     }
 
 
@@ -160,36 +143,63 @@ class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
 
         memberships = {membership.user_id: membership for membership in self._memberships()}
         actor_level = self._actor_level()
-        affected_user_ids: set[int] = set()
+        changes_per_user: dict[int, int] = defaultdict(int)
 
         with transaction.atomic():
             for change in serializer.validated_data["changes"]:
-                membership = None
-                if change["user_id"] is not None:
-                    membership = memberships.get(change["user_id"])
-                    if membership is None:
-                        raise serializers.ValidationError(
-                            f"User {change['user_id']} is not a member of this organization",
-                            code="invalid_input",
-                        )
-                    if membership.level > actor_level:
-                        raise PermissionDenied(
-                            f"Your organization access level is insufficient to change settings for {membership.user.email}"
-                        )
-                    affected_user_ids.add(membership.user_id)
-                else:
-                    affected_user_ids.update(
-                        user_id for user_id, member in memberships.items() if member.level <= actor_level
+                membership = memberships.get(change["user_id"])
+                if membership is None:
+                    raise serializers.ValidationError(
+                        f"User {change['user_id']} is not a member of this organization",
+                        code="invalid_input",
                     )
-
+                if membership.level > actor_level:
+                    raise PermissionDenied(
+                        f"Your organization access level is insufficient to change settings for {membership.user.email}"
+                    )
+                self._validate_scope(change)
+                changes_per_user[membership.user_id] += 1
                 self._apply_change(change, membership)
 
-        for user_id in sorted(affected_user_ids):
-            _notify(memberships[user_id].user, self.organization, len(serializer.validated_data["changes"]))
+        for user_id, count in sorted(changes_per_user.items()):
+            _notify(memberships[user_id].user, self.organization, count)
 
         return Response(self._represent_members())
 
-    def _apply_change(self, change: dict, membership: OrganizationMembership | None) -> None:
+    def _validate_scope(self, change: dict) -> None:
+        """A rule's scope has to match what its setting is broken down by."""
+        expected = LOCKABLE_NOTIFICATION_SETTINGS[change["setting"]]
+        scope_id = change.get("scope_id") or ""
+        if not expected and scope_id:
+            raise serializers.ValidationError(
+                f"{change['setting']} is a single switch and takes no scope",
+                code="invalid_input",
+            )
+        if expected and not scope_id:
+            raise serializers.ValidationError(
+                f"{change['setting']} is set per {expected} and needs a scope",
+                code="invalid_input",
+            )
+        if expected == "team" and not self._team_ids().__contains__(scope_id):
+            raise serializers.ValidationError(
+                f"Project {scope_id} does not belong to this organization",
+                code="invalid_input",
+            )
+        if expected == "organization" and scope_id != str(self.organization.id):
+            raise serializers.ValidationError(
+                f"Organization {scope_id} is not this organization",
+                code="invalid_input",
+            )
+
+    def _team_ids(self) -> set[str]:
+        if not hasattr(self, "_cached_team_ids"):
+            self._cached_team_ids = {
+                str(team_id)
+                for team_id in Team.objects.filter(organization_id=self.organization.id).values_list("id", flat=True)
+            }
+        return self._cached_team_ids
+
+    def _apply_change(self, change: dict, membership: OrganizationMembership) -> None:
         lookup = {
             "organization_id": self.organization.id,
             "organization_membership": membership,

@@ -377,42 +377,37 @@ export const NotificationLocksBulkUpdateCreateBody = /* @__PURE__ */ zod.object(
     changes: zod
         .array(
             zod.object({
-                user_id: zod
-                    .number()
-                    .nullable()
-                    .describe('Member to change. Null applies the change to every member, including future joiners.'),
+                user_id: zod.number().describe('Member this rule applies to.'),
                 setting: zod
                     .enum([
-                        'all_weekly_digest_disabled',
                         'discussions_mentioned',
                         'error_tracking_issue_assigned',
-                        'error_tracking_weekly_digest',
                         'error_tracking_weekly_digest_project_enabled',
                         'materialized_view_sync_failed',
                         'materialized_view_sync_failed_daily',
                         'materialized_view_sync_failed_immediate',
                         'organization_member_join_email_disabled',
                         'pipeline_notifications_disabled',
-                        'plugin_disabled',
                         'project_weekly_digest_disabled',
-                        'web_analytics_weekly_digest',
                         'web_analytics_weekly_digest_project_enabled',
                     ])
                     .describe(
-                        '\* `all_weekly_digest_disabled` - all_weekly_digest_disabled\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest` - error_tracking_weekly_digest\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `plugin_disabled` - plugin_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest` - web_analytics_weekly_digest\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
+                        '\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
                     )
                     .describe(
-                        'Notification setting to lock or unlock.\n\n\* `all_weekly_digest_disabled` - all_weekly_digest_disabled\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest` - error_tracking_weekly_digest\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `plugin_disabled` - plugin_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest` - web_analytics_weekly_digest\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
+                        'Notification setting to lock or unlock.\n\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
                     ),
                 scope_id: zod
                     .string()
                     .default(notificationLocksBulkUpdateCreateBodyChangesItemScopeIdDefault)
-                    .describe('What the setting applies to. Empty for a setting that is a single switch.'),
+                    .describe(
+                        'Project ID for a setting that breaks down by project, organization ID for the member-join email, empty for a single switch.'
+                    ),
                 locked_value: zod
                     .boolean()
                     .nullable()
                     .describe(
-                        'Value to enforce, or null to remove the lock and give the member their own choice back.'
+                        'Value to enforce, or null to remove the rule and give the member their own setting back.'
                     ),
             })
         )

@@ -17,6 +17,7 @@ from rest_framework.utils import model_meta
 from posthog.helpers.trigram_search import search_match_type_from_instance
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_notification_lock import LOCKABLE_NOTIFICATION_SETTINGS
 from posthog.models.project import Project
 
 tracer = trace.get_tracer(__name__)
@@ -312,3 +313,15 @@ class FiltersSerializer(serializers.Serializer):
     events = FilterBaseSerializer(many=True, required=False)
     actions = FilterBaseSerializer(many=True, required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
+
+
+class OrganizationNotificationLockSerializer(serializers.Serializer):
+    setting = serializers.ChoiceField(
+        choices=sorted(LOCKABLE_NOTIFICATION_SETTINGS),
+        help_text="Notification setting this rule enforces.",
+    )
+    scope_id = serializers.CharField(
+        allow_blank=True,
+        help_text="What the setting applies to: a project ID or an organization ID. Empty for a setting that is a single switch.",
+    )
+    locked_value = serializers.BooleanField(help_text="The value the organization enforces.")
