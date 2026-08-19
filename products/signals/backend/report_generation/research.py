@@ -79,6 +79,7 @@ Then give it light structure so a busy reader can scan the rest, three short sec
 Within each section write a sentence or two of natural, flowing prose, not bullet soup. Bold the few phrases a reader should catch at a glance (the core symptom, the key number, the root cause, the proposed change) so it's scannable without becoming a wall of labels. Don't over-bold: if everything's bold, nothing is.
 
 Hard rules:
+- Keep the whole summary under 200 words. This is the part a busy reader actually finishes, and the signals, evidence, and research artefacts already carry the full trail for anyone who wants to go deeper. Length is not thoroughness: cutting a paragraph of supporting detail you researched is the right call, and a report nobody reads to the end has surfaced nothing.
 - Everything must be factual, grounded in what you actually researched and what has actually happened. Never invent, never speculate as if it were fact. If something's a hypothesis, say so plainly.
 - Be specific. Reference the concrete signals, errors, metrics, or code paths you found; vagueness reads as not having done the work.
 - No filler ("various issues detected", "it's worth noting", "in conclusion").
@@ -90,10 +91,12 @@ Hard rules:
         default_factory=list,
         description=(
             "Charts the inbox draws on the report, so a finding about a metric move is visible next "
-            "to the sentence describing it. Optional — attach one only when the shape of the data is "
-            "the point. Reference a chart from the summary as a markdown link with a `chart:` target "
-            "(e.g. `[Daily signups](chart:signups-drop)`) to place it inline; an unreferenced chart "
-            "renders after the prose. Leave empty when a chart would only restate a number."
+            "to the sentence describing it. Attach one whenever the finding rests on data moving, and "
+            "let it carry the series so the prose can state the finding and stop. Reference a chart "
+            "from the summary as a markdown link with a `chart:` target (e.g. "
+            "`[Daily signups](chart:signups-drop)`) to place it inline; an unreferenced chart renders "
+            "after the prose. Leave empty when the finding has no shape to show, such as one that "
+            "lives in code, in a config, or in a single count."
         ),
     )
 
@@ -345,7 +348,11 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
 # team that isn't opted in is never shown or steered toward charts on the delicate fleet-wide path.
 _REPORT_CHARTS_GUIDANCE = f"""## Attaching charts
 
-You may attach charts under `charts`, which the inbox draws on the report itself so a data move is visible next to the sentence describing it rather than a number the reader has to go and reproduce. This is optional and usually the wrong call — attach a chart only when the *shape* of the data is the point (a trend that broke, a distribution that shifted, a funnel step that collapsed). A chart restating one number the summary already gives is noise; write the number. Most reports should carry zero charts.
+You may attach charts under `charts`, which the inbox draws on the report itself so a data move is visible next to the sentence describing it rather than a number the reader has to go and reproduce.
+
+**When the finding rests on data moving, attach the chart that shows it.** A metric that broke, a rate that slid, a distribution that shifted, a funnel step that collapsed: each of those is a shape, and a reader takes a shape in at a glance where a paragraph of figures makes them rebuild it in their head. This is the normal case for anything you researched through `query-trends` or `execute-sql`, and it is what keeps the prose short, because the summary can state the finding and leave the detail to the picture.
+
+Attach nothing when there is no shape to show. A finding that lives entirely in code, in a config, or in a single count has nothing to draw, and a chart restating one number the summary already gives is noise, so write the number instead. One or two charts is the usual answer for a data-shaped report, and none for the rest.
 
 - **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`); `title` is the heading above it; `query` is a query node — `InsightVizNode` (an ad-hoc product-analytics chart), `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` for a graph rather than a result table), or `SavedInsightNode` (an existing insight by `shortId`). Any other kind is refused. Add a `caption` when there's a specific thing to look at.
 - **A graph from SQL needs its axes named.** Setting `display` on a `DataVisualizationNode` without `chartSettings` draws every row at one x position instead of a series: `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of your result are which, naming them exactly as your `SELECT` aliases them. A daily count aliased `SELECT toDate(timestamp) AS day, count() AS occurrences` needs `"chartSettings": {{"xAxis": {{"column": "day"}}, "yAxis": [{{"column": "occurrences"}}]}}`. Leave `display` off entirely and the node renders the result table instead, which reads better than a chart for a handful of rows.
@@ -353,6 +360,7 @@ You may attach charts under `charts`, which the inbox draws on the report itself
 - **A chart renders data, it does not run code.** HogVM `bytecode`, a nested `HogQuery`, `sendRawQuery`, and a nested `SuggestedQuestionsQuery` are each refused wherever they sit in the node. A warehouse query is fine through HogQL — keep `connectionId`, drop `sendRawQuery`.
 - **Place it from the summary.** A markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — draws the chart at that point in the body; reference it once. A chart you never reference still renders, after the prose. Two references in one paragraph sit side by side.
 - **Prose must stand on its own.** The report is also delivered to Slack, where nothing draws a chart and a reference degrades to its plain label. State the finding in words and let the chart corroborate it — never "the chart below shows the drop".
+- **Let the chart carry the series.** The prose keeps the finding and the one or two numbers that size it, so a Slack reader still gets it; what the chart takes over is the interval-by-interval recital. "Step-2 conversion fell from 62% to 48% over the week" beside a chart beats a sentence listing every day.
 - **Pin the window** to absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to days later.
 - **At most {MAX_REPORT_CHARTS} per report**, far more than any report should use — three charts a reader studies beat a dozen they scroll past.
 - **`charts` is the report's whole set.** It replaces whatever the report showed before, the way title and summary do. To keep a chart across a re-research, send it again; drop one by leaving it out."""
