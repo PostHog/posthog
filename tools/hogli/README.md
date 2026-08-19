@@ -239,6 +239,14 @@ def env_props(command: str | None) -> dict[str, object]:
 register_telemetry_properties(env_props)
 ```
 
+A command can also stash properties for its own `command_completed` event, for context only that command knows:
+
+```python
+from hogli import telemetry
+
+telemetry.add_command_properties(failure_cause="unreachable")
+```
+
 ### Post-command hooks
 
 Run after every command completes, regardless of success. Good for contextual hints, cleanup, or notifications.

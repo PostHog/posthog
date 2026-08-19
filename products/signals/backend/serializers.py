@@ -12,6 +12,7 @@ from posthog.models import User
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
+from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
@@ -19,6 +20,7 @@ from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReportCanvas,
     SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -39,8 +41,36 @@ _DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
 }
 
 
+_SOURCE_CONFIG_HELP_TEXT = (
+    "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources "
+    "that define one (most data warehouse imports, and Conversations): "
+    "`steering` (string, max 2000 characters) holds the team's preferences about this source's "
+    "records in plain language: what matters, what to skip, what's out of scope. The emission "
+    "actionability gate applies it when deciding which records become signals; rules apply from "
+    "the next sync and nothing already emitted is retracted. "
+    "`default_not_actionable` (boolean, default false) flips the gate's default: instead of "
+    "keeping every record the steering rules don't exclude, only records that clearly match the "
+    "team's preferences are kept. "
+    "Other sources store these keys without reading them yet; future pipeline stages will consume "
+    "the same steering text. "
+    "Some sources read additional keys, for example `recording_filters` and `sample_rate` for "
+    "session analysis."
+)
+
+
+# Declared as an open object WITHOUT typed `properties`: Orval turns properties into a
+# key-stripping `zod.object`, which would silently drop source-specific keys (e.g. session
+# replay's `recording_filters`) from MCP tool calls. The open shape generates a passthrough
+# `zod.record`, and the steering keys are documented in the description instead.
+@extend_schema_field({"type": "object", "additionalProperties": True, "description": _SOURCE_CONFIG_HELP_TEXT})
+class _SourceConfigField(serializers.JSONField):
+    """`config` blob typed as an open JSON object in the OpenAPI schema. Runtime behavior is
+    plain JSONField; steering-key validation stays in the serializer's `validate`."""
+
+
 class SignalSourceConfigSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
+    config = _SourceConfigField(required=False, help_text=_SOURCE_CONFIG_HELP_TEXT)
 
     class Meta:
         model = SignalSourceConfig
@@ -92,7 +122,23 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
         source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
         enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
-        config = attrs.get("config", {})
+        config = attrs.get("config")
+        # `is not None` rather than truthiness: falsy non-dict values ([], "", 0, false) must be
+        # rejected, not silently persisted.
+        if config is not None:
+            if not isinstance(config, dict):
+                raise serializers.ValidationError({"config": "config must be a JSON object"})
+            # Presence-based checks so an explicit null is rejected like any other wrong type.
+            if STEERING_KEY in config:
+                steering = config[STEERING_KEY]
+                if not isinstance(steering, str):
+                    raise serializers.ValidationError({"config": "steering must be a string"})
+                if len(steering) > STEERING_MAX_LENGTH:
+                    raise serializers.ValidationError(
+                        {"config": f"steering must be at most {STEERING_MAX_LENGTH} characters"}
+                    )
+            if DEFAULT_NOT_ACTIONABLE_KEY in config and not isinstance(config[DEFAULT_NOT_ACTIONABLE_KEY], bool):
+                raise serializers.ValidationError({"config": "default_not_actionable must be a boolean"})
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
@@ -364,6 +410,21 @@ class ReportChartSerializer(serializers.Serializer):
     )
 
 
+class SignalReportCanvasSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SignalReportCanvas
+        fields = [
+            "canvas_id",
+            "discussion_task_id",
+            "generation_task_id",
+            "generation_status",
+            "collaboration_mode",
+            "failure_reason",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -373,6 +434,11 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "Charts the report shows, in the order they were written. The summary places one with a "
             "`[label](chart:<chart_id>)` link; the rest render below it."
         ),
+    )
+    canvas_session = SignalReportCanvasSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="The persistent canvas and shared discussion created for this report, when available.",
     )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
@@ -434,6 +500,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "charts",
+            "canvas_session",
             "priority",
             "actionability",
             "already_addressed",

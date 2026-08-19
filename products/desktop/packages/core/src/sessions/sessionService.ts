@@ -9,9 +9,11 @@ import type {
   SessionConfigSelectOption,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
+import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import type {
   CreateResourceCommentRequest,
   ResourceComment,
+  TaskRunSessionLogsResult,
 } from "@posthog/api-client/posthog-client";
 import {
   type AcpMessage,
@@ -128,6 +130,33 @@ const AUTH_RESTORE_MAX_RETRY_WAITS = 6;
 const MAX_SUPERSEDED_RUN_IDS = 100;
 const MAX_RESPONDED_PERMISSION_REQUEST_IDS = 500;
 /**
+ * A transport that ends a subscription with no error can be resubscribed, but
+ * one that does so on every attempt must not be retried forever. The counter
+ * resets as soon as an event arrives, so a healthy resubscribe costs nothing.
+ */
+const MAX_HOST_ENDED_RESUBSCRIBES = 3;
+/**
+ * A local turn that delivers nothing to this renderer for this long is logged
+ * once, with whether the run is still subscribed, so a transcript that stops
+ * updating can be told apart from an agent that is quietly working.
+ */
+const LOCAL_SILENCE_WARN_AFTER_MS = 60_000;
+const LOCAL_SILENCE_CHECK_INTERVAL_MS = 30_000;
+
+/** Short label for a log line: `session/update:agent_message_chunk`, `response`. */
+function describeAcpMethod(acpMsg: AcpMessage): string {
+  const msg = acpMsg.message as {
+    method?: unknown;
+    params?: { update?: { sessionUpdate?: unknown } };
+    error?: unknown;
+  };
+  if (typeof msg.method !== "string") {
+    return msg.error ? "error-response" : "response";
+  }
+  const update = msg.params?.update?.sessionUpdate;
+  return typeof update === "string" ? `${msg.method}:${update}` : msg.method;
+}
+/**
  * Streamed events are buffered and flushed on this cadence so a burst of tokens
  * coalesces into one processing pass (and roughly one render) instead of one
  * per event. Electron IPC delivers each event as its own task, so a microtask
@@ -182,7 +211,11 @@ type TrpcQuery = { query: (input?: any) => Promise<any> };
 type TrpcSubscription = {
   subscribe: (
     input: any,
-    handlers: { onData: (data: any) => void; onError?: (err: unknown) => void },
+    handlers: {
+      onData: (data: any) => void;
+      onError?: (err: unknown) => void;
+      onComplete?: () => void;
+    },
   ) => { unsubscribe: () => void };
 };
 
@@ -1641,6 +1674,18 @@ export class SessionService {
       permission?: { unsubscribe: () => void };
     }
   >();
+  /** Resubscribes since the run's last received event, per taskRunId. */
+  private hostEndedResubscribes = new Map<string, number>();
+  /** When each local run last delivered a session event to this renderer. */
+  private lastSessionEventAt = new Map<string, number>();
+  /** Per-run tallies of what this renderer received and failed to apply. */
+  private sessionEventStats = new Map<
+    string,
+    { received: number; failed: number; lastMethod: string }
+  >();
+  /** Runs already logged for their current stretch of silence. */
+  private silenceLogged = new Set<string>();
+  private silenceCheckHandle: ReturnType<typeof setInterval> | null = null;
   /** Active cloud task watchers, keyed by taskId */
   private cloudTaskWatchers = new Map<string, CloudTaskWatcher>();
   private cloudLogGapReconciler: CloudLogGapReconciler;
@@ -2634,6 +2679,13 @@ export class SessionService {
   private lastAgentTextAt = new Map<string, number>();
 
   private enqueueSessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
+    this.hostEndedResubscribes.delete(taskRunId);
+    this.lastSessionEventAt.set(taskRunId, Date.now());
+    this.silenceLogged.delete(taskRunId);
+    this.ensureSilenceCheck();
+    const stats = this.statsFor(taskRunId);
+    stats.received += 1;
+    stats.lastMethod = describeAcpMethod(acpMsg);
     if (isAgentTextStreamEvent(acpMsg)) {
       this.lastAgentTextAt.set(taskRunId, Date.now());
     }
@@ -2657,7 +2709,7 @@ export class SessionService {
     this.pendingSessionEvents = new Map();
     for (const [taskRunId, events] of batches) {
       for (const acpMsg of events) {
-        this.handleSessionEvent(taskRunId, acpMsg);
+        this.applySessionEvent(taskRunId, acpMsg);
       }
     }
   }
@@ -2669,7 +2721,88 @@ export class SessionService {
     if (!events) return;
     this.pendingSessionEvents.delete(taskRunId);
     for (const acpMsg of events) {
+      this.applySessionEvent(taskRunId, acpMsg);
+    }
+  }
+
+  /**
+   * One event that throws must not take the rest of its batch (and every other
+   * run's batch in the same flush) down with it: that leaves the transcript
+   * frozen with nothing in the log. Log it, count it, keep going.
+   */
+  private applySessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
+    try {
       this.handleSessionEvent(taskRunId, acpMsg);
+    } catch (error) {
+      const stats = this.statsFor(taskRunId);
+      stats.failed += 1;
+      if (stats.failed === 1 || stats.failed % 100 === 0) {
+        this.d.log.error("Session event handling failed", {
+          taskRunId,
+          method: describeAcpMethod(acpMsg),
+          failed: stats.failed,
+          received: stats.received,
+          error,
+        });
+      }
+    }
+  }
+
+  private statsFor(taskRunId: string): {
+    received: number;
+    failed: number;
+    lastMethod: string;
+  } {
+    let stats = this.sessionEventStats.get(taskRunId);
+    if (!stats) {
+      stats = { received: 0, failed: 0, lastMethod: "" };
+      this.sessionEventStats.set(taskRunId, stats);
+    }
+    return stats;
+  }
+
+  private ensureSilenceCheck(): void {
+    if (this.silenceCheckHandle !== null) return;
+    this.silenceCheckHandle = setInterval(
+      () => this.checkLocalSessionSilence(),
+      LOCAL_SILENCE_CHECK_INTERVAL_MS,
+    );
+  }
+
+  private checkLocalSessionSilence(): void {
+    const now = Date.now();
+    let anyPending = false;
+    for (const session of Object.values(this.d.store.getSessions())) {
+      if (session.isCloud || !session.isPromptPending) continue;
+      if (session.status !== "connected") continue;
+      anyPending = true;
+      const { taskRunId } = session;
+      if (this.silenceLogged.has(taskRunId)) continue;
+      const lastSignalAt = Math.max(
+        this.lastSessionEventAt.get(taskRunId) ?? 0,
+        session.promptStartedAt ?? 0,
+      );
+      if (lastSignalAt === 0) continue;
+      const silentForMs = now - lastSignalAt;
+      if (silentForMs < LOCAL_SILENCE_WARN_AFTER_MS) continue;
+      this.silenceLogged.add(taskRunId);
+      const stats = this.sessionEventStats.get(taskRunId);
+      this.d.log.warn("Local session silent while a prompt is pending", {
+        taskRunId,
+        taskId: session.taskId,
+        silentForMs,
+        subscribed: this.subscriptions.has(taskRunId),
+        bufferedEvents: this.pendingSessionEvents.get(taskRunId)?.length ?? 0,
+        eventCount: session.events.length,
+        received: stats?.received ?? 0,
+        failed: stats?.failed ?? 0,
+        lastMethod: stats?.lastMethod ?? null,
+        online: this.d.getIsOnline(),
+      });
+    }
+    if (!anyPending && this.silenceCheckHandle !== null) {
+      clearInterval(this.silenceCheckHandle);
+      this.silenceCheckHandle = null;
     }
   }
 
@@ -2801,6 +2934,7 @@ export class SessionService {
             "Lost connection to the agent. Please retry or start a new session.",
           );
         },
+        onComplete: () => this.resubscribeIfHostEnded(taskRunId, "event"),
       },
     );
 
@@ -2817,6 +2951,8 @@ export class SessionService {
               error: err,
             });
           },
+          onComplete: () =>
+            this.resubscribeIfHostEnded(taskRunId, "permission"),
         },
       );
 
@@ -2826,14 +2962,51 @@ export class SessionService {
     });
   }
 
+  /**
+   * A subscription completing without an error means the host tore down the
+   * transport rather than the agent finishing: the renderer would otherwise
+   * keep showing a "connected" session that never receives another event.
+   * Our own teardown removes the entry from `subscriptions` before
+   * unsubscribing, so the completion it triggers finds nothing to redo.
+   */
+  private resubscribeIfHostEnded(
+    taskRunId: string,
+    which: "event" | "permission",
+  ): void {
+    const current = this.subscriptions.get(taskRunId);
+    if (!current) return;
+    this.subscriptions.delete(taskRunId);
+    current.event.unsubscribe();
+    current.permission?.unsubscribe();
+
+    const attempts = (this.hostEndedResubscribes.get(taskRunId) ?? 0) + 1;
+    if (attempts > MAX_HOST_ENDED_RESUBSCRIBES) {
+      this.d.log.error(
+        "Session subscription keeps ending without an error, giving up",
+        { taskRunId, which, attempts },
+      );
+      return;
+    }
+    this.hostEndedResubscribes.set(taskRunId, attempts);
+    this.d.log.warn(
+      "Session subscription ended without an error, resubscribing",
+      { taskRunId, which, attempts },
+    );
+    this.subscribeToChannel(taskRunId);
+  }
+
   private unsubscribeFromChannel(taskRunId: string): void {
     // Apply anything still buffered before we stop listening, so a closing
     // channel doesn't drop its final events.
     this.flushSessionEventsForTask(taskRunId);
     const subscription = this.subscriptions.get(taskRunId);
+    this.subscriptions.delete(taskRunId);
     subscription?.event.unsubscribe();
     subscription?.permission?.unsubscribe();
-    this.subscriptions.delete(taskRunId);
+    this.hostEndedResubscribes.delete(taskRunId);
+    this.lastSessionEventAt.delete(taskRunId);
+    this.sessionEventStats.delete(taskRunId);
+    this.silenceLogged.delete(taskRunId);
     this.liveTurnContent.delete(taskRunId);
     this.agentSpokeAt.delete(taskRunId);
     this.lastAgentTextAt.delete(taskRunId);
@@ -2868,6 +3041,14 @@ export class SessionService {
       this.sessionEventFlushHandle = null;
     }
     this.pendingSessionEvents.clear();
+    this.hostEndedResubscribes.clear();
+    this.lastSessionEventAt.clear();
+    this.sessionEventStats.clear();
+    this.silenceLogged.clear();
+    if (this.silenceCheckHandle !== null) {
+      clearInterval(this.silenceCheckHandle);
+      this.silenceCheckHandle = null;
+    }
     for (const timer of this.eventEvictionTimers.values()) clearTimeout(timer);
     this.eventEvictionTimers.clear();
     this.evictedRunIds.clear();
@@ -2913,6 +3094,7 @@ export class SessionService {
     if (!tally) return;
     this.liveTurnContent.delete(taskRunId);
     const session = this.d.store.getSessions()[taskRunId];
+    const stats = this.sessionEventStats.get(taskRunId);
     const payload = {
       taskRunId,
       taskId: session?.taskId,
@@ -2921,11 +3103,14 @@ export class SessionService {
       agentTextChunks: tally.agentTextChunks,
       agentOutputEvents: tally.agentOutputEvents,
       durationMs: Math.max(0, endedAtTs - tally.startedAtTs),
+      eventCount: session?.events.length ?? 0,
+      received: stats?.received ?? 0,
+      failed: stats?.failed ?? 0,
     };
     if (tally.agentTextChunks === 0 && tally.agentOutputEvents === 0) {
       this.d.log.warn("Turn completed with no agent output", payload);
     } else {
-      this.d.log.debug("Turn completed", payload);
+      this.d.log.info("Turn completed", payload);
     }
   }
 
@@ -3888,6 +4073,8 @@ export class SessionService {
       promptStartedAt: Date.now(),
       pausedDurationMs: 0,
     });
+    this.silenceLogged.delete(taskRunId);
+    this.ensureSilenceCheck();
 
     const skillButtonId = this.d.h.extractSkillButtonId(blocks);
     if (skillButtonId) {
@@ -4250,8 +4437,14 @@ export class SessionService {
       // sandbox that hits the same provisioning failure — surface the error
       // instead of looping.
       if (session.cloudStatus === "failed" && session.status !== "connected") {
+        let errorMessage = session.cloudErrorMessage;
+        if (!errorMessage) {
+          await this.refreshCloudRunStatus(session);
+          errorMessage =
+            this.d.store.getSessions()[session.taskRunId]?.cloudErrorMessage;
+        }
         throw new Error(
-          session.cloudErrorMessage ??
+          errorMessage ??
             "Cloud run couldn't start. Check that GitHub is connected for this project, then try again.",
         );
       }
@@ -4642,29 +4835,45 @@ export class SessionService {
 
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
 
-      // Backend derives the snapshot from resumeFromRunId and restores the sandbox.
-      updatedTask = await authCredentials.client.runTaskInCloud(
-        session.taskId,
-        previousBaseBranch,
-        {
-          adapter: runtimeOptions.adapter,
-          model: runtimeOptions.model,
-          reasoningLevel: runtimeOptions.reasoningLevel,
-          initialPermissionMode: runtimeOptions.initialPermissionMode,
-          resumeFromRunId: session.taskRunId,
-          pendingUserMessage: transport.messageText,
-          pendingUserArtifactIds:
-            artifactIds.length > 0 ? artifactIds : undefined,
-          prAuthorshipMode,
-          autoPublish: previousState.auto_publish === true || undefined,
-          rtkEnabled: this.d.settings.rtkEnabledCloud,
-          runSource: getCloudRunSource(previousState),
-          signalReportId:
-            typeof previousState.signal_report_id === "string"
-              ? previousState.signal_report_id
-              : undefined,
-        },
-      );
+      try {
+        // Backend derives the snapshot from resumeFromRunId and restores the sandbox.
+        updatedTask = await authCredentials.client.runTaskInCloud(
+          session.taskId,
+          previousBaseBranch,
+          {
+            adapter: runtimeOptions.adapter,
+            model: runtimeOptions.model,
+            reasoningLevel: runtimeOptions.reasoningLevel,
+            initialPermissionMode: runtimeOptions.initialPermissionMode,
+            resumeFromRunId: session.taskRunId,
+            pendingUserMessage: transport.messageText,
+            pendingUserArtifactIds:
+              artifactIds.length > 0 ? artifactIds : undefined,
+            prAuthorshipMode,
+            autoPublish: previousState.auto_publish === true || undefined,
+            rtkEnabled: this.d.settings.rtkEnabledCloud,
+            runSource: getCloudRunSource(previousState),
+            signalReportId:
+              typeof previousState.signal_report_id === "string"
+                ? previousState.signal_report_id
+                : undefined,
+          },
+        );
+      } catch (error) {
+        // Only the resume call gates on authorship: non-creators of a channeled
+        // task get a 404 (not a 403) here, so on a task the app can already read
+        // it means the control gate. 404s from the upload or run fetch above
+        // mean a missing resource, so those keep their real error.
+        if (
+          requestErrorStatus(error) === 404 &&
+          session.isTaskAuthor === false
+        ) {
+          throw new Error(
+            "Only the person who created this task can send it messages. Start a new session to continue the work yourself.",
+          );
+        }
+        throw error;
+      }
     } catch (error) {
       rollbackOptimisticPrompt();
       throw error;
@@ -6062,7 +6271,19 @@ export class SessionService {
         taskRunId,
         normalizedUpdate,
       );
-      this.handleCloudTaskUpdate(taskRunId, normalizedUpdate);
+      try {
+        this.handleCloudTaskUpdate(taskRunId, normalizedUpdate);
+      } catch (error) {
+        // Same reasoning as applySessionEvent: one bad update must not end
+        // the stream silently. The subscription stays up for the next one.
+        this.d.log.error("Cloud task update handling failed", {
+          taskId,
+          taskRunId,
+          kind: update.kind,
+          error,
+        });
+        return;
+      }
       if (
         (update.kind === "status" ||
           update.kind === "snapshot" ||
@@ -6110,6 +6331,15 @@ export class SessionService {
         },
         onError: (err: unknown) =>
           this.d.log.error("Cloud task subscription error", { taskId, err }),
+        onComplete: () => {
+          if (!this.isCurrentCloudTaskWatcher(taskId, runId, startToken)) {
+            return;
+          }
+          this.d.log.warn(
+            "Cloud task subscription ended without an error, updates stop until the task is reopened",
+            { taskId, runId },
+          );
+        },
       },
     );
 
@@ -6277,6 +6507,21 @@ export class SessionService {
     );
   }
 
+  private logHydrationTruncation(
+    taskId: string,
+    runId: string,
+    result: TaskRunSessionLogsResult,
+  ): void {
+    if (result.truncatedHeadCount > 0) {
+      this.d.log.info("Session log hydration dropped oldest entries", {
+        taskId,
+        runId,
+        truncatedHeadCount: result.truncatedHeadCount,
+        hydratedCount: result.entries.length,
+      });
+    }
+  }
+
   private async performCloudTaskSessionHydration(
     taskId: string,
     taskRunId: string,
@@ -6288,6 +6533,10 @@ export class SessionService {
     let rawEntries: StoredLogEntry[];
     let liveStreamLineCount: number;
     let resumeLeafEntryStartIndex: number | undefined;
+    // How many entries the tail fetch dropped off the front of rawEntries. The
+    // stream cursors count from the start of the chain, and the engine's own
+    // totals still include those entries, so they have to be added back.
+    let truncatedHeadCount = 0;
     const resumeFromRunId =
       typeof runState?.resume_from_run_id === "string"
         ? runState.resume_from_run_id
@@ -6319,7 +6568,9 @@ export class SessionService {
             });
             return;
           }
+          this.logHydrationTruncation(taskId, taskRunId, result);
           rawEntries = result.entries;
+          truncatedHeadCount = result.truncatedHeadCount;
           const markedLeafStart = rawEntries.findIndex(
             (entry) => getEntryTaskRunMarker(entry) === taskRunId,
           );
@@ -6352,6 +6603,11 @@ export class SessionService {
             });
             return;
           }
+          this.logHydrationTruncation(taskId, resumeFromRunId, ancestorResult);
+          this.logHydrationTruncation(taskId, taskRunId, currentRunResult);
+          // rawEntries below starts at the ancestor window, so only the
+          // ancestor fetch's drop moves the front of the chain.
+          truncatedHeadCount = ancestorResult.truncatedHeadCount;
           const ancestorEntries: StoredLogEntry[] = ancestorResult.entries;
           const currentRunEntries: StoredLogEntry[] = currentRunResult.entries;
           const ancestorKeys = ancestorEntries.map((entry) =>
@@ -6392,7 +6648,9 @@ export class SessionService {
           });
           return;
         }
+        this.logHydrationTruncation(taskId, taskRunId, result);
         rawEntries = result.entries;
+        truncatedHeadCount = result.truncatedHeadCount;
         liveStreamLineCount = rawEntries.length;
         // A terminal run whose persisted chain comes back empty can still
         // have a complete S3 session log (persistence raced teardown); fall
@@ -6401,6 +6659,7 @@ export class SessionService {
           const parsed = await this.fetchSessionLogs(logUrl, taskRunId);
           if (parsed.rawEntries.length > 0) {
             rawEntries = parsed.rawEntries;
+            truncatedHeadCount = 0;
             liveStreamLineCount = parsed.totalLineCount;
           }
         }
@@ -6481,11 +6740,12 @@ export class SessionService {
       };
     }
 
+    const chainEntryCount = rawEntries.length + truncatedHeadCount;
     // If live updates already populated a processed count, don't overwrite
     // that newer state with the persisted baseline fetched during startup.
     // Terminal hydration is different: it is the final transcript, so apply
     // it whenever the persisted chain has more lines than the local stream.
-    const effectiveLineCount = Math.max(liveStreamLineCount, rawEntries.length);
+    const effectiveLineCount = Math.max(liveStreamLineCount, chainEntryCount);
     const alreadyApplied = isTerminalRun
       ? (session.processedLineCount ?? 0) >= effectiveLineCount
       : session.processedLineCount !== undefined &&
@@ -6495,7 +6755,7 @@ export class SessionService {
       this.surfacePersistedPendingPermissions(taskRunId, rawEntries);
       this.pendingPermissionHydratedRuns.add(taskRunId);
       return {
-        historyEntryCount: rawEntries.length,
+        historyEntryCount: chainEntryCount,
         liveStreamLineCount: session.processedLineCount ?? liveStreamLineCount,
       };
     }
@@ -6513,7 +6773,7 @@ export class SessionService {
       events,
       isCloud: true,
       logUrl: logUrl ?? session.logUrl,
-      cloudTranscriptEntryCount: rawEntries.length,
+      cloudTranscriptEntryCount: chainEntryCount,
       // Terminal hydration records the whole chain as processed so nothing
       // re-applies it; live resume runs keep the leaf-stream cursor.
       processedLineCount: isTerminalRun
@@ -6530,7 +6790,7 @@ export class SessionService {
       this.clearTerminalCloudPromptState(taskRunId);
     }
     return {
-      historyEntryCount: rawEntries.length,
+      historyEntryCount: chainEntryCount,
       liveStreamLineCount,
     };
   }
@@ -6601,8 +6861,8 @@ export class SessionService {
     const watcher = this.cloudTaskWatchers.get(taskId);
     if (!watcher) return;
 
-    watcher.subscription.unsubscribe();
     this.cloudTaskWatchers.delete(taskId);
+    watcher.subscription.unsubscribe();
     this.cloudLogGapReconciler.forgetDeficiency(watcher.runId);
   }
 

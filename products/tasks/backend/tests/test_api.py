@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 from collections.abc import AsyncGenerator, Iterator
 from datetime import timedelta
+from decimal import Decimal
 from typing import Any, ClassVar, cast
 from urllib.parse import quote
 
@@ -57,6 +58,7 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     cache_task_staged_artifact,
     get_task_staged_artifacts,
 )
+from products.tasks.backend.logic.services.task_usage import TaskTokenUsageUnavailable, TaskUsage
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamEntryOrKeepalive,
@@ -1098,6 +1100,35 @@ class TestTaskAPI(BaseTaskAPITest):
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
         return client
 
+    @patch("products.tasks.backend.presentation.views.api.get_task_usage")
+    def test_usage_returns_task_cost_breakdown(self, mock_get_task_usage: MagicMock) -> None:
+        task = self.create_task()
+        mock_get_task_usage.return_value = TaskUsage(
+            token_cost_usd=Decimal("12.34"),
+            compute_cost_usd=Decimal("0.56"),
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/usage/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "token_cost_usd": 12.34,
+            "compute_cost_usd": 0.56,
+            "total_cost_usd": 12.9,
+        }
+
+    @patch("products.tasks.backend.presentation.views.api.get_task_usage")
+    def test_usage_returns_bad_gateway_when_token_usage_is_unavailable(self, mock_get_task_usage: MagicMock) -> None:
+        task = self.create_task()
+        mock_get_task_usage.side_effect = TaskTokenUsageUnavailable()
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/usage/")
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        body = response.json()
+        assert body["detail"] == "Task usage is temporarily unavailable."
+        assert body["code"] == "task_usage_upstream_unavailable"
+
     def test_desktop_oauth_task_creation_records_trusted_provenance(self):
         client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
 
@@ -1455,13 +1486,23 @@ class TestTaskAPI(BaseTaskAPITest):
                 "sandbox_connect_token": "secret-token",
                 "sandbox_url": "https://sandbox.example.com",
                 "pending_dispatch": {"user_id": self.user.id},
+                # Slack delivery routing the sandbox agent reads back over this endpoint.
+                "slack_artifact_delivery": "canvas_file",
+                "slack_chart_delivery": True,
             },
         )
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["state"], {"mode": "interactive"})
+        self.assertEqual(
+            response.json()["state"],
+            {
+                "mode": "interactive",
+                "slack_artifact_delivery": "canvas_file",
+                "slack_chart_delivery": True,
+            },
+        )
 
     def test_create_task(self):
         response = self.client.post(
@@ -2153,6 +2194,35 @@ class TestTaskAPI(BaseTaskAPITest):
         self.create_task("Active")
 
         response = self.client.get("/api/projects/@current/tasks/?archived=foo")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("default", "", ["Filed later", "Still running"]),
+            ("created", "?ordering=-created_at", ["Filed later", "Still running"]),
+            ("activity", "?ordering=-last_activity_at", ["Still running", "Filed later"]),
+        ]
+    )
+    def test_list_tasks_ordering(self, _name, query, expected_titles):
+        old = self.create_task("Still running")
+        Task.objects.filter(id=old.id).update(
+            created_at=django_timezone.now() - timedelta(days=3),
+            last_activity_at=django_timezone.now(),
+        )
+        recent = self.create_task("Filed later")
+        Task.objects.filter(id=recent.id).update(
+            created_at=django_timezone.now() - timedelta(hours=1),
+            last_activity_at=django_timezone.now() - timedelta(hours=1),
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([task["title"] for task in response.json()["results"]], expected_titles)
+
+    def test_list_tasks_rejects_unknown_ordering(self):
+        self.create_task("Task 1")
+
+        response = self.client.get("/api/projects/@current/tasks/?ordering=title")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_retrieve_archived_task_still_works(self):
@@ -9016,6 +9086,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         [
             ("task:read", "GET", "/api/projects/@current/tasks/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
+            ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/usage/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/connection_token/", False),

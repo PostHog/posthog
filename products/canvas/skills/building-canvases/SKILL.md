@@ -1,12 +1,13 @@
 ---
 name: building-canvases
 description: >
-  Create or edit a PostHog canvas — a sandboxed browser application (data board, document, form,
-  small tool, graphics experiment) stored in PostHog and rendered by the desktop/web app. Use when
-  a task asks to build, generate, update, or fix a canvas, or when a canvas id is given as the
-  publish target. Covers resolving or creating the target canvas, choosing an implementation
-  approach (React + Quill vs plain HTML/browser APIs), the read → edit → validate → publish →
-  build loop, and which companion canvas skills to load for the details.
+  Create or edit a PostHog freeform canvas — a sandboxed browser application (data board, document,
+  form, small tool, graphics experiment) stored in PostHog and rendered by the desktop/web app. Use
+  when a task asks to build, generate, update, or fix a standalone canvas app, or when a freeform
+  canvas id is given as the publish target. For grid/home canvases, widget placements, or reusable
+  components, use composing-grid-canvases instead. Covers resolving or creating the target canvas,
+  choosing an implementation approach (React + Quill vs plain HTML/browser APIs), the read → edit →
+  validate → publish → build loop, and which companion canvas skills to load for the details.
 ---
 
 # Building canvases
@@ -19,6 +20,13 @@ saves it.
 Canvas work can start from any ordinary task. A dedicated canvas mode or pre-created canvas is
 not required. When the user asks for a board, document, form, visualization, or small app that
 should live in PostHog, treat that as a canvas request and follow this skill.
+
+This skill owns `freeform` canvases (standalone apps). Two other canvas kinds exist: `grid`
+canvases (widget grids, including the user's home canvas) and `component` canvases (reusable
+widgets grids place). When the target is a grid or home canvas, a placement, or a reusable
+widget/component, load `composing-grid-canvases` instead — it owns the store search → configure →
+fork → build ladder and the layout patch loop. Authoring a component's source still uses the
+implementation companions below.
 
 ## Resolve the target canvas
 
@@ -82,7 +90,8 @@ matching shape above. The pattern is a hint; the user's actual request remains a
    fetch or your own PostHog client), and
    **declare every `ph` call in `project.capabilities`** (insight short ids in
    `capabilities.posthog.insights`, captured events in `captureEvents`, `inlineQueries: true` for
-   ad-hoc queries) — the host enforces these at runtime and validation rejects undeclared calls.
+   ad-hoc queries, and `agentRequests: true` for `ph.agent.request`) — the host enforces these at
+   runtime and validation rejects undeclared calls.
 3. Follow `validating-and-publishing-canvases`: validate with `canvas-validate-create` as often as
    needed and fix every error-severity diagnostic.
 4. Save the project — which tool depends on whether the canvas is already live:
@@ -120,6 +129,13 @@ That field is the only valid link to a canvas — never construct one yourself; 
   clicks), never to load or render. The registry is the source of truth: list it with the
   `canvases-actions-retrieve` tool and follow each verb's `usage` (payload/result shape,
   behavior, and the confirmation copy it warrants) before wiring it.
+
+- **`ph.agent.request(prompt)`** — ask the canvas's authoring agent for a change, with the viewer's
+  approval. Declare `agentRequests: true` in `capabilities.posthog`. Call it only from a direct
+  click or form submission — the host shows the exact prompt and asks the viewer to accept before
+  spending compute, and rejects calls made during render, mount, or polling. The agent stages the
+  change as a draft for the canvas creator to review; a non-creator's request is filed in the
+  authoring task's thread instead of starting a run.
 
 ## Source-project shape
 

@@ -53,7 +53,18 @@ SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
     }
 )
 
-McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports"]
+# The dedicated "PostHog AI" OAuth app. Tokens minted against it are only ever created
+# server-side for PostHog AI sandbox agents, so a request bearing one is authoritatively
+# attributable to PostHog AI regardless of spoofable user-agent or client headers.
+POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
+    {
+        POSTHOG_AI_APP_CLIENT_ID_US,
+        POSTHOG_AI_APP_CLIENT_ID_EU,
+        POSTHOG_AI_APP_CLIENT_ID_DEV,
+    }
+)
+
+McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports", "report_canvas"]
 SandboxOAuthApplication = Literal["array", "posthog_ai"]
 
 
@@ -66,6 +77,11 @@ INTERNAL_SCOPES: list[str] = [
     # gateway requires it on the internal products that share the PostHog Desktop OAuth app
     # (background_agents, signals, slack_app, conversations) so a user's own OAuth token
     # can't route around the posthog_code free-tier model gate through those.
+    "internal_run:read",
+]
+
+REPORT_CANVAS_INTERNAL_SCOPES: list[str] = [
+    "llm_gateway:read",
     "internal_run:read",
 ]
 
@@ -131,7 +147,7 @@ TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
 PosthogMcpScopes = McpScopePreset | list[str]
 
-MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout", "signals_scout_reports")
+MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout", "signals_scout_reports", "report_canvas")
 
 
 def resolve_scopes(
@@ -143,6 +159,9 @@ def resolve_scopes(
     if isinstance(scopes, str):
         if scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
+        elif scopes == "report_canvas":
+            report_canvas_internal = list(REPORT_CANVAS_INTERNAL_SCOPES) if include_internal_scopes else []
+            resolved = [*MCP_READ_SCOPES, "canvas:write", *report_canvas_internal]
         elif scopes in ("signals_scout", "signals_scout_reports"):
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
@@ -175,7 +194,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
         # (remember/forget/emit_finding + the narrow `SCOUT_USER_WRITE_SCOPES`). Read-only mode
         # is a tool-annotation filter, not a scope filter, and would strip those tools
         # categorically without this opt-out.
-        return scopes in ("full", "signals_scout", "signals_scout_reports")
+        return scopes in ("full", "signals_scout", "signals_scout_reports", "report_canvas")
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
 
