@@ -10,6 +10,7 @@ from posthog.schema import (
     AlertConditionType,
     ForecastConditionType,
     ForecastConfig,
+    ForecastErrorMode,
     FunnelsAlertConfig,
     FunnelsQuery,
     HogQLAlertConfig,
@@ -218,6 +219,24 @@ def _validate_metrics_alert_config(ctx: _AlertConfigValidationContext) -> None:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
+def _validate_band_deviation(parsed: ForecastConfig) -> None:
+    """The three expected-range controls only mean anything for band_deviation, and each error mode
+    reads exactly one threshold. Reject a mode whose threshold is missing rather than silently
+    treating it as zero, which would fire on every check."""
+    if parsed.error_mode == ForecastErrorMode.RELATIVE:
+        if parsed.error_threshold_pct is None:
+            raise ValueError("A percentage expected-range alert needs a percentage to compare against.")
+        if not 0 < parsed.error_threshold_pct <= 10:
+            raise ValueError("The percentage must be between 0 and 1000%.")
+    if parsed.error_mode == ForecastErrorMode.ABSOLUTE:
+        if parsed.error_threshold_abs is None:
+            raise ValueError("A fixed-amount expected-range alert needs an amount to compare against.")
+        if parsed.error_threshold_abs <= 0:
+            raise ValueError("The amount must be more than 0.")
+    if parsed.score_threshold is not None and not 0 <= parsed.score_threshold <= 1:
+        raise ValueError("How far past the range must be between 0 and 1.")
+
+
 def _validate_target_by_date(
     parsed: ForecastConfig, interval: IntervalType | None, *, require_future_date: bool
 ) -> None:
@@ -263,6 +282,8 @@ def _validate_forecast_config(
     except Exception as e:
         raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
     validate_forecast_horizon_and_width(parsed, trends_query.interval)
+    if parsed.condition == ForecastConditionType.BAND_DEVIATION:
+        _validate_band_deviation(parsed)
     if parsed.condition == ForecastConditionType.TARGET_BY_DATE:
         _validate_target_by_date(parsed, trends_query.interval, require_future_date=require_future_target_date)
     if is_non_time_series_trend(trends_query):

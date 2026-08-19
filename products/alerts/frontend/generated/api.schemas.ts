@@ -579,6 +579,22 @@ export const ForecastConditionTypeApi = {
     TargetByDate: 'target_by_date',
 } as const
 
+export type ForecastDirectionApi = (typeof ForecastDirectionApi)[keyof typeof ForecastDirectionApi]
+
+export const ForecastDirectionApi = {
+    Both: 'both',
+    Above: 'above',
+    Below: 'below',
+} as const
+
+export type ForecastErrorModeApi = (typeof ForecastErrorModeApi)[keyof typeof ForecastErrorModeApi]
+
+export const ForecastErrorModeApi = {
+    PredictionInterval: 'prediction_interval',
+    Relative: 'relative',
+    Absolute: 'absolute',
+} as const
+
 export type ForecastSensitivityApi = (typeof ForecastSensitivityApi)[keyof typeof ForecastSensitivityApi]
 
 export const ForecastSensitivityApi = {
@@ -595,12 +611,22 @@ export const ForecastTargetDirectionApi = {
 
 export interface ForecastConfigApi {
     condition: ForecastConditionTypeApi
+    /** Which way a deviation has to go to count (band_deviation only). Default both. */
+    direction?: ForecastDirectionApi | null
     engine?: 'prophet'
+    /** How a deviation from the forecast is measured (band_deviation only). Default prediction_interval. */
+    error_mode?: ForecastErrorModeApi | null
+    /** Distance from the forecast that counts, in the metric's own units (absolute mode only). */
+    error_threshold_abs?: number | null
+    /** Distance from the forecast that counts, as a share of it, e.g. 0.2 for 20% (relative mode only). */
+    error_threshold_pct?: number | null
     /** How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7. The forecast can reach at most 6 months ahead, so the limit depends on the insight's interval. */
     horizon?: number | null
     /** Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95). */
     interval_width?: number | null
-    /** Which line the comparison reads. Defaults to best_case. Ignored by band_deviation. */
+    /** How far outside the band counts, from 0 to 1 (prediction_interval mode only). Higher fires less. Measured in band half-widths rather than against training residuals: those exist only when the engine runs with history, which is the preview path, and a scheduled check does not. The band already carries the residual scale, since Prophet built it from them. */
+    score_threshold?: number | null
+    /** Which line the comparison reads. Defaults to the point forecast for future_breach, and to best_case for target_by_date. Ignored by band_deviation. Distinct from `score_threshold`, which decides how far outside the band counts, not which line is read. */
     sensitivity?: ForecastSensitivityApi | null
     /** Value the metric must reach or stay under (target_by_date only). */
     target?: number | null

@@ -805,3 +805,52 @@ class TestForecastConfigValidation:
                 "target_date": target_date,
             },
         )
+
+    @parameterized.expand(
+        [
+            ("relative with no percentage", {"error_mode": "relative"}, "needs a percentage"),
+            ("relative out of range", {"error_mode": "relative", "error_threshold_pct": 20}, "between 0 and 1000"),
+            ("absolute with no amount", {"error_mode": "absolute"}, "needs an amount"),
+            ("absolute not positive", {"error_mode": "absolute", "error_threshold_abs": 0}, "more than 0"),
+            ("score out of range", {"score_threshold": 5}, "between 0 and 1"),
+        ]
+    )
+    def test_band_deviation_modes_are_rejected(self, _name: str, extra: dict, message: str) -> None:
+        # A mode whose threshold is missing would compare against zero and fire on every check.
+        with pytest.raises(ValueError, match=message):
+            validate_alert_config(
+                TRENDS_QUERY,
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config={
+                    "type": "ForecastConfig",
+                    "engine": "prophet",
+                    "condition": "band_deviation",
+                    **extra,
+                },
+            )
+
+    @parameterized.expand(
+        [
+            ("percentage mode", {"error_mode": "relative", "error_threshold_pct": 0.2}),
+            ("fixed amount mode", {"error_mode": "absolute", "error_threshold_abs": 50}),
+            ("interval mode with a score", {"score_threshold": 0.5}),
+            ("direction only", {"direction": "above"}),
+        ]
+    )
+    def test_band_deviation_modes_are_accepted(self, _name: str, extra: dict) -> None:
+        validate_alert_config(
+            TRENDS_QUERY,
+            {"type": "absolute_value"},
+            TRENDS_CONFIG,
+            ABS_THRESHOLD,
+            calculation_interval="daily",
+            forecast_config={
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "band_deviation",
+                **extra,
+            },
+        )
