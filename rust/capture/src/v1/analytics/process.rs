@@ -826,6 +826,19 @@ async fn apply_restrictions(
     }
 }
 
+/// Whether this event rides the AI lane, independent of where restrictions
+/// have since pointed it.
+///
+/// Gating on `destination == AiEvents` would exempt exactly the events an
+/// operator redirected: `force_overflow` retargets an AI event to
+/// `AiEventsOverflow`, which is still the AI lane, and a `redirect_to_topic`
+/// or DLQ restriction moves it off `AiEvents` without taking it off the wire.
+/// The allowlist is the same source v0 stamps `DataType::AiEvents` from, so
+/// both pipelines charge and measure the same set.
+fn on_ai_lane(event: &WrappedEvent) -> bool {
+    is_ai_event(&event.event.event)
+}
+
 /// Drop AI-lane events past the deployment's per-event size ceiling.
 ///
 /// Runs before the byte budget so an event that will never be published spends
@@ -844,7 +857,7 @@ fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) 
     let mut dropped: u64 = 0;
 
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok || event.destination != Destination::AiEvents {
+        if event.result != EventResult::Ok || !on_ai_lane(event) {
             continue;
         }
         if exceeds_max_ai_event_bytes(event.event.properties.get().len(), max_event_bytes) {
@@ -866,8 +879,9 @@ fn apply_ai_event_size_limit(max_event_bytes: u64, events: &mut [WrappedEvent]) 
 /// (`events::ai_byte_limit`), so a token's bytes count once no matter which
 /// pipeline carries them.
 ///
-/// Only `Destination::AiEvents` is charged: the budget governs the AI lane, and
-/// restrictions have already moved anything they redirect off it. The
+/// Membership comes from the event-name allowlist, not the current
+/// destination: a restriction that retargets an AI event still spends the
+/// project's bytes, and `force_overflow` keeps it on the AI lane outright. The
 /// `EventResult::Ok` guard keeps every upstream drop — validation, quota, a
 /// `DropEvent` restriction — off the budget, since none of those bytes were
 /// ever going to be published.
@@ -882,7 +896,7 @@ async fn apply_ai_byte_limits(
     let mut dropped: u64 = 0;
 
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok || event.destination != Destination::AiEvents {
+        if event.result != EventResult::Ok || !on_ai_lane(event) {
             continue;
         }
         if charge_ai_bytes(limiter, token, event.event.properties.get().len()).await {
@@ -2014,23 +2028,35 @@ mod tests {
         assert_eq!(events[0].destination, Destination::AiEvents);
     }
 
-    /// The byte budget governs the AI lane and nothing else: a second AI-lane
-    /// event past the project's budget drops, while a second event on any
-    /// other destination is never charged, however far over the budget the
-    /// project already is.
-    #[rstest::rstest]
-    #[case::ai_lane_is_limited(Destination::AiEvents, EventResult::Drop, Destination::Drop)]
-    #[case::analytics_main_is_not(
-        Destination::AnalyticsMain,
-        EventResult::Ok,
-        Destination::AnalyticsMain
-    )]
+    /// The size ceiling follows the same lane rule as the budget: an oversize
+    /// AI event a restriction retargeted is still refused, because the ceiling
+    /// exists to keep the producer from being handed something it will reject.
     #[tokio::test]
-    async fn ai_byte_limits_apply_to_the_ai_lane_only(
-        #[case] destination: Destination,
-        #[case] expected_result: EventResult,
-        #[case] expected_destination: Destination,
-    ) {
+    async fn ai_size_ceiling_follows_the_lane_not_the_destination() {
+        let mut oversized = wrapped_event("$ai_generation", "user-1");
+        oversized.event.properties =
+            test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
+        oversized.destination = Destination::AiEventsOverflow;
+
+        let mut events = vec![oversized];
+        apply_ai_event_size_limit(700, &mut events);
+
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].destination, Destination::Drop);
+    }
+
+    /// Lane membership decides the charge, and a restriction that retargets an
+    /// AI event does not buy the project a free lane. `force_overflow` keeps
+    /// the event on the AI lane outright; a topic or DLQ redirect moves it off
+    /// `AiEvents` but not off the wire. Gating on the destination instead would
+    /// exempt every one of these, which is the whole point of the case list.
+    #[rstest::rstest]
+    #[case::ai_lane(Destination::AiEvents)]
+    #[case::force_overflow_stays_on_the_lane(Destination::AiEventsOverflow)]
+    #[case::topic_redirect_still_pays(Destination::Custom("ai_quarantine".to_string()))]
+    #[case::dlq_redirect_still_pays(Destination::Dlq)]
+    #[tokio::test]
+    async fn ai_byte_limits_follow_the_lane_not_the_destination(#[case] destination: Destination) {
         // Each event weighs the flat envelope allowance plus its two-byte
         // properties, so one fits an 800-byte budget and the second does not.
         let limiter = GlobalRateLimiter::mock_budget(800);
@@ -2047,8 +2073,27 @@ mod tests {
 
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].destination, destination);
-        assert_eq!(events[1].result, expected_result);
-        assert_eq!(events[1].destination, expected_destination);
+        assert_eq!(events[1].result, EventResult::Drop);
+        assert_eq!(events[1].destination, Destination::Drop);
+    }
+
+    /// The mirror of the case above: an event that was never on the AI lane is
+    /// never charged, however far over budget the project already is.
+    #[tokio::test]
+    async fn non_ai_events_are_never_charged() {
+        let limiter = GlobalRateLimiter::mock_budget(1);
+
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+
+        apply_ai_byte_limits(&limiter, "phc_token", &mut events).await;
+
+        for event in &events {
+            assert_eq!(event.result, EventResult::Ok);
+            assert_eq!(event.destination, Destination::AnalyticsMain);
+        }
     }
 
     /// An event already dropped upstream keeps its destination on some paths —
