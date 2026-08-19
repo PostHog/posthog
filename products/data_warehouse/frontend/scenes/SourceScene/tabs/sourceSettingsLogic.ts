@@ -1551,18 +1551,23 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     actions.loadJobs()
                     lemonToast.success('Table enabled with default sync settings')
                 } catch (e: any) {
-                    // Defaults don't fit every table: a webhook-only table is rejected here. Send the
-                    // user to the sync-method page (webhook preselected) instead of a dead-end error.
+                    // Only a webhook-only table benefits from the sync-method page, and the backend
+                    // reason for that case names webhook sync. Bad credentials, a dropped table, or a
+                    // save error can't be fixed there, so for those match bulkEnable: reload to show
+                    // what applied and surface the error without moving the user off the page.
                     actions.loadSource()
-                    lemonToast.error(e?.message || "Can't enable this table with default settings")
-                    router.actions.push(
-                        urls.dataWarehouseSourceSchema(
-                            `managed-${values.sourceId}`,
-                            schema.id,
-                            'configuration',
-                            'sync-method'
+                    const message = e?.message || "Can't enable this table with default settings"
+                    lemonToast.error(message)
+                    if (/webhook/i.test(message)) {
+                        router.actions.push(
+                            urls.dataWarehouseSourceSchema(
+                                `managed-${values.sourceId}`,
+                                schema.id,
+                                'configuration',
+                                'sync-method'
+                            )
                         )
-                    )
+                    }
                 } finally {
                     actions.setBulkEnableLoading(false)
                     cache.bulkEnableInFlight = false
