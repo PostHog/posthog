@@ -149,17 +149,23 @@ function subBatch(
 }
 
 interface Collected {
+    /** Real acks, with the seq-0 greeting filtered out. */
     acks: IngestStreamResponse[]
+    /** Every response in arrival order, greeting included. */
+    all: IngestStreamResponse[]
     error: ConnectError | null
     ended: Promise<void>
 }
 
 function collect(server: WorkerIngestServer, source: FrameSource): Collected {
-    const collected: Collected = { acks: [], error: null, ended: Promise.resolve() }
+    const collected: Collected = { acks: [], all: [], error: null, ended: Promise.resolve() }
     collected.ended = (async () => {
         try {
             for await (const ack of server.ingestStream(source)) {
-                collected.acks.push(ack)
+                collected.all.push(ack)
+                if (Number(ack.seq) !== 0) {
+                    collected.acks.push(ack)
+                }
             }
         } catch (error) {
             collected.error = error as ConnectError
@@ -209,6 +215,23 @@ describe('WorkerIngestServer', () => {
 
     afterEach(async () => {
         await server.stop()
+    })
+
+    it('greets with a seq-0 response before any work arrives', async () => {
+        // Regression: connect-node flushes response headers only with the
+        // first response message, and the consumer's stream-open awaits those
+        // headers before sending anything — without an immediate greeting the
+        // two sides deadlock at open (observed against production workers).
+        const source = new FrameSource()
+        const collected = collect(server, source)
+
+        source.push(hello())
+        await until(() => collected.all.length === 1)
+        expect(Number(collected.all[0].seq)).toBe(0)
+        expect(collected.all[0].status).toBe(SubBatchStatus.OK)
+        source.end()
+        await collected.ended
+        expect(collected.error).toBeNull()
     })
 
     it('acks completions out of order by seq and ends the stream after half-close', async () => {

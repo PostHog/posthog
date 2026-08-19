@@ -194,7 +194,11 @@ export const KafkaMessageSchema: GenMessage<KafkaMessage> =
  */
 export type IngestStreamResponse = Message<'ingestion.worker.v1.IngestStreamResponse'> & {
     /**
-     * The `SubBatch.seq` this ack resolves.
+     * The `SubBatch.seq` this ack resolves. Seq 0 is reserved for the server's
+     * greeting: an immediate response sent when the stream opens, before any
+     * sub-batch, so response headers flush and the consumer's stream-open
+     * resolves (some HTTP/2 server stacks defer headers until the first
+     * response message). Consumers ignore seq 0.
      *
      * @generated from field: uint64 seq = 1;
      */

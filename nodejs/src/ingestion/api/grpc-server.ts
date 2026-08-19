@@ -424,6 +424,19 @@ export class WorkerIngestServer {
         this.streams.set(stream.id, stream)
         grpcStreams.inc()
 
+        // Greet before anything else. connect-node defers response headers
+        // until the first response message, and the consumer's stream-open
+        // awaits those headers before it sends any sub-batch — without this
+        // greeting the two sides deadlock at open. Seq 0 is reserved for it;
+        // consumers ignore it (see worker.proto).
+        stream.acks.push(
+            create(IngestStreamResponseSchema, {
+                seq: 0n,
+                status: SubBatchStatus.OK,
+                accepted: 0,
+            })
+        )
+
         const reader = this.runReader(stream, requests)
         // The generator surfaces reader failures through the ack queue; this
         // handler keeps the rejection from becoming an unhandled one.

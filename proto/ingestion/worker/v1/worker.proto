@@ -85,7 +85,11 @@ enum SubBatchStatus {
 
 // IngestStreamResponse acks one sub-batch.
 message IngestStreamResponse {
-  // The `SubBatch.seq` this ack resolves.
+  // The `SubBatch.seq` this ack resolves. Seq 0 is reserved for the server's
+  // greeting: an immediate response sent when the stream opens, before any
+  // sub-batch, so response headers flush and the consumer's stream-open
+  // resolves (some HTTP/2 server stacks defer headers until the first
+  // response message). Consumers ignore seq 0.
   uint64 seq = 1;
   SubBatchStatus status = 2;
   // Messages accepted into the pipeline. Meaningful only on
