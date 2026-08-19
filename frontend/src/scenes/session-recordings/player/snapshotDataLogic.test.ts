@@ -142,6 +142,21 @@ describe('snapshotDataLogic', () => {
             consoleError.mockRestore()
         })
 
+        it('does not report an exhausted permanently deleted recording', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            const error = new RecordingDeletedError(1700000000, 'admin@example.com')
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
+                logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
+                logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
+                logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
+            }).toDispatchActions(['snapshotSourceLoadExhausted'])
+
+            expect(posthog.captureException).not.toHaveBeenCalled()
+            consoleError.mockRestore()
+        })
+
         it('does not report an exhausted unauthorized failure', async () => {
             const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
             const error = new ApiError('Unauthorized', 401)

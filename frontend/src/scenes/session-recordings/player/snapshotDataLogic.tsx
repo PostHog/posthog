@@ -613,7 +613,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             // initKea, so a single broken source no longer files one exception per retry. Group by
             // the backend cause the response carries, so the issue title names the failure.
             const error = values.snapshotLoadError
-            if (error && shouldReportApiFailure(error)) {
+            // A permanently deleted recording is a normal state with its own screen, not a defect.
+            // It reaches here without a status, so shouldReportApiFailure would otherwise report it.
+            if (error && !(error instanceof RecordingDeletedError) && shouldReportApiFailure(error)) {
                 const cause = error instanceof ApiError ? error.code : null
                 posthog.captureException(
                     error,
