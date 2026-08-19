@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -17,7 +19,7 @@ def _updated_at_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@frozen
 class FaireEndpointConfig:
     name: str
     path: str
