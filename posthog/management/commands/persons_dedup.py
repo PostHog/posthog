@@ -67,12 +67,21 @@ it is the one number a dedup run can move.
 The three dependent tables behave differently on DELETE in production, which is why
 the reachability assertion runs before every delete and again inside the transaction:
 
-    posthog_persondistinctid            FK NO ACTION -> Postgres blocks the delete
-    posthog_featureflaghashkeyoverride  FK CASCADE   -> silently removes overrides
-    posthog_cohortpeople                no FK        -> silently orphans rows
+    posthog_persondistinctid              FK NO ACTION -> Postgres blocks the delete
+    posthog_featureflaghashkeyoverride    FK CASCADE   -> silently removes overrides
+    posthog_cohortpeople                  no FK        -> silently orphans rows
+    posthog_person_reconciliation_backup  no FK        -> silently orphans rows
 
 Only the first fails loudly, so the command cannot rely on the database to catch a
-mistake in the other two.
+mistake in the other three. The two without a foreign key are deleted explicitly, before
+the person row, so a failure there aborts before anything is lost.
+
+A note on what is NOT a reason to keep a row. Being referenced is not the same as being
+live. A row owning no distinct ID is dead whatever else points at it, and refusing to
+delete it does not protect anything -- it leaves the dead row in place along with cohort
+memberships that still count toward the cohort size shown in the product. These repairs
+are expensive to run, so every row skipped for a reason that does not survive scrutiny is
+a re-run later. n_did = 0 is the safety condition; nothing else is.
 
 BLAST RADIUS OF A DELETED bigint id
 
@@ -216,9 +225,7 @@ per_group AS (
            count(*) FILTER (WHERE n_recon > 0) AS recon_held,
            sum(n_ff)::bigint AS flag_overrides,
            sum(n_cohort)::bigint AS cohort_rows,
-           count(*) FILTER (
-               WHERE rn > 1 AND n_did = 0 AND n_recon = 0 AND NOT is_deleted
-           ) AS stageable
+           count(*) FILTER (WHERE rn > 1 AND n_did = 0 AND NOT is_deleted) AS stageable
     FROM ranked GROUP BY uuid
 )
 """
@@ -254,9 +261,27 @@ SELECT team_id, id, uuid FROM ranked WHERE rn > 1 AND refs = 0 AND NOT is_delete
 )
 
 # Repair: a non-survivor owning NO distinct IDs. Unreachable by definition, so its
-# feature-flag overrides and cohort rows are dead data and may cascade/be removed.
-# Groups where two rows own distinct IDs are excluded -- those need a real merge and
-# this command refuses to guess.
+# feature-flag overrides, cohort rows and reconciliation backup are dead data that go with
+# it. n_did = 0 is the whole safety condition and it is doing more work than it looks:
+# because it counts tombstoned mappings as well as live ones, no row a foreign key would
+# refuse to delete can be staged, and no row the product can still resolve can be either.
+#
+# Two conditions used to sit here and have been removed, because each refused a delete we
+# can prove is safe, and every skipped row is a re-run later:
+#
+#   n_recon = 0
+#       A reconciliation backup row does not make a person live. Its restore path reads the
+#       person by id and returns early when the row is gone
+#       (person_property_reconciliation_restore.py:326), and the caller counts that as a
+#       skip. So the delete is safe; the backup row goes with the person rather than being
+#       left to warn on every future restore and retain a deleted person's properties.
+#
+#   uuid IN (groups with at most one distinct-ID owner)
+#       This never protected a live row -- n_did = 0 already does that, with or without it.
+#       Its only effect was to skip dead rows that happened to share a group with two live
+#       ones, leaving known-orphaned rows behind and their cohort memberships still counted.
+#       The group stays blocked for the merge either way; classify still reports it, because
+#       that accounting keys on the count of live owners, not on this clause.
 STAGE_UNREACHABLE_SQL = (
     _MEMBERS_CTE
     + f"""
@@ -264,10 +289,7 @@ INSERT INTO {VICTIMS_TABLE} (team_id, id, uuid)
 SELECT team_id, id, uuid FROM ranked
 WHERE rn > 1
   AND n_did = 0
-  AND n_recon = 0
   AND NOT is_deleted
-  AND uuid IN (SELECT uuid FROM ranked GROUP BY uuid
-                HAVING count(*) FILTER (WHERE n_did > 0) <= 1)
 """
 )
 
@@ -337,8 +359,6 @@ WHERE v.team_id = b.team_id AND v.id = b.id
                    WHERE p.team_id = v.team_id AND p.id = v.id)
    OR EXISTS (SELECT 1 FROM posthog_persondistinctid pdi
                WHERE pdi.team_id = v.team_id AND pdi.person_id = v.id)
-   OR EXISTS (SELECT 1 FROM posthog_person_reconciliation_backup rb
-               WHERE rb.team_id = v.team_id AND rb.person_id = v.id)
    OR (SELECT count(*) FROM posthog_person p
         WHERE p.team_id = v.team_id AND p.uuid = v.uuid)
       <= (SELECT count(*) FROM {VICTIMS_TABLE}_batch b2
@@ -352,8 +372,6 @@ GATE_REACHABLE_SQL = f"""
 SELECT count(*) FROM {VICTIMS_TABLE}_batch v
 WHERE EXISTS (SELECT 1 FROM posthog_persondistinctid pdi
                WHERE pdi.team_id = v.team_id AND pdi.person_id = v.id)
-   OR EXISTS (SELECT 1 FROM posthog_person_reconciliation_backup rb
-               WHERE rb.team_id = v.team_id AND rb.person_id = v.id)
 """
 
 # The mirror of the reachable gate. That one proves no victim is reachable; this proves the
@@ -413,6 +431,10 @@ UNION ALL
 SELECT 'cohortpeople', cp.id, cp.person_id, cp.cohort_id::text, NULL
 FROM posthog_cohortpeople cp
 JOIN {VICTIMS_TABLE}_batch b ON b.id = cp.person_id
+UNION ALL
+SELECT 'reconciliation_backup', NULL, rb.person_id, rb.job_id::text, rb.properties::text
+FROM posthog_person_reconciliation_backup rb
+JOIN {VICTIMS_TABLE}_batch b ON b.team_id = rb.team_id AND b.id = rb.person_id
 """
 
 # Cohort rows have no FK, so the cascade will not remove them. Delete explicitly, before
@@ -420,6 +442,16 @@ JOIN {VICTIMS_TABLE}_batch b ON b.id = cp.person_id
 DELETE_COHORT_SQL = f"""
 DELETE FROM posthog_cohortpeople cp
 USING {VICTIMS_TABLE}_batch b WHERE cp.person_id = b.id
+"""
+
+# Same shape, same reason: no FK, so nothing removes these for us. Left behind they would
+# warn on every future restore run and keep a deleted person's properties indefinitely.
+# The restore path already treats a missing person as a skip, so removing both together is
+# the outcome it would reach anyway.
+DELETE_RECON_BACKUP_SQL = f"""
+DELETE FROM posthog_person_reconciliation_backup rb
+USING {VICTIMS_TABLE}_batch b
+WHERE rb.team_id = b.team_id AND rb.person_id = b.id
 """
 
 # posthog_cohortpeople has no FK to posthog_person, so nothing at the database level
@@ -889,6 +921,7 @@ class Command(BaseCommand):
                     raise CommandError(f"backed up {backed_up} row(s) but staged {in_batch}; rolled back")
 
                 cur.execute(DELETE_COHORT_SQL)
+                cur.execute(DELETE_RECON_BACKUP_SQL)
                 cur.execute(DELETE_PERSONS_SQL, {"team": team})
                 removed = cur.rowcount
                 if removed != in_batch:

@@ -545,11 +545,13 @@ class TestPersonsDedupRepair:
         assert _persons(persons_conn) == 1
         assert _cohort_rows(persons_conn) == 1
 
-    def test_never_deletes_a_row_the_reconciliation_backup_references(self, persons_conn, tmp_path):
-        # The Dagster property-reconciliation job restores person properties by
-        # (team_id, person_id) from its pre-image table. Deleting a person it references
-        # would leave the restore path pointing at a row that no longer exists, so such
-        # rows are excluded from staging and the group is left for a later pass.
+    def test_deletes_an_orphan_the_reconciliation_backup_references_and_takes_the_backup_row(
+        self, persons_conn, tmp_path
+    ):
+        # A reconciliation backup row does not make a person live. Its restore path reads the
+        # person by id and treats a missing row as a skip, so refusing this delete only left a
+        # dead row behind, plus a backup row that would warn on every future restore and keep
+        # the deleted person's properties. Both go together now.
         uuid = _uuid(27)
         live = _add_person(persons_conn, uuid)
         _add_distinct_id(persons_conn, live, "did-27")
@@ -558,8 +560,59 @@ class TestPersonsDedupRepair:
 
         _run("repair", tmp_path, apply=True)
 
-        assert _persons(persons_conn) == 2, "the referenced row must be skipped, not deleted"
-        assert _dup_groups(persons_conn) == 1
+        assert _persons(persons_conn) == 1
+        assert _dup_groups(persons_conn) == 0
+        assert (
+            _count(
+                persons_conn,
+                "SELECT count(*) FROM posthog_person_reconciliation_backup WHERE team_id = %s",
+                (TEAM,),
+            )
+            == 0
+        ), "the backup row must not outlive the person it describes"
+        records = [json.loads(line) for f in tmp_path.glob("*.jsonl") for line in f.read_text().splitlines()]
+        assert any(r["_kind"] == "reconciliation_backup" and r["person_id"] == held for r in records), (
+            "the backup row must be recoverable from the undo file"
+        )
+
+    def test_deletes_an_orphan_stranded_inside_a_merge_required_group(self, persons_conn, tmp_path):
+        # Two live rows need a real merge, which this command refuses. The third row owns no
+        # mapping and is dead on exactly the same terms as any other orphan -- its deadness has
+        # nothing to do with what the other two are doing. Skipping it left known-dead rows
+        # behind whose cohort memberships still counted toward the cohort size shown in the UI.
+        uuid = _uuid(90)
+        a = _add_person(persons_conn, uuid)
+        b = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, a, "did-90a")
+        _add_distinct_id(persons_conn, b, "did-90b")
+        _add_person(persons_conn, uuid)
+
+        _run("repair", tmp_path, apply=True)
+
+        assert _persons(persons_conn) == 2, "the orphan goes, both live rows stay"
+        remaining = _count(
+            persons_conn,
+            "SELECT count(*) FROM posthog_person WHERE team_id = %s AND id = ANY(%s)",
+            (TEAM, [a, b]),
+        )
+        assert remaining == 2
+        assert _dup_groups(persons_conn) == 1, "the group still needs a merge and is still reported"
+
+    def test_the_merge_required_group_is_still_reported_after_its_orphan_is_removed(self, persons_conn, tmp_path):
+        uuid = _uuid(91)
+        a = _add_person(persons_conn, uuid)
+        b = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, a, "did-91a")
+        _add_distinct_id(persons_conn, b, "did-91b")
+        _add_person(persons_conn, uuid)
+
+        _run("repair", tmp_path, apply=True)
+        with capture_logs() as logs:
+            _run("verify", tmp_path)
+
+        result = next(entry for entry in logs if entry["event"] == "persons_dedup.verify")
+        assert result["blocked_groups"] == 1
+        assert result["resolvable_groups"] == 0, "removing the orphan must not make the group look resolvable"
 
     def test_all_orphan_group_keeps_the_identified_row(self, persons_conn, tmp_path):
         # A sizeable share of real duplicate groups have no member owning a distinct ID, so
