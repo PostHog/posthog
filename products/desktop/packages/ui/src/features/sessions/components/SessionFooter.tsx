@@ -21,6 +21,8 @@ interface SessionFooterProps {
   isCompacting?: boolean;
   /** A /clear is in flight. */
   isClearing?: boolean;
+  /** A turn the agent started on its own, with no prompt RPC behind it, so
+   *  `isPromptPending` stays false while it generates. */
   isBackgroundTurnActive?: boolean;
   /** Number of tool calls finished so far; the generating indicator advances
    *  its status word each time this changes. */
@@ -94,7 +96,9 @@ export function SessionFooter({
                 ({queuedCount} queued)
               </Text>
             )}
-            <SlotMachineLever spinning={Boolean(isPromptPending)} />
+            <SlotMachineLever
+              spinning={Boolean(isPromptPending || isBackgroundTurnActive)}
+            />
           </Flex>
           {rightSide}
         </Flex>
