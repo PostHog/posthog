@@ -19,8 +19,17 @@ The main clusters are:
   - 3 replicas
 - ai_events 1x2
 - aux 1x2
+- batch_exports 1x2
+- endpoints 1x2
+- logs 1x2
 - sessions 1x2
 - ops 1x2
+
+## Development
+
+Development mirrors the US Production layout — the main sharded cluster plus the same
+satellite clusters — at reduced node counts. Schema parity between Development and US
+Production is expected; migrations target both the same way.
 
 ## EU Production
 
