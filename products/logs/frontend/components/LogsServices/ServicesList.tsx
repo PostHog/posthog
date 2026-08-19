@@ -115,11 +115,12 @@ interface ServicesListRowProps {
 }
 
 function ServicesListRow({
+    ariaAttributes,
     index,
     style,
     services,
 }: {
-    ariaAttributes: Record<string, unknown>
+    ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
     index: number
     style: CSSProperties
 } & ServicesListRowProps): JSX.Element {
@@ -140,6 +141,7 @@ function ServicesListRow({
     const cellsClassName = cn(COLUMN_TEMPLATE, 'flex-1 min-w-0 h-full pl-2')
     return (
         <div
+            {...ariaAttributes}
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
             className="flex items-center gap-2 pr-2 border-b hover:bg-accent-highlight-secondary"
