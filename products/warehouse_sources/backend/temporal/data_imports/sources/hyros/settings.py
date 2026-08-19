@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -18,7 +20,7 @@ def _incremental_field(field_name: str) -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@frozen
 class HyrosEndpointConfig:
     name: str
     path: str  # under https://api.hyros.com/v1
