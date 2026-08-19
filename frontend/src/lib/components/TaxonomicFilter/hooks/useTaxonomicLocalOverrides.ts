@@ -39,7 +39,7 @@ export function useTaxonomicLocalOverrides(context: {
     excludedProperties?: ExcludedProperties
 }): GetLocalOverride {
     const { taxonomicGroupTypes, excludedOperators, selectingKeyOnly, excludedProperties } = context
-    const { actionsSorted } = useValues(actionsModel)
+    const { actionsSorted } = useValues(actionsModel({ skipLoad: true }))
     const { recentFilterItems } = useValues(recentTaxonomicFiltersLogic)
     const { pinnedFilterItems } = useValues(taxonomicFilterPinnedPropertiesLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
