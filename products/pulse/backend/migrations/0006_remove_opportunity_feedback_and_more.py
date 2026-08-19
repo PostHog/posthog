@@ -14,13 +14,20 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="opportunity",
-            name="feedback",
-        ),
-        migrations.RemoveField(
-            model_name="productbrief",
-            name="feedback",
+        # State-only: votes move to FeedbackVote, but the old JSON columns stay in the database for
+        # now. Dropping them here would break any pod still running the previous release, and could
+        # not be rolled back. A later migration drops them once this has been deployed.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name="opportunity",
+                    name="feedback",
+                ),
+                migrations.RemoveField(
+                    model_name="productbrief",
+                    name="feedback",
+                ),
+            ],
         ),
         migrations.CreateModel(
             name="FeedbackVote",
