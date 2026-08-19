@@ -1,6 +1,7 @@
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -69,6 +70,29 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.Settings,
         })
+    })
+
+    // A scene module that throws while importing (a broken module, a circular-import TDZ) used to
+    // be rethrown out of the loader: no scene was set, so the previous scene kept rendering under
+    // the new URL, and nothing reported it. It must now land on the error scene and be captured.
+    it('lands on the error scene and reports it when a scene module fails to import', async () => {
+        logic.unmount()
+        initKeaTests()
+        ;(api.get as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+        ;(api.update as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+        await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+        featureFlagLogic.mount()
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        router.actions.push(urls.eventDefinitions())
+        const failingLogic = sceneLogic.build({
+            scenes: { ...testScenes, [Scene.DataManagement]: () => Promise.reject(new Error('module blew up')) },
+        })
+        failingLogic.mount()
+
+        await expectLogic(failingLogic).delay(1)
+        expect(failingLogic.values.sceneId).toEqual(Scene.ErrorNetwork)
+        expect(captureException).toHaveBeenCalled()
+        failingLogic.unmount()
     })
 
     it('redirects the hyphenated /feature-flags path to the underscore scene route', async () => {

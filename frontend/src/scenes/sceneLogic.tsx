@@ -388,6 +388,9 @@ export const sceneLogic = kea<sceneLogicType>([
     afterMount(({ cache }) => {
         cache.mountedSceneLogic = null as MountedSceneLogic | null
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
+        // Monotonic token for the in-flight scene load. A finished import is only discarded
+        // when a newer navigation has bumped the token, not when `sceneId` happens to differ.
+        cache.loadSceneToken = 0
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -871,8 +874,10 @@ export const sceneLogic = kea<sceneLogicType>([
 
             actions.loadScene(sceneId, sceneKey, params, method)
         },
-        loadScene: async ({ sceneId, sceneKey, params, method }, breakpoint) => {
+        loadScene: async ({ sceneId, sceneKey, params, method }) => {
             const clickedLink = method === 'PUSH'
+            const loadToken = (cache.loadSceneToken = (cache.loadSceneToken ?? 0) + 1)
+            const isSuperseded = (): boolean => cache.loadSceneToken !== loadToken
             if (values.sceneId === sceneId && values.exportedScenes[sceneId]) {
                 actions.setScene(sceneId, sceneKey, params, clickedLink, values.exportedScenes[sceneId])
                 return
@@ -893,8 +898,13 @@ export const sceneLogic = kea<sceneLogicType>([
             const wasNotLoaded = !exportedScene
 
             if (!exportedScene) {
-                // if we can't load the scene in a second, show a spinner
-                const timeout = window.setTimeout(() => actions.setScene(sceneId, sceneKey, params, true), 500)
+                // if we can't load the scene in a second, show a spinner — unless a newer
+                // navigation already superseded this load, which would replace it with a spinner.
+                const timeout = window.setTimeout(() => {
+                    if (!isSuperseded()) {
+                        actions.setScene(sceneId, sceneKey, params, true)
+                    }
+                }, 500)
                 let importedScene
                 try {
                     window.ESBUILD_LOAD_CHUNKS?.(sceneId)
@@ -917,12 +927,19 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                         return
                     }
-                    throw error
+                    // Any other import failure (a module that throws while evaluating, a
+                    // circular-import TDZ): record it and show the error scene, so the previous
+                    // scene does not stay on screen under the new URL with no signal to us.
+                    posthog.captureException(error, {
+                        extra: { sceneId, sceneKey, source: 'sceneLogic.loadScene' },
+                    })
+                    actions.setScene(Scene.ErrorNetwork, undefined, emptySceneParams, clickedLink)
+                    return
                 } finally {
                     window.clearTimeout(timeout)
                 }
-                if (values.sceneId !== sceneId) {
-                    breakpoint()
+                if (isSuperseded()) {
+                    return
                 }
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
