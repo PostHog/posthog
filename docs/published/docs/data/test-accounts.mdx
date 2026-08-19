@@ -22,11 +22,11 @@ An event or person is treated as internal if it matches any of them.
 
 Three kinds of entry are supported:
 
-| Kind | Example | Notes |
-| --- | --- | --- |
-| Person property | `email` does not contain `@example.com` | Works everywhere, including CDP destinations |
-| Event property | `$host` does not contain `localhost` | Useful for excluding local development traffic |
-| Cohort | `id` not in `Internal team` | See [using cohorts as filters](#using-cohorts-as-filters) below |
+| Kind            | Example                                 | Notes                                                           |
+| --------------- | --------------------------------------- | --------------------------------------------------------------- |
+| Person property | `email` does not contain `@example.com` | Works everywhere, including CDP destinations                    |
+| Event property  | `$host` does not contain `localhost`    | Useful for excluding local development traffic                  |
+| Cohort          | `id` not in `Internal team`             | See [using cohorts as filters](#using-cohorts-as-filters) below |
 
 Available operators include `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `gt`, `lt`, `gte`, `lte`, `is_set`, `is_not_set`, `in`, and `not_in`.
 
