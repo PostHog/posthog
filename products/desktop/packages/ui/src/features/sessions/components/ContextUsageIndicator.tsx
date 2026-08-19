@@ -12,6 +12,7 @@ import {
   getOverallUsageColor,
 } from "@posthog/ui/features/sessions/contextColors";
 import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
+import { useTaskUsage } from "@posthog/ui/features/sessions/hooks/useTaskUsage";
 import { ContextBreakdownPopover } from "./ContextBreakdownPopover";
 
 const CIRCLE_SIZE = 20;
@@ -21,20 +22,27 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 interface ContextUsageIndicatorProps {
   usage: ContextUsage | null;
+  taskId?: string;
+  focused?: boolean;
 }
 
-export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
+export function ContextUsageIndicator({
+  usage,
+  taskId,
+  focused = true,
+}: ContextUsageIndicatorProps) {
   const costEnabled = useFeatureFlag(TASK_COST_FLAG) || import.meta.env.DEV;
+  const { data: taskUsage } = useTaskUsage(taskId, costEnabled && focused);
 
   if (!usage) return null;
 
-  const { used, size, percentage, cost } = usage;
+  const { used, size, percentage } = usage;
   // The context window can be unknown (size 0) — show just the token count
   // rather than a misleading "X/0 · 0%".
   const hasSize = size > 0;
   const strokeDashoffset = CIRCUMFERENCE - (percentage / 100) * CIRCUMFERENCE;
   const color = getOverallUsageColor(percentage);
-  const showCost = costEnabled && cost !== null;
+  const showCost = costEnabled && taskUsage !== undefined;
   return (
     <Popover>
       <PopoverTrigger
@@ -46,9 +54,13 @@ export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
             aria-label={
               hasSize
                 ? `Context usage: ${percentage}%` +
-                  (showCost ? ` · ${formatCostUsd(cost.amount)}` : "")
+                  (showCost
+                    ? ` · ${formatCostUsd(taskUsage.total_cost_usd)}`
+                    : "")
                 : `Context usage: ${formatTokensCompact(used)} tokens` +
-                  (showCost ? ` · ${formatCostUsd(cost.amount)}` : "")
+                  (showCost
+                    ? ` · ${formatCostUsd(taskUsage.total_cost_usd)}`
+                    : "")
             }
           >
             {/* viewBox, not width/height: quill sizes a button's svg down to
@@ -90,7 +102,7 @@ export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
         sideOffset={6}
         className="w-auto min-w-[280px] gap-3"
       >
-        <ContextBreakdownPopover usage={usage} showCost={showCost} />
+        <ContextBreakdownPopover usage={usage} taskUsage={taskUsage} />
       </PopoverContent>
     </Popover>
   );

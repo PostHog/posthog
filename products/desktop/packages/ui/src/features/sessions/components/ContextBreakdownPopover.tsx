@@ -1,3 +1,4 @@
+import type { TaskUsage } from "@posthog/api-client/posthog-client";
 import {
   CONTEXT_CATEGORIES,
   formatCostUsd,
@@ -8,14 +9,14 @@ import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContex
 
 interface ContextBreakdownPopoverProps {
   usage: ContextUsage;
-  showCost?: boolean;
+  taskUsage?: TaskUsage;
 }
 
 export function ContextBreakdownPopover({
   usage,
-  showCost = false,
+  taskUsage,
 }: ContextBreakdownPopoverProps) {
-  const { used, size, percentage, cost, breakdown } = usage;
+  const { used, size, percentage, breakdown } = usage;
   const fillColor = getOverallUsageColor(percentage);
   // The context window can be unknown (size 0) — show just the token count
   // rather than a misleading "~X / 0 tokens · 0% full".
@@ -72,14 +73,24 @@ export function ContextBreakdownPopover({
         </span>
       )}
 
-      {showCost && cost && (
-        <div className="flex items-center justify-between border-border border-t pt-2 text-[13px]">
-          <span className="text-muted-foreground">Estimated cost</span>
-          <span className="font-medium text-foreground tabular-nums">
-            {formatCostUsd(cost.amount)}
-          </span>
+      {taskUsage && (
+        <div className="flex flex-col gap-2 border-border border-t pt-2 text-[13px]">
+          <CostRow label="Estimated cost" value={taskUsage.total_cost_usd} />
+          <CostRow label="Tokens" value={taskUsage.token_cost_usd} />
+          <CostRow label="Cloud compute" value={taskUsage.compute_cost_usd} />
         </div>
       )}
+    </div>
+  );
+}
+
+function CostRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between gap-6">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground tabular-nums">
+        {formatCostUsd(value)}
+      </span>
     </div>
   );
 }

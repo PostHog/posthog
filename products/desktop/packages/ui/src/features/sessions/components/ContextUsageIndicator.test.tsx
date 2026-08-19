@@ -5,12 +5,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ContextUsageIndicator } from "./ContextUsageIndicator";
 
 const flagState = vi.hoisted(() => ({ enabled: false }));
+const taskUsageState = vi.hoisted(() => ({
+  data: undefined as
+    | {
+        token_cost_usd: number;
+        compute_cost_usd: number;
+        total_cost_usd: number;
+      }
+    | undefined,
+}));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => flagState.enabled,
+}));
+vi.mock("@posthog/ui/features/sessions/hooks/useTaskUsage", () => ({
+  useTaskUsage: () => taskUsageState,
 }));
 
 beforeEach(() => {
   flagState.enabled = false;
+  taskUsageState.data = undefined;
 });
 
 function usage(overrides?: Partial<ContextUsage>): ContextUsage {
@@ -45,18 +58,21 @@ describe("ContextUsageIndicator", () => {
       false,
       "Context usage: 50K tokens",
     ],
-    [
-      "cost enabled",
-      { cost: { amount: 0.42, currency: "USD" } },
-      true,
-      "Context usage: 25% · $0.42",
-    ],
+    ["cost enabled", {}, true, "Context usage: 25% · $0.42"],
   ])("names itself for %s", (_case, overrides, costEnabled, expected) => {
     flagState.enabled = costEnabled;
+    taskUsageState.data = costEnabled
+      ? {
+          token_cost_usd: 0.4,
+          compute_cost_usd: 0.02,
+          total_cost_usd: 0.42,
+        }
+      : undefined;
     const { container } = render(
       <Theme>
         <ContextUsageIndicator
           usage={usage(overrides as Partial<ContextUsage>)}
+          taskId="task-1"
         />
       </Theme>,
     );
