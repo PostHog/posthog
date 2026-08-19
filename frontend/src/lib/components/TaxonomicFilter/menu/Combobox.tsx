@@ -11,7 +11,7 @@
  * commit. Esc → onBack.
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { MutableRefObject, ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -40,6 +40,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
+import { actionsModel } from '~/models/actionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { useTaxonomicFilterContext } from '../headless/context'
@@ -210,6 +211,7 @@ export function MenuFilterCombobox({
     // `searchQuery` from the orchestrator's `getGroupListInput`, not from
     // us. Keeping a local mirror just for the controlled input ergonomics.
     const { groups, searchQuery, setSearchQuery } = useTaxonomicFilterContext()
+    const { loadActions } = useActions(actionsModel({ skipLoad: true }))
     // Open on the drill scope ("All" for the default surface). Reopening with a committed
     // selection used to jump to that item's category; we now lead with "All" so the user
     // lands on recents/pinned + a cross-category search (the selection still surfaces via
@@ -225,6 +227,13 @@ export function MenuFilterCombobox({
     // (drillTo='all'), otherwise the drilled-to category. Single source for the
     // telemetry group type, empty state, stale-toggle gating, and reset trigger.
     const activeScope: DrillCategory = drillTo === 'all' ? activeChip : drillTo
+
+    useEffect(() => {
+        if (activeScope === TaxonomicFilterGroupType.Actions) {
+            loadActions()
+        }
+    }, [activeScope, loadActions])
+
     const [itemsByType, setItemsByType] = useState<Record<string, TaxonomicDefinitionTypes[]>>({})
     // Per-group loading flags reported up by `Fetcher`. We need this in the
     // parent so the empty-state vs. skeleton decision sees the freshest

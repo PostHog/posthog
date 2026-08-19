@@ -30,6 +30,7 @@ jest.mock('posthog-js', () => ({
 jest.mock('lib/api', () => require('~/test/mocks/taxonomicFilterApiMock').buildTaxonomicFilterApiMock())
 
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
+const actionList = jest.requireMock('lib/api').default.actions.list as jest.Mock
 const captureMock = jest.requireMock('posthog-js').default.capture as jest.Mock
 
 function renderCombobox(): ReturnType<typeof render> {
@@ -854,6 +855,19 @@ describe('MenuFilterCombobox', () => {
         const popup = await openedCategoryPopup()
         expect(await within(popup).findByText('Recent')).toBeInTheDocument()
         expect(within(popup).getByText('Pinned')).toBeInTheDocument()
+    })
+
+    it('loads and displays actions after the user selects the Actions category', async () => {
+        const user = userEvent.setup()
+        actionsModel({ skipLoad: true }).unmount()
+        actionList.mockResolvedValueOnce({ results: [{ id: 1, name: 'Signup action' }], count: 1 })
+
+        renderAll({ groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions] })
+
+        await user.click(screen.getByLabelText('Filter category'))
+        await user.click(within(await openedCategoryPopup()).getByText('Actions'))
+
+        await waitFor(() => expect(screen.getAllByText('Signup action')).toHaveLength(2))
     })
 
     it('forwards row selection context on commit and does not emit the legacy event itself', async () => {
