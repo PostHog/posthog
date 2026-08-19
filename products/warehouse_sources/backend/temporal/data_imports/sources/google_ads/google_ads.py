@@ -79,13 +79,9 @@ GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS = 7
 # a shared worker.
 GOOGLE_ADS_MAX_DRAIN_SECONDS = 10 * 60
 
-# How far back a *first* sync starts its windowed drain. A first sync has no cursor to start from,
-# and the drain cannot begin at the 1970 incremental sentinel: empty windows are cheap but not free
-# (one request each), so stepping from 1970 would spend the whole run on requests that return
-# nothing. This bound only decides where the walk begins — every window from here forward is
-# imported, and once the cursor exists the drain continues from it. It is not an API limit: Google
-# serves older rows than this, so raising it costs first-sync catch-up time rather than correctness.
-GOOGLE_ADS_INITIAL_BACKFILL_DAYS = 2 * 365
+# Lower bound for the "where does this resource's data begin" request. Google serves a date this old
+# and returns nothing from before an account existed, so it needs no per-account tuning.
+_GOOGLE_ADS_EARLIEST_QUERYABLE_DATE = "1970-01-01"
 
 # The Google Ads SDK hardcodes `grpc.max_receive_message_length` to 64 MiB. A single
 # `GoogleAdsService.Search` page can carry up to 10,000 rows, and wide resources routinely
@@ -490,6 +486,37 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int, api_version: s
     return table_schemas
 
 
+def _earliest_date_with_data(
+    service: "GoogleAdsSearchService",
+    customer_id: str | None,
+    table: "GoogleAdsTable",
+    incremental_field: str,
+) -> dt.date | None:
+    """Return the first date this resource holds rows for, or None when it holds none.
+
+    How this source reaches an unbounded range cheaply. The drain walks fixed windows and each
+    empty one is a request, so starting at the 1970 sentinel would spend the run on requests that
+    return nothing. Google sorts and truncates server-side, so this costs one request whatever the
+    range or the size of the account. It decides nothing about which range to import -- that is the
+    schema's `history_start` -- only where looking stops being pointless.
+    """
+    query = (
+        f"SELECT {incremental_field} FROM {table.name} "
+        f"WHERE {incremental_field} >= '{_GOOGLE_ADS_EARLIEST_QUERYABLE_DATE}' "
+        f"AND {incremental_field} < '{(dt.date.today() + dt.timedelta(days=1)).isoformat()}'"
+    )
+    if table.extra_where:
+        query += f" AND {table.extra_where}"
+    query += f" ORDER BY {incremental_field} ASC LIMIT 1"
+
+    # Through the wrapper, so a manager account's missing login-customer-id header recovers here the
+    # same way it does for the drain's own queries.
+    for row in _search_with_transient_retry(service, {"customer_id": customer_id, "query": query}):
+        return dt.date.fromisoformat(_traverse_attributes(row, *incremental_field.split(".")))
+
+    return None
+
+
 def _incremental_value_as_date(value: dt.date | dt.datetime | str) -> dt.date:
     """Coerce a stored incremental cursor value to a plain date for window arithmetic.
 
@@ -514,8 +541,7 @@ def google_ads_source(
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
     db_incremental_field_last_value_before_lookback: typing.Any = None,
-    db_backfill_floor_value: typing.Any = None,
-    is_reset: bool = False,
+    history_start: typing.Any = None,
 ) -> SourceResponse:
     """A data warehouse Google Ads source.
 
@@ -586,8 +612,6 @@ def google_ads_source(
         # the table with that one slice; only incremental pipelines, which land a cursor between
         # runs, take this path.
         if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
-            bound = dt.date.today() - dt.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
-            floor: dt.date | None = None
             if db_incremental_field_last_value is not None:
                 start = _incremental_value_as_date(db_incremental_field_last_value)
                 # The cursor arrives shifted back by the schema's lookback, so the windows up to the
@@ -598,27 +622,26 @@ def google_ads_source(
                     else start
                 )
             else:
-                # No cursor means a first sync or a re-import, and they want different ranges. A
-                # first sync takes the bound: it has nothing to lose to it, and the rows it would
-                # import are billable. A re-import takes the earlier of the bound and where the
-                # wiped table started, recorded before the wipe: the bound alone would drop the
-                # history the table held, and the table's own start alone would give a table that
-                # never reached the bound less than a first sync would.
-                floor = _incremental_value_as_date(db_backfill_floor_value) if db_backfill_floor_value else None
-                start = min(floor, bound) if floor is not None else bound
+                # No cursor: a first sync, or a re-import that cleared one. Both read the range the
+                # schema records, so which of the two this is stops mattering -- resolving a lookback
+                # here instead would hand a re-import the last window and drop the rest.
+                #
+                # No recorded range means unbounded, which for this drain means asking the account
+                # where its rows begin: walking fixed windows from the 1970 sentinel would spend the
+                # run on empty requests. An account holding nothing answers with nothing, and today
+                # is the cheapest way to say "no range to walk".
+                if history_start is not None:
+                    start = _incremental_value_as_date(history_start)
+                else:
+                    start = _earliest_date_with_data(service, customer_id, table, incremental_field) or dt.date.today()
                 cursor_before_lookback = start
-
-                # Where a re-import starts is what went wrong before this fix, and it is decided per
-                # resource, so record which resource resolved what. `is_reset` earns its place here
-                # even though the range no longer reads it: a re-import that resolved to the bound
-                # means no floor was recorded, which is the shape a silent truncation takes.
                 logger.info(
-                    "google_ads.history_start_resolved",
+                    "google_ads.history_start_used",
                     resource=table.name,
                     start=start.isoformat(),
-                    is_reset=is_reset,
-                    resolved_from="floor" if floor is not None and floor < bound else "bound",
+                    bounded=history_start is not None,
                 )
+
             # Exclusive upper bound of today+1 keeps today in range, matching the open-ended scan.
             end = dt.date.today() + dt.timedelta(days=1)
             landed_new_ground = False

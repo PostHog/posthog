@@ -58,6 +58,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
     is_fanout_warehouse_reuse_enabled,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.history_window import (
+    history_start_for_schema,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -286,6 +289,13 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         if processed_incremental_earliest_value:
             await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
+        # Resolved here rather than in the source: a source deciding it per run resolves its lookback
+        # against today, so a re-import — which arrives with no cursor — would narrow the range to
+        # the last window and drop the rest for good. None for a source that reads everything.
+        history_start = await database_sync_to_async_pool(history_start_for_schema)(schema)
+        if history_start is not None:
+            await logger.adebug(f"History start for this schema is: {history_start}")
+
         # Re-validate against current metadata so a stale filter (dropped column, changed type)
         # fails here with an actionable message rather than emitting a broken query downstream.
         try:
@@ -327,8 +337,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 db_incremental_field_earliest_value=processed_incremental_earliest_value
                 if schema.should_use_incremental_field
                 else None,
-                db_backfill_floor_value=schema.backfill_floor_value if schema.should_use_incremental_field else None,
                 db_incremental_field_last_value_before_lookback=incremental_last_value_before_lookback,
+                history_start=history_start,
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,

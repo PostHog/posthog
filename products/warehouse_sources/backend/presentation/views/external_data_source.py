@@ -2964,9 +2964,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         for schema in schemas:
             try:
-                # The source is going for good, so skip the backfill floor: nothing will read it, and
-                # the query it costs would run once per table.
-                schema.delete_table(stash_floor=False)
+                schema.delete_table()
             except Exception as e:
                 capture_exception(e)
 

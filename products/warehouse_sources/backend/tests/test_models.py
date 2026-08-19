@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.db import DatabaseError, OperationalError, connection, transaction
 from django.db.models import Model
@@ -21,7 +21,6 @@ from posthog.models.team import Team
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
-    BackfillFloorUnavailable,
     ExternalDataSchema,
     apply_incremental_lookback,
     complete_schema_run,
@@ -909,104 +908,6 @@ def test_update_xmin_state_writes_all_keys() -> None:
     schema = ExternalDataSchema(sync_type_config={})
     schema.update_xmin_state(ceiling_xid=100, ceiling_xid8=4294967396, num_wraparound=1, save=False)
     assert (schema.xmin_last_value, schema.xmin_ceiling, schema.xmin_num_wraparound) == (100, 4294967396, 1)
-
-
-class TestBackfillFloor(BaseTest):
-    def _schema(self, incremental_field: str) -> ExternalDataSchema:
-        source = ExternalDataSource.objects.create(
-            team_id=self.team.pk,
-            source_id=str(uuid.uuid4()),
-            connection_id=str(uuid.uuid4()),
-            status="Completed",
-            source_type="GoogleAds",
-        )
-        return ExternalDataSchema.objects.create(
-            team_id=self.team.pk,
-            source=source,
-            name="campaign_stats",
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={
-                "incremental_field": incremental_field,
-                "incremental_field_type": "Date",
-                "incremental_field_last_value": "2026-08-16",
-            },
-        )
-
-    @parameterized.expand(
-        [
-            # The synced column often isn't spelled like the incremental field: Google Ads reports
-            # `segments.date` and lands `segments_date`. Querying the unnormalized name finds no
-            # column, leaving no floor and sending the re-import back to the connector's window.
-            ("normalized_column", "segments.date", {"segments_date": {}}, "2020-02-08"),
-            ("exact_column", "updated_at", {"updated_at": {}}, "2020-02-08"),
-            # Neither spelling is present, so there is nothing trustworthy to record.
-            ("no_matching_column", "segments.date", {"campaign_id": {}}, None),
-        ]
-    )
-    def test_delete_table_records_the_backfill_floor(
-        self, _name: str, incremental_field: str, columns: dict[str, Any], expected_floor: str | None
-    ) -> None:
-        schema = self._schema(incremental_field)
-        table = MagicMock(columns=columns, deleted=True)
-        table.get_min_value_for_column.return_value = date(2020, 2, 8)
-
-        with (
-            patch.object(ExternalDataSchema, "table", table),
-            patch.object(schema, "folder_path", return_value="folder"),
-            patch("products.data_warehouse.backend.facade.api.get_s3_client"),
-        ):
-            schema.delete_table()
-
-        schema.refresh_from_db()
-        assert schema.backfill_floor_value == expected_floor
-        # The cursor is what a reset must clear; the floor is what tells the next run how far back
-        # the data went, so it has to outlive the same reset.
-        assert "incremental_field_last_value" not in schema.sync_type_config
-
-    def test_permanent_deletion_skips_the_floor_lookup(self) -> None:
-        # Source deletion wipes every schema, and those schemas never sync again. Reading a floor
-        # there costs a query per table for a value nothing will use, and a failed read would raise
-        # past the S3 cleanup and leave the files orphaned.
-        schema = self._schema("segments.date")
-        table = MagicMock(columns={"segments_date": {}}, deleted=False, row_count=5000)
-        table.get_min_value_for_column.return_value = None
-
-        with (
-            patch.object(ExternalDataSchema, "table", table),
-            patch.object(schema, "folder_path", return_value="folder"),
-            patch("products.data_warehouse.backend.facade.api.get_s3_client") as s3,
-        ):
-            schema.delete_table(stash_floor=False)
-
-        assert not table.get_min_value_for_column.called
-        assert s3.called
-
-    @parameterized.expand([("table_holds_rows", 5000, True), ("table_is_empty", 0, False)])
-    def test_unreadable_floor_leaves_a_populated_table_alone(
-        self, _name: str, row_count: int, expect_raise: bool
-    ) -> None:
-        # The floor lookup returns None both for an empty table and for a failed query, so a
-        # transient ClickHouse error otherwise reads as "no history to protect" and the wipe goes
-        # ahead. The next run then has no cursor and no floor, and falls back to the source's default
-        # window: the silent truncation the floor exists to prevent, with no later run recovering.
-        schema = self._schema("segments.date")
-        table = MagicMock(columns={"segments_date": {}}, deleted=False, row_count=row_count)
-        table.get_min_value_for_column.return_value = None
-
-        with (
-            patch.object(ExternalDataSchema, "table", table),
-            patch.object(schema, "folder_path", return_value="folder"),
-            patch("products.data_warehouse.backend.facade.api.get_s3_client") as s3,
-        ):
-            if expect_raise:
-                with pytest.raises(BackfillFloorUnavailable):
-                    schema.delete_table()
-            else:
-                schema.delete_table()
-
-        # A raise has to land before the delete, or the data is gone and the floor never recorded.
-        assert s3.called is not expect_raise
-        assert table.soft_delete.called is not expect_raise
 
 
 def test_reset_pipeline_clears_xmin_state() -> None:

@@ -1427,6 +1427,7 @@ class TestGoogleAdsQueryConstruction:
         *,
         api_version: str = "v23",
         window_rows: dict[str, int] | None = None,
+        earliest_date: str | None = None,
         **source_kwargs,
     ):
         from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
@@ -1450,10 +1451,19 @@ class TestGoogleAdsQueryConstruction:
         assert table.alias is not None
         config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
 
+        def fake_probe(_service, request):
+            queries.append(request["query"])
+            if earliest_date is None:
+                return iter([])
+            row = mock.Mock()
+            row.segments.date = earliest_date
+            return iter([row])
+
         with (
             mock.patch(f"{self._MODULE}.get_schemas", return_value={table.alias: table}),
             mock.patch(f"{self._MODULE}.google_ads_client"),
             mock.patch(f"{self._MODULE}._search_as_arrow_tables", side_effect=fake_search),
+            mock.patch(f"{self._MODULE}._search_with_transient_retry", side_effect=fake_probe),
         ):
             response = google_ads_source(
                 config,
@@ -1497,6 +1507,7 @@ class TestGoogleAdsQueryConstruction:
                 self._stats_table(),
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=None,
+                history_start="2024-07-17",
                 incremental_field="segments.date",
                 incremental_field_type=IncrementalFieldType.Date,
             )
@@ -1507,7 +1518,6 @@ class TestGoogleAdsQueryConstruction:
             "ORDER BY segments.date ASC"
         )
         assert all("2100-01-01" not in q for q in queries)
-        assert all("1970-01-01" not in q for q in queries)
 
     def test_lookback_overlap_cannot_consume_a_whole_run(self):
         # The cursor arrives already shifted back by the schema's lookback, so the first windows
@@ -1582,34 +1592,53 @@ class TestGoogleAdsQueryConstruction:
         assert any(f"segments.date >= '{data_past_gap.isoformat()}'" in q for q in queries)
 
     @pytest.mark.parametrize(
-        "floor,expected_start",
+        "history_start,expected_start",
         [
-            # A re-import of a table that reached past the bound resumes where it started: the bound
-            # would drop that history, and no later run walks back for it.
+            # The schema records the range it covers, so a run with no cursor reads that whether the
+            # run is a first sync or a re-import that just cleared one. Deciding it here instead is
+            # what let a re-import narrow the range to the last window.
             ("2020-02-08", "2020-02-08"),
-            # A table that never reached the bound still gets the bound. Restoring only what it held
-            # would give a re-import less than a first sync of the same source imports.
-            ("2025-03-01", "2024-07-17"),
-            # No floor recorded is a genuine first sync: nothing to lose to the bound, and the rows
-            # a wider range imports are billable.
-            (None, "2024-07-17"),
+            ("2025-03-01", "2025-03-01"),
         ],
     )
-    def test_history_start_is_the_earlier_of_the_floor_and_the_bound(
-        self, floor: str | None, expected_start: str
-    ) -> None:
+    def test_drain_starts_at_the_schema_history_start(self, history_start: str, expected_start: str) -> None:
         with freeze_time("2026-07-17"):
             _response, queries = self._run_source(
                 self._stats_table(),
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=None,
-                db_backfill_floor_value=floor,
-                is_reset=floor is not None,
+                history_start=history_start,
                 incremental_field="segments.date",
                 incremental_field_type=IncrementalFieldType.Date,
             )
 
         assert f"WHERE segments.date >= '{expected_start}'" in queries[0]
+        assert all("LIMIT 1" not in q for q in queries), "a recorded range needs no request to locate it"
+
+    @pytest.mark.parametrize("earliest_date,expected_start", [("2020-02-08", "2020-02-08"), (None, "2026-07-17")])
+    def test_no_recorded_range_asks_the_account_where_its_rows_begin(
+        self, earliest_date: str | None, expected_start: str
+    ) -> None:
+        # A schema that predates the recorded range reads unbounded. Walking fixed windows from the
+        # 1970 sentinel would spend the run on empty requests, so one request locates the start
+        # instead. An account holding nothing has no range to walk.
+        with freeze_time("2026-07-17"):
+            _response, queries = self._run_source(
+                self._stats_table(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=None,
+                history_start=None,
+                earliest_date=earliest_date,
+                incremental_field="segments.date",
+                incremental_field_type=IncrementalFieldType.Date,
+            )
+
+        assert queries[0] == (
+            "SELECT segments.date FROM campaign_stats "
+            "WHERE segments.date >= '1970-01-01' AND segments.date < '2026-07-18' "
+            "ORDER BY segments.date ASC LIMIT 1"
+        )
+        assert f"WHERE segments.date >= '{expected_start}'" in queries[1]
 
     def test_full_refresh_report_table_scans_the_full_range_without_windows(self):
         # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from

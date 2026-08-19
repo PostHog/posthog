@@ -2,6 +2,7 @@
 # module is reachable from warehouse_sources models at django.setup().
 from __future__ import annotations
 
+import datetime
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Protocol, TypeVar
@@ -79,8 +80,9 @@ class SourceResponse:
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
 
 
-# nosemgrep: prefer-frozen-dataclasses -- shared source contract, grandfathered in the ratchet
-@dataclasses.dataclass
+# Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source
+# reads it and that migration is its own change to make and verify.
+@dataclasses.dataclass(frozen=False)
 class SourceInputs:
     """Contextual info required by a source to actually run"""
 
@@ -99,9 +101,9 @@ class SourceInputs:
     # `db_incremental_field_last_value` as stored, before the lookback shifted it back. Rows at or
     # before it are overlap the table already holds rather than new ground.
     db_incremental_field_last_value_before_lookback: Optional[Any] = None
-    # Where the table's history started, read before a re-import wiped it. A re-import has no cursor
-    # to resume from, and the default bound would drop everything older than it.
-    db_backfill_floor_value: Optional[Any] = None
+    # The oldest point this schema is meant to cover, for a source that declares a `history_window`.
+    # None means the source reads everything, which is most of them.
+    history_start: Optional[datetime.datetime] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
     # Multi-schema import context, read by `resolve_source_location`.

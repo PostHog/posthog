@@ -117,6 +117,23 @@ class VersionDeprecation:
     sunset_at: datetime.date | None = None
 
 
+@dataclasses.dataclass(frozen=True)
+class HistoryWindow:
+    """How far back a source reaches when nothing tells it where to start.
+
+    A source with no cursor has to begin somewhere, and several bound that to a lookback rather
+    than reading the vendor's whole history. Declaring it here rather than reaching for a constant
+    inside the source is what lets a schema record the window it was created under: a re-import
+    clears the cursor, so a source deciding this per run would resolve "from scratch" against
+    today and silently drop everything the table held before it.
+    """
+
+    default_lookback: datetime.timedelta
+    # Vendor or cost ceiling on a user-stated start date. None means the only limit is what the
+    # vendor serves.
+    max_lookback: datetime.timedelta | None = None
+
+
 class _BaseSource(ABC, Generic[ConfigType]):
     """Base class for all data import sources.
 
@@ -174,6 +191,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # Versions from `supported_versions` the vendor has deprecated. Drives the generic
     # in-product deprecation warning; no per-source UI work.
     deprecated_versions: tuple[VersionDeprecation, ...] = ()
+
+    # Declared by sources that bound a first sync to a lookback instead of reading the vendor's
+    # whole history. `None` means unbounded, which is most sources and needs nothing recorded:
+    # a re-import reads everything again and loses nothing. A source that sets this gets
+    # `SourceInputs.history_start` instead of resolving a constant against the day it runs.
+    history_window: HistoryWindow | None = None
 
     @property
     @abstractmethod
