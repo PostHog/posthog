@@ -114,6 +114,83 @@ describe('recentItemsModel', () => {
         expect(logic.values.sceneLogViewsHasLoaded).toBe(false)
     })
 
+    it('drops a deleted item so it stops rendering as a live link', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        jest.spyOn(api.fileSystem, 'list').mockResolvedValue({
+            count: 1,
+            results: [recentItem],
+            users: [],
+        })
+        jest.spyOn(api.fileSystemLogView, 'list').mockResolvedValue([
+            { ref: 'DataManagementScene', type: 'scene', viewed_at: '2026-04-22T00:00:00Z' },
+        ])
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentsSuccess', 'loadSceneLogViewsSuccess'])
+            .toMatchValues({
+                recents: [recentItem],
+                sceneLogViewsByRef: { DataManagementScene: '2026-04-22T00:00:00Z' },
+            })
+
+        logic.actions.itemDeleted('dashboard', '1')
+        logic.actions.itemDeleted('scene', 'DataManagementScene')
+
+        expect(logic.values.recents).toEqual([])
+        expect(logic.values.sceneLogViewsByRef).toEqual({})
+    })
+
+    it('leaves items of a different type or ref untouched when one is deleted', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        jest.spyOn(api.fileSystem, 'list').mockResolvedValue({
+            count: 1,
+            results: [recentItem],
+            users: [],
+        })
+        jest.spyOn(api.fileSystemLogView, 'list').mockResolvedValue([])
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentsSuccess'])
+            .toMatchValues({ recents: [recentItem] })
+
+        logic.actions.itemDeleted('insight', '1')
+
+        expect(logic.values.recents).toEqual([recentItem])
+    })
+
+    it('drops a prefix-typed delete that matches a concrete subtype recent', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        const hogFunction = {
+            id: 'recent-hf',
+            path: 'Destinations/Webhook',
+            type: 'hog_function/destination',
+            ref: 'abc',
+            last_viewed_at: '2026-04-22T00:00:00Z',
+        } as FileSystemEntry
+        jest.spyOn(api.fileSystem, 'list').mockResolvedValue({
+            count: 2,
+            results: [hogFunction, recentItem],
+            users: [],
+        })
+        jest.spyOn(api.fileSystemLogView, 'list').mockResolvedValue([])
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentsSuccess'])
+            .toMatchValues({ recents: [hogFunction, recentItem] })
+
+        logic.actions.itemDeleted('hog_function/', 'abc')
+
+        expect(logic.values.recents).toEqual([recentItem])
+    })
+
     it('degrades to empty fallbacks when the loaders hit a fetch failure', async () => {
         jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
         jest.spyOn(api.fileSystem, 'list').mockRejectedValue(new TypeError('Failed to fetch'))

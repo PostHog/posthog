@@ -65,6 +65,7 @@ import {
 import {
   type AcpMessage,
   type Adapter,
+  type BedrockGatewayVariant,
   buildCloudTaskConfigOptions,
   type CloudRegion,
   type ExecutionMode,
@@ -296,6 +297,8 @@ interface SessionConfig {
   rtkEnabled?: boolean;
   /** The user's spoken-narration setting at session start. */
   spokenNarration?: boolean;
+  /** Matched `bedrock-llm-gateway` variant at session start. */
+  bedrockGatewayVariant?: BedrockGatewayVariant;
 }
 
 /** Pull the adapter's `agentCapabilities._meta.posthog.steering` from initialize. */
@@ -1035,6 +1038,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
               ...(config.spokenNarration !== undefined && {
                 spokenNarration: config.spokenNarration,
               }),
+              ...(config.bedrockGatewayVariant !== undefined && {
+                bedrockGatewayVariant: config.bedrockGatewayVariant,
+              }),
               mcpToolApprovals: toolApprovals,
               ...(permissionMode && { permissionMode }),
               ...(model != null && { model }),
@@ -1120,6 +1126,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
             ...(config.spokenNarration !== undefined && {
               spokenNarration: config.spokenNarration,
             }),
+            ...(config.bedrockGatewayVariant !== undefined && {
+              bedrockGatewayVariant: config.bedrockGatewayVariant,
+            }),
             mcpToolApprovals: toolApprovals,
             ...(permissionMode && { permissionMode }),
             ...(model != null && { model }),
@@ -1150,6 +1159,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
             ...(channelMode && { channelMode }),
             ...(config.spokenNarration !== undefined && {
               spokenNarration: config.spokenNarration,
+            }),
+            ...(config.bedrockGatewayVariant !== undefined && {
+              bedrockGatewayVariant: config.bedrockGatewayVariant,
             }),
             mcpToolApprovals: toolApprovals,
             ...(permissionMode && { permissionMode }),
@@ -2195,6 +2207,10 @@ For git operations while detached:
       rtkEnabled: "rtkEnabled" in params ? params.rtkEnabled : undefined,
       spokenNarration:
         "spokenNarration" in params ? params.spokenNarration : undefined,
+      bedrockGatewayVariant:
+        "bedrockGatewayVariant" in params
+          ? params.bedrockGatewayVariant
+          : undefined,
     };
   }
 
