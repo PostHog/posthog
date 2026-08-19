@@ -25,6 +25,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from ee.api.billing import BillingUsageRequestSerializer
 from ee.api.test.base import APILicensedTest
+from ee.billing.billing_manager import BillingServiceError
 from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
 from ee.billing.quota_limiting import QuotaResource
 from ee.billing.test.test_billing_manager import create_default_products_response
@@ -1308,6 +1309,38 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         passed_params = call_args[1]
         self.assertEqual(passed_params["teams_map"], {})
         mock_get_teams_map.assert_called_once()
+
+    @parameterized.expand([("usage", "get_usage_data"), ("spend", "get_spend_data")])
+    def test_timeseries_relays_billing_service_error_detail_and_code(self, endpoint, manager_method):
+        error = BillingServiceError(
+            400,
+            {"error_message": "You have reached your project breakdown limit.", "code": "breakdown_limit_reached"},
+        )
+        with patch(f"ee.billing.billing_manager.BillingManager.{manager_method}", side_effect=error):
+            response = self.client.get(f"/api/billing/{endpoint}/?start_date=2025-01-01")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["detail"], "You have reached your project breakdown limit.")
+        self.assertEqual(body["code"], "breakdown_limit_reached")
+
+    @parameterized.expand([("usage", "get_usage_data"), ("spend", "get_spend_data")])
+    def test_timeseries_preserves_upstream_server_error_status(self, endpoint, manager_method):
+        error = BillingServiceError(500, {"error_message": "Something went wrong upstream."})
+        with patch(f"ee.billing.billing_manager.BillingManager.{manager_method}", side_effect=error):
+            response = self.client.get(f"/api/billing/{endpoint}/?start_date=2025-01-01")
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.json()["detail"], "Something went wrong upstream.")
+
+    @parameterized.expand([("usage", "get_usage_data"), ("spend", "get_spend_data")])
+    def test_timeseries_handles_non_dict_error_body(self, endpoint, manager_method):
+        error = BillingServiceError(502, "Bad Gateway")
+        with patch(f"ee.billing.billing_manager.BillingManager.{manager_method}", side_effect=error):
+            response = self.client.get(f"/api/billing/{endpoint}/?start_date=2025-01-01")
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["detail"], "Bad Gateway")
 
 
 class TestBillingPeriodAPI(APILicensedTest):

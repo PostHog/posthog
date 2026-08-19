@@ -3,6 +3,7 @@ import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import Papa from 'papaparse'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
@@ -510,6 +511,18 @@ export const buildSpendTrackingProperties = (
     action: BillingUsageInteractionProps['action'],
     values: Parameters<typeof buildTrackingProperties>[1]
 ): BillingUsageInteractionProps => buildTrackingProperties(action, values, getSpendTypeOptions().length)
+
+/**
+ * Pull the reason out of a billing API failure. The billing service returns a `detail` (and
+ * sometimes a `code`) explaining which limit was hit; surface that instead of a fixed string so
+ * a limit message reads as a limit message. Falls back when the error carries no detail.
+ */
+export const getBillingErrorMessage = (error: unknown, fallback: string): string => {
+    if (error instanceof ApiError) {
+        return error.detail || error.data?.error || fallback
+    }
+    return fallback
+}
 
 export const getUsageTypeOptions = (): { key: string; label: string }[] =>
     USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))

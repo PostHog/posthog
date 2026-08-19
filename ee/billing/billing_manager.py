@@ -190,14 +190,28 @@ def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, s
     }
 
 
+class BillingServiceError(Exception):
+    """Raised when the billing service returns an unexpected status code.
+
+    Carries the upstream status code and parsed body so callers can relay the real
+    reason to the client instead of collapsing every failure into a generic error.
+    The positional args stay compatible with older callers that read `e.args`.
+    """
+
+    def __init__(self, status_code: int, response: Any) -> None:
+        self.status_code = status_code
+        self.response = response
+        super().__init__(f"Billing service returned bad status code: {status_code}", "body:", response)
+
+
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
         try:
             response = res.json()
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
         except JSONDecodeError:
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
+            response = res.text
+        raise BillingServiceError(res.status_code, response)
 
 
 class BillingManager:

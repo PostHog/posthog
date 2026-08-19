@@ -21,6 +21,7 @@ import type { BillingPeriod, BillingType } from '../../types'
 import {
     buildTrackingProperties,
     calculateBillingPeriodMarkers,
+    getBillingErrorMessage,
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
@@ -290,7 +291,12 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     try {
                         return await api.get(`api/billing/usage/?${toParams(params)}`)
                     } catch (error) {
-                        lemonToast.error('Failed to load billing usage. Please try again or contact support.')
+                        lemonToast.error(
+                            getBillingErrorMessage(
+                                error,
+                                'Failed to load billing usage. Please try again or contact support.'
+                            )
+                        )
                         throw error
                     }
                 },

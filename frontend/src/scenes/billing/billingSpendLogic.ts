@@ -22,6 +22,7 @@ import {
     buildSpendTrackingProperties,
     calculateBillingPeriodMarkers,
     filterSpendUsageTypes,
+    getBillingErrorMessage,
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
@@ -289,7 +290,12 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                     try {
                         return await api.get(`api/billing/spend/?${toParams(params)}`)
                     } catch (error) {
-                        lemonToast.error('Failed to load billing spend, please try again or contact support.')
+                        lemonToast.error(
+                            getBillingErrorMessage(
+                                error,
+                                'Failed to load billing spend, please try again or contact support.'
+                            )
+                        )
                         throw error
                     }
                 },

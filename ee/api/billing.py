@@ -23,11 +23,35 @@ from posthog.models.organization import OrganizationMembership
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.utils import get_trusted_client_ip, relative_date_parse
 
-from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_manager import BillingManager, BillingServiceError
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
 logger = structlog.get_logger(__name__)
+
+
+def _billing_service_error_response(e: BillingServiceError) -> Response:
+    """Relay a billing-service failure to the client with the real status and reason.
+
+    Keeps the upstream status code (so a 500 stays a 500) and passes through whatever
+    detail the billing service returned, whether the body is a structured dict or plain text.
+    """
+    body = e.response
+    upstream_status = e.status_code if e.status_code >= 400 else status.HTTP_400_BAD_REQUEST
+    if isinstance(body, dict):
+        return Response(
+            {
+                "statusText": e.args[0],
+                "detail": body.get("error_message", body),
+                "code": body.get("code"),
+            },
+            status=upstream_status,
+        )
+    return Response(
+        {"statusText": e.args[0], "detail": body},
+        status=upstream_status,
+    )
+
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
@@ -617,21 +641,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             params_to_pass["teams_map"] = teams_map
             res = billing_manager.get_usage_data(organization, params_to_pass)
             return Response(res, status=status.HTTP_200_OK)
-        except Exception as e:
-            if len(e.args) > 2:
-                detail_object = e.args[2]
-                if not isinstance(detail_object, dict):
-                    raise
-                return Response(
-                    {
-                        "statusText": e.args[0],
-                        "detail": detail_object.get("error_message", detail_object),
-                        "code": detail_object.get("code"),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            else:
-                raise
+        except BillingServiceError as e:
+            return _billing_service_error_response(e)
 
     @action(
         methods=["GET"],
@@ -655,21 +666,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             params_to_pass["teams_map"] = teams_map
             res = billing_manager.get_spend_data(organization, params_to_pass)
             return Response(res, status=status.HTTP_200_OK)
-        except Exception as e:
-            if len(e.args) > 2:
-                detail_object = e.args[2]
-                if not isinstance(detail_object, dict):
-                    raise
-                return Response(
-                    {
-                        "statusText": e.args[0],
-                        "detail": detail_object.get("error_message", detail_object),
-                        "code": detail_object.get("code"),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            else:
-                raise
+        except BillingServiceError as e:
+            return _billing_service_error_response(e)
 
     def _get_teams_map(self, organization: Organization) -> dict[int, str]:
         """
