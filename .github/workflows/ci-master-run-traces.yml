@@ -74,8 +74,10 @@ jobs:
               with:
                   version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
+            # Deliberately not continue-on-error: a red tick is what holds the watermark
+            # at the last clean one, so the next tick re-covers the window. This workflow
+            # gates nothing, so failing costs a notification rather than a blocked merge.
             - name: Emit master run traces
-              continue-on-error: true # telemetry never reds a check
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
                   SINCE: ${{ inputs.since }}

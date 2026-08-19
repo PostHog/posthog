@@ -11,6 +11,8 @@ from typing import Any
 
 import pytest
 
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
 SCRIPT_PATH = Path(__file__).with_name("report_workflow_run_traces.py")
 SPEC = importlib.util.spec_from_file_location("report_workflow_run_traces", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -424,7 +426,11 @@ class TestApiRetries:
         assert len(opener.calls) == reporter.API_ATTEMPTS
 
 
-class TestNeverFails:
+class TestExitStatus:
+    """The watermark is this workflow's last *successful* run, so exit status decides
+    whether the next tick re-covers the window. A tick that lost traces must not be
+    recorded as clean, and a tick with nothing to do must not be recorded as broken."""
+
     @pytest.mark.parametrize(
         "failure",
         [
@@ -433,13 +439,13 @@ class TestNeverFails:
             urllib.error.HTTPError("u", 403, "Forbidden", {}, None),
         ],
     )
-    def test_main_returns_zero_when_the_api_fails(self, failure: Exception, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_a_failed_scan_holds_the_watermark(self, failure: Exception, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GITHUB_TOKEN", "t")
         monkeypatch.setattr(reporter.time, "sleep", lambda _seconds: None)
         monkeypatch.setattr(reporter.urllib.request, "urlopen", _FakeOpener({"": failure}))
-        assert reporter.main(["--dry-run"]) == 0
+        assert reporter.main(["--dry-run"]) == reporter.EXIT_INCOMPLETE
 
-    def test_main_returns_zero_on_malformed_json(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_malformed_json_holds_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GITHUB_TOKEN", "t")
         monkeypatch.setattr(reporter.time, "sleep", lambda _seconds: None)
 
@@ -451,23 +457,13 @@ class TestNeverFails:
                 return None
 
         monkeypatch.setattr(reporter.urllib.request, "urlopen", lambda request, timeout=0: _Garbage(b"not json"))
-        assert reporter.main(["--dry-run"]) == 0
+        assert reporter.main(["--dry-run"]) == reporter.EXIT_INCOMPLETE
 
-    def test_main_returns_zero_without_a_github_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_a_missing_github_token_holds_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-        assert reporter.main([]) == 0
+        assert reporter.main([]) == reporter.EXIT_INCOMPLETE
 
-    def test_main_returns_zero_when_a_run_has_no_jobs(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # A cancelled run really can report zero jobs.
-        monkeypatch.setenv("GITHUB_TOKEN", "t")
-        monkeypatch.setattr(
-            reporter.urllib.request,
-            "urlopen",
-            _FakeOpener({"/jobs": {"jobs": []}, "/actions/runs/999": _raw_run()}),
-        )
-        assert reporter.main(["--dry-run", "--run-id", "999"]) == 0
-
-    def test_main_returns_zero_without_project_tokens(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_missing_project_tokens_hold_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GITHUB_TOKEN", "t")
         for var in reporter.TOKEN_ENV_VARS:
             monkeypatch.delenv(var, raising=False)
@@ -476,7 +472,32 @@ class TestNeverFails:
             "urlopen",
             _FakeOpener({"/jobs": {"jobs": [_raw_job()]}, "/actions/runs/999": _raw_run()}),
         )
-        assert reporter.main(["--run-id", "999"]) == 0
+        assert reporter.main(["--run-id", "999"]) == reporter.EXIT_INCOMPLETE
+
+    def test_a_run_whose_jobs_will_not_load_holds_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GITHUB_TOKEN", "t")
+        monkeypatch.setattr(reporter.time, "sleep", lambda _seconds: None)
+        monkeypatch.setattr(
+            reporter.urllib.request,
+            "urlopen",
+            _FakeOpener(
+                {
+                    "/jobs": urllib.error.HTTPError("u", 500, "Server Error", {}, None),
+                    "/actions/runs/999": _raw_run(),
+                }
+            ),
+        )
+        assert reporter.main(["--dry-run", "--run-id", "999"]) == reporter.EXIT_INCOMPLETE
+
+    def test_a_run_reporting_zero_jobs_advances_the_watermark(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A cancelled run really can report zero jobs — nothing was lost, so the tick is clean.
+        monkeypatch.setenv("GITHUB_TOKEN", "t")
+        monkeypatch.setattr(
+            reporter.urllib.request,
+            "urlopen",
+            _FakeOpener({"/jobs": {"jobs": []}, "/actions/runs/999": _raw_run()}),
+        )
+        assert reporter.main(["--dry-run", "--run-id", "999"]) == reporter.EXIT_OK
 
 
 class TestDryRunTree:
@@ -494,8 +515,6 @@ class TestSpanTree:
 
     @staticmethod
     def _emit(run: Any) -> list[Any]:
-        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
         exporter = InMemorySpanExporter()
         reporter.emit_trace(run, "http://unused", "token", exporter=exporter)
         return list(exporter.get_finished_spans())
@@ -611,8 +630,6 @@ class TestSpanTree:
             [_raw_job(id=1, steps=[_raw_step(), _raw_step(number=2)]), _raw_job(id=2, steps=[_raw_step()])],
         )
         assert run is not None
-        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
         exporter = InMemorySpanExporter()
         reported = reporter.emit_trace(run, "http://unused", "token", exporter=exporter)
         assert reported == len(exporter.get_finished_spans())

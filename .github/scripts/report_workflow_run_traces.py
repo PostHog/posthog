@@ -31,9 +31,12 @@ The runs list only reports each run's latest attempt, so earlier attempts of a
 re-run are not traced. The trace ID folds in run_attempt, so the attempts that
 are traced never collide.
 
-This script must NEVER fail the workflow: any unexpected error is logged and the
-process exits 0. The workflow step is also `continue-on-error: true` as a second
-belt.
+Exit status is the watermark's only feedback channel. A tick that traced everything
+it found exits 0; a tick that lost anything — a scan that errored, a run whose jobs
+would not load, an export that raised — exits non-zero so the run is recorded as
+failed and the next tick re-covers the window. Re-emitting is free: span IDs are
+deterministic, so an overlapping window is idempotent. Nothing gates on this
+workflow, so a red tick costs a notification rather than a blocked merge.
 """
 
 from __future__ import annotations
@@ -86,6 +89,10 @@ API_BACKOFF_SECONDS = 2.0
 SPAN_QUEUE_SIZE = 65536
 # ~230 KB serialized at this size — well clear of capture-logs' 2 MiB body limit.
 SPAN_BATCH_SIZE = 512
+
+EXIT_OK = 0
+# Anything the tick meant to trace and lost. Holds the watermark at the last clean tick.
+EXIT_INCOMPLETE = 1
 
 RUN_ERROR_CONCLUSIONS = frozenset({"failure", "timed_out", "startup_failure"})
 JOB_ERROR_CONCLUSIONS = frozenset({"failure", "timed_out"})
@@ -173,6 +180,14 @@ class WorkflowRun:
     @property
     def step_count(self) -> int:
         return sum(len(job.steps) for job in self.jobs)
+
+
+@dataclass(frozen=True)
+class Collection:
+    """What this tick resolved, and whether it resolved everything it found."""
+
+    runs: tuple[WorkflowRun, ...] = ()
+    complete: bool = True
 
 
 # ---------- GitHub API ----------
@@ -652,7 +667,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def collect_runs(args: argparse.Namespace, token: str, now: datetime) -> list[WorkflowRun]:
+def collect_runs(args: argparse.Namespace, token: str, now: datetime) -> Collection:
     """Resolve the target runs into fully parsed span trees."""
     if args.run_id:
         raw_runs = [fetch_run(args.repo, run_id, token) for run_id in args.run_id]
@@ -661,10 +676,13 @@ def collect_runs(args: argparse.Namespace, token: str, now: datetime) -> list[Wo
         logger.info("scanning master pushes completed since %s", since.isoformat())
         raw_runs = scan_runs(args.repo, token, since)
         if len(raw_runs) > args.max_runs:
+            # Not an incomplete tick: holding the watermark here would re-scan the same
+            # oversized window forever. Freshest runs win and the backlog's tail is lost.
             logger.warning("found %d runs; capping at %d newest", len(raw_runs), args.max_runs)
             raw_runs = raw_runs[: args.max_runs]
 
     runs = []
+    complete = True
     for raw in raw_runs:
         run_id = int(raw.get("id") or 0)
         attempt = args.run_attempt or int(raw.get("run_attempt") or 1)
@@ -672,6 +690,7 @@ def collect_runs(args: argparse.Namespace, token: str, now: datetime) -> list[Wo
             raw_jobs = fetch_jobs(args.repo, run_id, attempt, token)
         except ApiError:
             logger.exception("could not fetch jobs for run %s attempt %s; skipping", run_id, attempt)
+            complete = False
             continue
         if not raw_jobs:
             logger.info("run %s attempt %s has no jobs; nothing to trace", run_id, attempt)
@@ -679,7 +698,7 @@ def collect_runs(args: argparse.Namespace, token: str, now: datetime) -> list[Wo
         run = parse_run({**raw, "run_attempt": attempt}, raw_jobs)
         if run is not None:
             runs.append(run)
-    return runs
+    return Collection(runs=tuple(runs), complete=complete)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -688,41 +707,43 @@ def main(argv: list[str] | None = None) -> int:
 
     github_token = os.environ.get("GITHUB_TOKEN", "")
     if not github_token:
-        logger.warning("GITHUB_TOKEN is not set; skipping emit")
-        return 0
+        logger.error("GITHUB_TOKEN is not set; nothing was traced")
+        return EXIT_INCOMPLETE
 
     try:
-        runs = collect_runs(args, github_token, datetime.now(UTC))
+        collection = collect_runs(args, github_token, datetime.now(UTC))
     except Exception:
         logger.exception("failed to collect workflow runs")
-        return 0
+        return EXIT_INCOMPLETE
 
-    if not runs:
+    if not collection.runs:
         logger.info("no completed master-push runs to trace")
-        return 0
+        return EXIT_OK if collection.complete else EXIT_INCOMPLETE
 
     if args.dry_run or os.environ.get("DRY_RUN") == "1":
-        for run in runs:
+        for run in collection.runs:
             for line in format_span_tree(run):
                 logger.info("%s", line)
-        return 0
+        return EXIT_OK if collection.complete else EXIT_INCOMPLETE
 
     tokens = emission_tokens(os.environ)
     if not tokens:
-        logger.warning("none of %s set; skipping emit", ", ".join(TOKEN_ENV_VARS))
-        return 0
+        logger.error("none of %s set; nothing was emitted", ", ".join(TOKEN_ENV_VARS))
+        return EXIT_INCOMPLETE
 
+    complete = collection.complete
     for token in tokens:
         emitted = 0
-        for run in runs:
+        for run in collection.runs:
             # Per-run isolation: one malformed run must not cost the rest of the batch.
             try:
                 emitted += emit_trace(run, args.otlp_endpoint, token)
             except Exception:
                 logger.exception("failed to emit trace for run %s attempt %s", run.id, run.attempt)
-        logger.info("emitted %d spans across %d runs to %s", emitted, len(runs), args.otlp_endpoint)
+                complete = False
+        logger.info("emitted %d spans across %d runs to %s", emitted, len(collection.runs), args.otlp_endpoint)
 
-    return 0
+    return EXIT_OK if complete else EXIT_INCOMPLETE
 
 
 if __name__ == "__main__":
