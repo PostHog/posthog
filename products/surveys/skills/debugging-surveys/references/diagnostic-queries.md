@@ -89,8 +89,12 @@ WHERE properties.$survey_id = '<SURVEY_ID>'
 GROUP BY event ORDER BY events DESC
 ```
 
-`events` well above `people` on `survey sent` ⇒ repeat responders, usually `schedule: 'always'`
-bypassing the internal targeting flag.
+`events` above `submissions` on `survey sent` is the normal partial-response shape — partial mode
+fires one `survey sent` per question (see above), so the raw event count inflates on its own.
+Compare `submissions` against `people` instead: `submissions` well above `people` ⇒ repeat
+responders, one likely cause being `schedule: 'always'` bypassing the internal targeting flag.
+(`people` is `uniq(distinct_id)`, which one person spread across several IDs inflates, so this
+comparison undercounts repeats rather than inventing them.)
 
 ## Every question and its answer, keyed off the survey JSON (preferred)
 
