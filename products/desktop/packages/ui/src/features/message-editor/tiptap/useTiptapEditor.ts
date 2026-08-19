@@ -68,6 +68,8 @@ export interface UseTiptapEditorOptions {
     bashMode?: boolean;
   };
   clearOnSubmit?: boolean;
+  /** What the composer starts from when this session has no draft yet. */
+  initialContent?: string;
   getPromptHistory?: () => string[];
   onPromptRecall?: PromptRecallHandler;
   onBeforeSubmit?: (text: string, clearEditor: () => void) => boolean;
@@ -246,6 +248,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     context,
     capabilities = {},
     clearOnSubmit = true,
+    initialContent,
     getPromptHistory,
     onPromptRecall,
     onBeforeSubmit,
@@ -737,7 +740,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     [sessionId, disabled, fileMentions, commands, placeholder],
   );
 
-  const draft = useDraftSync(editor, sessionId, context);
+  const draft = useDraftSync(editor, sessionId, context, initialContent);
   draftRef.current = draft;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `editor` is the trigger: a recreated editor brings a new schema, and restoring a snapshot taken against the old one would throw on replaceWith.

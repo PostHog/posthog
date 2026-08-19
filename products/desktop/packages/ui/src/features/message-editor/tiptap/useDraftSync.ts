@@ -20,6 +20,8 @@ export function useDraftSync(
   editor: Editor | null,
   sessionId: string,
   context?: DraftContext,
+  /** What the composer starts from when this session has no draft yet. */
+  initialContent?: string,
 ) {
   const hasRestoredRef = useRef(false);
   const lastSessionIdRef = useRef(sessionId);
@@ -63,7 +65,16 @@ export function useDraftSync(
   // Restore draft on mount or when sessionId/editor changes
   useLayoutEffect(() => {
     if (!hasHydrated || !editor || hasRestoredRef.current) return;
-    if (!draft || isContentEmpty(draft)) return;
+    if (!draft || isContentEmpty(draft)) {
+      // A caller's starting point fills the box only when nothing was left in
+      // it. It waits for hydration like the draft does, so the two can't race
+      // and flash one over the other.
+      if (initialContent) {
+        hasRestoredRef.current = true;
+        editor.commands.setContent(initialContent);
+      }
+      return;
+    }
 
     hasRestoredRef.current = true;
 
@@ -72,7 +83,7 @@ export function useDraftSync(
     } else {
       editor.commands.setContent(editorContentToTiptapJson(draft));
     }
-  }, [hasHydrated, draft, editor]);
+  }, [hasHydrated, draft, editor, initialContent]);
 
   // Handle pending content (e.g., restoring queued messages after cancel)
   useLayoutEffect(() => {
