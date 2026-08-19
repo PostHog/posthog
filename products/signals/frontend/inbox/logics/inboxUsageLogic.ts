@@ -25,7 +25,6 @@ import { signalsReportsRefundSummaryRetrieve } from 'products/signals/frontend/g
 import type { SignalReportRefundSummaryResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
-import { signalTeamConfigLogic } from './signalTeamConfigLogic'
 
 export type InboxUsageStatus = 'normal' | 'warning' | 'limit'
 
@@ -38,7 +37,6 @@ export interface inboxUsageLogicValues {
     billingLoading: boolean // billingLogic
     canAccessBilling: boolean // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    dailyReportLimitReached: boolean // signalTeamConfigLogic
     currentTeamId: number | null // teamLogic
     creditsPerPr: number | null
     customLimitUsd: number | null
@@ -235,8 +233,6 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             ['featureFlags'],
             teamLogic,
             ['currentTeamId'],
-            signalTeamConfigLogic,
-            ['dailyReportLimitReached'],
         ],
         actions: [billingLogic, ['loadBilling', 'updateBillingLimits']],
     })),

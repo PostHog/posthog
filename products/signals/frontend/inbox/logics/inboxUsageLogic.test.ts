@@ -16,8 +16,7 @@ const CREDITS_PER_PR = 1500
 const mockUsageEndpoints = (
     currentUsage: number,
     summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count' | 'quota_limited'> &
-        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>,
-    teamConfig: Record<string, unknown> = {}
+        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>
 ): void => {
     useMocks({
         get: {
@@ -28,11 +27,6 @@ const mockUsageEndpoints = (
             '/api/projects/:team_id/signals/reports/refund-summary/': () => [
                 200,
                 { credited_refund_count: summary.credited_credits / CREDITS_PER_PR, quota_limited: false, ...summary },
-            ],
-            // Connected signalTeamConfigLogic mounts (and loads) alongside this logic.
-            '/api/projects/:team_id/signals/config/': () => [
-                200,
-                { id: 'cfg-1', default_autostart_priority: 'P4', ...teamConfig },
             ],
         },
     })
@@ -47,10 +41,9 @@ const setRefundsFlag = (): void => {
 const mountWithUsage = async (
     currentUsage: number,
     summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count' | 'quota_limited'> &
-        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>,
-    teamConfig: Record<string, unknown> = {}
+        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>
 ): Promise<ReturnType<typeof inboxUsageLogic.build>> => {
-    mockUsageEndpoints(currentUsage, summary, teamConfig)
+    mockUsageEndpoints(currentUsage, summary)
     featureFlagLogic.mount()
     setRefundsFlag()
     const logic = inboxUsageLogic()
@@ -133,17 +126,6 @@ describe('inboxUsageLogic', () => {
     // request while the server (re-checking the same flag) still returns 404. That mismatch must
     // degrade to a null summary — falling back to billing's own usage — not bubble up as an
     // uncaught error into error tracking.
-    // The reached state rides on the connected team-config logic, not the refund summary, so it
-    // must surface even for an org whose billing widget shows nothing unusual.
-    it('surfaces dailyReportLimitReached from the connected team config', async () => {
-        logic = await mountWithUsage(
-            0,
-            { period_billable_credits: 0, credited_credits: 0 },
-            { max_reports_per_day: 1, reports_generated_today: 1, daily_report_limit_reached: true }
-        )
-        expect(logic.values.dailyReportLimitReached).toBe(true)
-    })
-
     it('degrades to null when the server returns 404 for the refund summary', async () => {
         useMocks({
             get: {
