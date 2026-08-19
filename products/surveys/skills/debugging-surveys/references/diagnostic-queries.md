@@ -57,3 +57,129 @@ WHERE event = 'survey shown' AND timestamp >= toDateTime('<WINDOW_START>')
 GROUP BY survey_id HAVING shown_before > 0 OR shown_after > 0
 ORDER BY shown_before DESC
 ```
+
+## Was partial-response collection ever on?
+
+```sql
+SELECT
+  coalesce(toString(properties.$survey_completed), '(not set)') AS completed,
+  count() AS events,
+  uniq(properties.$survey_submission_id) AS submissions,
+  min(timestamp) AS first_seen, max(timestamp) AS last_seen
+FROM events
+WHERE event = 'survey sent' AND properties.$survey_id = '<SURVEY_ID>'
+  AND timestamp >= now() - INTERVAL 180 DAY
+GROUP BY completed ORDER BY events DESC
+```
+
+Any `completed = false` rows ⇒ `enable_partial_responses` was `true` in that window, so raw
+`survey sent` rows include intermediate saves the UI collapses. `(not set)` ⇒ pre-1.240.0 SDK.
+Compare `events` vs `submissions` to see how much of the gap is partial saves.
+
+## Full event funnel including abandonment
+
+```sql
+SELECT event, count() AS events,
+  uniq(distinct_id) AS people,
+  uniq(properties.$survey_submission_id) AS submissions
+FROM events
+WHERE properties.$survey_id = '<SURVEY_ID>'
+  AND event IN ('survey shown', 'survey sent', 'survey dismissed', 'survey abandoned')
+  AND timestamp >= now() - INTERVAL 180 DAY
+GROUP BY event ORDER BY events DESC
+```
+
+`events` well above `people` on `survey sent` ⇒ repeat responders, usually `schedule: 'always'`
+bypassing the internal targeting flag.
+
+## Every question and its answer, keyed off the survey JSON (preferred)
+
+Take the ids from `questions[].id` and name the columns. Never guess which UUID is which
+question — backtick the property because of the dashes.
+
+```sql
+SELECT timestamp,
+  coalesce(person.properties.$email, person.properties.email) AS email,
+  properties.`$survey_response_<Q1_UUID>` AS q1,
+  properties.`$survey_response_<Q2_UUID>` AS q2,
+  properties.$survey_completed AS completed,
+  properties.$survey_submission_id AS submission_id
+FROM events
+WHERE event = 'survey sent' AND properties.$survey_id = '<SURVEY_ID>'
+  AND timestamp >= now() - INTERVAL 180 DAY
+ORDER BY timestamp DESC LIMIT 60
+```
+
+## Same thing without the survey JSON: unroll `$survey_questions`
+
+`$survey_questions` is an array of `{id, question, response}` over the full question list, so the
+arrays line up positionally with the survey's questions. Note the `ifNull` — without it ClickHouse
+rejects the query with `Nested type Array(String) cannot be inside Nullable type`, because
+`properties.$survey_questions` is `Nullable(String)`.
+
+```sql
+SELECT timestamp,
+  properties.$survey_submission_id AS submission_id,
+  properties.$survey_completed AS completed,
+  arrayMap(x -> JSONExtractString(x, 'question'),
+    JSONExtractArrayRaw(ifNull(toString(properties.$survey_questions), '[]'))) AS questions,
+  arrayMap(x -> JSONExtractRaw(x, 'response'),
+    JSONExtractArrayRaw(ifNull(toString(properties.$survey_questions), '[]'))) AS responses
+FROM events
+WHERE event = 'survey sent' AND properties.$survey_id = '<SURVEY_ID>'
+  AND timestamp >= now() - INTERVAL 180 DAY
+ORDER BY timestamp DESC LIMIT 60
+```
+
+## Answer rate per question (is "incomplete" just branching?)
+
+Cross-tab the branching question's answer against whether the downstream questions got values. If
+the split lines up exactly with the branching rules, the data is fine and the complaint is
+explained.
+
+```sql
+SELECT properties.`$survey_response_<BRANCHING_Q_UUID>` AS branch_answer,
+  count() AS submissions,
+  countIf(coalesce(toString(properties.`$survey_response_<DOWNSTREAM_Q_UUID>`), '') != '') AS answered_downstream
+FROM events
+WHERE event = 'survey sent' AND properties.$survey_id = '<SURVEY_ID>'
+  AND coalesce(toString(properties.$survey_completed), 'true') != 'false'
+  AND timestamp >= now() - INTERVAL 180 DAY
+GROUP BY branch_answer ORDER BY branch_answer
+```
+
+## Shown → sent latency (accidental / stray-click submissions)
+
+`survey shown` fires when the popup becomes visible, _after_ `surveyPopupDelaySeconds`, so this is
+real time-on-popup. A cluster of sub-10-second completions on a multi-question survey points at
+`skipSubmitButton` plus a centred popup rather than considered feedback.
+
+```sql
+SELECT $session_id AS session,
+  minIf(timestamp, event = 'survey shown') AS shown_at,
+  minIf(timestamp, event = 'survey sent') AS sent_at,
+  dateDiff('second', minIf(timestamp, event = 'survey shown'),
+    minIf(timestamp, event = 'survey sent')) AS seconds_to_submit
+FROM events
+WHERE properties.$survey_id = '<SURVEY_ID>'
+  AND event IN ('survey shown', 'survey sent')
+  AND timestamp >= now() - INTERVAL 180 DAY
+GROUP BY session HAVING sent_at > shown_at
+ORDER BY seconds_to_submit ASC LIMIT 60
+```
+
+## Replay link per response (watch a disputed submission)
+
+```sql
+SELECT timestamp, distinct_id,
+  coalesce(person.properties.$email, person.properties.email) AS email,
+  properties.sessionRecordingUrl AS replay_url,
+  properties.$survey_submission_id AS submission_id, $session_id
+FROM events
+WHERE event = 'survey sent' AND properties.$survey_id = '<SURVEY_ID>'
+  AND timestamp >= now() - INTERVAL 180 DAY
+ORDER BY timestamp DESC LIMIT 60
+```
+
+Beats arguing about whether a submission was intentional. Every `survey sent` / `dismissed` /
+`abandoned` event carries `sessionRecordingUrl`.
