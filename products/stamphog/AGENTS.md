@@ -140,14 +140,19 @@ narrow:
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts
   it: its flags were set by someone who never proved GitHub access. Reinstall rebinds keep
   settings — those were configured under a verified binding.
-- Name-matched Slack digest channels provision **disabled** pending a human enable (a workspace
-  member can squat a channel named like a team slug). Channels named by a declaration — the repo's
-  `digest:` config, or a team's entry in the root `owners.yaml` registry — auto-enable, because
-  somebody typed that name on a protected branch. The derived `#<slug>` is not a declaration: the
-  registry step returns nothing when a team has no entry, so it falls through to the name match and
-  its disabled-pending-human rule rather than laundering a guess into a declaration. Only the
-  repo's own `digest:` channel skips the shared-channel exclusion; the registry can name a channel
-  for a team the declaring repo does not own, so that path keeps the leak guard.
+- Auto-provisioned digest channels arrive **enabled**, a bare Slack name match included. Only
+  workspace members can create a channel, and a digest carries merged PR titles and summaries those
+  same people can read on the PRs, so gating a name match behind a human enable bought a silent
+  no-op — a channel row, no run row, no post, and an info log in a worker pod — rather than
+  protection. The exclusion that stays is the shared-channel one, the only path where a digest
+  leaves the workspace: only the repo's own `digest:` channel skips it, because the `owners.yaml`
+  registry can name a channel for a team the declaring repo does not own.
+- The app is not a member of a channel it only matched by name, so `post_digest` joins on
+  `not_in_channel` and retries the post once. The join is attempted, never gated on the scope:
+  `conversations.join` needs `channels:join`, and whether an install granted it is invisible to the
+  person who set the digest up, so asking Slack is the only way to find out. A refused join fails
+  the run with an error naming the invite, which is a signal in the digests scene and self-heals the
+  moment somebody adds the app.
 - A declared channel that does not resolve is a dead end, never a retry with the audience slug —
   the slug is the wrong name the declaration exists to correct.
 - PR content — title, body, diff, comments, reactions — is untrusted input everywhere, including

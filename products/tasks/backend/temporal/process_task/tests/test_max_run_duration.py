@@ -79,3 +79,12 @@ class TestMaxRunDuration:
     @override_settings(TASKS_MAX_RUN_DURATION_SECONDS=-1)
     def test_negative_disables_the_cap(self):
         assert resolve_max_run_duration() is None
+
+    def test_interactive_signals_cap_applies_when_the_activity_resolved_one(self):
+        # User-started signals runs (unbilled inference) get a finite ceiling via the field the
+        # activity resolves; other interactive runs keep the exemption. None is also what
+        # pre-existing run histories decode, so replays schedule no timer.
+        context = _context({"mode": "interactive"}, origin_product=Task.OriginProduct.SIGNAL_REPORT.value)
+        assert context.max_run_duration() is None
+        context.interactive_max_run_duration_seconds = 6 * 60 * 60
+        assert context.max_run_duration() == timedelta(seconds=6 * 60 * 60)
