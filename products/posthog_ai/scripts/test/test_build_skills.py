@@ -12,6 +12,7 @@ from typing import Any, cast
 import pytest
 
 from products.posthog_ai.scripts.build_skills import (
+    REPO_ROOT,
     DiscoveredSkill,
     SkillBuilder,
     SkillDiscoverer,
@@ -242,6 +243,23 @@ def test_build_skill_collects_all_files(tmp_path: Path) -> None:
     assert paths[0] == "SKILL.md"
     assert "references/example.md" in paths
     assert len(result.files) == 2
+
+
+def test_adding_warehouse_person_properties_bundles_its_references() -> None:
+    # The skill links to both reference files, so its published bundle must carry them. A depth-0
+    # loose SKILL.md would drop the references/ directory silently, breaking those links.
+    products_dir = REPO_ROOT / "products"
+    discoverer = SkillDiscoverer(products_dir=products_dir)
+    skill = next(s for s in discoverer.discover() if s.name == "adding-warehouse-person-properties")
+
+    builder = SkillBuilder(
+        repo_root=REPO_ROOT, products_dir=products_dir, output_dir=REPO_ROOT / "products" / "posthog_ai"
+    )
+    result = builder.build_skill(skill, SkillRenderer())
+
+    paths = {f.path for f in result.files}
+    assert "references/troubleshooting.md" in paths
+    assert "references/where-they-can-be-used.md" in paths
 
 
 def test_build_skill_ignores_non_allowed_subdirs(tmp_path: Path) -> None:
