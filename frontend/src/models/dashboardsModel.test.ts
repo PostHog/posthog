@@ -5,6 +5,8 @@ import { expectLogic } from 'kea-test-utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { recentItemsModel } from '~/models/recentItemsModel'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardBasicType } from '~/types'
 
@@ -287,6 +289,34 @@ describe('the dashboards model', () => {
         await expectLogic(teamLogic).toMatchValues({
             currentTeam: expect.objectContaining({ primary_dashboard: primaryDashboardId }),
         })
+    })
+
+    it('removes a directly deleted dashboard from recents', async () => {
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/dashboards/:id/': {
+                    id: 99,
+                    name: 'Other Dashboard',
+                    deleted: true,
+                },
+            },
+        })
+        const recents = recentItemsModel()
+        recents.mount()
+        recents.actions.loadRecentsSuccess([
+            {
+                id: 'fs-99',
+                type: 'dashboard',
+                ref: '99',
+                path: 'Other Dashboard',
+                href: '/dashboard/99',
+            } as FileSystemEntry,
+        ])
+
+        logic.actions.deleteDashboard({ id: 99, deleteInsights: false })
+
+        await expectLogic(logic).toDispatchActions(['deleteDashboardSuccess'])
+        expect(recents.values.recents).toEqual([])
     })
 })
 
