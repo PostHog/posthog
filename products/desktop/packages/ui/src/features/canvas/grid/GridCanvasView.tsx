@@ -32,7 +32,12 @@ import {
   GridPlacementTile,
   type PlacementTileActions,
 } from "./GridPlacementTile";
-import { collides, type GridRect, surfaceRows } from "./gridGeometry";
+import {
+  collides,
+  type GridRect,
+  rectFromCells,
+  surfaceRows,
+} from "./gridGeometry";
 import { type GridDragOutcome, useGridDrag } from "./useGridDrag";
 import { useGridLayout, usePatchLayout } from "./useGridLayout";
 
@@ -179,6 +184,8 @@ export function GridCanvasView({
 
   const {
     drag,
+    hover,
+    onPointerLeave,
     onSurfacePointerDown,
     onPointerMove,
     onPointerUp,
@@ -289,6 +296,10 @@ export function GridCanvasView({
   // layout; horizontal comes from the measured surface width (1fr columns).
   const pitchX = (surfaceWidth + grid.gap) / grid.columns;
   const pitchY = grid.rowHeight + grid.gap;
+  // A cell already under a tile is not free to draw on, so it stays unlit.
+  const hoveredRect = hover && rectFromCells(hover, hover);
+  const hoveredCell =
+    hoveredRect && !collides(hoveredRect, placements) ? hoveredRect : null;
 
   return (
     <div className="flex h-full">
@@ -333,6 +344,7 @@ export function GridCanvasView({
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerCancel}
+            onPointerLeave={onPointerLeave}
             onLostPointerCapture={onPointerCancel}
           >
             {interactive && surfaceWidth > 0 ? (
@@ -351,6 +363,15 @@ export function GridCanvasView({
                   backgroundSize: `${pitchX}px ${pitchY}px`,
                   backgroundPosition: `${pitchX / 2 - grid.gap / 2}px ${DOT_FADE_RADIUS - pitchY / 2}px`,
                 }}
+              />
+            ) : null}
+            {hoveredCell ? (
+              // The cell a click would fill, so the empty surface says it is
+              // drawable before the pointer goes down.
+              <div
+                aria-hidden
+                className="pointer-events-none rounded-(--radius-3) bg-fill-hover"
+                style={gridItemStyle(hoveredCell)}
               />
             ) : null}
             {placements.length === 0 && !drag ? (
