@@ -84,6 +84,7 @@ import {
 
 import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, ProjectType } from '../../../types'
 import type { TeamPublicType, TeamType } from '../../../types'
+import { redactSecretHogFunctionInputs } from '../hog-function-utils'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
@@ -2117,7 +2118,22 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         persistForUnload: () => {
-            actions.setUnsavedConfiguration(values.configuration)
+            // The OAuth redirect persists this config to localStorage via kea-localstorage. Redact
+            // secret input values first (top-level and per-mapping) so freshly typed secrets never
+            // reach persistent, origin-readable storage in cleartext.
+            const config = values.configuration
+            actions.setUnsavedConfiguration({
+                ...config,
+                inputs: config.inputs
+                    ? redactSecretHogFunctionInputs(config.inputs, config.inputs_schema ?? [])
+                    : config.inputs,
+                mappings: config.mappings?.map((mapping) => ({
+                    ...mapping,
+                    inputs: mapping.inputs
+                        ? redactSecretHogFunctionInputs(mapping.inputs, mapping.inputs_schema ?? [])
+                        : mapping.inputs,
+                })),
+            })
         },
     })),
     afterMount(({ props, actions, cache }) => {

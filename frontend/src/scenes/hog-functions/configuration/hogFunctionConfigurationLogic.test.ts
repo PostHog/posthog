@@ -263,6 +263,35 @@ describe('hogFunctionConfigurationLogic', () => {
         })
     })
 
+    describe('persistForUnload', () => {
+        it('redacts secret input values before persisting for the OAuth redirect', async () => {
+            initKeaTests()
+            mockApi.getTemplate.mockReturnValue(
+                Promise.resolve({
+                    ...HOG_TEMPLATE,
+                    inputs_schema: [
+                        { key: 'url', type: 'string', label: 'URL', secret: false, required: true },
+                        { key: 'api_key', type: 'string', label: 'API key', secret: true, required: false },
+                    ],
+                } as any)
+            )
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+
+            logic.actions.setConfigurationValue('inputs.url', { value: 'https://example.com' })
+            logic.actions.setConfigurationValue('inputs.api_key', { value: 'sk-supersecret' })
+
+            await expectLogic(logic, () => {
+                logic.actions.persistForUnload()
+            }).toFinishAllListeners()
+
+            const persisted = logic.values.unsavedConfiguration?.configuration
+            expect(persisted?.inputs?.url?.value).toBe('https://example.com')
+            expect(persisted?.inputs?.api_key?.value).toBe('[secret]')
+        })
+    })
+
     describe('loading a missing function', () => {
         beforeEach(() => {
             initKeaTests()
