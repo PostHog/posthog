@@ -133,6 +133,10 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   this window has the session, otherwise the closing prose a cloud run persists
   to `latest_run.output.final_message`.
   Neither costs a request.
+- **Canvas search includes descriptions.** Report generation stores its summary
+  on the ordinary canvas description, so Signals canvases are discoverable by
+  their subject without a separate report lookup. The hover card shows the
+  summary's first sentence; the canvas remains the place for the full report.
 - **The open session's header wears the same marks under bluebird.** `TaskHeaderMark` / `TaskHeaderActions` (task-detail) draw `taskDot` and `taskBadges` around the title, from `useTaskStatusInput` — the row hook's task-shaped half, which `useChannelTaskStatus` now delegates to.
   Off the flag the header keeps its workspace-mode glyph, and the PR lookup is skipped with it.
   So the cloud glyph goes: it said where the run lives and nothing about whether the run wants anything, and in this vocabulary cloud is silent — running there is the default, so only the local exception earns a badge.

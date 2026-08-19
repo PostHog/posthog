@@ -220,6 +220,26 @@ describe("buildChannelItems", () => {
     ).toEqual(["signals"]);
   });
 
+  it("finds a canvas by its description", () => {
+    const items = build({
+      dashboards: [
+        canvas({
+          id: "activation",
+          name: "Onboarding performance",
+          description: "Activation fell after the onboarding change.",
+        }),
+      ],
+    });
+
+    expect(
+      filterChannelItems(items, {
+        query: "activation fell",
+        filters: DEFAULT_CHANNEL_ITEM_FILTERS,
+        me: { uuid: ME.uuid },
+      }).map((item) => item.id),
+    ).toEqual(["activation"]);
+  });
+
   it("marks the sessions asking for input and the ones you haven't read", () => {
     const items = build({
       feedTasks: [

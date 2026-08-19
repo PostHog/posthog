@@ -54,7 +54,7 @@ function item(title: string, overrides: Partial<ChannelItemModel> = {}) {
 
 function menuFor(model: ChannelItemModel): TaskRowMenuProps {
   return {
-    kind: "task",
+    kind: model.kind,
     id: model.id,
     title: model.title,
     isPinned: false,
@@ -128,6 +128,27 @@ describe("ChannelItemHoverCard", () => {
 
     expect(screen.getByText("Needs your input")).not.toBeNull();
     expect(screen.queryByText("Ready")).toBeNull();
+  });
+
+  it("shows a canvas description as a compact summary", async () => {
+    renderRows([
+      item("Activation report", {
+        kind: "canvas",
+        key: "canvas:activation",
+        description:
+          "Activation fell after the onboarding change. The remaining detail belongs inside the canvas.",
+        source: "signal_report",
+      }),
+    ]);
+
+    await openCardOn("Activation report");
+
+    expect(
+      screen.getByText("Activation fell after the onboarding change."),
+    ).not.toBeNull();
+    expect(
+      screen.queryByText("The remaining detail belongs inside the canvas."),
+    ).toBeNull();
   });
 
   it("names what the row's badges mean", async () => {

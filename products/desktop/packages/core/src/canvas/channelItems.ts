@@ -20,6 +20,8 @@ export interface ChannelItemModel {
   kind: "task" | "canvas";
   id: string;
   title: string;
+  /** Searchable supporting text. Report canvases carry the report summary here. */
+  description?: string;
   /** Activity time for the activity-first sort: a session's `last_activity_at`, or a canvas's `updatedAt`. */
   ts: number;
   /** When it was first made, for the created-first sort. */
@@ -135,6 +137,7 @@ export function buildChannelItems({
     kind: "canvas",
     id: d.id,
     title: d.name,
+    description: d.description,
     ts: d.updatedAt,
     createdAt: d.createdAt,
     pinned: d.pinnedAt != null,
@@ -160,6 +163,7 @@ export function buildChannelItems({
             kind: "task" as const,
             id: task.id,
             title: task.title || "Untitled task",
+            description: task.description ?? "",
             ts: taskActivityTimestamp(task, "updated") || 0,
             createdAt: Date.parse(task.created_at) || 0,
             pinned: pinnedTaskIds.has(task.id),
@@ -266,7 +270,8 @@ export function filterChannelItems(
   return items.filter((item) => {
     if (
       normalizedQuery &&
-      !item.title.toLowerCase().includes(normalizedQuery)
+      !item.title.toLowerCase().includes(normalizedQuery) &&
+      !item.description?.toLowerCase().includes(normalizedQuery)
     ) {
       return false;
     }

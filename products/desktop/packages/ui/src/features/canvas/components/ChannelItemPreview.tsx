@@ -1,5 +1,6 @@
 import { ChatCircleIcon } from "@phosphor-icons/react";
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import { deriveHeadline } from "@posthog/core/inbox/reportPresentation";
 import {
   Avatar,
   AvatarFallback,
@@ -241,6 +242,8 @@ export function ChannelItemPreview({
   const message = useLatestTurnMessage(item.task);
   const dot = status ? taskDot(status) : null;
   const source = getOriginProductMeta(item.source ?? undefined);
+  const canvasSummary =
+    item.kind === "canvas" ? deriveHeadline(item.description) : null;
 
   return (
     <ItemGroup className="gap-0!">
@@ -259,6 +262,11 @@ export function ChannelItemPreview({
             {source ? ` from ${source.label}` : ""} · updated{" "}
             {formatRelativeTimeShort(item.ts)}
           </ItemDescription>
+          {canvasSummary ? (
+            <p className="line-clamp-3 break-words text-muted-foreground text-xs leading-snug">
+              {canvasSummary}
+            </p>
+          ) : null}
         </ItemContent>
         {/* Who made it rides on the identity row rather than taking a row of
             its own — the card is a glance, and a line of chrome for a name is

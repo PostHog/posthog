@@ -177,6 +177,8 @@ export const SignalsCanvas: Story = {
       kind: "canvas",
       id: "activation-drop",
       title: "Activation fell after the onboarding change",
+      description:
+        "Activation fell after the onboarding change. The largest decline appears in the final setup step.",
       source: "signal_report",
       sourceResourceId: "report-1",
       rawStatus: null,
