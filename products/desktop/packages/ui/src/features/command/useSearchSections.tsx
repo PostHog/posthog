@@ -19,6 +19,9 @@ export type Command = {
   /** Muted trailing detail shown after a middot, e.g. a task's channel. */
   detail?: string;
   detailPrefix?: string;
+  /** Muted second line under the label, where a trailing `detail` would be the
+   * part a long label truncates away. */
+  subtitle?: string;
   keywords?: string;
   icon: ReactNode;
   action: CommandMenuAction;
@@ -26,6 +29,8 @@ export type Command = {
   channelId?: string;
   /** Hotkey string (e.g. "mod+b") shown right-aligned when present. */
   shortcut?: string;
+  /** Running this keeps the palette open (e.g. completing a filter token). */
+  keepOpen?: boolean;
   onRun: () => void;
 };
 
