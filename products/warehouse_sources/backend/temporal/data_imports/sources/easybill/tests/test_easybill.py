@@ -33,9 +33,17 @@ def _response(
     status: int = 200,
     body_override: dict[str, Any] | None = None,
 ) -> Response:
-    body: dict[str, Any] = body_override
-    if body is None:
-        body = {"page": page, "pages": pages, "limit": 1000, "total": len(items or []), "items": items or []}
+    body: dict[str, Any] = (
+        body_override
+        if body_override is not None
+        else {
+            "page": page,
+            "pages": pages,
+            "limit": 1000,
+            "total": len(items or []),
+            "items": items or [],
+        }
+    )
     resp = Response()
     resp.status_code = status
     resp._content = json.dumps(body).encode()

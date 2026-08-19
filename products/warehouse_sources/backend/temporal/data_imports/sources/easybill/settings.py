@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -11,7 +13,7 @@ EASYBILL_BASE_URL = "https://api.easybill.de/rest/v1"
 PAGE_LIMIT = 1000
 
 
-@dataclass
+@frozen
 class EasybillEndpointConfig:
     name: str
     path: str

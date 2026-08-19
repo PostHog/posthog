@@ -1,6 +1,7 @@
-import dataclasses
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -25,7 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.easybill.s
 )
 
 
-@dataclasses.dataclass
+@frozen
 class EasybillResumeConfig:
     page: int
 
