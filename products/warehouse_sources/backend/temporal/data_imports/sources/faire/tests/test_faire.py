@@ -207,6 +207,30 @@ class TestFaireSourceOrdersAndProducts:
         assert "updated_at_min" not in snapshots[0]["params"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_sync_client_does_not_follow_redirects(self, MockSession) -> None:
+        # The token rides in a custom header requests preserves across cross-origin redirects, so
+        # the sync client must pin allow_redirects off. RESTClient forwards the client config's
+        # value into every send().
+        session = MockSession.return_value
+        send_kwargs: list[dict[str, Any]] = []
+        response_iter = iter([_response({"orders": [{"id": "1"}]})])
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            return mock.MagicMock()
+
+        def _send(request: Any, **kwargs: Any) -> Response:
+            send_kwargs.append(kwargs)
+            return next(response_iter)
+
+        session.headers = {}
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = _send
+
+        _rows(_source("Orders", _make_manager()))
+
+        assert send_kwargs and all(kw.get("allow_redirects") is False for kw in send_kwargs)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_auth_uses_faire_access_token_header(self, MockSession) -> None:
         session = MockSession.return_value
         snapshots = _wire(session, [_response({"orders": [{"id": "1"}]})])

@@ -139,6 +139,9 @@ def faire_source(
                 "name": "X-FAIRE-ACCESS-TOKEN",
                 "location": "header",
             },
+            # The token rides in a custom header, not Authorization; don't let a redirect
+            # replay it to a different host.
+            "allow_redirects": False,
         },
         "resource_defaults": {
             "write_disposition": {
