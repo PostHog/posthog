@@ -2,10 +2,8 @@ from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
-if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
+if settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV"):
     _ROLES = [NodeRole.AUX]
-elif settings.CLOUD_DEPLOYMENT == "DEV":
-    _ROLES = [NodeRole.DATA]
 else:
     _ROLES = []
 
