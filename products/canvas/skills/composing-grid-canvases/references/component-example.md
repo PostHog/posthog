@@ -143,4 +143,4 @@ export default function WelcomeChecklist() {
 - `ph` is a host-injected global — never import it, and feature-detect optional surfaces like `ph.state` so the widget degrades instead of crashing on an older runtime.
 - Loading state renders a skeleton, never a blank; every async access has a `.catch` that lands in a renderable state.
 - Fill the placement iframe viewport (`h-screen`) and let content scroll; `h-full` cannot resolve
-  on the root because the iframe shell has no explicit height.
+  on the root because the published artifact shell has no explicit height.

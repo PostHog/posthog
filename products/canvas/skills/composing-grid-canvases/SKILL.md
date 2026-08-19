@@ -73,9 +73,10 @@ Start from the complete, buildable project in [references/component-example.md](
 
 - **Design responsively.** Give the component's root `h-screen` so it fills the placement iframe's
   viewport, and adapt the layout to any size the user drags: a 2×1 placement is a glanceable tile;
-  a 6×4 is a full app surface. Do not use `h-full` on the root: the iframe's `html`, `body`, and
-  `#root` elements have no explicit height, so `height: 100%` collapses to the content height.
-  Render usefully at `minW`×`minH`, and treat `config` as the only per-placement input.
+  a 6×4 is a full app surface. Do not use `h-full` on the root: a published component's artifact
+  shell gives its `html`, `body`, and `#root` elements no explicit height, so `height: 100%`
+  collapses to the content height. Render usefully at `minW`×`minH`, and treat `config` as the only
+  per-placement input.
 
 Publish and wait for the build like any canvas — a component with no ready build cannot go live on
 a grid.
