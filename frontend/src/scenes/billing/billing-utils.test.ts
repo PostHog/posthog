@@ -22,6 +22,15 @@ describe('resolveBillingChartDates', () => {
         expect(resolveBillingChartDates(series, '2026-08-01', '2026-08-03')).toEqual(inRange)
     })
 
+    it('rejects a longer partly-overlapping stale series in favor of one fully inside the range', () => {
+        // A stale series can span years yet still touch the requested range at one end. Ranking by
+        // length alone would let that longer array label the chart, even when results[0] already
+        // holds the correct exact-range array, so only fully-in-range arrays win.
+        const stalePartial = ['2025-06-01', '2025-07-01', '2025-08-01', '2026-08-01']
+        const series = [{ dates: inRange }, { dates: stalePartial }]
+        expect(resolveBillingChartDates(series, '2026-08-01', '2026-08-03')).toEqual(inRange)
+    })
+
     it('falls back to the longest array when no series overlaps the range', () => {
         const series = [{ dates: ['2024-01-01'] }, { dates: stale }]
         expect(resolveBillingChartDates(series, '2026-08-01', '2026-08-03')).toEqual(stale)

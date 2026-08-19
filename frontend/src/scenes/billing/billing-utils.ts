@@ -611,21 +611,39 @@ function billingDatesOverlapRange(dates: string[], dateFrom?: string, dateTo?: s
     return true
 }
 
+/** Accept only a `dates` array that sits entirely within the requested range. A stale series can span years yet still touch the range at one end, so it merely overlaps; requiring full containment keeps such an array from outranking an exact-range one on length alone. */
+function billingDatesWithinRange(dates: string[], dateFrom?: string, dateTo?: string): boolean {
+    const first = dayjs(dates[0])
+    const last = dayjs(dates[dates.length - 1])
+    const from = resolveDateBound(dateFrom)
+    const to = resolveDateBound(dateTo)
+    if (from && first.isBefore(from, 'day')) {
+        return false
+    }
+    if (to && last.isAfter(to, 'day')) {
+        return false
+    }
+    return true
+}
+
 /**
  * Choose the date axis for a billing chart.
  *
  * The billing service returns a `dates` array per series, and normally every series shares the same
  * one. Reading `results[0].dates` alone trusts a single series, so a stale or off-range array there
- * labels every x-axis tick and tooltip header with the wrong period. Scan all series instead and
- * take the longest array that still overlaps the requested range.
+ * labels every x-axis tick and tooltip header with the wrong period. Scan all series instead: prefer
+ * the longest array that falls entirely within the requested range, then the longest one that merely
+ * overlaps it, then the longest overall. Ranking by length alone (without the containment step) would
+ * let a long, partly-overlapping stale array beat a shorter exact-range one.
  */
 export function resolveBillingChartDates(series: { dates: string[] }[], dateFrom?: string, dateTo?: string): string[] {
     const candidates = series.map((s) => s.dates).filter((dates): dates is string[] => !!dates?.length)
     if (candidates.length === 0) {
         return []
     }
-    const inRange = candidates.filter((dates) => billingDatesOverlapRange(dates, dateFrom, dateTo))
-    const pool = inRange.length > 0 ? inRange : candidates
+    const withinRange = candidates.filter((dates) => billingDatesWithinRange(dates, dateFrom, dateTo))
+    const overlapping = candidates.filter((dates) => billingDatesOverlapRange(dates, dateFrom, dateTo))
+    const pool = withinRange.length > 0 ? withinRange : overlapping.length > 0 ? overlapping : candidates
     return pool.reduce((longest, dates) => (dates.length > longest.length ? dates : longest))
 }
 
