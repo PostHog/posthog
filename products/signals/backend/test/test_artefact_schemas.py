@@ -12,6 +12,7 @@ from products.signals.backend.artefact_schemas import (
     CodeReference,
     Commit,
     NoteArtefact,
+    SignalFinding,
     SuggestedReviewerEntry,
     SummaryChange,
     TaskRunArtefact,
@@ -212,6 +213,7 @@ class TestParseStoredArtefactContent(SimpleTestCase):
     def test_backfills_legacy_finding_missing_proposed_change(self):
         legacy = {"signal_id": "s1", "relevant_code_paths": ["a.py"], "data_queried": "none", "verified": True}
         parsed = parse_stored_artefact_content("signal_finding", legacy)
+        assert isinstance(parsed, SignalFinding)
         assert parsed.proposed_change == LEGACY_PROPOSED_CHANGE_PLACEHOLDER
 
     def test_tolerance_is_scoped_to_findings(self):
