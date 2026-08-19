@@ -61,11 +61,13 @@ def bulk_soft_delete_hog_functions(functions: Iterable[HogFunction], *, deleted:
             reload_ids_by_team[function.team_id].append(str(function.id))
 
     for team_id, hog_function_ids in reload_ids_by_team.items():
-        transaction.on_commit(
-            lambda team_id=team_id, hog_function_ids=hog_function_ids: reload_hog_functions_on_workers(
-                team_id=team_id, hog_function_ids=sorted(hog_function_ids)
-            ),
-            robust=True,
-        )
+        _reload_workers_after_commit(team_id, sorted(hog_function_ids))
 
     return len(functions)
+
+
+def _reload_workers_after_commit(team_id: int, hog_function_ids: list[str]) -> None:
+    transaction.on_commit(
+        lambda: reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=hog_function_ids),
+        robust=True,
+    )

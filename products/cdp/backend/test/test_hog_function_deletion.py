@@ -23,6 +23,7 @@ class TestBulkSoftDeleteHogFunctions(BaseTest):
         assert log.activity == "deleted"
         assert log.is_system is True
         assert log.user is None
+        assert log.detail is not None
         assert log.detail["name"] == "Downsample"
 
         # A transformation is executable, so workers must be told to drop it.
