@@ -1289,16 +1289,26 @@ class TestLLMSkillAPI(APIBaseTest):
             {"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"}
         ]
 
+    @parameterized.expand(
+        [
+            # An explicit empty list means "no tags" and must not fall back to the skill's own tags.
+            ("explicit empty list", {"tags": []}, ["github"], []),
+            # metadata is an arbitrary dict, and ingest drops an entry whose tags are not all strings.
+            ("unusable metadata tags", {}, ["github", 123, {"name": "x"}, "  ", "y" * 65], ["github"]),
+        ]
+    )
     @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
-    def test_publish_to_community_explicit_empty_tags_are_not_replaced(self, mock_publish, _mock_flag):
+    def test_publish_to_community_tags(
+        self, _label: str, payload: dict, metadata_tags: list, expected: list, mock_publish, _mock_flag
+    ):
         mock_publish.return_value = {"pr_url": "https://github.com/x/y/pull/1", "pr_number": 1, "branch": "b"}
-        self.create_skill(name="make-pr", metadata={"tags": ["github"]})
+        self.create_skill(name="make-pr", metadata={"tags": metadata_tags})
 
-        response = self.client.post(self._url("name/make-pr/publish-community"), data={"tags": []}, format="json")
+        response = self.client.post(self._url("name/make-pr/publish-community"), data=payload, format="json")
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert mock_publish.call_args.kwargs["tags"] == []
+        assert mock_publish.call_args.kwargs["tags"] == expected
 
     @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")

@@ -47,6 +47,7 @@ from .community_publish_services import (
     CommunitySkillPublishError,
     CommunitySkillPublishNotConfiguredError,
     publish_skill_to_community,
+    publishable_tags,
 )
 from .community_skills import CommunitySkillFeatureFlagPermission
 from .skill_serializers import (
@@ -967,12 +968,12 @@ class LLMSkillViewSet(
         payload.is_valid(raise_exception=True)
 
         files = [{"path": f.path, "content": f.content, "content_type": f.content_type} for f in skill.files.all()]
-        metadata_tags = (skill.metadata or {}).get("tags")
         supplied_tags = payload.validated_data.get("tags")
         # An explicit empty list means "publish with no tags", so fall back to the skill's own tags
-        # only when the caller omitted the field.
+        # only when the caller omitted the field. Those are unvalidated metadata, unlike the ones the
+        # serializer checked, so they go through publishable_tags first.
         if supplied_tags is None:
-            supplied_tags = metadata_tags if isinstance(metadata_tags, list) else []
+            supplied_tags = publishable_tags((skill.metadata or {}).get("tags"))
         # The LLMSkill name is the kebab slug; default the community display name to a title-cased form.
         display_name = payload.validated_data.get("display_name") or skill.name.replace("-", " ").title()
 

@@ -37,6 +37,7 @@ OPTIONAL_GITHUB_HANDLE_PATTERN = re.compile(f"^$|{GITHUB_HANDLE_PATTERN.pattern}
 # Matches CommunitySkill.name — a longer name publishes and merges, then ingest rejects the entry and
 # the skill silently never appears in the catalog.
 MAX_DISPLAY_NAME_LENGTH = 64
+MAX_TAG_LENGTH = 64
 SKILLS_DIR = "skills"
 COMMUNITY_SKILLS_PR_BASE_BRANCH = "main"
 COMMUNITY_SKILLS_BRANCH_PREFIX = "community-skill/"
@@ -68,6 +69,18 @@ class RenderedFile:
 
     path: str
     content: str
+
+
+def publishable_tags(tags: object) -> list[str]:
+    """Keep only the entries of a skill's stored tags that the catalog can actually accept.
+
+    `LLMSkill.metadata` is an arbitrary dict, so its `tags` can hold any JSON, while ingest requires
+    every tag to be a string within the catalog's cap and drops the whole entry otherwise. Publishing
+    the unusable ones would open a pull request that merges and then never appears in the catalog.
+    """
+    if not isinstance(tags, list):
+        return []
+    return [tag for tag in tags if isinstance(tag, str) and tag.strip() and len(tag) <= MAX_TAG_LENGTH]
 
 
 def publisher_branch_key(publisher_id: str) -> str:
@@ -290,11 +303,13 @@ def publish_skill_to_community(
         return _write_branch_and_pull_request(
             publisher, rendered=rendered, slug=slug, name=name, author_handle=author_handle, branch=branch
         )
-    except (GitHubIntegrationError, GitHubRateLimitError):
+    except (GitHubIntegrationError, GitHubRateLimitError) as err:
         # The client only ever sees this class of failure as "GitHub is unreachable", so the detail
         # has to reach the logs here or it is lost.
         logger.warning("community_skill_publish_github_unavailable", slug=slug, branch=branch, exc_info=True)
-        raise CommunitySkillPublishError("Could not reach GitHub to publish this skill. Try again in a few minutes.")
+        raise CommunitySkillPublishError(
+            "Could not reach GitHub to publish this skill. Try again in a few minutes."
+        ) from err
 
 
 def _write_branch_and_pull_request(
