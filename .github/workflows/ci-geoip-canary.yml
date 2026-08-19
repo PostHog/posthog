@@ -62,17 +62,25 @@ jobs:
                   # nodejs test, and the pnpm workspace closure of @posthog/nodejs
                   # (patches plus every workspace:* dependency) so the frozen
                   # install still resolves. Add a directory here if that closure
-                  # grows.
+                  # grows. Non-cone mode so we can pull the single Jest setup file
+                  # frontend/jest.quarantine.ts that nodejs/jest.config.js loads,
+                  # without the rest of frontend/. `/*` then `!/*/` keeps root files
+                  # (package.json, lockfile, .test_quarantine.json) and drops root
+                  # directories, then each entry re-adds one.
+                  sparse-checkout-cone-mode: false
                   sparse-checkout: |
-                      bin
-                      nodejs
-                      .github
-                      patches
-                      common/hogvm/typescript
-                      common/replay-headless
-                      common/replay-shared
-                      rust/common/hogvm/node
-                      rust/replay-anonymizer-node
+                      /*
+                      !/*/
+                      /bin/
+                      /nodejs/
+                      /.github/
+                      /patches/
+                      /common/hogvm/typescript/
+                      /common/replay-headless/
+                      /common/replay-shared/
+                      /rust/common/hogvm/node/
+                      /rust/replay-anonymizer-node/
+                      /frontend/jest.quarantine.ts
 
             - name: Download MaxMind database
               run: ./bin/download-mmdb
