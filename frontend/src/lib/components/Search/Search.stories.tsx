@@ -130,6 +130,44 @@ const MOCK_PRODUCT_STARRED = [
     },
 ]
 
+const MOCK_RECENTLY_SELECTED_ITEMS = [
+    {
+        id: 'dashboard-1',
+        name: 'My Dashboard',
+        href: '/dashboard/1',
+        itemType: 'dashboard',
+        teamId: 2,
+    },
+    {
+        id: 'insight-2',
+        name: 'Signup Funnel',
+        href: '/insights/2',
+        itemType: 'insight/funnels',
+        teamId: 2,
+    },
+    {
+        id: 'insight-3',
+        name: 'Weekly Active Users',
+        href: '/insights/3',
+        itemType: 'insight/trends',
+        teamId: 2,
+    },
+    {
+        id: 'feature-flag-4',
+        name: 'new-onboarding',
+        href: '/feature_flags/4',
+        itemType: 'feature_flag',
+        teamId: 2,
+    },
+    {
+        id: 'insight-5',
+        name: 'User Retention',
+        href: '/insights/5',
+        itemType: 'insight/retention',
+        teamId: 2,
+    },
+]
+
 const MOCK_SEARCH_RESULTS = {
     results: [
         {
@@ -211,6 +249,37 @@ export const Default: Story = {
     },
     parameters: {
         docs: { description: { story: 'Shows 5 recent items and tools when no search query is entered.' } },
+    },
+}
+
+export const RecentlySelected: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/file_system/': () => HttpResponse.json(toPaginatedResponse(MOCK_RECENTS)),
+                '/api/environments/:team_id/search/': () => [200, { results: [], counts: {} }],
+                ...SHARED_MOCKS,
+            },
+        })
+
+        return (
+            <SearchContainer>
+                <Search.Root
+                    logicKey="storybook-recently-selected"
+                    isActive
+                    showAskAiLink={false}
+                    recentlySelectedItems={MOCK_RECENTLY_SELECTED_ITEMS}
+                >
+                    <Search.Input autoFocus />
+                    <Search.Separator />
+                    <Search.Results />
+                    <Search.Footer />
+                </Search.Root>
+            </SearchContainer>
+        )
+    },
+    parameters: {
+        docs: { description: { story: 'Shows the five most recently selected command menu items.' } },
     },
 }
 
