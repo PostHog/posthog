@@ -23,11 +23,15 @@ interface ToolSwitchRow extends MCPClusterSwitchApi {
     clusterLabel: string
 }
 
-/** Every error switch across the snapshot that involves the given tool, worst first. */
+/**
+ * Every error switch across the snapshot that involves the given tool, worst first.
+ * Clusters stored before switches were captured carry none: the schema marks the field
+ * required, the stored JSONB does not, so it has to be treated as absent.
+ */
 function collectSwitches(tool: string, clusters: readonly MCPIntentClusterApi[]): ToolSwitchRow[] {
     const rows: ToolSwitchRow[] = []
     for (const cluster of clusters) {
-        for (const sw of cluster.switches) {
+        for (const sw of cluster.switches ?? []) {
             if (sw.from_tool === tool || sw.to_tool === tool) {
                 rows.push({ ...sw, clusterLabel: cluster.label })
             }

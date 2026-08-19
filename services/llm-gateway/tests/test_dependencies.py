@@ -470,7 +470,7 @@ class TestBasetenExclusiveModelGateWiring:
         ("model", "access_flag", "path"),
         [
             (BASETEN_DEEPSEEK_PUBLIC_MODEL, "posthog-code-deepseek-model", "/posthog_code/v1/messages"),
-            (BASETEN_GLM53_PUBLIC_MODEL, "tasks-glm-baseten-inference", "/posthog_code/v1/messages"),
+            (BASETEN_GLM53_PUBLIC_MODEL, "posthog-code-glm-53-model", "/posthog_code/v1/messages"),
         ],
     )
     @pytest.mark.parametrize("flag_result", [False, None])
