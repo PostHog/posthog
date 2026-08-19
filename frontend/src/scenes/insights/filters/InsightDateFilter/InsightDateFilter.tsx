@@ -5,8 +5,9 @@ import { IconCalendar } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { type DateFilterExclusions } from 'lib/components/DateFilter/DateFilterExclusionsControl'
+import { type Dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils/dateFilters'
-import { alignResolvedDateRangeToInterval } from 'lib/utils/datetime'
+import { alignResolvedDateRangeToInterval, formatDateRange } from 'lib/utils/datetime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -25,7 +26,9 @@ type InsightDateFilterProps = {
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { dateRange, interval, querySource, trendsFilter, isTrends } = useValues(insightVizDataLogic(insightProps))
+    const { dateRange, interval, querySource, trendsFilter, isTrends, compareFilter } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { insightData } = useValues(insightVizDataLogic(insightProps))
     const { reportInsightDatePickerOpened, reportInsightDateExclusionsChanged } = useActions(eventUsageLogic)
@@ -36,6 +39,20 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     // The backend rejects daysOfWeek together with smoothing, so don't offer it
     const smoothingActive = isTrends && (trendsFilter?.smoothingIntervals ?? 1) > 1
     const showDaysOfWeekExclusions = supportsDaysOfWeek && !smoothingActive
+    const usesSevenCalendarDays =
+        isTrends && compareFilter?.compare && dateRange?.date_from === '-6d' && !dateRange.date_to
+    const dateOptions = usesSevenCalendarDays
+        ? dateMapping.map((option) =>
+              option.key === 'Last 7 days'
+                  ? {
+                        ...option,
+                        values: ['-6d'],
+                        getFormattedDate: (date: Dayjs): string =>
+                            formatDateRange(date.subtract(6, 'd'), date.endOf('d')),
+                    }
+                  : option
+          )
+        : dateMapping
 
     // Hiding the control for any reason (smoothing turned on, or the insight changed to an
     // unsupported kind) must clear daysOfWeek too, or it lingers with no UI left to remove it
@@ -95,7 +112,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
                 const ignoreDebounce = dateRange?.explicitDate !== explicit_date
                 updateDateRange({ date_from, date_to, explicitDate: explicit_date }, ignoreDebounce)
             }}
-            dateOptions={dateMapping}
+            dateOptions={dateOptions}
             allowedRollingDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
             resolvedDateRange={alignResolvedDateRangeToInterval(insightData?.resolved_date_range, interval)}
             makeLabel={(key) => (
