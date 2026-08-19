@@ -424,11 +424,13 @@ impl AmplitudeEvent {
             }
 
             // Map the Amplitude session onto a PostHog $session_id so imported
-            // events group into sessions. An explicit $session_id already present
-            // in the source properties wins over the derived one.
+            // events group into sessions. A non-empty string $session_id already
+            // present in the source properties is treated as an explicit session
+            // id and wins; any other value cannot act as a session id downstream,
+            // so the derived UUID replaces it.
             let session_id: Option<String> = match properties.get("$session_id") {
-                Some(existing) => existing.as_str().map(String::from),
-                None => derive_session_uuid(&amp, &distinct_id).map(|session_uuid| {
+                Some(Value::String(existing)) if !existing.is_empty() => Some(existing.clone()),
+                _ => derive_session_uuid(&amp, &distinct_id).map(|session_uuid| {
                     let session_id = session_uuid.to_string();
                     properties.insert("$session_id".to_string(), Value::String(session_id.clone()));
                     session_id
@@ -755,11 +757,11 @@ const MAX_UUID_V7_TIMESTAMP_MS: i64 = (1 << 48) - 1;
 /// milliseconds, which becomes the UUIDv7 timestamp, so downstream session
 /// handling sees the correct session start. The remaining bits come from a
 /// SHA-256 of the session key and the session id, so every event in the same
-/// session — including across import re-runs — maps to the same UUID, while
+/// session maps to the same UUID (including across import re-runs), while
 /// identical start times on different devices do not collide.
 ///
 /// Keyed by `device_id` (falling back to the event's distinct id) rather than
-/// by distinct id, because Amplitude sessions are device-scoped: `user_id`
+/// by distinct id, because Amplitude sessions are device-scoped: a `user_id`
 /// appearing mid-session (e.g. after login) changes the distinct id but must
 /// not split the session.
 fn derive_session_uuid(amp: &AmplitudeEvent, distinct_id: &str) -> Option<Uuid> {
@@ -1330,6 +1332,63 @@ mod tests {
             parsed_session_id(amp_event).as_deref(),
             Some("0199c50e-7d31-7b52-8000-a2b3c4d5e6f7")
         );
+    }
+
+    #[test]
+    fn test_unusable_session_id_property_replaced_by_derived() {
+        // Values that cannot act as a session id downstream must not suppress
+        // derivation: null, numbers, booleans, containers, and empty strings
+        for unusable in [
+            json!(null),
+            json!(1697380200123i64),
+            json!(true),
+            json!({}),
+            json!(""),
+        ] {
+            let amp_event = AmplitudeEvent {
+                event_type: Some("button_click".to_string()),
+                user_id: Some("user123".to_string()),
+                device_id: Some("device456".to_string()),
+                event_time: Some("2023-10-15 14:30:00".to_string()),
+                session_id: 1697380200123,
+                event_properties: [("$session_id".to_string(), unusable)]
+                    .iter()
+                    .cloned()
+                    .collect(),
+                ..Default::default()
+            };
+
+            let session_id =
+                parsed_session_id(amp_event).expect("derived $session_id should replace the value");
+            let uuid = Uuid::parse_str(&session_id).unwrap();
+            assert_eq!(uuid.get_version_num(), 7);
+        }
+    }
+
+    #[test]
+    fn test_unusable_session_id_property_kept_when_no_amplitude_session() {
+        // With nothing to derive from, the source property is passed through
+        // unchanged (matching pre-existing behavior) and no header is set
+        let amp_event = AmplitudeEvent {
+            event_type: Some("button_click".to_string()),
+            user_id: Some("user123".to_string()),
+            device_id: Some("device456".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            session_id: -1,
+            event_properties: [("$session_id".to_string(), json!(42))]
+                .iter()
+                .cloned()
+                .collect(),
+            ..Default::default()
+        };
+
+        let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
+
+        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        assert_eq!(data.properties.get("$session_id"), Some(&json!(42)));
+        assert_eq!(result.inner.session_id, None);
     }
 
     #[test]
