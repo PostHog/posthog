@@ -30,9 +30,9 @@ from django.core import signing
 
 import structlog
 from pydantic import BaseModel, ValidationError
-from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError, SlackClientError
 
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
