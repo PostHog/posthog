@@ -47,16 +47,16 @@ describe('CI report section builders', () => {
             expected: {
                 status: 'fail',
                 summary: 'universal lane',
-                body: 'This PR is assigned to the universal lane. It runs the full suite and will take longer to merge. Ask dev-ex if you think this is wrong.',
+                body: 'This PR is assigned to the universal lane. It cannot merge in parallel with other PRs, so it can take longer to merge. Ask dev-ex if you think this is wrong.',
             },
         },
         {
             name: 'describes the backend Python lane',
-            input: { impactedTargets: ['py:product:surveys', 'fe:product:surveys'], isUniversal: false },
+            input: { impactedTargets: ['py:product:surveys', 'fe:product:<script>'], isUniversal: false },
             expected: {
                 status: 'warn',
                 summary: 'backend Python lane',
-                body: 'Affected targets: `py:product:surveys`, `fe:product:surveys`. This lane runs backend Python tests. Trunk may merge this PR in parallel with PRs that do not share any of these targets.',
+                body: 'This PR is assigned to the backend Python lane. It runs backend Python tests and may merge in parallel with PRs in other lanes.',
             },
         },
         {
@@ -65,7 +65,7 @@ describe('CI report section builders', () => {
             expected: {
                 status: 'ok',
                 summary: 'non-backend lane',
-                body: 'Affected target: `fe:core`. This lane does not run backend Python tests. Trunk may merge this PR in parallel with PRs that do not share this target.',
+                body: 'This PR is assigned to the non-backend lane. It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
             },
         },
     ]) {
