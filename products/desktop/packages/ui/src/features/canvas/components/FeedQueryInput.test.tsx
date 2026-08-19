@@ -59,7 +59,7 @@ describe("FeedQueryInput", () => {
   it("completes a key, then a teammate, into one token", async () => {
     const user = userEvent.setup();
     render(<Harness />);
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
 
     await user.type(input, "cre");
     // The bolded match prefix splits the label across spans, and accessible
@@ -75,7 +75,7 @@ describe("FeedQueryInput", () => {
   it("keeps the negation prefix through a completion", async () => {
     const user = userEvent.setup();
     render(<Harness />);
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
 
     await user.type(input, "-sta");
     await user.keyboard("{Enter}");
@@ -87,7 +87,7 @@ describe("FeedQueryInput", () => {
   it("keeps a not: value negation through a completion", async () => {
     const user = userEvent.setup();
     render(<Harness />);
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
 
     await user.type(input, "status:not:f");
     await user.keyboard("{Enter}");
@@ -109,7 +109,7 @@ describe("FeedQueryInput", () => {
       </Theme>,
     );
 
-    fireEvent.keyDown(screen.getByRole("textbox"), {
+    fireEvent.keyDown(screen.getByRole("combobox"), {
       key: "Enter",
       isComposing: true,
     });
@@ -117,10 +117,29 @@ describe("FeedQueryInput", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("links keyboard selection to the active suggestion", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const input = screen.getByRole("combobox");
+
+    await user.type(input, "s");
+    const listbox = screen.getByRole("listbox", {
+      name: "Query suggestions",
+    });
+    expect(input).toHaveAttribute("aria-expanded", "true");
+    expect(input).toHaveAttribute("aria-controls", listbox.id);
+
+    await user.keyboard("{ArrowDown}");
+    expect(input).toHaveAttribute(
+      "aria-activedescendant",
+      screen.getAllByRole("option")[1].id,
+    );
+  });
+
   it("quotes a suggested value that carries spaces", async () => {
     const user = userEvent.setup();
     render(<Harness initial="space:" />);
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
 
     await user.click(input);
     await user.click(screen.getByRole("option", { name: "desktop app" }));

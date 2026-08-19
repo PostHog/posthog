@@ -12,6 +12,7 @@ import {
   Fragment,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -104,6 +105,9 @@ export function FeedQueryInput({
   openOnFocus?: boolean;
   "aria-label"?: string;
 }) {
+  const generatedId = useId();
+  const inputId = id ?? generatedId;
+  const listboxId = `${inputId}-suggestions`;
   const inputRef = useRef<HTMLInputElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const [caret, setCaret] = useState(0);
@@ -202,8 +206,15 @@ export function FeedQueryInput({
         </div>
         <input
           ref={inputRef}
-          id={id}
+          id={inputId}
+          role="combobox"
           aria-label={ariaLabel}
+          aria-autocomplete="list"
+          aria-expanded={visible}
+          aria-controls={visible ? listboxId : undefined}
+          aria-activedescendant={
+            visible ? `${listboxId}-${highlightedIndex}` : undefined
+          }
           type="text"
           value={value}
           placeholder={placeholder}
@@ -243,12 +254,14 @@ export function FeedQueryInput({
             </div>
           )}
           <div
+            id={listboxId}
             role="listbox"
             aria-label="Query suggestions"
             className="max-h-60 overflow-y-auto px-1 pb-1"
           >
             {suggestions.map((suggestion, index) => (
               <button
+                id={`${listboxId}-${index}`}
                 key={`${context.activeKey ?? "key"}:${suggestion.label}`}
                 type="button"
                 role="option"
