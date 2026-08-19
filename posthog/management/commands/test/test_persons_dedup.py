@@ -10,6 +10,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 
 import psycopg
+from structlog.testing import capture_logs
 
 from posthog.management.commands import persons_dedup as persons_dedup_command
 from posthog.persons_db import persons_db_connection
@@ -83,16 +84,33 @@ def _cleanup(conn: psycopg.Connection) -> None:
         cur.execute("DELETE FROM posthog_person WHERE team_id = %s", (TEAM,))
 
 
-def _add_person(conn: psycopg.Connection, uuid: str, *, properties: str = "{}", version: int = 0) -> int:
+def _add_person(
+    conn: psycopg.Connection,
+    uuid: str,
+    *,
+    properties: str = "{}",
+    version: int = 0,
+    is_identified: bool = False,
+    is_deleted: bool = False,
+) -> int:
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO posthog_person (created_at, properties, team_id, is_identified, uuid, version) "
-            "VALUES (now(), %s::jsonb, %s, false, %s, %s) RETURNING id",
-            (properties, TEAM, uuid, version),
+            "INSERT INTO posthog_person "
+            "(created_at, properties, team_id, is_identified, uuid, version, is_deleted) "
+            "VALUES (now(), %s::jsonb, %s, %s, %s, %s, %s) RETURNING id",
+            (properties, TEAM, is_identified, uuid, version, is_deleted),
         )
         row = cur.fetchone()
     assert row is not None
     return int(row[0])
+
+
+# One duplicate group: an unreferenced orphan plus the live row that must survive.
+def _add_orphan_pair(conn: psycopg.Connection, uuid: str, distinct_id: str) -> int:
+    _add_person(conn, uuid)
+    live = _add_person(conn, uuid)
+    _add_distinct_id(conn, live, distinct_id)
+    return live
 
 
 def _add_distinct_id(conn: psycopg.Connection, person_id: int, distinct_id: str) -> None:
@@ -292,25 +310,71 @@ class TestPersonsDedupDeleteOnly:
         assert _persons(persons_conn) == 1
 
 
+class TestPersonsDedupBatching:
+    # Every other case here stages one or two victims against the default batch size of 500,
+    # so the drain loop only ever runs once. The largest production team stages 436k victims
+    # and runs it ~220 times: a bug in the take/retire cycle -- retiring the wrong rows, or
+    # not truncating the batch table -- would strand most of that team while still reporting
+    # success. These are the only cases where a second populated batch happens at all.
+    def test_drains_every_batch_when_victims_exceed_batch_size(self, persons_conn, tmp_path):
+        for n in range(5):
+            _add_orphan_pair(persons_conn, _uuid(40 + n), f"did-40-{n}")
+        assert _persons(persons_conn) == 10
+
+        _run("delete-unreferenced", tmp_path, apply=True, batch_size=2)
+
+        assert _persons(persons_conn) == 5
+        assert _dup_groups(persons_conn) == 0
+        assert _distinct_ids(persons_conn) == 5
+        backed_up = [json.loads(line) for f in tmp_path.glob("*.jsonl") for line in f.read_text().splitlines()]
+        assert len([r for r in backed_up if r["_kind"] == "person"]) == 5, "every deleted row must be recoverable"
+
+    def test_dry_run_checks_every_batch_not_just_the_first(self, persons_conn, tmp_path):
+        # A dry run that returned after the first batch reported dry_run_batch_ok having
+        # gated batch_size victims out of the whole staged set, which an operator reads as
+        # clearance for the --apply run that follows.
+        for n in range(3):
+            _add_orphan_pair(persons_conn, _uuid(50 + n), f"did-50-{n}")
+
+        with capture_logs() as logs:
+            _run("delete-unreferenced", tmp_path, batch_size=1)
+
+        assert _persons(persons_conn) == 6, "a dry run must delete nothing"
+        assert list(tmp_path.glob("*.jsonl")) == []
+        summary = next(entry for entry in logs if entry["event"] == "persons_dedup.dry_run_ok")
+        assert summary["checked"] == 3
+        assert summary["batches"] == 3
+
+
 class TestPersonsDedupRepair:
-    def test_repairs_the_production_shape(self, persons_conn, tmp_path):
-        # The shape every merge-required group in the production census shared:
-        # one row owns the distinct ID, the other owns a flag override, neither owns both.
+    # The shape every merge-required group in the production census shared: one row owns the
+    # distinct ID, the other owns a flag override, neither owns both. This is also the only
+    # place the two write modes disagree, so both arms are pinned here -- repair takes the
+    # unreachable row and cascades its dead override away, delete-unreferenced refuses it
+    # because the override is a reference. Swapping either staging predicate for the other
+    # silently changes which rows a production run destroys.
+    @pytest.mark.parametrize(
+        "mode,expected_persons,expected_overrides,expected_dup_groups",
+        [
+            ("repair", 1, 0, 0),
+            ("delete-unreferenced", 2, 1, 1),
+        ],
+    )
+    def test_mode_divergence_on_the_production_shape(
+        self, persons_conn, tmp_path, mode, expected_persons, expected_overrides, expected_dup_groups
+    ):
         uuid = _uuid(20)
         live = _add_person(persons_conn, uuid)
         _add_distinct_id(persons_conn, live, "did-20")
         stranded = _add_person(persons_conn, uuid)
         _add_flag_override(persons_conn, stranded, "flag-20")
 
-        _run("repair", tmp_path, apply=True)
+        _run(mode, tmp_path, apply=True)
 
-        assert _dup_groups(persons_conn) == 0
-        assert _persons(persons_conn) == 1
+        assert _persons(persons_conn) == expected_persons
+        assert _flag_overrides(persons_conn) == expected_overrides
+        assert _dup_groups(persons_conn) == expected_dup_groups
         assert _distinct_ids(persons_conn) == 1
-        # The stranded row's override was unreachable (no distinct ID resolves to it),
-        # so cascading it away preserves behaviour. Moving it onto the live person would
-        # instead resurrect dead data and could change that user's flag variant.
-        assert _flag_overrides(persons_conn) == 0
 
     def test_survivor_is_the_distinct_id_owner_even_when_it_is_the_newer_row(self, persons_conn, tmp_path):
         # Production's actual shape: the distinct id points at the NEWER row in every
@@ -417,21 +481,83 @@ class TestPersonsDedupRepair:
         assert _persons(persons_conn) == 2, "the referenced row must be skipped, not deleted"
         assert _dup_groups(persons_conn) == 1
 
+    def test_all_orphan_group_keeps_the_identified_row(self, persons_conn, tmp_path):
+        # 18,508 of the 199,314 EU duplicate groups have no member owning a distinct ID, so
+        # the leading (n_did > 0) term in the survivor ranking cannot break the tie and the
+        # rest of it decides alone. Nothing else exercises that branch, and getting it wrong
+        # discards the richer row while keeping an empty one.
+        uuid = _uuid(28)
+        plain = _add_person(persons_conn, uuid)
+        identified = _add_person(persons_conn, uuid, is_identified=True)
+
+        _run("repair", tmp_path, apply=True)
+
+        assert _persons(persons_conn) == 1
+        survivor = _count(persons_conn, "SELECT id FROM posthog_person WHERE team_id = %s", (TEAM,))
+        assert survivor == identified, "is_identified must outrank the plain row"
+        assert plain != identified
+
+    def test_never_deletes_a_tombstoned_row(self, persons_conn, tmp_path):
+        # is_deleted is a revival marker, not a dead row: the write path reuses it so the
+        # revived key outranks its own ClickHouse tombstone, which needs the version this
+        # row holds. Deleting it would drop that version floor silently.
+        uuid = _uuid(29)
+        live = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, live, "did-29")
+        _add_person(persons_conn, uuid, is_deleted=True)
+
+        _run("repair", tmp_path, apply=True)
+
+        assert _persons(persons_conn) == 2, "the tombstone must be left alone"
+        assert _dup_groups(persons_conn) == 1
+
+    def test_a_tombstone_never_outranks_a_live_row(self, persons_conn, tmp_path):
+        # Neither row owns a distinct ID, so the leading term of the ranking ties and the
+        # tombstone would win on is_identified and version -- making the live row the victim
+        # and deleting the only row of the two that can still be revived into service.
+        uuid = _uuid(33)
+        _add_person(persons_conn, uuid, is_deleted=True, version=99, is_identified=True)
+        live = _add_person(persons_conn, uuid)
+
+        _run("repair", tmp_path, apply=True)
+
+        survivors = _count(
+            persons_conn, "SELECT count(*) FROM posthog_person WHERE team_id = %s AND id = %s", (TEAM, live)
+        )
+        assert survivors == 1, "the live row must outrank a higher-version identified tombstone"
+        assert _persons(persons_conn) == 2, "and the tombstone itself is never staged"
+
 
 class TestPersonsDedupVerify:
-    def test_verify_fails_while_duplicates_remain(self, persons_conn, tmp_path):
-        uuid = _uuid(30)
-        a = _add_person(persons_conn, uuid)
-        b = _add_person(persons_conn, uuid)
-        _add_distinct_id(persons_conn, a, "did-30a")
-        _add_distinct_id(persons_conn, b, "did-30b")
+    def test_verify_fails_while_resolvable_duplicates_remain(self, persons_conn, tmp_path):
+        # An orphan repair would have taken: work is genuinely outstanding.
+        _add_orphan_pair(persons_conn, _uuid(30), "did-30")
 
-        with pytest.raises(CommandError, match="duplicate group"):
+        with pytest.raises(CommandError, match="resolvable duplicate group"):
             _run("verify", tmp_path)
 
+    def test_verify_accepts_a_remainder_only_this_command_cannot_resolve(self, persons_conn, tmp_path):
+        # Both rows own a distinct ID, so this needs a real person merge -- a separate
+        # workstream. Raising here made verify useless as a release gate on exactly the
+        # teams that have such groups, because its failure was indistinguishable from
+        # "the dedup run did not finish".
+        uuid = _uuid(31)
+        a = _add_person(persons_conn, uuid)
+        b = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, a, "did-31a")
+        _add_distinct_id(persons_conn, b, "did-31b")
+
+        with capture_logs() as logs:
+            _run("verify", tmp_path)
+
+        result = next(entry for entry in logs if entry["event"] == "persons_dedup.verify")
+        assert result["duplicate_groups"] == 1
+        assert result["blocked_groups"] == 1
+        assert result["resolvable_groups"] == 0
+
     def test_verify_passes_once_clean(self, persons_conn, tmp_path):
-        person = _add_person(persons_conn, _uuid(31))
-        _add_distinct_id(persons_conn, person, "did-31")
+        person = _add_person(persons_conn, _uuid(32))
+        _add_distinct_id(persons_conn, person, "did-32")
 
         _run("verify", tmp_path)
 

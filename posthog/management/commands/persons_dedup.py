@@ -41,12 +41,21 @@ reading dependents before the lock would let a row appear afterwards, cascade aw
 never reach the backup. Writing before the delete means a rolled back transaction leaves
 a harmless superset, and a deleted row can never be missing. Copy that file off the pod;
 it is the only undo.
+
+TOMBSTONES
+
+A row with is_deleted = true is a tombstone, not a dead row: the write path revives it in
+place so the revived key outranks its own ClickHouse tombstone, which needs the version
+this row is holding. Deleting one would drop that version floor, so tombstoned rows are
+never staged, and they lose the survivor ranking to any live member of their group. That
+leaves a group of only tombstoned rows unresolved, which verify reports rather than hides.
+No production team can be in that state yet -- every is_deleted writer is gated on a team
+allowlist that is only enabled where the unique (team_id, uuid) index already exists.
 """
 
 from __future__ import annotations
 
 import os
-import csv
 import json
 import time
 from datetime import UTC, datetime
@@ -92,7 +101,7 @@ WITH dups AS (
     GROUP BY team_id, uuid HAVING count(*) > 1
 ),
 members AS (
-    SELECT p.team_id, p.uuid, p.id, p.version, p.is_identified, p.created_at,
+    SELECT p.team_id, p.uuid, p.id, p.version, p.is_identified, p.created_at, p.is_deleted,
            (SELECT count(*) FROM posthog_persondistinctid pdi
              WHERE pdi.team_id = p.team_id AND pdi.person_id = p.id) AS n_did,
            (SELECT count(*) FROM posthog_cohortpeople cp
@@ -112,10 +121,21 @@ ranked AS (
     SELECT *,
            row_number() OVER (
                PARTITION BY team_id, uuid
-               ORDER BY (n_did > 0) DESC, refs DESC, is_identified DESC,
+               ORDER BY is_deleted ASC, (n_did > 0) DESC, refs DESC, is_identified DESC,
                         version DESC NULLS LAST, created_at ASC, id ASC
            ) AS rn
     FROM scored
+),
+-- One row per duplicate group, in the terms the staging queries below use, so
+-- classify and verify report exactly what repair will and will not resolve.
+per_group AS (
+    SELECT uuid,
+           count(*) AS members,
+           count(*) FILTER (WHERE n_did > 0) AS live_owners,
+           count(*) FILTER (
+               WHERE rn > 1 AND n_did = 0 AND n_recon = 0 AND NOT is_deleted
+           ) AS stageable
+    FROM ranked GROUP BY uuid
 )
 """
 
@@ -132,6 +152,8 @@ SELECT
                             HAVING count(*) FILTER (WHERE refs > 0) > 1) x),
     (SELECT count(*) FROM (SELECT uuid FROM ranked GROUP BY uuid
                             HAVING count(*) FILTER (WHERE n_did > 0) > 1) x),
+    (SELECT count(*) FROM per_group WHERE live_owners > 1 OR members - stageable > 1),
+    (SELECT count(*) FROM ranked WHERE is_deleted),
     COALESCE(sum(n_did), 0), COALESCE(sum(n_cohort), 0), COALESCE(sum(n_ff), 0),
     COALESCE(sum(n_recon), 0)
 FROM ranked
@@ -143,7 +165,7 @@ STAGE_UNREFERENCED_SQL = (
     _MEMBERS_CTE
     + f"""
 INSERT INTO {VICTIMS_TABLE} (team_id, id, uuid)
-SELECT team_id, id, uuid FROM ranked WHERE rn > 1 AND refs = 0
+SELECT team_id, id, uuid FROM ranked WHERE rn > 1 AND refs = 0 AND NOT is_deleted
 """
 )
 
@@ -159,8 +181,22 @@ SELECT team_id, id, uuid FROM ranked
 WHERE rn > 1
   AND n_did = 0
   AND n_recon = 0
+  AND NOT is_deleted
   AND uuid IN (SELECT uuid FROM ranked GROUP BY uuid
                 HAVING count(*) FILTER (WHERE n_did > 0) <= 1)
+"""
+)
+
+# Groups repair cannot resolve, counted the way the staging query above decides: a group
+# with two live distinct-ID owners needs a real person merge, and a group that keeps more
+# than one member after every stageable victim is removed is held by something else
+# (reconciliation backup, or a tombstone this command deliberately will not touch).
+# verify uses this to tell "dedup is incomplete" from "this is the remainder we accept".
+COUNT_BLOCKED_SQL = (
+    _MEMBERS_CTE
+    + """
+SELECT count(*), count(*) FILTER (WHERE live_owners > 1 OR members - stageable > 1)
+FROM per_group
 """
 )
 
@@ -172,6 +208,25 @@ SELECT team_id, id, uuid FROM {VICTIMS_TABLE} ORDER BY uuid, id LIMIT %(batch)s
 RETIRE_BATCH_SQL = f"""
 DELETE FROM {VICTIMS_TABLE} v USING {VICTIMS_TABLE}_batch b
 WHERE v.team_id = b.team_id AND v.id = b.id
+"""
+
+# Drop from the staged set the batch members a concurrent writer made undeletable: one that
+# gained a reference since staging, or one that no longer exists because something else
+# removed it. Aborting the whole run instead would discard a staging scan that costs minutes
+# on the large teams, and on a team still receiving writes it can prevent the run finishing
+# at all. Only the staged set is touched -- no person row is modified.
+PRUNE_BATCH_SQL = f"""
+DELETE FROM {VICTIMS_TABLE} v
+USING {VICTIMS_TABLE}_batch b
+WHERE v.team_id = b.team_id AND v.id = b.id
+  AND (
+      NOT EXISTS (SELECT 1 FROM posthog_person p
+                   WHERE p.team_id = v.team_id AND p.id = v.id)
+   OR EXISTS (SELECT 1 FROM posthog_persondistinctid pdi
+               WHERE pdi.team_id = v.team_id AND pdi.person_id = v.id)
+   OR EXISTS (SELECT 1 FROM posthog_person_reconciliation_backup rb
+               WHERE rb.team_id = v.team_id AND rb.person_id = v.id)
+  )
 """
 
 # The load-bearing assertion. A victim owning a distinct ID is reachable, so deleting it
@@ -419,7 +474,9 @@ class Command(BaseCommand):
             row = cur.fetchone()
             cur.execute("COMMIT")
         assert row is not None
-        groups, orphaned, one_ref, needs_merge, multi_did, dids, cohort, ff, recon = (int(v) for v in row)
+        groups, orphaned, one_ref, needs_merge, multi_did, blocked, tombstoned, dids, cohort, ff, recon = (
+            int(v) for v in row
+        )
         logger.info(
             "persons_dedup.classify",
             team_id=team,
@@ -428,6 +485,10 @@ class Command(BaseCommand):
             one_referenced=one_ref,
             needs_merge=needs_merge,
             groups_with_distinct_ids_on_multiple_rows=multi_did,
+            # What repair will leave behind, and therefore what a passing verify accepts.
+            blocked_groups=blocked,
+            resolvable_groups=groups - blocked,
+            tombstoned_members=tombstoned,
             distinct_ids=dids,
             cohort_rows=cohort,
             flag_overrides=ff,
@@ -437,6 +498,8 @@ class Command(BaseCommand):
             logger.warning("persons_dedup.needs_real_merge", team_id=team, groups=multi_did)
         if recon:
             logger.warning("persons_dedup.reconciliation_backup_references", team_id=team, recon=recon)
+        if tombstoned:
+            logger.warning("persons_dedup.tombstoned_members_skipped", team_id=team, members=tombstoned)
 
     def _verify(self, conn: psycopg.Connection, team: int) -> None:
         with conn.cursor() as cur:
@@ -446,12 +509,32 @@ class Command(BaseCommand):
             dups_row = cur.fetchone()
             cur.execute(VERIFY_ORPHANS_SQL, {"team": team})
             orphans_row = cur.fetchone()
+            cur.execute(COUNT_BLOCKED_SQL, {"team": team})
+            blocked_row = cur.fetchone()
             cur.execute("COMMIT")
         dups = int(dups_row[0]) if dups_row else 0
         orphans = int(orphans_row[0]) if orphans_row else 0
-        logger.info("persons_dedup.verify", team_id=team, duplicate_groups=dups, orphaned_distinct_ids=orphans)
-        if dups or orphans:
-            raise CommandError(f"team {team}: {dups} duplicate group(s), {orphans} orphaned distinct id(s)")
+        blocked = int(blocked_row[1]) if blocked_row else 0
+        resolvable = dups - blocked
+        logger.info(
+            "persons_dedup.verify",
+            team_id=team,
+            duplicate_groups=dups,
+            blocked_groups=blocked,
+            resolvable_groups=resolvable,
+            orphaned_distinct_ids=orphans,
+        )
+        # Exiting non-zero on any remaining group made this unusable as a gate on the teams
+        # that matter: the merge-required remainder is expected and is a separate workstream,
+        # so a run that leaves only those has done everything this command can do. Only
+        # groups repair could still resolve, or orphaned mappings, are a failure.
+        if resolvable or orphans:
+            raise CommandError(
+                f"team {team}: {resolvable} resolvable duplicate group(s), "
+                f"{orphans} orphaned distinct id(s); {blocked} group(s) need a real merge"
+            )
+        if blocked:
+            logger.warning("persons_dedup.blocked_remainder", team_id=team, groups=blocked)
 
     def _run(
         self,
@@ -502,7 +585,13 @@ class Command(BaseCommand):
         backup_path = outdir / f"deleted_team_{team}_{mode}_{stamp}.jsonl"
 
         deleted = 0
+        checked = 0
         batches = 0
+        pruned_total = 0
+        # A live-leak team can make a staged victim reachable mid-run, which is expected and
+        # is handled per batch below. A large share going that way is not expected and means
+        # the staging query and the gate disagree, so stop rather than grind through the set.
+        prune_budget = max(20, staged // 100)
         while True:
             with conn.cursor() as cur:
                 cur.execute(f"TRUNCATE {VICTIMS_TABLE}_batch")
@@ -525,8 +614,13 @@ class Command(BaseCommand):
                 )
 
             if not apply_changes:
-                logger.info("persons_dedup.dry_run_batch_ok", team_id=team, victims=in_batch)
-                return
+                # Retire the batch and continue rather than returning: a dry run that stops
+                # after one batch gates --batch-size victims out of the whole staged set and
+                # still reports success, which on the large teams is a fraction of a percent.
+                checked += in_batch
+                with conn.cursor() as cur:
+                    cur.execute(RETIRE_BATCH_SQL)
+                continue
 
             with conn.cursor() as cur:
                 cur.execute("BEGIN")
@@ -541,14 +635,42 @@ class Command(BaseCommand):
                 locked = cur.rowcount
                 # Re-check inside the transaction: these teams still receive writes, and a
                 # concurrent insert could have made a victim reachable since the pre-flight.
+                # Both gates are re-checked, not just reachability, so the failure message
+                # below describes what was actually verified.
                 cur.execute(GATE_REACHABLE_SQL)
                 gate_row = cur.fetchone()
-                if locked != in_batch or (gate_row and gate_row[0]):
+                cur.execute(GATE_NO_SURVIVOR_SQL)
+                survivor_row = cur.fetchone()
+                now_reachable = int(gate_row[0]) if gate_row else 0
+                now_emptied = int(survivor_row[0]) if survivor_row else 0
+                if locked != in_batch or now_reachable or now_emptied:
                     cur.execute("ROLLBACK")
-                    raise CommandError(
-                        f"in-transaction gate failed for team {team} "
-                        f"(locked {locked}/{in_batch}, reachable {gate_row[0] if gate_row else '?'}); rolled back"
+                    logger.warning(
+                        "persons_dedup.batch_raced",
+                        team_id=team,
+                        batch=batches,
+                        locked=locked,
+                        staged=in_batch,
+                        reachable=now_reachable,
+                        would_empty=now_emptied,
                     )
+                    pruned = self._prune_batch(conn)
+                    pruned_total += pruned
+                    # Nothing pruned means the gate failed for a reason this does not
+                    # explain, and the next iteration would take the same batch forever.
+                    if pruned == 0:
+                        raise CommandError(
+                            f"in-transaction gate failed for team {team} "
+                            f"(locked {locked}/{in_batch}, reachable {now_reachable}, "
+                            f"would empty {now_emptied}) and no victim was prunable; rolled back"
+                        )
+                    if pruned_total > prune_budget:
+                        raise CommandError(
+                            f"team {team}: {pruned_total} victim(s) became unresolvable mid-run, "
+                            f"over the {prune_budget} budget; staging and the gate disagree. "
+                            f"{deleted} row(s) already deleted, rerun to resume"
+                        )
+                    continue
 
                 # Back up after the lock, not before it. An insert into
                 # posthog_featureflaghashkeyoverride takes FOR KEY SHARE on the parent
@@ -598,9 +720,26 @@ class Command(BaseCommand):
                 time.sleep(options["sleep_ms"] / 1000.0)
             logger.info("persons_dedup.batch_done", team_id=team, batch=batches, deleted=removed, total=deleted)
 
+        if not apply_changes:
+            logger.info(
+                "persons_dedup.dry_run_ok", team_id=team, mode=mode, batches=batches, checked=checked, staged=staged
+            )
+            return
+
         logger.info(
-            "persons_dedup.done", team_id=team, mode=mode, batches=batches, deleted=deleted, backup=str(backup_path)
+            "persons_dedup.done",
+            team_id=team,
+            mode=mode,
+            batches=batches,
+            deleted=deleted,
+            pruned=pruned_total,
+            backup=str(backup_path),
         )
+
+    def _prune_batch(self, conn: psycopg.Connection) -> int:
+        with conn.cursor() as cur:
+            cur.execute(PRUNE_BATCH_SQL)
+            return cur.rowcount
 
     def _backup(self, conn: psycopg.Connection, team: int, path: Path) -> int:
         """Write victims and their dependent rows to JSONL, fsync'd, before any delete.
@@ -628,13 +767,3 @@ class Command(BaseCommand):
             fh.flush()
             os.fsync(fh.fileno())
         return len(persons)
-
-
-def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    """Helper for operators collating classify output across many teams."""
-    if not rows:
-        return
-    with path.open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
-        writer.writeheader()
-        writer.writerows(rows)
