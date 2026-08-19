@@ -64,6 +64,7 @@ from posthog.rate_limit import (
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
+from posthog.temporal.common.client import TemporalConnectionError
 
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
@@ -3129,6 +3130,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             trigger_external_data_source_workflow(instance)
 
+        except TemporalConnectionError as e:
+            # Temporal is unreachable (transient network or DNS problem). The source is unchanged,
+            # so ask the caller to retry instead of returning a confusing 500.
+            logger.warning("Could not reach Temporal to reload external data source", exc_info=e)
+            return Response(
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                data={"message": "Could not reach the sync scheduler. Please try again in a moment."},
+            )
+
         except temporalio.service.RPCError:
             # if the source schedule has been removed - trigger the schema schedules
             instance.reload_schemas()
@@ -5423,6 +5433,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         for action_schema, post_commit_action in post_commit_actions:
             try:
                 post_commit_action()
+            except TemporalConnectionError as e:
+                # Temporal was briefly unreachable. The schema row is saved and keeps its old
+                # cadence until the next reload. Record the drift, but do not fail a successful save
+                # over a transient blip — a real schedule failure below still fails the request.
+                capture_exception(e)
+                logger.warning(
+                    "bulk_update_schemas saved the schema but could not reach Temporal to update its schedule",
+                    source_id=str(source.id),
+                    schema_id=str(action_schema.id),
+                    exc_info=e,
+                )
             except Exception as e:
                 # The row is already committed but its schedule still runs the old cadence. Capture +
                 # log every failure (with the schema id) so the drift is visible, and remember it so

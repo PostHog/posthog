@@ -14,7 +14,7 @@ from temporalio.client import Client, WorkflowExecutionStatus
 
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import TemporalConnectionError, sync_connect
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import update_external_job_status
@@ -292,7 +292,10 @@ def _describe_holder_workflow(
             holder_run_id=holder_run_id,
             error=str(e),
         )
-        capture_exception(e)
+        # A transient Temporal connect blip is expected and self-healing, so capturing it only adds
+        # noise. Any other describe failure is worth a look. Either way we fail closed below.
+        if not isinstance(e, TemporalConnectionError):
+            capture_exception(e)
         return HolderWorkflowDescription(status=None, job=None, status_is_assumed=False)
 
 

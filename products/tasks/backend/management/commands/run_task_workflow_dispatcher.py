@@ -88,7 +88,9 @@ class Command(BaseCommand):
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
-        client = await async_connect()
+        client = await self._connect(stop)
+        if client is None:
+            return
         Path("/tmp/dispatcher-ready").touch()
         semaphore = asyncio.Semaphore(settings.TASKS_DISPATCHER_CONCURRENCY)
         lease = timedelta(seconds=settings.TASKS_DISPATCHER_LEASE_SECONDS)
@@ -134,6 +136,22 @@ class Command(BaseCommand):
             stop.set()
             await renewer
             await sync_to_async(release_claims)(instance_id)
+
+    async def _connect(self, stop: asyncio.Event) -> Client | None:
+        # The durable outbox must survive a transient DNS or network blip at startup. async_connect
+        # already retries a short burst; keep retrying past that so a longer blip during a deploy
+        # does not crash the process before it reaches the ready sentinel. Returns None if a stop
+        # signal arrives first.
+        while not stop.is_set():
+            try:
+                return await async_connect()
+            except Exception:
+                logger.exception("Task workflow dispatcher could not connect to Temporal, retrying")
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=settings.TASKS_DISPATCHER_POLL_INTERVAL_SECONDS)
+                except TimeoutError:
+                    pass
+        return None
 
     async def _renew(self, instance_id: str, dispatch_ids: set[object], lease: timedelta, stop: asyncio.Event) -> None:
         while not stop.is_set():

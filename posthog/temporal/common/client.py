@@ -1,3 +1,6 @@
+import random
+import asyncio
+import logging
 import dataclasses
 import collections.abc
 from typing import Any
@@ -12,6 +15,21 @@ from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.runtime import Runtime
 
 from posthog.temporal.common.codec import EncryptionCodec
+
+logger = logging.getLogger(__name__)
+
+# A transient DNS or network blip makes Temporal's `Client.connect` raise a plain RuntimeError
+# ("Temporary failure in name resolution", "Name or service not known"). Without a retry that
+# error reaches every Django, Celery, CLI, and worker caller. Retry a few times with backoff so a
+# blip clears itself; a real outage still raises after the attempts run out.
+CONNECT_MAX_ATTEMPTS = 4
+CONNECT_INITIAL_BACKOFF_SECONDS = 0.5
+CONNECT_BACKOFF_MULTIPLIER = 2.0
+
+
+class TemporalConnectionError(RuntimeError):
+    """Raised when connecting to Temporal fails after retries. Lets callers tell a transient
+    network or DNS problem apart from a workflow or schedule error."""
 
 
 async def connect(
@@ -56,16 +74,39 @@ async def connect(
     if add_otel_tracing_interceptor:
         interceptors.append(temporalio.contrib.opentelemetry.TracingInterceptor())
 
-    client = await Client.connect(
-        f"{host}:{port}",
-        namespace=namespace,
-        tls=tls,
-        runtime=runtime,
-        interceptors=interceptors,
-        data_converter=data_converter,
-        plugins=list(plugins),
-    )
-    return client
+    last_error: Exception | None = None
+    backoff = CONNECT_INITIAL_BACKOFF_SECONDS
+    for attempt in range(1, CONNECT_MAX_ATTEMPTS + 1):
+        try:
+            return await Client.connect(
+                f"{host}:{port}",
+                namespace=namespace,
+                tls=tls,
+                runtime=runtime,
+                interceptors=interceptors,
+                data_converter=data_converter,
+                plugins=list(plugins),
+            )
+        except (RuntimeError, OSError) as error:
+            last_error = error
+            if attempt == CONNECT_MAX_ATTEMPTS:
+                break
+            # Jitter spreads reconnects so callers do not retry in lockstep after a shared blip.
+            delay = backoff * (1 + random.random())
+            logger.warning(
+                "Temporal connect failed (attempt %s/%s), retrying in %.2fs: %s",
+                attempt,
+                CONNECT_MAX_ATTEMPTS,
+                delay,
+                error,
+            )
+            await asyncio.sleep(delay)
+            backoff *= CONNECT_BACKOFF_MULTIPLIER
+
+    assert last_error is not None
+    raise TemporalConnectionError(
+        f"Could not connect to Temporal at {host}:{port} after {CONNECT_MAX_ATTEMPTS} attempts"
+    ) from last_error
 
 
 @async_to_sync
