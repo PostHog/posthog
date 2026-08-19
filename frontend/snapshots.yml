@@ -8088,6 +8088,18 @@ snapshots:
         hash: v1.k794b7964.924843ea467d84943495cc8a3056c6f469da31ea69ed097cb485f6348410f77e.qyTPRNCs1NnpxcMQ3t1SthuCpSr4_HIXQXDtWL-QdwQ
     scenes-other-billing-billinglinegraph--with-marker-at-range-start--light:
         hash: v1.k794b7964.5948fea6ef855d327f6d59f1ed10eb3fd55808540eda078bee5fed552523a4c0.FTXekbDFuL1YE5ad9VyyBtq5lOBiNalah41lHdISQOE
+    scenes-other-billing-desktopusagebreakdown--no-usage--dark:
+        hash: v1.k794b7964.c4a269e9294e2a91457f55f61c92fd7a2be76bd01697be8110a6a521ffe4e259.zVql89Qrf4TpYEZLsF8P0YBEmeSWfjWu3ug_Vn05TNE
+    scenes-other-billing-desktopusagebreakdown--no-usage--light:
+        hash: v1.k794b7964.52c84b283c7c7a66a3dff631676a4f38f2638ae40797d521b026c0af162ae865.EtK9KPsvnlS8w6lGGNaBV5xFWxySGm5viXNk9JWHegA
+    scenes-other-billing-desktopusagebreakdown--resources-unavailable--dark:
+        hash: v1.k794b7964.8dffd1fbfec28d0acf7f1cfacac16498ccefbea6cf0a36fe95b3bff9298a38f9.8OOExOg6aw4wbIPCEB25pSMwoMC4eqFt1KIZiyDD2zE
+    scenes-other-billing-desktopusagebreakdown--resources-unavailable--light:
+        hash: v1.k794b7964.cee76c88340ad14f6123d80e03faa8b0fa30cd8229a8a1f3f882bfdd2f5fbe4a.HoHDeKm6rYX-Sl3uPkZo1mstXYtwF-bMWHMMbcUSAoM
+    scenes-other-billing-desktopusagebreakdown--usage-mix--dark:
+        hash: v1.k794b7964.2c28449c679f7e5e89ec05fd6d681ddebbf9b031102a88ab08cd975e555b919f.YK_K1fOZZ8wYf8qvJlLRXZuKd31GnNaEhiKJOm0hci0
+    scenes-other-billing-desktopusagebreakdown--usage-mix--light:
+        hash: v1.k794b7964.a78b7addf891aa84f730a810d99c8e34c048b49fd8a489e755ed064cb64ebe68.ssx9pdKw8PVqxdqpUcP7LZ-9gNLa11vNHRoy6Uzg94Q
     scenes-other-billing-product--billing-product-inclusion-only-with-addon--dark:
         hash: v1.k794b7964.ce05ab37980f7fc148ea8681fee7b0eeb1f046266e8a7df22fbfc5cc8cefb8e7.hjk8pf9SicO_kBVjVXooUrPaBUj_76AzOPVXuwydGkE
     scenes-other-billing-product--billing-product-inclusion-only-with-addon--light:
