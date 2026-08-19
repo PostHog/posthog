@@ -1678,6 +1678,11 @@ function isStreamUpdateEvent(acpMsg: AcpMessage): boolean {
   return update?.sessionUpdate !== "config_option_update";
 }
 
+interface SessionEventHandlingOptions {
+  appendedInBatch?: boolean;
+  promptStateUpdatedInBatch?: boolean;
+}
+
 export class SessionService {
   private connectingTasks = new Map<string, Promise<void>>();
   private reconcilingTasks = new Set<string>();
@@ -2732,16 +2737,7 @@ export class SessionService {
   private lastAgentTextAt = new Map<string, number>();
 
   private enqueueSessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
-    this.hostEndedResubscribes.delete(taskRunId);
-    this.lastSessionEventAt.set(taskRunId, Date.now());
-    this.silenceLogged.delete(taskRunId);
-    this.ensureSilenceCheck();
-    const stats = this.statsFor(taskRunId);
-    stats.received += 1;
-    stats.lastMethod = describeAcpMethod(acpMsg);
-    if (isAgentTextStreamEvent(acpMsg)) {
-      this.lastAgentTextAt.set(taskRunId, Date.now());
-    }
+    this.recordSessionEventArrival(taskRunId, acpMsg);
     const buffered = this.pendingSessionEvents.get(taskRunId);
     if (buffered) {
       buffered.push(acpMsg);
@@ -2753,6 +2749,22 @@ export class SessionService {
         this.sessionEventFlushHandle = null;
         this.flushSessionEvents();
       }, SESSION_EVENT_FLUSH_MS);
+    }
+  }
+
+  private recordSessionEventArrival(
+    taskRunId: string,
+    acpMsg: AcpMessage,
+  ): void {
+    this.hostEndedResubscribes.delete(taskRunId);
+    this.lastSessionEventAt.set(taskRunId, Date.now());
+    this.silenceLogged.delete(taskRunId);
+    this.ensureSilenceCheck();
+    const stats = this.statsFor(taskRunId);
+    stats.received += 1;
+    stats.lastMethod = describeAcpMethod(acpMsg);
+    if (isAgentTextStreamEvent(acpMsg)) {
+      this.lastAgentTextAt.set(taskRunId, Date.now());
     }
   }
 
@@ -2780,8 +2792,16 @@ export class SessionService {
    * frozen with nothing in the log. Log it, count it, keep going.
    */
   private applySessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
+    this.applySessionEventWithOptions(taskRunId, acpMsg);
+  }
+
+  private applySessionEventWithOptions(
+    taskRunId: string,
+    acpMsg: AcpMessage,
+    options: SessionEventHandlingOptions = {},
+  ): void {
     try {
-      this.handleSessionEvent(taskRunId, acpMsg);
+      this.handleSessionEvent(taskRunId, acpMsg, options);
     } catch (error) {
       this.recordSessionEventFailure(taskRunId, acpMsg, error);
     }
@@ -2839,6 +2859,12 @@ export class SessionService {
             passive.at(-1) ?? passive[0],
             error,
           );
+        }
+        for (const event of passive) {
+          this.applySessionEventWithOptions(taskRunId, event, {
+            appendedInBatch: true,
+            promptStateUpdatedInBatch: true,
+          });
         }
       }
       passive = [];
@@ -3020,8 +3046,9 @@ export class SessionService {
           if (isStreamUpdateEvent(event)) {
             this.enqueueSessionEvent(taskRunId, event);
           } else {
+            this.recordSessionEventArrival(taskRunId, event);
             this.flushSessionEventsForTask(taskRunId);
-            this.handleSessionEvent(taskRunId, event);
+            this.applySessionEvent(taskRunId, event);
           }
         },
         onError: (err) => {
@@ -3467,7 +3494,11 @@ export class SessionService {
     return turnStart > 0 && spokeAt >= turnStart;
   }
 
-  private handleSessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
+  private handleSessionEvent(
+    taskRunId: string,
+    acpMsg: AcpMessage,
+    options: SessionEventHandlingOptions = {},
+  ): void {
     const session = this.d.store.getSessions()[taskRunId];
     if (!session) return;
 
@@ -3477,21 +3508,29 @@ export class SessionService {
 
     // Once the agent starts responding, clear initialPrompt so that
     // retry reconnects to this session instead of creating a new one.
-    if (!isUserPromptEcho && session.initialPrompt?.length) {
+    if (
+      !options.appendedInBatch &&
+      !isUserPromptEcho &&
+      session.initialPrompt?.length
+    ) {
       this.d.store.updateSession(taskRunId, {
         initialPrompt: undefined,
       });
     }
 
-    if (isUserPromptEcho && !this.isSteerMessage(acpMsg.message)) {
-      this.d.store.replaceOptimisticWithEvent(taskRunId, acpMsg);
-    } else {
-      this.d.store.appendEvents(taskRunId, [acpMsg]);
+    if (!options.appendedInBatch) {
+      if (isUserPromptEcho && !this.isSteerMessage(acpMsg.message)) {
+        this.d.store.replaceOptimisticWithEvent(taskRunId, acpMsg);
+      } else {
+        this.d.store.appendEvents(taskRunId, [acpMsg]);
+      }
     }
     const turnStartedAtTs =
       this.liveTurnContent.get(taskRunId)?.startedAtTs ??
       session.promptStartedAt;
-    this.updatePromptStateFromEvents(taskRunId, [acpMsg], { isLive: true });
+    if (!options.promptStateUpdatedInBatch) {
+      this.updatePromptStateFromEvents(taskRunId, [acpMsg], { isLive: true });
+    }
 
     const msg = acpMsg.message;
 

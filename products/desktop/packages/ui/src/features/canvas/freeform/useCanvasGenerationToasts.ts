@@ -134,7 +134,7 @@ export function useCanvasGenerationToasts(): void {
       .map((id) => {
         const runId = state.taskIdIndex[id];
         const session = runId ? state.sessions[runId] : undefined;
-        return `${id}:${session?.status ?? ""}:${session?.cloudStatus ?? ""}:${session?.isPromptPending ? 1 : 0}`;
+        return `${id}:${session?.taskRunId ?? ""}:${session?.status ?? ""}:${session?.isCloud ? 1 : 0}:${session?.cloudStatus ?? ""}:${session?.isPromptPending ? 1 : 0}:${session?.agentIdleForRunId ?? ""}`;
       })
       .join("|"),
   );

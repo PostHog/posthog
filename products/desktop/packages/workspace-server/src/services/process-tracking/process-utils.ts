@@ -120,8 +120,16 @@ export function killUnixProcessTrees(
     if (tree.length === 0) missingRootPids.push(pid);
     return tree;
   });
+  const orphanedGroupMembers = missingRootPids.flatMap((pid) =>
+    initialProcesses.filter((entry) => entry.pgid === pid),
+  );
   const originalTree = Array.from(
-    new Map(trees.flat().map((entry) => [entry.pid, entry])).values(),
+    new Map(
+      [...trees.flat(), ...orphanedGroupMembers].map((entry) => [
+        entry.pid,
+        entry,
+      ]),
+    ).values(),
   );
   if (originalTree.length === 0 || ownPgid === undefined) {
     deps.signal(
@@ -131,10 +139,12 @@ export function killUnixProcessTrees(
     return;
   }
 
-  const targets = [
-    ...missingRootPids.flatMap((pid) => [-pid, pid]),
-    ...findMatchingProcessTargets(originalTree, initialProcesses, ownPgid),
-  ];
+  const targets = Array.from(
+    new Set([
+      ...missingRootPids.flatMap((pid) => [-pid, pid]),
+      ...findMatchingProcessTargets(originalTree, initialProcesses, ownPgid),
+    ]),
+  );
   deps.signal(targets, "SIGTERM");
   deps.schedule(() => {
     deps.signal(

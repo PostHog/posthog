@@ -179,6 +179,7 @@ export function cachedDiffStats(
 
 export interface CloudEventSummary {
   toolCalls: Map<string, ParsedToolCall>;
+  changedFiles: ChangedFile[];
   revision: number;
   changedFilesRevision: number;
 }
@@ -248,21 +249,6 @@ function applyCloudEvent(
   };
 }
 
-/**
- * Single-pass extraction of tool calls from events.
- */
-export function buildCloudEventSummary(
-  events: AcpMessage[],
-): CloudEventSummary {
-  const toolCalls = new Map<string, ParsedToolCall>();
-
-  for (const event of events) {
-    applyCloudEvent(toolCalls, event);
-  }
-
-  return { toolCalls, revision: 0, changedFilesRevision: 0 };
-}
-
 export function createCloudEventSummaryTracker(): {
   update(events: AcpMessage[]): CloudEventSummary;
 } {
@@ -274,8 +260,11 @@ export function createCloudEventSummaryTracker(): {
 
   let projectedState: TrackerState | undefined;
   let projectedRevision = -1;
+  let projectedChangedFilesRevision = -1;
+  let projectedChangedFiles: ChangedFile[] = [];
   let projectedResult: CloudEventSummary = {
     toolCalls: new Map(),
+    changedFiles: [],
     revision: 0,
     changedFilesRevision: 0,
   };
@@ -292,11 +281,16 @@ export function createCloudEventSummaryTracker(): {
       if (change.changedFilesChanged) state.changedFilesRevision++;
     },
     getResult: (state) => {
+      if (state.changedFilesRevision !== projectedChangedFilesRevision) {
+        projectedChangedFilesRevision = state.changedFilesRevision;
+        projectedChangedFiles = extractCloudToolChangedFiles(state.toolCalls);
+      }
       if (state !== projectedState || state.revision !== projectedRevision) {
         projectedState = state;
         projectedRevision = state.revision;
         projectedResult = {
-          toolCalls: state.toolCalls,
+          toolCalls: new Map(state.toolCalls),
+          changedFiles: projectedChangedFiles,
           revision: state.revision,
           changedFilesRevision: state.changedFilesRevision,
         };

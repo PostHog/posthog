@@ -77,6 +77,42 @@ function configOptionUpdate(): AcpMessage {
   } as unknown as AcpMessage;
 }
 
+function usageUpdate(used: number, size: number): AcpMessage {
+  return {
+    ts: 4,
+    message: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: RUN_ID,
+        update: { sessionUpdate: "usage_update", used, size },
+      },
+    },
+  } as unknown as AcpMessage;
+}
+
+function completedSpeechToolCall(): AcpMessage {
+  return {
+    ts: 5,
+    message: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: RUN_ID,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "speak-1",
+          status: "completed",
+          _meta: {
+            claudeCode: { toolName: "mcp__posthog-code-tools__speak" },
+          },
+          rawInput: { text: "Finished the task", kind: "done" },
+        },
+      },
+    },
+  } as unknown as AcpMessage;
+}
+
 function createHarness() {
   const sessions: Record<string, AgentSession> = {
     [RUN_ID]: {
@@ -127,6 +163,8 @@ function createHarness() {
   };
 
   const notifyPromptComplete = vi.fn();
+  const enqueueSpeech = vi.fn();
+  const setPersistedConfigOptions = vi.fn();
   const deps = {
     store,
     log: noopLog,
@@ -146,10 +184,10 @@ function createHarness() {
         );
       }
     },
-    enqueueSpeech: vi.fn(),
+    enqueueSpeech,
     taskViewedApi: { markActivity: vi.fn() },
     getPersistedConfigOptions: () => undefined,
-    setPersistedConfigOptions: vi.fn(),
+    setPersistedConfigOptions,
     trpc: {
       agent: {
         onSessionEvent: {
@@ -182,11 +220,13 @@ function createHarness() {
   return {
     service,
     appendEvents,
+    enqueueSpeech,
     notifyPromptComplete,
-    setPersistedConfigOptions: deps.setPersistedConfigOptions,
+    setPersistedConfigOptions,
     updateSession: store.updateSession,
     emit: (event: AcpMessage) => onEvent?.(event),
     events: () => sessions[RUN_ID].events,
+    session: () => sessions[RUN_ID],
   };
 }
 
@@ -268,6 +308,31 @@ describe("streamed event batching", () => {
     expect(h.appendEvents).toHaveBeenCalledOnce();
   });
 
+  it("applies context usage from a batched update", () => {
+    const h = createHarness();
+
+    h.emit(usageUpdate(25, 100));
+    vi.advanceTimersByTime(FLUSH_MS);
+
+    expect(h.session()).toMatchObject({ contextUsed: 25, contextSize: 100 });
+  });
+
+  it("enqueues completed speech from a batched tool update", () => {
+    const h = createHarness();
+
+    h.emit(completedSpeechToolCall());
+    vi.advanceTimersByTime(FLUSH_MS);
+
+    expect(h.enqueueSpeech).toHaveBeenCalledWith({
+      text: "Finished the task",
+      taskTitle: "Local Task",
+      taskId: TASK_ID,
+      kind: "done",
+      source: "agent",
+      addressByName: true,
+    });
+  });
+
   it("applies and persists config option updates immediately", () => {
     const h = createHarness();
     const streamed = chunk("a");
@@ -278,6 +343,15 @@ describe("streamed event batching", () => {
 
     expect(h.events()).toEqual([streamed, configUpdate]);
     expect(h.setPersistedConfigOptions).toHaveBeenCalledOnce();
+  });
+
+  it("contains errors from immediate session updates", () => {
+    const h = createHarness();
+    h.setPersistedConfigOptions.mockImplementation(() => {
+      throw new Error("persist failed");
+    });
+
+    expect(() => h.emit(configOptionUpdate())).not.toThrow();
   });
 
   it("keeps the turn duration when the prompt mutation clears state before the response flushes", () => {

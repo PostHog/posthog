@@ -60,6 +60,17 @@ describe("findMatchingProcessTargets", () => {
       -11, 11,
     ]);
   });
+
+  it("does not target the desktop process group", () => {
+    const original = [
+      { pid: 10, ppid: 1, pgid: 1, startedAt },
+      { pid: 11, ppid: 10, pgid: 11, startedAt },
+    ];
+
+    expect(findMatchingProcessTargets(original, original, 1)).toEqual([
+      -11, 10, 11,
+    ]);
+  });
 });
 
 describe("killUnixProcessTrees", () => {
@@ -103,6 +114,26 @@ describe("killUnixProcessTrees", () => {
 
     expect(signal).toHaveBeenCalledWith([-10, 10], "SIGTERM");
     expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it("escalates for identifiable members of an orphaned group", () => {
+    const orphan = { pid: 11, ppid: 1, pgid: 10, startedAt };
+    const signal = vi.fn();
+    let delayed: (() => void) | undefined;
+
+    killUnixProcessTrees([10], [orphan], 1, {
+      currentProcesses: () => [orphan],
+      signal,
+      schedule: (callback) => {
+        delayed = callback;
+      },
+    });
+    delayed?.();
+
+    expect(signal.mock.calls).toEqual([
+      [[-10, 10, 11], "SIGTERM"],
+      [[-10, 11], "SIGKILL"],
+    ]);
   });
 
   it("falls back for missing roots in a mixed batch", () => {

@@ -1,7 +1,6 @@
 import { deriveCloudRunState } from "@posthog/core/task-detail/cloudRunState";
-import { extractCloudToolChangedFiles } from "@posthog/core/task-detail/cloudToolChanges";
 import type { Task } from "@posthog/shared/domain-types";
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { shallow } from "zustand/shallow";
 import { resolveCloudPrUrl } from "../../git-interaction/cloudPrUrl";
 import { useSessionSelector } from "../../sessions/useSession";
@@ -39,25 +38,7 @@ export function useCloudRunState(taskId: string, task: Task) {
     deriveCloudRunState(freshTask, session, prUrl);
 
   const summary = useCloudEventSummary(taskId);
-  const fallbackFilesRef = useRef<
-    | {
-        taskId: string;
-        revision: number;
-        files: ReturnType<typeof extractCloudToolChangedFiles>;
-      }
-    | undefined
-  >(undefined);
-  if (
-    fallbackFilesRef.current?.taskId !== taskId ||
-    fallbackFilesRef.current.revision !== summary.changedFilesRevision
-  ) {
-    fallbackFilesRef.current = {
-      taskId,
-      revision: summary.changedFilesRevision,
-      files: extractCloudToolChangedFiles(summary.toolCalls),
-    };
-  }
-  const fallbackFiles = fallbackFilesRef.current.files;
+  const fallbackFiles = summary.changedFiles;
 
   return {
     freshTask,

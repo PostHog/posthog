@@ -87,6 +87,53 @@ describe("createCloudEventSummaryTracker", () => {
 
     expect(second.changedFilesRevision).toBe(first.changedFilesRevision);
   });
+
+  it("increments the changed-files revision and refreshes extracted files", () => {
+    const tracker = createCloudEventSummaryTracker();
+    const started = toolEvent("tool-1", {
+      kind: "edit",
+      locations: [{ path: "src/file.ts", line: null }],
+      content: [
+        {
+          type: "diff",
+          path: "src/file.ts",
+          oldText: "old",
+          newText: "first",
+        },
+      ],
+    });
+    const first = tracker.update([started]);
+    const changed = toolEvent("tool-1", {
+      content: [
+        {
+          type: "diff",
+          path: "src/file.ts",
+          oldText: "old",
+          newText: "second\nline",
+        },
+      ],
+    });
+
+    const second = tracker.update([started, changed]);
+
+    expect({
+      revision: second.changedFilesRevision,
+      files: second.changedFiles,
+    }).toMatchObject({
+      revision: first.changedFilesRevision + 1,
+      files: [{ path: "src/file.ts", linesAdded: 2, linesRemoved: 1 }],
+    });
+  });
+
+  it("does not mutate an earlier projected summary", () => {
+    const tracker = createCloudEventSummaryTracker();
+    const started = toolEvent("tool-1", { status: "in_progress" });
+    const first = tracker.update([started]);
+
+    tracker.update([started, toolEvent("tool-1", { status: "completed" })]);
+
+    expect(first.toolCalls.get("tool-1")?.status).toBe("in_progress");
+  });
 });
 
 function diffObj(

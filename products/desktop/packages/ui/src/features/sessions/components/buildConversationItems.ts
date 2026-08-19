@@ -124,6 +124,7 @@ interface TurnState {
 
 export interface ItemBuilder {
   items: ConversationItem[];
+  toolCallRows: Map<string, { items: ConversationItem[]; index: number }>;
   currentTurn: TurnState | null;
   /** Index in `items` where the current turn's first item sits. Lets an
    *  incremental consumer treat everything before it (completed turns) as
@@ -159,6 +160,7 @@ export interface ItemBuilder {
 export function createItemBuilder(): ItemBuilder {
   return {
     items: [],
+    toolCallRows: new Map(),
     currentTurn: null,
     currentTurnStartIndex: 0,
     pendingPrompts: new Map(),
@@ -234,13 +236,17 @@ function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
   const turn = b.currentTurn;
   if (!turn) return;
   turn.itemCount++;
-  b.items.push({
+  const item: ConversationItem = {
     type: "session_update",
     id: `${turn.id}-item-${turn.nextItemId++}`,
     update,
     turnContext: turn.context,
     timestamp: ts,
-  });
+  };
+  const index = b.items.push(item) - 1;
+  if (update.sessionUpdate === "tool_call") {
+    b.toolCallRows.set(update.toolCallId, { items: b.items, index });
+  }
 }
 
 export interface BuildConversationOptions {
@@ -1055,12 +1061,16 @@ function pushChildItem(b: ItemBuilder, parentId: string, update: RenderItem) {
     turn.context.childItems.set(parentId, children);
   }
   turn.itemCount++;
-  children.push({
+  const item: ConversationItem = {
     type: "session_update",
     id: `${turn.id}-child-${turn.nextItemId++}`,
     update,
     turnContext: turn.context,
-  });
+  };
+  const index = children.push(item) - 1;
+  if (update.sessionUpdate === "tool_call") {
+    b.toolCallRows.set(update.toolCallId, { items: children, index });
+  }
   reissueToolCallRow(b, parentId);
 }
 
@@ -1125,28 +1135,19 @@ function reissueToolCallRow(
   if (!update) return;
   turn.toolCalls.set(toolCallId, update);
 
-  const visited = new Set<ConversationItem[]>();
-  const replace = (items: ConversationItem[]): void => {
-    if (visited.has(items)) return;
-    visited.add(items);
-    for (let index = 0; index < items.length; index++) {
-      const item = items[index];
-      if (item.type !== "session_update") continue;
-      if (
-        item.update.sessionUpdate === "tool_call" &&
-        item.update.toolCallId === toolCallId
-      ) {
-        items[index] = {
-          ...item,
-          update: { ...update, sessionUpdate: "tool_call" },
-        };
-      }
-      for (const children of item.turnContext.childItems.values()) {
-        replace(children);
-      }
-    }
+  const row = b.toolCallRows.get(toolCallId);
+  if (!row) return;
+  const item = row.items[row.index];
+  if (
+    item?.type !== "session_update" ||
+    item.update.sessionUpdate !== "tool_call"
+  ) {
+    return;
+  }
+  row.items[row.index] = {
+    ...item,
+    update: { ...update, sessionUpdate: "tool_call" },
   };
-  replace(b.items);
 }
 
 function processSessionUpdate(
