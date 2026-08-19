@@ -954,6 +954,11 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+// DRF's generic placeholder for "no route matched" and an unhandled NotFound
+// alike — never a business-specific message, so it's less actionable than the
+// endpoint's own fallback plus status code.
+const DRF_GENERIC_NOT_FOUND_DETAIL = "Not found.";
+
 /** Unwrap the shared fetcher's `Failed request: [<status>] <json>` into the endpoint's clean message. */
 function extractRequestErrorMessage(error: unknown, fallback: string): string {
   const raw = error instanceof Error ? error.message : String(error);
@@ -964,7 +969,11 @@ function extractRequestErrorMessage(error: unknown, fallback: string): string {
   try {
     const body = JSON.parse(match[2]) as { error?: unknown; detail?: unknown };
     const message = body.error ?? body.detail;
-    if (typeof message === "string" && message.trim()) {
+    if (
+      typeof message === "string" &&
+      message.trim() &&
+      message !== DRF_GENERIC_NOT_FOUND_DETAIL
+    ) {
       return message;
     }
   } catch {
