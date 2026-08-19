@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { retentionToActorsQuery } from 'scenes/retention/queries'
 import { ProcessedRetentionPayload } from 'scenes/retention/types'
@@ -62,6 +63,7 @@ export interface retentionModalLogicValues {
     results: ProcessedRetentionPayload[] // retentionLogic
     actorsQuery: ActorsQuery | null
     aggregationTargetLabel: Noun
+    canOpenPersonModal: boolean
     exploreUrl: string | null
     insightEventsQueryUrl: string | null
     isCohortModalOpen: boolean
@@ -116,8 +118,10 @@ export interface retentionModalLogicMeta {
                 | WebOverviewQuery
                 | WebStatsTableQuery
                 | null,
+            retentionFilter: RetentionFilter | null,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => Noun
+        canOpenPersonModal: (retentionFilter: RetentionFilter | null) => boolean
         actorsQuery: (
             querySource:
                 | FunnelsQuery
@@ -211,7 +215,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
     }),
     selectors({
         aggregationTargetLabel: [
-            (s) => [s.querySource, s.aggregationLabel],
+            (s) => [s.querySource, s.retentionFilter, s.aggregationLabel],
             (
                 querySource:
                     | RetentionQuery
@@ -223,14 +227,22 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                     | import('~/queries/schema/schema-general').TrendsQuery
                     | import('~/queries/schema/schema-general').WebOverviewQuery
                     | import('~/queries/schema/schema-general').WebStatsTableQuery,
+                retentionFilter: RetentionFilter | null,
                 aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
             ): Noun => {
+                if (retentionFilter?.customAggregationTarget) {
+                    return AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE
+                }
                 const aggregation_group_type_index =
                     isLifecycleQuery(querySource) || isStickinessQuery(querySource)
                         ? undefined
                         : querySource?.aggregation_group_type_index
                 return aggregationLabel(aggregation_group_type_index)
             },
+        ],
+        canOpenPersonModal: [
+            (s) => [s.retentionFilter],
+            (retentionFilter: RetentionFilter | null): boolean => !retentionFilter?.customAggregationTarget,
         ],
         actorsQuery: [
             (s) => [s.querySource, s.selectedInterval, s.selectedBreakdownValue],

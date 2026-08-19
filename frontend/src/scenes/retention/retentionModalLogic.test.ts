@@ -2,6 +2,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
+
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode, NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
@@ -187,5 +189,37 @@ describe('retentionModalLogic', () => {
 
         expect(logic.values.selectedInterval).toBeNull()
         expect(logic.values.selectedRow).toBeNull()
+    })
+
+    it('disables the person modal and relabels actors for a custom aggregation target', async () => {
+        const dataWarehouseEntity = {
+            id: 'warehouse_orders',
+            type: 'data_warehouse' as const,
+            table_name: 'warehouse_orders',
+            timestamp_field: 'created_at',
+            aggregation_target_field: 'order_id',
+        }
+        const dataWarehouseQuery: RetentionQuery = {
+            kind: NodeKind.RetentionQuery,
+            retentionFilter: {
+                period: RetentionPeriod.Day,
+                targetEntity: dataWarehouseEntity,
+                returningEntity: dataWarehouseEntity,
+                customAggregationTarget: true,
+            },
+        }
+
+        await expectLogic(logic, () => {
+            retentionLogic(insightProps).actions.updateQuerySource(dataWarehouseQuery)
+        }).toMatchValues({
+            canOpenPersonModal: false,
+            aggregationTargetLabel: AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE,
+        })
+
+        await expectLogic(logic, () => {
+            retentionLogic(insightProps).actions.updateQuerySource(retentionQuery)
+        }).toMatchValues({
+            canOpenPersonModal: true,
+        })
     })
 })
