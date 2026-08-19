@@ -22,7 +22,8 @@ jobs:
         if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: Trigger posthog.com preview build
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        # The build takes about 10 minutes and the poll step waits for it to finish.
+        timeout-minutes: 20
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -77,11 +78,20 @@ jobs:
                   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
               run: .github/scripts/trigger-vercel-preview.sh "$BRANCH_NAME"
 
+            - name: Poll Vercel deployment to terminal state
+              id: poll-build
+              if: steps.trigger-build.outputs.deployment_id
+              env:
+                  VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+                  VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+              run: .github/scripts/poll-vercel-deployment.sh "${{ steps.trigger-build.outputs.deployment_id }}"
+
             - name: Post docs preview to CI report
               if: github.event_name == 'pull_request'
               env:
                   GITHUB_TOKEN: ${{ github.token }}
                   TRIGGER_STATUS: ${{ steps.trigger-build.outputs.trigger_status }}
+                  DEPLOYMENT_STATE: ${{ steps.poll-build.outputs.deployment_state }}
                   DEPLOYMENT_URL: ${{ steps.trigger-build.outputs.deployment_url }}
                   DEPLOYMENT_ID: ${{ steps.trigger-build.outputs.deployment_id }}
               run: node .github/scripts/post-docs-preview-section.mjs

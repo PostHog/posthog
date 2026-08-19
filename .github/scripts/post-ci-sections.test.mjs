@@ -62,17 +62,53 @@ describe('CI report section builders', () => {
         })
     }
 
-    it('renders a docs preview link after a successful trigger', () => {
+    it('renders a docs preview link once the deployment is ready', () => {
         const section = buildDocsPreviewSection({
             triggerStatus: 'success',
+            deploymentState: 'READY',
             deploymentUrl: 'https://preview.example.com',
             deploymentId: 'deployment-123',
             runUrl: 'https://github.com/PostHog/posthog/actions/runs/42',
             now: new Date('2026-07-14T10:00:00Z'),
         })
-        assert.equal(section.status, 'info')
+        assert.equal(section.status, 'ok')
         assert.match(section.body, /https:\/\/preview\.example\.com/)
         assert.match(section.body, /Jul 14, 2026/)
+    })
+
+    it('reports a failure when the deployment is cancelled', () => {
+        const section = buildDocsPreviewSection({
+            triggerStatus: 'success',
+            deploymentState: 'CANCELED',
+            deploymentUrl: 'https://preview.example.com',
+            deploymentId: 'deployment-123',
+            runUrl: 'https://github.com/PostHog/posthog/actions/runs/42',
+        })
+        assert.equal(section.status, 'fail')
+        assert.doesNotMatch(section.body, /Open preview/)
+        assert.match(section.body, /deployment-123/)
+    })
+
+    it('reports a failure when the deployment errors', () => {
+        const section = buildDocsPreviewSection({
+            triggerStatus: 'success',
+            deploymentState: 'ERROR',
+            deploymentId: 'deployment-123',
+            runUrl: 'https://github.com/PostHog/posthog/actions/runs/42',
+        })
+        assert.equal(section.status, 'fail')
+        assert.doesNotMatch(section.body, /Open preview/)
+    })
+
+    it('stays informational while the deployment is still building', () => {
+        const section = buildDocsPreviewSection({
+            triggerStatus: 'success',
+            deploymentState: 'BUILDING',
+            deploymentId: 'deployment-123',
+            runUrl: 'https://github.com/PostHog/posthog/actions/runs/42',
+        })
+        assert.equal(section.status, 'info')
+        assert.doesNotMatch(section.body, /Open preview/)
     })
 
     it('links to workflow logs when the docs preview trigger fails', () => {
