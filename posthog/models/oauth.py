@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
     # This model loads at django.setup() in every process; the pydantic schema is
     # runtime-imported in the accessors that materialize it.
-    from posthog.models.oauth_provisioning import ProvisioningConfig
+    from posthog.models.oauth_provisioning import PartnerTier, ProvisioningConfig
 
 
 class OAuthApplicationAccessLevel(enum.Enum):
@@ -269,6 +269,18 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
             current = OAuthApplication.objects.select_for_update().get(pk=self.pk)
             self._provisioning_config = current._provisioning_config
             return self.update_provisioning(rate_limits=self.provisioning.rate_limits.model_copy(update=changes))
+
+    @property
+    def partner_tier(self) -> "PartnerTier":
+        """See :class:`~posthog.models.oauth_provisioning.PartnerTier`. The attested
+        signal is the CIMD verification-token binding (``organization_id``), the same
+        one CIMD registration reads."""
+        from posthog.models.oauth_provisioning import PartnerTier  # noqa: PLC0415
+
+        attested = self.organization_id is not None
+        if self.requires_client_authentication:
+            return PartnerTier.JWKS_ATTESTED if attested else PartnerTier.JWKS
+        return PartnerTier.PUBLIC_ATTESTED if attested else PartnerTier.PUBLIC
 
     @property
     def carries_provisioning_config(self) -> bool:
