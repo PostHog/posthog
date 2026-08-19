@@ -369,6 +369,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             [] as DataWarehouseSavedQuery[],
             {
                 loadDataWarehouseSavedQueries: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const savedQueries = await warehouseSavedQueriesList(String(ApiConfig.getCurrentProjectId()))
                     return savedQueries.results as unknown as DataWarehouseSavedQuery[]
                 },
@@ -380,6 +381,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     }
                 ) => {
                     const newView = (await warehouseSavedQueriesCreate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         view as unknown as Parameters<typeof warehouseSavedQueriesCreate>[1]
                     )) as unknown as DataWarehouseSavedQuery
@@ -391,6 +393,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 },
                 deleteDataWarehouseSavedQuery: async (viewId: string) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await warehouseSavedQueriesDestroy(String(ApiConfig.getCurrentProjectId()), viewId)
                     } catch (error: any) {
                         // A view that's already gone is the outcome the user asked for, so treat a
@@ -414,6 +417,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     }
                 ) => {
                     const newView = (await warehouseSavedQueriesPartialUpdate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         view.id,
                         view as unknown as Parameters<typeof warehouseSavedQueriesPartialUpdate>[2]
@@ -431,9 +435,11 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             [] as DataWarehouseSavedQueryFolder[],
             {
                 loadDataWarehouseSavedQueryFolders: async () => {
+                    // nosemgrep: prefer-codegen-api
                     return await warehouseSavedQueryFoldersList(String(ApiConfig.getCurrentProjectId()))
                 },
                 createDataWarehouseSavedQueryFolder: async (name: string) => {
+                    // nosemgrep: prefer-codegen-api
                     const folder = await warehouseSavedQueryFoldersCreate(String(ApiConfig.getCurrentProjectId()), {
                         name,
                     })
@@ -444,6 +450,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 },
                 updateDataWarehouseSavedQueryFolder: async ({ id, name }: { id: string; name: string }) => {
                     const updatedFolder = await warehouseSavedQueryFoldersPartialUpdate(
+                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         id,
                         { name }
@@ -453,6 +460,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         .sort((a, b) => a.name.localeCompare(b.name))
                 },
                 deleteDataWarehouseSavedQueryFolder: async (folderId: string) => {
+                    // nosemgrep: prefer-codegen-api
                     await warehouseSavedQueryFoldersDestroy(String(ApiConfig.getCurrentProjectId()), folderId)
                     return values.dataWarehouseSavedQueryFolders.filter((folder) => folder.id !== folderId)
                 },
@@ -560,6 +568,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         runDataWarehouseSavedQuery: async ({ viewId, fullRefresh }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await warehouseSavedQueriesRunCreate(String(ApiConfig.getCurrentProjectId()), viewId, {
                     full_refresh: !!fullRefresh,
                 })
@@ -585,6 +594,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 // Persist the config first so the materialization run picks it up. Same shape as the
                 // save-as-view flow, which creates the view with the config before materializing.
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await warehouseSavedQueriesPartialUpdate(String(ApiConfig.getCurrentProjectId()), viewId, {
                         incremental,
                     })
