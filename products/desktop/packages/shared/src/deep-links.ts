@@ -43,6 +43,20 @@ export function buildInboxDeeplink(
 }
 
 /**
+ * Build a canonical deep link to the Plan & usage settings page, or another
+ * settings category (`<scheme>://usage[/<category>]`). The inbound side lives
+ * in the `usage` handler (`UsageLinkService`), which routes to
+ * `/settings/<category>`. Omit `category` for the default Plan & usage page.
+ */
+export function buildUsageDeeplink(
+  category: string | null | undefined,
+  { isDevBuild }: { isDevBuild: boolean },
+): string {
+  const base = `${getDeeplinkProtocol(isDevBuild)}://usage`;
+  return category ? `${base}/${encodeURIComponent(category)}` : base;
+}
+
+/**
  * Build a canonical deep link to a loop's detail page
  * (`<scheme>://loop/<loopId>`). The inbound side lives in the `loop` handler
  * (`LoopLinkService`), which routes to `/code/loops/<loopId>`.

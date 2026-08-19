@@ -59,6 +59,7 @@ import {
   OPEN_TARGET_LINK_SERVICE,
   SCOUT_LINK_SERVICE,
   TASK_LINK_SERVICE,
+  USAGE_LINK_SERVICE,
 } from "@posthog/core/links/identifiers";
 import { InboxLinkService } from "@posthog/core/links/inbox-link";
 import { LoopLinkService } from "@posthog/core/links/loop-link";
@@ -66,6 +67,7 @@ import { NewTaskLinkService } from "@posthog/core/links/new-task-link";
 import { OpenTargetLinkService } from "@posthog/core/links/open-target-link";
 import { ScoutLinkService } from "@posthog/core/links/scout-link";
 import { TaskLinkService } from "@posthog/core/links/task-link";
+import { UsageLinkService } from "@posthog/core/links/usage-link";
 import {
   LLM_GATEWAY_HOST,
   LLM_GATEWAY_SERVICE,
@@ -330,6 +332,7 @@ import {
   SUSPENSION_SERVICE as MAIN_SUSPENSION_SERVICE,
   TASK_LINK_SERVICE as MAIN_TASK_LINK_SERVICE,
   UPDATES_SERVICE as MAIN_UPDATES_SERVICE,
+  USAGE_LINK_SERVICE as MAIN_USAGE_LINK_SERVICE,
   WATCHER_REGISTRY_SERVICE as MAIN_WATCHER_REGISTRY_SERVICE,
   WORKSPACE_CLIENT as MAIN_WORKSPACE_CLIENT,
   WORKSPACE_REPOSITORY as MAIN_WORKSPACE_REPOSITORY,
@@ -724,6 +727,8 @@ container.bind(MAIN_CHANNEL_LINK_SERVICE).to(ChannelLinkService);
 container.bind(CHANNEL_LINK_SERVICE).toService(MAIN_CHANNEL_LINK_SERVICE);
 container.bind(MAIN_LOOP_LINK_SERVICE).to(LoopLinkService);
 container.bind(LOOP_LINK_SERVICE).toService(MAIN_LOOP_LINK_SERVICE);
+container.bind(MAIN_USAGE_LINK_SERVICE).to(UsageLinkService);
+container.bind(USAGE_LINK_SERVICE).toService(MAIN_USAGE_LINK_SERVICE);
 container.load(watcherRegistryModule);
 container
   .bind(MAIN_WATCHER_REGISTRY_SERVICE)

@@ -107,6 +107,7 @@ export {
   buildInboxDeeplink,
   buildLoopDeeplink,
   buildScoutDeeplink,
+  buildUsageDeeplink,
   DEEPLINK_PROTOCOL_DEVELOPMENT,
   DEEPLINK_PROTOCOL_PRODUCTION,
   decodePlanBase64,

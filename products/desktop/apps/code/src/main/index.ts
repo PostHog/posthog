@@ -30,6 +30,7 @@ import type { LoopLinkService } from "@posthog/core/links/loop-link";
 import type { NewTaskLinkService } from "@posthog/core/links/new-task-link";
 import type { ScoutLinkService } from "@posthog/core/links/scout-link";
 import type { TaskLinkService } from "@posthog/core/links/task-link";
+import type { UsageLinkService } from "@posthog/core/links/usage-link";
 import { NOTIFICATION_SERVICE } from "@posthog/core/notification/identifiers";
 import type { NotificationService } from "@posthog/core/notification/notification";
 import { OAUTH_SERVICE } from "@posthog/core/oauth/identifiers";
@@ -70,6 +71,7 @@ import {
   SCOUT_LINK_SERVICE,
   TASK_LINK_SERVICE,
   UPDATES_SERVICE,
+  USAGE_LINK_SERVICE,
   WORKSPACE_CLIENT,
   WORKSPACE_SERVER_SERVICE,
   WORKSPACE_SERVICE,
@@ -285,6 +287,7 @@ async function initializeServices(): Promise<void> {
   container.get<CanvasLinkService>(CANVAS_LINK_SERVICE);
   container.get<ChannelLinkService>(CHANNEL_LINK_SERVICE);
   container.get<LoopLinkService>(LOOP_LINK_SERVICE);
+  container.get<UsageLinkService>(USAGE_LINK_SERVICE);
   container.get<GitHubIntegrationService>(GITHUB_INTEGRATION_SERVICE);
   container.get<SlackIntegrationService>(SLACK_INTEGRATION_SERVICE);
   container.get<ExternalAppsService>(EXTERNAL_APPS_SERVICE);

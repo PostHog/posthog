@@ -3,6 +3,7 @@ import {
   buildInboxDeeplink,
   buildLoopDeeplink,
   buildScoutDeeplink,
+  buildUsageDeeplink,
   decodePlanBase64,
   getDeeplinkProtocol,
   isPostHogCodeDeeplink,
@@ -125,6 +126,48 @@ describe("buildLoopDeeplink", () => {
     },
   ])("$name", ({ loopId, isDevBuild, expected }) => {
     expect(buildLoopDeeplink(loopId, { isDevBuild })).toBe(expected);
+  });
+});
+
+describe("buildUsageDeeplink", () => {
+  it.each<{
+    name: string;
+    category: string | null | undefined;
+    isDevBuild: boolean;
+    expected: string;
+  }>([
+    {
+      name: "builds a bare usage link when category is null",
+      category: null,
+      isDevBuild: false,
+      expected: "posthog-code://usage",
+    },
+    {
+      name: "builds a bare usage link when category is undefined",
+      category: undefined,
+      isDevBuild: false,
+      expected: "posthog-code://usage",
+    },
+    {
+      name: "appends the category as a path segment",
+      category: "plan-usage",
+      isDevBuild: false,
+      expected: "posthog-code://usage/plan-usage",
+    },
+    {
+      name: "uses the dev scheme for dev builds",
+      category: null,
+      isDevBuild: true,
+      expected: "posthog-code-dev://usage",
+    },
+    {
+      name: "encodes special characters in the category",
+      category: "a b/c",
+      isDevBuild: false,
+      expected: "posthog-code://usage/a%20b%2Fc",
+    },
+  ])("$name", ({ category, isDevBuild, expected }) => {
+    expect(buildUsageDeeplink(category, { isDevBuild })).toBe(expected);
   });
 });
 
