@@ -1,4 +1,5 @@
 import re
+from dataclasses import field
 from typing import Optional, cast
 
 from posthog.schema import (
@@ -47,7 +48,7 @@ _BILLOMAT_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 @frozen
 class _RegisteredAppCredentials:
     app_id: Optional[str]
-    app_secret: Optional[str]
+    app_secret: Optional[str] = field(repr=False)
 
 
 def _registered_app_credentials(config: BillomatSourceConfig) -> _RegisteredAppCredentials:
