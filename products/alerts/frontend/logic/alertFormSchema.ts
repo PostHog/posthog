@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { dayjs } from 'lib/dayjs'
 
 import { AlertConditionType, ForecastConditionType } from '~/queries/schema/schema-general'
+import type { IntervalType } from '~/types'
 
 import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
@@ -119,12 +120,17 @@ const alertFormSchema = z
         }
     })
 
-/** `savedTargetDate` is the date already stored on the alert, when there is one. A date that was
- *  legitimate when it was saved must keep saving, or a target alert whose date has arrived can no
- *  longer be renamed or turned off. The server draws the same line. */
+/** What the form alone cannot tell us. `savedTargetDate` is the date already stored on the alert:
+ *  one that was legitimate when it was saved must keep saving, or a target alert whose date has
+ *  arrived can no longer be renamed or turned off. The server draws the same line. */
+export interface AlertValidationContext {
+    savedTargetDate?: string
+    insightInterval?: IntervalType | null
+}
+
 export function getAlertFormValidationErrors(
     alert: AlertFormType,
-    savedTargetDate?: string
+    context: AlertValidationContext = {}
 ): DeepPartialMap<AlertFormType, ValidationErrorType> {
     const errors: Record<string, ValidationErrorType> = {}
 
@@ -132,9 +138,9 @@ export function getAlertFormValidationErrors(
     if (
         forecast?.condition === ForecastConditionType.TARGET_BY_DATE &&
         forecast.target_date &&
-        forecast.target_date !== savedTargetDate
+        forecast.target_date !== context.savedTargetDate
     ) {
-        const dateError = forecastTargetDateError(forecast.target_date, dayjs())
+        const dateError = forecastTargetDateError(forecast.target_date, dayjs(), context.insightInterval)
         if (dateError) {
             errors.forecast_config = dateError
         }

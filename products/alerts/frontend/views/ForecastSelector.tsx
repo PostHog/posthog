@@ -103,7 +103,7 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
     const unit = HORIZON_UNIT[insightInterval ?? 'day'] ?? 'intervals'
     // The backend caps reach as a duration, so this ceiling moves with the insight's interval.
     const maxHorizon = maxHorizonForInterval(insightInterval)
-    const targetDateError = forecastTargetDateError(config.target_date, dayjs())
+    const targetDateError = forecastTargetDateError(config.target_date, dayjs(), insightInterval)
     // A predicted breach has a threshold to cross, not a target to miss.
     const missesOrCrosses = config.condition === ForecastConditionType.FUTURE_BREACH ? 'crosses it' : 'misses'
     return (
