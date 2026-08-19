@@ -755,7 +755,7 @@ database "posthog" {
       type = "SimpleAggregateFunction(sum, UInt64)"
     }
     engine "distributed" {
-      cluster_name    = "posthog_single_shard"
+      cluster_name    = "logs"
       remote_database = "posthog"
       remote_table    = "logs_volume_buckets"
     }

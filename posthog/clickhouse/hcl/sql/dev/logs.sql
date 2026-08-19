@@ -207,7 +207,7 @@ CREATE TABLE posthog.logs_volume_buckets_distributed (
   environment LowCardinality(String),
   severity_text LowCardinality(String),
   log_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs_volume_buckets');
+) ENGINE = Distributed('logs', 'posthog', 'logs_volume_buckets');
 CREATE TABLE posthog.metric_attributes (
   team_id Int32,
   time_bucket DateTime64(0),
