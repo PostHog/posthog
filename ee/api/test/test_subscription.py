@@ -3443,6 +3443,17 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
 
+    @parameterized.expand([("a rename", {"title": "Renamed"}), ("turning it off", {"deleted": True})])
+    def test_patch_that_omits_the_selection_is_accepted(self, _name, body):
+        # This row selects only insights the caller can view, on a dashboard that also holds one they
+        # cannot. Omitting the field keeps that selection, so the write has nothing new to check.
+        # Checking the dashboard's tiles here would leave the row visible, delivering, and unwritable.
+        subscription = self._sub_selecting_only_the_open_tile()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", body)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     def test_repointing_an_empty_selection_at_a_restricted_tile_is_rejected(self):
         # Rows without a selection predate the rule requiring one, and they render every live tile.
         # Re-pointing one at a dashboard holding a restricted tile would render and deliver it.

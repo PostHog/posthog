@@ -751,8 +751,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             return
 
-        # No selection left on the row, which means the delivery renders every live tile. Rows in
-        # this shape predate the selection requirement above, so the tiles are what needs checking.
+        # A PATCH that omits the field keeps the selection the row already has, and that selection
+        # is what the delivery renders, so there is nothing new to check.
+        if self.instance is not None and self.instance.dashboard_export_insights.exists():
+            return
+
+        # With no selection the delivery renders every live tile instead. Rows in this shape predate
+        # the selection requirement above, so the tiles are what needs checking.
         live_tile_insights = Insight.objects.filter(
             team_id=self.context["team_id"],
             id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
