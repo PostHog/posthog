@@ -143,6 +143,11 @@ def vitals_timeseries_percentile(query: WebVitalsQuery) -> Optional[str]:
         return None
     if source.breakdownFilter is not None:
         return None
+    if source.samplingFactor is not None:
+        # The live path samples events before computing the percentile; the
+        # buckets hold the full-population quantile state, so a sampled source
+        # would drift (same reason the sibling web_trends gate rejects it).
+        return None
     tf = source.trendsFilter
     if tf is not None:
         # Only the canonical line graph is servable. Total-value displays

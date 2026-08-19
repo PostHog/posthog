@@ -110,6 +110,7 @@ class TestVitalsTimeseriesGate(APIBaseTest):
                 "math_multiplier",
                 {"source_overrides": {"series": [_series(m, math_multiplier=2.0) for m in _METRICS]}},
             ),
+            ("sampled_source", {"source_overrides": {"samplingFactor": 0.5}}),
             (
                 "breakdown",
                 {"source_overrides": {"breakdownFilter": BreakdownFilter(breakdown="$browser")}},
