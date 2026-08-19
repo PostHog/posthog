@@ -67,6 +67,7 @@ export function MetricsTable({
         duplicateSharedMetricAsInlineMetric,
         updateExperimentMetrics,
         updateMetricBreakdown,
+        updateMetricBreakdownLimit,
         removeMetricBreakdown,
         removeMetric,
         removeSharedMetricFromExperiment,
@@ -277,6 +278,13 @@ export function MetricsTable({
                                                 }
 
                                                 removeMetricBreakdown(metric.uuid, index, breakdown)
+                                            }}
+                                            onBreakdownLimitChange={(breakdownLimit) => {
+                                                if (!metric.uuid) {
+                                                    return
+                                                }
+
+                                                updateMetricBreakdownLimit(metric.uuid, breakdownLimit)
                                             }}
                                             error={error}
                                             isLoading={isLoading}
