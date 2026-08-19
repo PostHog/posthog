@@ -1513,7 +1513,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
 
                     column_names = [column[0] for column in ss_cursor.description or []]
 
-                    for batch in fetch_row_batches(ss_cursor.fetchmany, max_rows=chunk_size):
+                    for batch in fetch_row_batches(
+                        ss_cursor.fetchmany, max_rows=chunk_size, byte_bounded=inputs.byte_bounded_extraction
+                    ):
                         yield table_from_iterator((dict(zip(column_names, row)) for row in batch), arrow_schema)
                 finally:
                     # Tear the streaming cursor down without draining the rest of

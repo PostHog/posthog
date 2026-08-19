@@ -6953,6 +6953,7 @@ def _run_windows(script, **overrides):
         "db_incremental_field_last_value": date(2026, 1, 1),
         "child_partitions": [],
         "chunk_size": 1000,
+        "byte_bounded": False,
         "arrow_schema": _arrow_schema(),
         "logger": structlog.get_logger(),
         "initial_window": timedelta(days=1),
@@ -8096,6 +8097,7 @@ class TestExtractionByteBounds:
                 script=[list(rows)],
                 child_partitions=[self._child()],
                 chunk_size=400,
+                byte_bounded=True,
                 arrow_schema=self._schema(),
             )
 
@@ -8106,6 +8108,21 @@ class TestExtractionByteBounds:
         oversized = [table.num_rows for table in tables if table_payload_bytes(table) > self.BUDGET]
         assert oversized == []
 
+    def test_gate_off_keeps_the_row_count_batching(self):
+        rows = [(i, self.BLOB) for i in range(400)]
+
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", self.BUDGET):
+            tables, factory = _run_windows(
+                script=[list(rows)],
+                child_partitions=[self._child()],
+                chunk_size=400,
+                byte_bounded=False,
+                arrow_schema=self._schema(),
+            )
+
+        assert [table.num_rows for table in tables] == [400]
+        assert set(factory.fetch_sizes) == {400}
+
     def test_fetch_pages_shrink_once_wide_rows_appear(self):
         rows = [(i, "s") for i in range(1000)] + [(i, self.BLOB) for i in range(1000, 2000)]
 
@@ -8114,6 +8131,7 @@ class TestExtractionByteBounds:
                 script=[list(rows)],
                 child_partitions=[self._child()],
                 chunk_size=100_000,
+                byte_bounded=True,
                 arrow_schema=self._schema(),
             )
 

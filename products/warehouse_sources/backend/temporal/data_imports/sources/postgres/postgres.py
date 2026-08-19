@@ -2929,6 +2929,7 @@ def postgres_source(
     is_xmin: bool = False,
     xmin_last_value: Optional[int] = None,
     xmin_num_wraparound: Optional[int] = None,
+    byte_bounded_extraction: bool = False,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -3583,6 +3584,7 @@ def postgres_source(
                     table_name=table_name,
                     child_partitions=child_partitions,
                     chunk_size=chunk_size,
+                    byte_bounded=byte_bounded_extraction,
                     arrow_schema=arrow_schema,
                     logger=logger,
                     incremental_field=incremental_field,
@@ -3618,6 +3620,7 @@ def postgres_source(
                     db_incremental_field_last_value=db_incremental_field_last_value,
                     child_partitions=child_partitions,
                     chunk_size=chunk_size,
+                    byte_bounded=byte_bounded_extraction,
                     arrow_schema=arrow_schema,
                     logger=logger,
                     using_read_replica=using_read_replica,
@@ -3659,7 +3662,9 @@ def postgres_source(
                             column_names = [column.name for column in cursor.description or []]
                             read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
-                            for rows in fetch_row_batches(cursor.fetchmany, max_rows=chunk_size):
+                            for rows in fetch_row_batches(
+                                cursor.fetchmany, max_rows=chunk_size, byte_bounded=byte_bounded_extraction
+                            ):
                                 dicts = [dict(zip(column_names, row)) for row in rows]
                                 # The batcher still holds this list, so only clearing it in place
                                 # frees the tuples before the Arrow build.

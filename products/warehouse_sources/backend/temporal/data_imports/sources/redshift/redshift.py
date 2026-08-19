@@ -401,6 +401,7 @@ def _stream_rows_as_arrow_batches(
     query: sql.Composed,
     chunk_size: int,
     arrow_schema: pa.Schema,
+    byte_bounded: bool = False,
 ) -> Iterator[pa.Table]:
     """Yield one Arrow table per `chunk_size` rows (or per byte budget), reading rows off the wire.
 
@@ -410,7 +411,9 @@ def _stream_rows_as_arrow_batches(
     """
     column_names: list[str] = []
 
-    for rows in iter_row_batches(cursor.stream(query, size=_libpq_rows_per_chunk()), max_rows=chunk_size):
+    for rows in iter_row_batches(
+        cursor.stream(query, size=_libpq_rows_per_chunk()), max_rows=chunk_size, byte_bounded=byte_bounded
+    ):
         if not column_names:
             # Only described once the first result arrives, so it can't be read before the loop.
             column_names = [column.name for column in cursor.description or []]
@@ -422,6 +425,7 @@ def _fetch_arrow_batches(
     chunk_size: int,
     arrow_schema: pa.Schema,
     fetch_size: int | None = None,
+    byte_bounded: bool = False,
 ) -> Iterator[pa.Table]:
     """Yield one Arrow table per `chunk_size` rows (or per byte budget) from an executed `cursor`.
 
@@ -433,7 +437,9 @@ def _fetch_arrow_batches(
     """
     column_names = [column.name for column in cursor.description or []]
 
-    for rows in fetch_row_batches(cursor.fetchmany, max_rows=chunk_size, max_page_rows=fetch_size or chunk_size):
+    for rows in fetch_row_batches(
+        cursor.fetchmany, max_rows=chunk_size, byte_bounded=byte_bounded, max_page_rows=fetch_size or chunk_size
+    ):
         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
 
@@ -444,6 +450,7 @@ def _stream_arrow_batches(
     arrow_schema: pa.Schema,
     cursor_name: str,
     logger: FilteringBoundLogger,
+    byte_bounded: bool = False,
 ) -> Iterator[pa.Table]:
     """Stream `query` as Arrow tables, holding only `chunk_size` rows in the worker at a time.
 
@@ -469,7 +476,7 @@ def _stream_arrow_batches(
 
     try:
         with connection.cursor() as stream_cursor:
-            for batch in _stream_rows_as_arrow_batches(stream_cursor, query, chunk_size, arrow_schema):
+            for batch in _stream_rows_as_arrow_batches(stream_cursor, query, chunk_size, arrow_schema, byte_bounded):
                 yielded = True
                 yield batch
         return
@@ -489,7 +496,7 @@ def _stream_arrow_batches(
             # first), so this never masks the original failure with a CLOSE error.
             with connection.cursor(name=cursor_name) as server_cursor:
                 server_cursor.execute(query)
-                for batch in _fetch_arrow_batches(server_cursor, chunk_size, arrow_schema, fetch_size):
+                for batch in _fetch_arrow_batches(server_cursor, chunk_size, arrow_schema, fetch_size, byte_bounded):
                     yielded = True
                     yield batch
             return
@@ -1386,6 +1393,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     arrow_schema,
                     f"posthog_{inputs.team_id}_{schema}.{table_name}",
                     logger,
+                    inputs.byte_bounded_extraction,
                 )
 
         return SourceResponse(
