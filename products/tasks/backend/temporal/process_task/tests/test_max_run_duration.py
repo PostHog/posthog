@@ -12,7 +12,7 @@ DEFAULT_CAP_SECONDS = 3 * 60 * 60
 
 
 def _context(
-    state: dict | None, *, origin_product: str | None = Task.OriginProduct.AUTOMATION.value
+    state: dict | None, *, origin_product: str | None = Task.OriginProduct.LOOP.value
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
