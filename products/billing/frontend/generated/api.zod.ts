@@ -9,13 +9,6 @@
  */
 import * as zod from 'zod'
 
-export const billingPartialUpdateBodyPlanMax = 100
-
-export const BillingPartialUpdateBody = /* @__PURE__ */ zod.object({
-    plan: zod.string().max(billingPartialUpdateBodyPlanMax).optional(),
-    billing_limit: zod.number().optional(),
-})
-
 export const billingActivateCreateBodyPlanMax = 100
 
 export const BillingActivateCreateBody = /* @__PURE__ */ zod.object({
