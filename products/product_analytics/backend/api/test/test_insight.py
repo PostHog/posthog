@@ -5405,3 +5405,35 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         activities = response.json()["results"]
         self.assertEqual(activities[0]["activity"], "updated")
         self.assertEqual([change["field"] for change in activities[0]["detail"]["changes"]], ["query"])
+
+    @parameterized.expand(
+        [
+            ("a run that flips insights", False, {"insights_updated": 1, "insights_unchanged": 0}),
+            ("a run that flips nothing", True, {"insights_updated": 0, "insights_unchanged": 1}),
+        ]
+    )
+    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    def test_reports_the_run_for_analytics(
+        self,
+        _name: str,
+        already_enabled: bool,
+        expected_counts: dict[str, int],
+        mock_report_user_action: mock.Mock,
+    ) -> None:
+        self._create_query_insight(filter_test_accounts=already_enabled)
+
+        self._bulk_set(True)
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "insights bulk test account filter set",
+            {
+                "enabled": True,
+                "insights_considered": 1,
+                "insights_unsupported": 0,
+                "insights_skipped": 0,
+                **expected_counts,
+            },
+            team=ANY,
+            request=ANY,
+        )

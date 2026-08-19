@@ -2788,6 +2788,20 @@ When set, the specified dashboard's filters and date range override will be appl
         if totals["updated"]:
             self.user_permissions.reset_insights_dashboard_cached_results()
 
+        # Reported even when nothing changed: a run that finds no insights to flip still tells us
+        # someone reached for this, and the no-op rate is the signal for whether it's discoverable.
+        report_user_action(
+            request.user,
+            "insights bulk test account filter set",
+            {
+                "enabled": enabled,
+                "insights_considered": len(insight_ids),
+                **{f"insights_{outcome}": count for outcome, count in totals.items()},
+            },
+            team=self.team,
+            request=request,
+        )
+
         return Response(totals)
 
     def _set_test_account_filter_on_batch(self, insight_ids: Sequence[int], *, enabled: bool) -> dict[str, int]:
