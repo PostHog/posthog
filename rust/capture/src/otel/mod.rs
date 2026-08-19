@@ -19,6 +19,7 @@ use serde_json::json;
 use tracing::{debug, instrument, warn, Span};
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
+use crate::events::ai_byte_limit::drop_ai_byte_limited;
 use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
 use crate::ingestion_warnings::otel::{
@@ -308,6 +309,23 @@ pub async fn otel_handler(
         );
     }
 
+    // Charge the AI lane's per-project byte budget, shedding the spans that
+    // take the project past it. This endpoint builds its events at the handler
+    // and reaches the sink through neither analytics pipeline, so without this
+    // call a sender could spend an unbounded number of bytes here while the
+    // same bytes on `/i/v0/ai/batch` are capped.
+    //
+    // Shedding rather than refusing, for the reason the size ceiling above
+    // sheds: a collector retries a rejected export, so refusing would stall
+    // every span behind the ones over budget. Unlike the size ceiling this
+    // raises no ingestion warning — a rate drop is ops-imposed, and capture
+    // surfaces those through billing and ops channels rather than the
+    // customer-facing warnings table, which `warning_for_capture_error` pins.
+    //
+    // It runs after the ceiling so an event too big to publish spends none of
+    // the budget, matching the order both analytics pipelines use.
+    drop_ai_byte_limited(&mut processed_events, state.ai_byte_rate_limiter.as_ref()).await;
+
     // Apply the in-process OverflowLimiter governor to every AnalyticsMain
     // span in the batch before handing off to the sink. OTEL bypasses
     // `events::analytics::process_events`, so this call is what preserves
@@ -321,13 +339,17 @@ pub async fn otel_handler(
         state.ai_events_overflow_limiter.as_ref(),
     );
 
+    // Count what the sink was handed, not what arrived: `span_count` predates
+    // the size ceiling and the byte budget, either of which may have shed spans.
+    let ingested = processed_events.len() as u64;
+
     state.sink.send_batch(processed_events).await.map_err(|e| {
         report_internal_error_metrics(e.to_metric_tag(), "otel_sink");
         warn!("Failed to send OTel events to Kafka: {:?}", e);
         e.into_response()
     })?;
 
-    counter!("capture_ai_otel_events_ingested").increment(span_count as u64);
+    counter!("capture_ai_otel_events_ingested").increment(ingested);
     counter!("capture_ai_otel_requests_success").increment(1);
 
     debug!(

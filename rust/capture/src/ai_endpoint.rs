@@ -23,6 +23,7 @@ use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use crate::event_restrictions::{
     AppliedRestrictions, EventContext as RestrictionEventContext, Pipeline,
 };
+use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
 use crate::ingestion_warnings::ai::emit_ai_failure_warning;
@@ -358,6 +359,29 @@ async fn ai_handler_inner(
         .unwrap_or_else(|| "127.0.0.1".to_string());
     let (accepted_parts, mut processed_event) =
         build_kafka_event(parsed, token, &client_ip, &state, &applied_restrictions)?;
+
+    // Step 8a: Charge the AI lane's per-project byte budget. This endpoint
+    // builds its event at the handler and reaches the sink through neither
+    // analytics pipeline, so without this a sender could spend an unbounded
+    // number of bytes here while the same bytes on `/i/v0/ai/batch` are capped.
+    //
+    // Charged on the serialized event the sink would produce, which is the
+    // measure the legacy path charges, and after restrictions, quota, and the
+    // combined-size ceiling — nothing that was never going to publish spends
+    // the project's budget.
+    //
+    // An over-budget event answers 200 with no accepted parts, the shape this
+    // handler already uses for the token dropper and for a `DropEvent`
+    // restriction. A rate drop is ops-imposed, so it is reported to the client
+    // only as "nothing was accepted", never as a request failure.
+    if let Some(ref limiter) = state.ai_byte_rate_limiter {
+        if charge_ai_bytes(limiter, token, processed_event.event.data.len()).await {
+            report_dropped_events("ai_byte_rate_limited", 1);
+            return Ok(Json(AIEndpointResponse {
+                accepted_parts: vec![],
+            }));
+        }
+    }
 
     // Step 8b: Apply the in-process OverflowLimiter governor. The analytics
     // pipeline stamps overflow reasons inside `process_events`, but AI

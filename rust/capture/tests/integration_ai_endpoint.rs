@@ -7,6 +7,7 @@ use axum::Router;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::global_rate_limiter::GlobalRateLimiter;
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
@@ -1990,6 +1991,123 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
     );
 
     (router, sink_clone)
+}
+
+/// A real limiter whose local cache admits a key's first charge and limits
+/// every one after it. A threshold of `0` is what makes the second charge
+/// exceed the window with no Redis round trip and no clock, the same seam
+/// `integration_person_processing_matrix` uses for the event limiter; the tick
+/// is parked well past the requests so no background sync can race them.
+fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
+
+    let sink = CapturingSink::new();
+    let sink_clone = sink.clone();
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Ai;
+    cfg.ai_byte_limit_per_second = 0;
+    cfg.global_rate_limit_tick_interval_ms = 600_000;
+
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+    let byte_limiter = Arc::new(
+        GlobalRateLimiter::new_ai_bytes(&cfg, vec![redis.clone()])
+            .expect("failed to build the AI byte limiter"),
+    );
+
+    let router = router(
+        timesource,
+        readiness,
+        liveness,
+        Arc::new(sink),
+        redis,
+        None,
+        quota_limiter,
+        TokenDropper::default(),
+        None, // event_restriction_service
+        None, // recorder_handle
+        CaptureMode::Ai,
+        None,             // concurrency_limit
+        25 * 1024 * 1024, // event_size_limit
+        false,            // enable_historical_rerouting
+        1,                // historical_rerouting_threshold_days
+        false,            // is_mirror_deploy
+        0.0,              // verbose_sample_percent
+        26_214_400,       // ai_max_sum_of_parts_bytes
+        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        Some(byte_limiter),
+        None,  // replay_overflow_limiter
+        None,  // v1_sink_router
+        8,     // capture_v1_scatter_gather_min_batch
+        None,  // ai_gateway_signing_secret
+        false, // ai_events_overflow_enabled
+        None,  // ingestion_warning_emitter
+    );
+
+    (router, sink_clone)
+}
+
+/// The byte budget reaches this endpoint. It builds its event at the handler and
+/// never enters either analytics pipeline, so the charge has to be wired here or
+/// a sender could spend unbounded bytes on `/i/v0/ai` while the same bytes are
+/// capped on `/i/v0/ai/batch`.
+///
+/// An over-budget event answers 200 with no accepted parts, the shape this
+/// handler already uses for the token dropper and for a `DropEvent` restriction:
+/// a rate drop is ops-imposed and never surfaces as a request failure.
+#[tokio::test]
+async fn test_ai_endpoint_byte_budget_drops_the_over_budget_event() {
+    let (router, sink) = setup_ai_test_router_with_byte_limiter();
+    let test_client = TestClient::new(router);
+    let token = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
+
+    let send = async |client: &TestClient| {
+        let form =
+            create_ai_event_form("$ai_generation", "test_user", json!({"$ai_model": "gpt-4"}));
+        send_multipart_request(client, form, Some(token)).await
+    };
+
+    // The limiter reads a cache miss as no prior data and fails open, so the
+    // first event for a token is always admitted.
+    let first = send(&test_client).await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let accepted: serde_json::Value = first.json().await;
+    assert!(
+        !accepted["accepted_parts"].as_array().unwrap().is_empty(),
+        "the first event is admitted and reports the parts it took"
+    );
+    assert_eq!(sink.get_events().await.len(), 1);
+
+    let second = send(&test_client).await;
+    assert_eq!(
+        second.status(),
+        StatusCode::OK,
+        "a rate drop is not a request failure"
+    );
+    let refused: serde_json::Value = second.json().await;
+    assert_eq!(
+        refused["accepted_parts"].as_array().unwrap().len(),
+        0,
+        "an over-budget event reports that nothing was accepted"
+    );
+    assert_eq!(
+        sink.get_events().await.len(),
+        1,
+        "the over-budget event must not reach the sink"
+    );
 }
 
 #[tokio::test]

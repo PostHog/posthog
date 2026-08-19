@@ -10,12 +10,25 @@
 //! bytes count against one window no matter which pod, which capture
 //! deployment, or which pipeline ingests them.
 //!
-//! Both pipelines charge through [`charge_ai_bytes`] and act on the verdict in
-//! their own idiom — v0 drops the event from the batch here in
-//! [`drop_ai_byte_limited`], v1 marks it `EventResult::Drop` in
-//! `v1::analytics::process::apply_ai_byte_limits`. Both charge after event
-//! restrictions have filtered the batch, so an event a `DropEvent` restriction
-//! discards never spends the project's budget.
+//! Every ingress onto the lane charges through [`charge_ai_bytes`] and acts on
+//! the verdict in its own idiom, so no path is a way to spend bytes the others
+//! are capped on:
+//!
+//! * the legacy batch path drops the event from the batch here in
+//!   [`drop_ai_byte_limited`],
+//! * v1 marks it `EventResult::Drop` in
+//!   `v1::analytics::process::apply_ai_byte_limits`, which reports the reason
+//!   to the SDK in the 200 body,
+//! * `/i/v0/ai` answers 200 with no accepted parts, the shape that handler
+//!   already uses for its other silent drops,
+//! * `/i/v0/ai/otel` sheds the span through [`drop_ai_byte_limited`] and still
+//!   accepts the export, because a collector retries a rejected one.
+//!
+//! All four charge after event restrictions and after the per-event size
+//! ceiling, so nothing that was never going to publish spends the project's
+//! budget. None of them raises an ingestion warning: a rate drop is
+//! ops-imposed, and capture surfaces those through billing and ops channels
+//! rather than the customer-facing warnings table.
 use std::sync::Arc;
 
 use crate::global_rate_limiter::GlobalRateLimiter;
