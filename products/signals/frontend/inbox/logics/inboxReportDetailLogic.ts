@@ -579,12 +579,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as SignalReportArtefact[] | null,
             {
                 loadReportArtefacts: async () => {
-                    const response: SignalReportArtefactResponse = await signalReportsApi.artefacts(
-                        props.reportId,
-                        {
-                            limit: ARTEFACT_FETCH_LIMIT,
-                        }
-                    )
+                    const response: SignalReportArtefactResponse = await signalReportsApi.artefacts(props.reportId, {
+                        limit: ARTEFACT_FETCH_LIMIT,
+                    })
                     return response.results
                 },
             },

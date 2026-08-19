@@ -17,8 +17,8 @@ import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
 
-import type { ActionReferenceApi } from '../generated/api.schemas'
 import { actionCreateApi, actionReferencesApi, actionUpdateApi } from '../actionsApi'
+import type { ActionReferenceApi } from '../generated/api.schemas'
 import { deleteActionWithWarning } from '../utils/deleteAction'
 import { actionLogic } from './actionLogic'
 

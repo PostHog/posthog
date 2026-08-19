@@ -1,12 +1,12 @@
 import { router } from 'kea-router'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
+import { tracingApi } from './tracingApi'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
 
@@ -18,11 +18,11 @@ describe('tracingSceneLogic', () => {
         // The featureFlags reducer persists to localStorage — reset so flags can't leak across tests.
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {})
-        jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
-        jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
-        jest.spyOn(api.tracing, 'count').mockResolvedValue({ count: 0, traceCount: 0 })
-        jest.spyOn(api.tracing, 'aggregate').mockResolvedValue({ results: [], compare: null })
-        jest.spyOn(api.tracing, 'durationHistogram').mockResolvedValue({ results: [] })
+        jest.spyOn(tracingApi, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+        jest.spyOn(tracingApi, 'sparkline').mockResolvedValue({ results: [] })
+        jest.spyOn(tracingApi, 'count').mockResolvedValue({ count: 0, traceCount: 0 })
+        jest.spyOn(tracingApi, 'aggregate').mockResolvedValue({ results: [], compare: null })
+        jest.spyOn(tracingApi, 'durationHistogram').mockResolvedValue({ results: [] })
     })
 
     afterEach(() => {
@@ -151,7 +151,7 @@ describe('tracingSceneLogic', () => {
         const filtersLogic = mountAt({ comparison: JSON.stringify({ mode: 'time', preset: 'custom' }) })
         expect(filtersLogic.values.compareActive).toBe(true)
 
-        const aggregateSpy = jest.spyOn(api.tracing, 'aggregate')
+        const aggregateSpy = jest.spyOn(tracingApi, 'aggregate')
         logic.actions.setActiveTracingTab('operations')
         await new Promise((resolve) => setTimeout(resolve, 0))
         aggregateSpy.mockClear()
@@ -175,7 +175,7 @@ describe('tracingSceneLogic', () => {
         const filtersLogic = mountAt({ comparison: JSON.stringify({ mode: 'time', preset: 'custom' }) })
         expect(filtersLogic.values.compareActive).toBe(true)
 
-        const aggregateSpy = jest.spyOn(api.tracing, 'aggregate')
+        const aggregateSpy = jest.spyOn(tracingApi, 'aggregate')
         logic.actions.setActiveTracingTab('operations')
         await new Promise((resolve) => setTimeout(resolve, 0))
         aggregateSpy.mockClear()

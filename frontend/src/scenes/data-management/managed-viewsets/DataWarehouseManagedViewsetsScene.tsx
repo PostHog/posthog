@@ -11,10 +11,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 import { AccessControlResourceType } from '~/types'
 
-import {
-    managedViewsetsApi,
-    revenueAnalyticsJoinsApi,
-} from 'products/data_warehouse/frontend/warehouseRelationsApi'
+import { managedViewsetsApi, revenueAnalyticsJoinsApi } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import { DataWarehouseManagedViewsetCard } from './DataWarehouseManagedViewsetCard'
 import { DataWarehouseManagedViewsetImpactModal } from './DataWarehouseManagedViewsetImpactModal'

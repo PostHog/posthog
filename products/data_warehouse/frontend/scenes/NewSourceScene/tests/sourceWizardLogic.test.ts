@@ -1084,9 +1084,7 @@ describe('sourceWizardLogic', () => {
             ] as ExternalDataSourceSyncSchema[])
             const create = jest
                 .spyOn(externalDataSourcesApi, 'create')
-                .mockResolvedValue({ id: 'source-1' } as Awaited<
-                    ReturnType<typeof externalDataSourcesApi.create>
-                >)
+                .mockResolvedValue({ id: 'source-1' } as Awaited<ReturnType<typeof externalDataSourcesApi.create>>)
             const createWebhook = jest.spyOn(externalDataSourcesApi, 'createWebhook')
 
             const { logic, onComplete, unmount } = mountRequiredTablesWizard(['issues'])

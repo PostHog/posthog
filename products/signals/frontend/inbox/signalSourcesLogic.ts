@@ -24,10 +24,7 @@ import { eventDefinitionsList } from 'products/event_definitions/frontend/genera
 import { visionScannersList, visionScannersPartialUpdate } from 'products/replay_vision/frontend/generated/api'
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
-import {
-    externalDataSchemasApi,
-    externalDataSourcesApi,
-} from 'products/warehouse_sources/frontend/warehouseSourcesApi'
+import { externalDataSchemasApi, externalDataSourcesApi } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import type { SignalSourceTypeApi } from '../generated/api.schemas'
 import { signalSourceConfigsApi } from '../signalsApi'

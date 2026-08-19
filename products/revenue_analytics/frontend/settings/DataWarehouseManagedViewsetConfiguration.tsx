@@ -9,10 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType } from '~/types'
 
-import {
-    managedViewsetsApi,
-    revenueAnalyticsJoinsApi,
-} from 'products/data_warehouse/frontend/warehouseRelationsApi'
+import { managedViewsetsApi, revenueAnalyticsJoinsApi } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 export function DataWarehouseManagedViewsetConfiguration(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

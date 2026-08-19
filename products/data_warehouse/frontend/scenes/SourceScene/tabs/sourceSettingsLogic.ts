@@ -37,10 +37,7 @@ import {
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
-import {
-    externalDataSchemasApi,
-    externalDataSourcesApi,
-} from 'products/warehouse_sources/frontend/warehouseSourcesApi'
+import { externalDataSchemasApi, externalDataSourcesApi } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
@@ -717,12 +714,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             // Re-fetch recent jobs without an `after` filter to get updated statuses.
                             // The API returns up to 50 jobs sorted by created_at desc, so this
                             // will refresh the status of recent jobs (e.g. Running -> Completed).
-                            const freshJobs = await externalDataSourcesApi.jobs(
-                                values.sourceId,
-                                null,
-                                null,
-                                schemas
-                            )
+                            const freshJobs = await externalDataSourcesApi.jobs(values.sourceId, null, null, schemas)
 
                             // Merge fresh jobs with existing jobs, preferring the fresh data
                             const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
@@ -1486,10 +1478,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
                 const defaultsCount = payloads.filter((payload) => payload.apply_sync_defaults).length
                 try {
-                    const updatedSchemas = await externalDataSourcesApi.bulkUpdateSchemas(
-                        values.sourceId,
-                        payloads
-                    )
+                    const updatedSchemas = await externalDataSourcesApi.bulkUpdateSchemas(values.sourceId, payloads)
                     const nextSource = applySchemasToSource(values.source, updatedSchemas)
                     if (nextSource) {
                         actions.loadSourceSuccess(nextSource)

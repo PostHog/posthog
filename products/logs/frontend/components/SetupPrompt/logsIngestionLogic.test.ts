@@ -43,7 +43,7 @@ describe('logsIngestionLogic', () => {
         it('loads teamHasLogs as true when logs exist', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/logs/has_logs/': () => [200, { hasLogs: true }],
+                    '/api/projects/:team_id/logs/has_logs/': () => [200, { hasLogs: true }],
                 },
             })
 
@@ -60,7 +60,7 @@ describe('logsIngestionLogic', () => {
         it('loads teamHasLogs as false when no logs exist', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/logs/has_logs/': () => [200, { hasLogs: false }],
+                    '/api/projects/:team_id/logs/has_logs/': () => [200, { hasLogs: false }],
                 },
             })
 
@@ -78,7 +78,7 @@ describe('logsIngestionLogic', () => {
             silenceKeaLoadersErrors()
             useMocks({
                 get: {
-                    '/api/environments/:team_id/logs/has_logs/': () => [500, { detail: 'Server error' }],
+                    '/api/projects/:team_id/logs/has_logs/': () => [500, { detail: 'Server error' }],
                 },
             })
 
@@ -96,7 +96,7 @@ describe('logsIngestionLogic', () => {
         it('starts with loading state on mount', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/logs/has_logs/': () => [200, { hasLogs: true }],
+                    '/api/projects/:team_id/logs/has_logs/': () => [200, { hasLogs: true }],
                 },
             })
 
@@ -114,7 +114,7 @@ describe('logsIngestionLogic', () => {
             let callCount = 0
             useMocks({
                 get: {
-                    '/api/environments/:team_id/logs/has_logs/': () => {
+                    '/api/projects/:team_id/logs/has_logs/': () => {
                         callCount++
                         if (callCount <= 3) {
                             return [500, { detail: 'Server error' }]
@@ -146,7 +146,7 @@ describe('logsIngestionLogic', () => {
         it('skips API call when cachedTeamHasLogs is true', async () => {
             const mockFn = jest.fn(() => [200, { hasLogs: true }])
             useMocks({
-                get: { '/api/environments/:team_id/logs/has_logs/': mockFn },
+                get: { '/api/projects/:team_id/logs/has_logs/': mockFn },
             })
 
             logic = logsIngestionLogic()
@@ -169,7 +169,7 @@ describe('logsIngestionLogic', () => {
         it('makes API call when cachedTeamHasLogs is null', async () => {
             const mockFn = jest.fn(() => [200, { hasLogs: false }])
             useMocks({
-                get: { '/api/environments/:team_id/logs/has_logs/': mockFn },
+                get: { '/api/projects/:team_id/logs/has_logs/': mockFn },
             })
 
             logic = logsIngestionLogic()
@@ -190,7 +190,7 @@ describe('logsIngestionLogic', () => {
 
         it('hasLogs selector falls back to cachedTeamHasLogs when teamHasLogs is undefined', async () => {
             useMocks({
-                get: { '/api/environments/:team_id/logs/has_logs/': () => [200, { hasLogs: true }] },
+                get: { '/api/projects/:team_id/logs/has_logs/': () => [200, { hasLogs: true }] },
             })
 
             logic = logsIngestionLogic()

@@ -276,9 +276,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             ) => {
                 let result: EarlyAccessFeatureType
                 if (props.id === 'new') {
-                    result = await earlyAccessFeaturesApi.create(
-                        updatedEarlyAccessFeature as NewEarlyAccessFeatureType
-                    )
+                    result = await earlyAccessFeaturesApi.create(updatedEarlyAccessFeature as NewEarlyAccessFeatureType)
                 } else {
                     result = await earlyAccessFeaturesApi.update(
                         props.id,

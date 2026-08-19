@@ -6,10 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 
-import {
-    managedViewsetsApi,
-    revenueAnalyticsJoinsApi,
-} from 'products/data_warehouse/frontend/warehouseRelationsApi'
+import { managedViewsetsApi, revenueAnalyticsJoinsApi } from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 import type { TeamPublicType, TeamType } from '../../../types'
 import {

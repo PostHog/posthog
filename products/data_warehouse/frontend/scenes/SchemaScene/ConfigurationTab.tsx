@@ -48,10 +48,7 @@ import {
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
-import {
-    externalDataSchemasApi,
-    externalDataSourcesApi,
-} from 'products/warehouse_sources/frontend/warehouseSourcesApi'
+import { externalDataSchemasApi, externalDataSourcesApi } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'

@@ -181,10 +181,7 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                     source: ExternalDataSource
                     config: Partial<ExternalDataSourceRevenueAnalyticsConfig>
                 }) => {
-                    const updatedSource = await externalDataSourcesApi.updateRevenueAnalyticsConfig(
-                        source.id,
-                        config
-                    )
+                    const updatedSource = await externalDataSourcesApi.updateRevenueAnalyticsConfig(source.id, config)
                     return {
                         ...values.dataWarehouseSources,
                         results:

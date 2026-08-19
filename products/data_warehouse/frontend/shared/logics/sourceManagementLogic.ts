@@ -29,10 +29,7 @@ import {
 } from '~/types'
 
 import { warehouseViewLinksApi } from 'products/data_warehouse/frontend/warehouseRelationsApi'
-import {
-    externalDataSchemasApi,
-    externalDataSourcesApi,
-} from 'products/warehouse_sources/frontend/warehouseSourcesApi'
+import { externalDataSchemasApi, externalDataSourcesApi } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type {
