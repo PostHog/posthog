@@ -388,6 +388,9 @@ def _policy_rows(
         start_token = None
 
 
+# Named fields instead of a 2/3-tuple return: semgrep's tuple-return-prefer-dataclass
+# devex rule flags tuple[$T, $T] and tuple[$A, $B, $C, ...] return annotations because
+# same-typed or 3+ positional elements are easy to swap or misread at the call site.
 @dataclasses.dataclass(frozen=True)
 class OrganizationalUnitEntry:
     """An OU paired with the parent it was found under."""
