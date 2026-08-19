@@ -179,7 +179,7 @@ narrow:
   in reviewer prompts and error messages persisted to API-readable fields (`run.error` keeps only
   a truncated first line for exactly this reason).
 
-## Engine parity (tools/pr-approval-agent)
+## Engine parity (packages/pr-approval-agent)
 
 `review_local.py` is the entrypoint the sandbox runs. It drives `review_pr.Pipeline`'s own steps, so
 gate order, review filtering (bare COMMENTED reviews dropped, non-empty ones kept), in-flight
@@ -210,6 +210,6 @@ answers False for every PR it exists to catch.
 ## Tests
 
 `hogli test products/stamphog/backend/tests/` (Django; `--reuse-db` after the first run) plus
-`tools/pr-approval-agent/` tests for engine changes. The integration tests drive the full chain
+`packages/pr-approval-agent/` tests for engine changes. The integration tests drive the full chain
 through fakes (`tests/fakes.py`, `tests/conftest.py`) — extend the fakes rather than mocking
 internals, and prefer adding a parameterized case to an existing test over a new function.

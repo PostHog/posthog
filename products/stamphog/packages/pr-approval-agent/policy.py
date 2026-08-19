@@ -235,7 +235,9 @@ _DELEGABLE_KEYS = {"size_gate.max_files"}
 
 # Invariant 7: self-governance deny must cover these path families so a future
 # policy edit cannot silently drop stamphog's protection of its own files.
-_SELF_GOVERNANCE_REQUIRED = (".stamphog/", "AGENT_APPROVALS", "tools/pr-approval-agent/")
+# The engine token is location-agnostic on purpose: this repo keeps the engine under the stamphog
+# product while vendored copies keep it under tools/, and both must stay self-governed.
+_SELF_GOVERNANCE_REQUIRED = (".stamphog/", "AGENT_APPROVALS", "pr-approval-agent/")
 
 
 def _require(condition: bool, message: str) -> None:

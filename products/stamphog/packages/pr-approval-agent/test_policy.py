@@ -479,7 +479,13 @@ def test_resolve_invalid_child_rides_parent_grant(fake_repo: Path) -> None:
 
 @pytest.mark.parametrize(
     "path",
-    [".stamphog/policy.yml", "some/AGENT_APPROVALS.md", "tools/pr-approval-agent/review_pr.py"],
+    [
+        ".stamphog/policy.yml",
+        "some/AGENT_APPROVALS.md",
+        "products/stamphog/packages/pr-approval-agent/review_pr.py",
+        # A vendored copy keeps the engine under tools/, which the same deny must still cover.
+        "tools/pr-approval-agent/review_pr.py",
+    ],
 )
 def test_policy_file_only_pr_is_t2_never(path: str) -> None:
     deny = gates.detect_deny_categories([path])

@@ -1068,6 +1068,10 @@ class OrphanedTestFilesCheck(ProductCheck):
         "tasks": ("backend/temporal/",),
         "warehouse_sources": ("backend/temporal/",),
         "signals": ("backend/emission/",),
+        # ci-python.yml "Run pr-approval-agent (stamphog) tests" step: the review engine is a flat
+        # script bundle with bare sibling imports, so it runs as its own pytest invocation rather
+        # than inside the product's Django suite.
+        "stamphog": ("packages/pr-approval-agent/",),
     }
 
     def run(self, ctx: CheckContext) -> CheckResult:

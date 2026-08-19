@@ -8,7 +8,7 @@ rather than threaded through the workflow, keeping every Temporal payload well u
 
 The whole review engine — hard gates, tier classification, git-blame familiarity, and
 the LLM reviewer — runs inside the sandbox via the Action's own modules
-(``tools/pr-approval-agent/review_local.py``). The server never processes repo content:
+(``products/stamphog/packages/pr-approval-agent/review_local.py``). The server never processes repo content:
 it fetches PR data and the trusted default-branch policy over the API, ships the engine
 and injects the policy into the sandbox, and only ever reads back a single verdict JSON.
 """
@@ -69,11 +69,11 @@ from products.tasks.backend.facade.sandbox import (
     get_sandbox_class_for_backend,
 )
 
-# The Action's review engine on the server's own checkout. Read as data files at
-# runtime (never imported — the directory is hyphenated and lives outside the
-# import graph) and shipped into the sandbox checkout. activities.py is at
-# products/stamphog/backend/temporal/activities.py, so the repo root is five parents up.
-_SERVER_ENGINE_DIR = Path(__file__).resolve().parents[4] / "tools" / "pr-approval-agent"
+# The review engine on the server's own checkout. Read as data files at runtime (never imported —
+# the directory is hyphenated and lives outside the import graph) and shipped into the sandbox
+# checkout. activities.py is at products/stamphog/backend/temporal/activities.py, so the product root
+# is three parents up.
+_SERVER_ENGINE_DIR = Path(__file__).resolve().parents[2] / "packages" / "pr-approval-agent"
 
 # Server-shipped default policy files, the base layer every repo's config sits on. Named by the
 # basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
@@ -1160,11 +1160,13 @@ def _ship_owners_package(sandbox: SandboxBase) -> None:
     """Ship the posthog-owners resolver package the engine's ownership format imports.
 
     The default policy declares a ``hogli-resolver`` ownership source, and gates.py imports
-    ``posthog_owners`` from ``tools/owners`` next to the engine dir. Same trust posture as the
+    ``posthog_owners`` from ``tools/owners`` next to the engine dir in the sandbox. Same trust posture as the
     engine: always our copy, wiping whatever the PR head carried at that path. Repos without
     owners.yaml/product.yaml files simply resolve to "no ownership-source match".
     """
-    package_dir = _SERVER_ENGINE_DIR.parent / "owners" / "posthog_owners"
+    # Repo root rather than a sibling of the engine: posthog_owners is a shared tool, so it stays
+    # under tools/ while the engine lives in the product.
+    package_dir = Path(__file__).resolve().parents[4] / "tools" / "owners" / "posthog_owners"
     if not package_dir.is_dir():
         raise RuntimeError(f"owners package source dir not found: {package_dir}")
     target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/posthog_owners"

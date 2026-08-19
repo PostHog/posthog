@@ -70,6 +70,7 @@ jobs:
                         - 'bin/**'
                         # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
+                        - 'products/stamphog/packages/pr-approval-agent/**'
                         - 'tools/query-performance-ai/**'
                         # Stamphog policy files validated by the pr-approval-agent suite
                         - '.stamphog/**'
@@ -209,7 +210,18 @@ jobs:
 
                   - name: Run pr-approval-agent (stamphog) tests
                     shell: bash
-                    run: pytest tools/pr-approval-agent -v --junitxml=junit-pr-approval-agent.xml
+                    # Two candidate paths: the engine now lives under the stamphog product, but an
+                    # open PR that hasn't rebased still carries it under tools/, and this workflow
+                    # runs against that branch merged with master.
+                    run: |
+                        for dir in products/stamphog/packages/pr-approval-agent tools/pr-approval-agent; do
+                          if [ -d "$dir" ]; then
+                            pytest "$dir" -v --junitxml=junit-pr-approval-agent.xml
+                            exit 0
+                          fi
+                        done
+                        echo "::error::pr-approval-agent engine not found at either path"
+                        exit 1
 
                   - name: Run dependency detection script tests
                     shell: bash

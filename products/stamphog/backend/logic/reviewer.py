@@ -2,7 +2,7 @@
 
 The whole review engine — hard gates, tier classification, git-blame
 familiarity, and the LLM reviewer — now runs inside the sandbox via the Action's
-own modules (``tools/pr-approval-agent/review_local.py``). This module no longer
+own modules (``products/stamphog/packages/pr-approval-agent/review_local.py``). This module no longer
 embeds a reviewer script; it only:
 
 - ``build_reviewer_invocation``: assembles the ``--context`` JSON payload the
@@ -50,7 +50,7 @@ _LEGACY_VERDICT_MAP = {
 }
 
 
-# Mirrors the engine's VERDICT_SCHEMA cap (tools/pr-approval-agent/reviewer.py) and the
+# Mirrors the engine's VERDICT_SCHEMA cap (products/stamphog/packages/pr-approval-agent/reviewer.py) and the
 # stamphog_reviewrun column width.
 CHANGE_SUMMARY_MAX_CHARS = 200
 

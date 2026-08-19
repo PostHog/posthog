@@ -122,7 +122,7 @@ deny:
             paths:
                 - '\.stamphog/'
                 - 'AGENT_APPROVALS\.md'
-                - 'tools/pr-approval-agent/'
+                - 'pr-approval-agent/'
                 - 'products/stamphog/backend/logic/policy_defaults/'
                 - 'tools/owners/'
                 - 'CODEOWNERS'

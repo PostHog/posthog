@@ -17,19 +17,30 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from policy import OwnershipSource, load_policy
+from policy import (
+    OwnershipSource,
+    load_policy,
+    repo_root as _resolve_repo_root,
+)
 
 if TYPE_CHECKING:
     from posthog_owners.resolver import OwnersResolver
 
-# The resolver lives in the posthog-owners package, a sibling under tools/. It is
-# not installed in this script's uv env, so it is put on the path and imported as
-# a library (it needs only pyyaml, which review_pr.py declares). The import is
-# deferred to _build_hogli_resolver: downstream repos vendor this directory
-# (plus .stamphog/) without tools/owners, and a module-level import would
-# disable their stamphog copy before any gate runs — the package is only
-# required once a policy actually declares a hogli-resolver ownership source.
-_OWNERS_PKG = Path(__file__).resolve().parents[1] / "owners"
+# The resolver lives in the posthog-owners package. It is not installed in this script's uv env, so
+# it is put on the path and imported as a library (it needs only pyyaml, which review_pr.py
+# declares). The import is deferred to _build_hogli_resolver: downstream repos vendor this directory
+# (plus .stamphog/) without tools/owners, and a module-level import would disable their stamphog copy
+# before any gate runs — the package is only required once a policy actually declares a
+# hogli-resolver ownership source.
+#
+# Two candidate locations, tried in order. The sibling `owners/` covers both the vendored layout
+# downstream repos copy and the review sandbox, which receives this directory at
+# <checkout>/tools/pr-approval-agent with tools/owners beside it. The repo-root `tools/owners` covers
+# running from this repo, where the engine's own home is under products/stamphog/packages/.
+_OWNERS_PKG_CANDIDATES = (
+    Path(__file__).resolve().parents[1] / "owners",
+    _resolve_repo_root() / "tools" / "owners",
+)
 
 # ── Dependency ecosystems ────────────────────────────────────────
 #
@@ -186,16 +197,17 @@ class _HogliResolver:
 
 
 def _build_hogli_resolver(repo_root: Path, source: OwnershipSource) -> _HogliResolver:
-    if str(_OWNERS_PKG) not in sys.path:
-        sys.path.insert(0, str(_OWNERS_PKG))
+    for candidate in _OWNERS_PKG_CANDIDATES:
+        if candidate.is_dir() and str(candidate) not in sys.path:
+            sys.path.insert(0, str(candidate))
     try:
-        from posthog_owners.resolver import (
-            OwnersResolver,  # noqa: PLC0415 — absent in vendored copies; needed only for this format
-        )
+        # Deferred (PLC0415) because the package is absent in vendored copies and is needed only
+        # once a policy declares this ownership format.
+        from posthog_owners.resolver import OwnersResolver  # noqa: PLC0415
     except ImportError as exc:
         raise RuntimeError(
             "ownership format 'hogli-resolver' requires the posthog-owners package: "
-            "vendor tools/owners alongside tools/pr-approval-agent, or drop the "
+            "vendor tools/owners alongside this directory, or drop the "
             "hogli-resolver source from .stamphog/policy.yml"
         ) from exc
     assert source.path is not None  # validated by the loader (hogli-resolver uses `path`)

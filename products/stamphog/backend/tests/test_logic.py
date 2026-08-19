@@ -28,7 +28,7 @@ from products.stamphog.backend.temporal.registry import ACTIVITIES
 from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import _generate_app_private_key
 
-# The gate/policy engine now lives in tools/pr-approval-agent and is covered by its
+# The gate/policy engine lives in packages/pr-approval-agent and is covered by its
 # own suite (test_gates.py, test_policy.py); it runs inside the sandbox rather than
 # server-side, so there is no ported copy to test here. What remains server-side is
 # the defensive parsing of the engine's stdout contract.

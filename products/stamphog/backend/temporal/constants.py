@@ -23,7 +23,7 @@ STAMPHOG_SANDBOX_ENGINE_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/pr-approval-ag
 
 # Reviewer bots whose 👀 reaction means "review in flight" — the hosted workflow waits these out
 # server-side before provisioning the sandbox (the sandbox holds no token to poll with). Mirrors the
-# engine's TRUSTED_REACTOR_BOTS (tools/pr-approval-agent/github.py) and its wait timings
+# engine's TRUSTED_REACTOR_BOTS (products/stamphog/packages/pr-approval-agent/github.py) and its wait timings
 # (review_pr.py); the server cannot import the hyphenated engine dir, so keep the two in sync.
 STAMPHOG_TRUSTED_REACTOR_BOTS = frozenset(
     {
