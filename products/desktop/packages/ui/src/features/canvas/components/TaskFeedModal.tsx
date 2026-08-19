@@ -106,7 +106,9 @@ export function TaskFeedModal({
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Content maxWidth="520px">
+      {/* overflow-visible: the query editor's suggestion popup hangs below
+          the field, and the dialog's default overflow:auto would clip it. */}
+      <Dialog.Content maxWidth="520px" className="overflow-visible!">
         <Flex align="start" justify="between" gap="3">
           <Flex direction="column" gap="1">
             <Dialog.Title mb="0">
@@ -162,18 +164,22 @@ export function TaskFeedModal({
             onSubmit={submit}
             placeholder="e.g. billing created-by:@me -status:failed"
           />
-          {/* Fixed-height row: the first problem with the query, or nothing.
-              Space is reserved either way, so typing never moves the fields. */}
+          {/* Fixed-height meta row: the first problem with the query, or the
+              syntax reminder. Space is reserved either way, so typing never
+              moves the fields. */}
           <div
             className={cn(
               "h-5 min-w-0 truncate text-xs",
-              issue?.kind === "unsupported"
-                ? "text-(--amber-11)"
-                : "text-(--red-11)",
+              issue
+                ? issue.kind === "unsupported"
+                  ? "text-(--amber-11)"
+                  : "text-(--red-11)"
+                : "text-(--gray-9)",
             )}
             title={issue?.message}
           >
-            {issue?.message}
+            {issue?.message ??
+              "Free text searches tasks. Same filter twice is either, -filter excludes."}
           </div>
         </Flex>
 

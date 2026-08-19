@@ -3,7 +3,7 @@ import {
   PencilSimpleIcon,
   TrashIcon,
 } from "@phosphor-icons/react";
-import { Button } from "@posthog/quill";
+import { Button, Skeleton } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
@@ -103,7 +103,9 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex min-w-0 items-baseline gap-2">
           <FeedQueryHighlight query={feed.query} className="min-w-0 truncate" />
-          {!isLoading && (
+          {isLoading ? (
+            <Skeleton className="h-3 w-12 shrink-0 self-center" />
+          ) : (
             <span className="shrink-0 text-(--gray-9) text-xs">
               {tasks.length} {tasks.length === 1 ? "task" : "tasks"}
             </span>

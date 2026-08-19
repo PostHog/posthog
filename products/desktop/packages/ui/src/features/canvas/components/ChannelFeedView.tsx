@@ -25,6 +25,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Skeleton,
   Spinner,
 } from "@posthog/quill";
 import {
@@ -1153,6 +1154,62 @@ function feedDayLabel(iso: string, now: Date): string {
   });
 }
 
+/**
+ * The loading stand-in for one feed card: the card frame with the title,
+ * prompt lines, and footer facepile as pulsing bars, so the page keeps the
+ * feed's shape while the query runs instead of collapsing to a spinner.
+ */
+function FeedRowSkeleton({ wide }: { wide?: boolean }) {
+  return (
+    <Card
+      size="sm"
+      className="mx-auto my-1.5 w-full max-w-[660px] rounded-xl py-0"
+    >
+      <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
+        <div className="flex items-start gap-3">
+          <Skeleton className={cn("h-4", wide ? "w-3/5" : "w-2/5")} />
+          <Skeleton className="ml-auto h-5 w-16 shrink-0 rounded-full" />
+        </div>
+        <div className="mt-2 flex flex-col gap-1.5">
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className={cn("h-3", wide ? "w-1/2" : "w-3/4")} />
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <Skeleton className="size-5 rounded-full" />
+          <Skeleton className="h-3 w-24" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The loading feed: a faded stack of card skeletons under a separator-shaped
+ * bar. Each card fainter than the one above, so the stack reads as content
+ * arriving rather than a wall of grey.
+ */
+function FeedSkeleton() {
+  return (
+    <div aria-hidden className="flex flex-col">
+      <div className="mx-auto flex w-full max-w-[660px] items-center gap-3 pt-5 pb-2">
+        <span className="h-px flex-1 bg-(--gray-5)" />
+        <Skeleton className="h-3 w-12" />
+        <span className="h-px flex-1 bg-(--gray-5)" />
+      </div>
+      <FeedRowSkeleton wide />
+      <div className="opacity-70">
+        <FeedRowSkeleton />
+      </div>
+      <div className="opacity-40">
+        <FeedRowSkeleton wide />
+      </div>
+      <div className="opacity-15">
+        <FeedRowSkeleton />
+      </div>
+    </div>
+  );
+}
+
 function DaySeparator({ label }: { label: string }) {
   return (
     <div className="mx-auto flex w-full max-w-[660px] items-center gap-3 pt-5 pb-2 font-semibold text-(--gray-9) text-[11px] uppercase tracking-wider">
@@ -1246,13 +1303,15 @@ export function ChannelFeedView({
   );
 
   if (isLoading && pending.length === 0) {
+    // Everything already known renders now — the intro (a feed's query bar,
+    // a space's header) and the composer — with skeleton cards holding the
+    // feed's shape where the results are about to land.
     return (
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full flex-col px-4 pt-4">
+        <div className="mx-auto w-full px-4 pt-4 pb-10">
+          {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
           {composerBlock}
-          <div className="flex justify-center py-16">
-            <Spinner />
-          </div>
+          <FeedSkeleton />
         </div>
       </div>
     );
