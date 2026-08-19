@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 
 from django.core.management import call_command
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -35,6 +36,15 @@ class TestResetWrappedXminCursors(BaseTest):
                 "xmin_ceiling": (num_wraparound << 32) | 500,
                 "xmin_num_wraparound": num_wraparound,
             },
+        )
+
+    def _running_job(self, schema: ExternalDataSchema) -> ExternalDataJob:
+        return ExternalDataJob.objects.create(
+            team_id=self.team.pk,
+            pipeline=schema.source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            pipeline_version=ExternalDataJob.PipelineVersion.V2,
         )
 
     def _run(self, **options) -> str:
@@ -72,6 +82,16 @@ class TestResetWrappedXminCursors(BaseTest):
 
         incremental.refresh_from_db()
         assert incremental.sync_type_config["incremental_field_last_value"] == "5"
+
+    def test_schema_with_a_running_sync_keeps_its_cursor(self) -> None:
+        wrapped = self._xmin_schema("orders", num_wraparound=12)
+        self._running_job(wrapped)
+
+        output = self._run(live_run=True)
+
+        wrapped.refresh_from_db()
+        assert wrapped.xmin_last_value == 500
+        assert "sync is running" in output
 
     def test_named_schemas_skip_the_wraparound_filter(self) -> None:
         never_wrapped = self._xmin_schema("customers", num_wraparound=0)
