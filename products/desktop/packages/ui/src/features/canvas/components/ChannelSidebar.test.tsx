@@ -260,13 +260,15 @@ describe("ChannelSidebar", () => {
     ).not.toBeInTheDocument();
 
     // A canvas has no run, so the filters that ask about one are gone rather
-    // than left to empty the tab.
+    // than left to empty the tab. Canvas provenance remains filterable.
     await user.click(screen.getByRole("button", { name: "Filter" }));
     expect(
       await screen.findByRole("menuitem", { name: /Pinned/ }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /Status/ })).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: /Source/ })).toBeNull();
+    expect(
+      screen.getByRole("menuitem", { name: /Source/ }),
+    ).toBeInTheDocument();
   });
 });
 
