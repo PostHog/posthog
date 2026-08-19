@@ -2,6 +2,8 @@ from django.db import migrations, models
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 logger = structlog.get_logger(__name__)
 
 INDEX_NAME = "sb_job_id_idx"
@@ -58,14 +60,19 @@ def _partitions(schema_editor) -> list[str]:
         return [row[0] for row in cursor.fetchall()]
 
 
-def _index_state(schema_editor, index_name: str) -> tuple[bool, bool]:
-    """(exists_and_valid, attached_to_parent) for a per-partition index."""
+@frozen
+class _IndexState:
+    valid: bool
+    attached: bool
+
+
+def _index_state(schema_editor, index_name: str) -> _IndexState:
     with schema_editor.connection.cursor() as cursor:
         cursor.execute(_INDEX_STATE_SQL, [index_name])
         row = cursor.fetchone()
     if row is None:
-        return False, False
-    return bool(row[0]), bool(row[1])
+        return _IndexState(valid=False, attached=False)
+    return _IndexState(valid=bool(row[0]), attached=bool(row[1]))
 
 
 def _disable_timeouts(schema_editor) -> None:
@@ -83,10 +90,10 @@ def _forward(apps, schema_editor):
     _disable_timeouts(schema_editor)
     for partition in _partitions(schema_editor):
         index_name = f"{partition}_{INDEX_NAME}"
-        valid, attached = _index_state(schema_editor, index_name)
-        if attached:
+        state = _index_state(schema_editor, index_name)
+        if state.attached:
             continue
-        if not valid:
+        if not state.valid:
             # Either absent, or an invalid leftover from an interrupted build.
             schema_editor.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{index_name}"')
             logger.info("sourcebatch_partition_index_build", partition=partition, index_name=index_name)
