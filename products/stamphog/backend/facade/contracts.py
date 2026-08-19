@@ -16,7 +16,7 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from .enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
+from .enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewTrigger, ReviewVerdict
 
 
 @dataclass(frozen=True)
@@ -108,10 +108,18 @@ class ReviewRunDTO:
     head_sha: str
     status: ReviewRunStatus
     verdict: ReviewVerdict
+    # Why stamphog looked at this PR at all. Derived rather than stored — see the facade's
+    # trigger helpers, which own both the derivation and the matching filter.
+    trigger: ReviewTrigger
+    title: str = ""
+    author_login: str = ""
     delivery_id: str | None = None
     gate_result: dict | None = None
     output: dict = Field(default_factory=dict)
     error: str = ""
+    posted_review_id: int | None = None
+    verdict_posted_at: datetime | None = None
+    approval_dismissed_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None

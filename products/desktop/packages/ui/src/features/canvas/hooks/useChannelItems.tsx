@@ -28,8 +28,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 /**
- * A channel's canvases + task feed as merged, newest-first items, plus the row
- * actions and the viewer's identity for the recent-list filters.
+ * A channel's canvases + task feed as merged items, most recently active first, plus the
+ * row actions and the viewer's identity for the recent-list filters.
  *
  * The channel is looked up in the channels list to establish its identity
  * (personal vs public). While it's unknown the hook reports loading and yields
