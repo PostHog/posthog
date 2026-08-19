@@ -147,7 +147,7 @@ def _message_dedupe_key(
     return f"{actor_user_id or ''}:{actor_slack_user_id}:{message_id}"
 
 
-@dataclass
+@dataclass(frozen=False)
 class ResumedSandboxState:
     """Loop state carried across continue_as_new to re-attach without re-provisioning."""
 
@@ -167,6 +167,9 @@ class ResumedSandboxState:
     # ISO8601 start of the whole continue_as_new chain, so the wall-clock cap is not
     # reset by a continuation. None on payloads written before this field existed.
     chain_started_at: Optional[str] = None
+    agent_active: Optional[bool] = None
+    end_of_turn_received: Optional[bool] = None
+    last_agent_heartbeat_at: Optional[str] = None
 
 
 @dataclass
@@ -376,6 +379,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # reason a run ended stays machine-readable without abusing error_message.
         self._completion_timeout_marker: Optional[str] = None
         self._heartbeat_received: bool = False
+        self._agent_active: Optional[bool] = None
+        self._end_of_turn_received: Optional[bool] = None
+        self._last_agent_heartbeat_at: Optional[datetime] = None
         self._prewarmed: bool = False
         self._first_user_message_received: bool = False
         self._sandbox_gone: bool = False
@@ -1354,6 +1360,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 last_active_time=self._last_active_time.isoformat() if self._last_active_time else None,
                 accepted_message_ids=self._accepted_message_ids,
                 chain_started_at=self._chain_start_time().isoformat(),
+                agent_active=self._agent_active,
+                end_of_turn_received=self._end_of_turn_received,
+                last_agent_heartbeat_at=(
+                    self._last_agent_heartbeat_at.isoformat() if self._last_agent_heartbeat_at else None
+                ),
             ),
         )
 
@@ -1378,6 +1389,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._accepted_message_ids = resumed.accepted_message_ids
         self._accepted_message_id_set = set(resumed.accepted_message_ids)
         self._last_active_time = datetime.fromisoformat(resumed.last_active_time) if resumed.last_active_time else None
+        self._agent_active = resumed.agent_active
+        self._end_of_turn_received = resumed.end_of_turn_received
+        self._last_agent_heartbeat_at = (
+            datetime.fromisoformat(resumed.last_agent_heartbeat_at) if resumed.last_agent_heartbeat_at else None
+        )
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         context = await workflow.execute_activity(
@@ -2049,6 +2065,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         error_type: Optional[str] = None,
         timeout_marker: Optional[str] = None,
     ) -> None:
+        seconds_since_last_agent_heartbeat = (
+            (workflow.now() - self._last_agent_heartbeat_at).total_seconds() if self._last_agent_heartbeat_at else None
+        )
         await workflow.execute_activity(
             update_task_run_status,
             UpdateTaskRunStatusInput(
@@ -2058,6 +2077,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 timed_out_inactivity=timed_out_inactivity,
                 error_type=error_type,
                 timeout_marker=timeout_marker,
+                agent_active_at_termination=self._agent_active,
+                end_of_turn_received=self._end_of_turn_received,
+                last_agent_heartbeat_at=(
+                    self._last_agent_heartbeat_at.isoformat() if self._last_agent_heartbeat_at else None
+                ),
+                seconds_since_last_agent_heartbeat=seconds_since_last_agent_heartbeat,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -2414,8 +2439,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def heartbeat(self, agent_active: bool = False) -> None:
         if not agent_active:
             return
+        now = workflow.now()
         self._heartbeat_received = True
-        self._last_active_time = workflow.now()
+        self._last_active_time = now
+        self._last_agent_heartbeat_at = now
+
+    @temporalio.workflow.signal
+    async def agent_state_changed(self, agent_active: bool) -> None:
+        self._agent_active = agent_active
+        self._end_of_turn_received = not agent_active
 
     @temporalio.workflow.signal
     async def send_followup_message(

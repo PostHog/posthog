@@ -129,23 +129,23 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
     # The WHERE claims the notification stamp: of two racing ticks exactly one wins the send, and a
     # crash before the send below can only skip a notification, never send an unrecorded one.
     watermark = initial_watermark()
+    # The deep pass walks from its own watermark up to the fast one, so leaving it behind would hand
+    # the first uncapped deep sweep exactly the window this reset skips. The cursor is cleared with
+    # it: it points partway into ground nobody swept.
+    reset = {
+        "last_swept_at": watermark,
+        "last_seen_session_id": "",
+        "deep_swept_through": watermark,
+        "deep_seen_session_id": "",
+    }
     stamped = (
         ReplayScanner.objects.filter(pk=scanner.pk)
         .exclude(limit_notified_period_start=period.start)
-        .update(
-            last_swept_at=watermark,
-            last_seen_session_id="",
-            # The deep pass walks from its own watermark up to the fast one, so leaving it behind would
-            # hand the first uncapped deep sweep exactly the window this reset skips.
-            last_deep_swept_at=watermark,
-            limit_notified_period_start=period.start,
-        )
+        .update(**reset, limit_notified_period_start=period.start)
     )
     if not stamped:
         # Already notified this period; still advance the watermark past the skipped window.
-        ReplayScanner.objects.filter(pk=scanner.pk).update(
-            last_swept_at=watermark, last_seen_session_id="", last_deep_swept_at=watermark
-        )
+        ReplayScanner.objects.filter(pk=scanner.pk).update(**reset)
     activity.logger.info(
         "Sweep skipped: scanner credit limit reached",
         extra={

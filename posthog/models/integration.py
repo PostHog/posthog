@@ -639,6 +639,7 @@ class Integration(models.Model):
                 fields=["team", "kind", "integration_id"], name="posthog_integration_kind_id_unique"
             )
         ]
+        indexes = [models.Index(fields=["kind", "integration_id"], name="posthog_integration_kind_ext")]
 
     @property
     def display_name(self) -> str:
