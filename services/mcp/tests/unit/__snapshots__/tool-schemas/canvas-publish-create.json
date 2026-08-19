@@ -136,6 +136,64 @@
                     "required": ["posthog", "network"],
                     "type": "object"
                 },
+                "component": {
+                    "description": "Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config.",
+                    "properties": {
+                        "configSchema": {
+                            "additionalProperties": {},
+                            "description": "JSON Schema (\"type\": \"object\") for a placement's config. The host validates each placement's config against it and passes the validated object to the widget at mount.",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "size": {
+                            "description": "Grid-size contract for placements of this component.",
+                            "properties": {
+                                "defaultH": {
+                                    "description": "Height a new placement starts at, in grid rows.",
+                                    "maximum": 40,
+                                    "minimum": 1,
+                                    "type": "number"
+                                },
+                                "defaultW": {
+                                    "description": "Width a new placement starts at, in grid columns.",
+                                    "maximum": 12,
+                                    "minimum": 1,
+                                    "type": "number"
+                                },
+                                "maxH": {
+                                    "description": "Tallest allowed height; omit for no cap.",
+                                    "maximum": 40,
+                                    "minimum": 1,
+                                    "type": "number"
+                                },
+                                "maxW": {
+                                    "description": "Widest allowed width; omit for no cap below the grid's width.",
+                                    "maximum": 12,
+                                    "minimum": 1,
+                                    "type": "number"
+                                },
+                                "minH": {
+                                    "description": "Shortest height the component renders usefully at.",
+                                    "maximum": 40,
+                                    "minimum": 1,
+                                    "type": "number"
+                                },
+                                "minW": {
+                                    "description": "Narrowest width the component renders usefully at.",
+                                    "maximum": 12,
+                                    "minimum": 1,
+                                    "type": "number"
+                                }
+                            },
+                            "required": ["defaultW", "defaultH", "minW", "minH"],
+                            "type": "object"
+                        }
+                    },
+                    "required": ["size"],
+                    "type": "object"
+                },
                 "dependencies": {
                     "additionalProperties": {
                         "type": "string"
