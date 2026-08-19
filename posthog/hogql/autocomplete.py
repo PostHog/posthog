@@ -803,20 +803,28 @@ def get_hogql_autocomplete(
                                             type=property_type,
                                         )
 
-                                    with timings.measure("property_count"):
-                                        total_property_count = property_query.count()
-
+                                    # One row past the limit tells us the list was truncated, which a
+                                    # count() would otherwise have to answer. An empty match_term makes
+                                    # the filter `LIKE '%%'`, so that count walked every property
+                                    # definition in the project on the first `.` keystroke.
+                                    # Order by name because posthog_propdef_proj_uniq is keyed on
+                                    # (project, name, ...), so Postgres reads it in order and stops at
+                                    # the limit. Ordering by anything else adds a sort over every match.
                                     with timings.measure("property_get_values"):
-                                        properties = property_query[:PROPERTY_DEFINITION_LIMIT].values(
-                                            "name", "property_type"
+                                        properties = list(
+                                            property_query.order_by("name")[: PROPERTY_DEFINITION_LIMIT + 1].values(
+                                                "name", "property_type"
+                                            )
                                         )
+
+                                    response.incomplete_list = len(properties) > PROPERTY_DEFINITION_LIMIT
+                                    del properties[PROPERTY_DEFINITION_LIMIT:]
 
                                     extend_responses(
                                         keys=[prop["name"] for prop in properties],
                                         suggestions=response.suggestions,
                                         details=[prop["property_type"] for prop in properties],
                                     )
-                                    response.incomplete_list = total_property_count > PROPERTY_DEFINITION_LIMIT
                             elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
                                 fields = list(field.fields.items())
                                 extend_responses(
