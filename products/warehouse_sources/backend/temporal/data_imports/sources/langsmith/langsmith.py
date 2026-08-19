@@ -117,7 +117,7 @@ def _read_capped_body(response: requests.Response, cap: int = MAX_RESPONSE_BYTES
     return bytes(buffer)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)  # mutability is unused (always constructed fresh); explicit per house convention
 class LangSmithResumeConfig:
     # runs/query body cursor for the page to fetch next; None for offset-paginated endpoints.
     cursor: str | None = None

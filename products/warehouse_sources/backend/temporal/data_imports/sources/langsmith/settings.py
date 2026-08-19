@@ -40,7 +40,7 @@ RUNS_SELECT_FIELDS = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)  # mutability is unused (always constructed fresh); explicit per house convention
 class LangSmithEndpointConfig:
     name: str
     path: str
