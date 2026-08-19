@@ -168,8 +168,13 @@ export function getFormattedDate(input?: string | number, options?: FormattedDat
     }
 
     const tz = timezone ?? 'UTC'
+    // A missing date must not become the literal string "undefined" in a tooltip header. Return an
+    // empty label so the header stays blank, and keep any non-empty label the caller passed.
+    if (input === undefined) {
+        return ''
+    }
     const day = typeof input === 'string' ? parseDateInTimezone(input, tz) : dayjs.tz(input, tz)
-    if (input === undefined || !day.isValid()) {
+    if (!day.isValid()) {
         return String(input)
     }
 

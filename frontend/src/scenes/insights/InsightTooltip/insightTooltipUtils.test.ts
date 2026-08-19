@@ -152,8 +152,8 @@ describe('getFormattedDate', () => {
             expect(getFormattedDate('invalid-date')).toEqual('invalid-date')
         })
 
-        it('expects undefined string if no inputs', () => {
-            expect(getFormattedDate()).toEqual('undefined')
+        it('returns an empty label for a missing date, not the literal "undefined"', () => {
+            expect(getFormattedDate()).toEqual('')
         })
     })
 })

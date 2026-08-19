@@ -21,6 +21,7 @@ import type { BillingPeriod, BillingType } from '../../types'
 import {
     buildTrackingProperties,
     calculateBillingPeriodMarkers,
+    resolveBillingChartDates,
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
@@ -218,7 +219,7 @@ export interface billingUsageLogicMeta {
             id: number
             label: string
         }[]
-        dates: (billingUsageResponse: BillingUsageResponse | null) => string[]
+        dates: (billingUsageResponse: BillingUsageResponse | null, dateFrom: string, dateTo: string) => string[]
         emptySeriesIDs: (
             series: {
                 breakdown_type: BillingUsageResponseBreakdownType | null
@@ -420,8 +421,9 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             },
         ],
         dates: [
-            (s) => [s.billingUsageResponse],
-            (response: BillingUsageResponse | null) => response?.results?.[0]?.dates || [],
+            (s) => [s.billingUsageResponse, s.dateFrom, s.dateTo],
+            (response: BillingUsageResponse | null, dateFrom: string, dateTo: string) =>
+                response?.results?.length ? resolveBillingChartDates(response.results, dateFrom, dateTo) : [],
         ],
         emptySeriesIDs: [
             (s) => [s.series],

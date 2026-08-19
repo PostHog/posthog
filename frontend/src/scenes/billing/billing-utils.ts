@@ -587,6 +587,37 @@ export function calculateBillingPeriodMarkers(
     return markers
 }
 
+/** Reject a `dates` array that sits entirely outside the requested range, so a stale series cannot label the chart with the wrong period. */
+function billingDatesOverlapRange(dates: string[], dateFrom?: string, dateTo?: string): boolean {
+    const first = dayjs(dates[0])
+    const last = dayjs(dates[dates.length - 1])
+    if (dateTo && first.isAfter(dayjs(dateTo), 'day')) {
+        return false
+    }
+    if (dateFrom && last.isBefore(dayjs(dateFrom), 'day')) {
+        return false
+    }
+    return true
+}
+
+/**
+ * Choose the date axis for a billing chart.
+ *
+ * The billing service returns a `dates` array per series, and normally every series shares the same
+ * one. Reading `results[0].dates` alone trusts a single series, so a stale or off-range array there
+ * labels every x-axis tick and tooltip header with the wrong period. Scan all series instead and
+ * take the longest array that still overlaps the requested range.
+ */
+export function resolveBillingChartDates(series: { dates: string[] }[], dateFrom?: string, dateTo?: string): string[] {
+    const candidates = series.map((s) => s.dates).filter((dates): dates is string[] => !!dates?.length)
+    if (candidates.length === 0) {
+        return []
+    }
+    const inRange = candidates.filter((dates) => billingDatesOverlapRange(dates, dateFrom, dateTo))
+    const pool = inRange.length > 0 ? inRange : candidates
+    return pool.reduce((longest, dates) => (dates.length > longest.length ? dates : longest))
+}
+
 const sumSeries = (values: number[]): number => values.reduce((sum, v) => sum + v, 0)
 
 /**

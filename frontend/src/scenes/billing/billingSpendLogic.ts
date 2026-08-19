@@ -22,6 +22,7 @@ import {
     buildSpendTrackingProperties,
     calculateBillingPeriodMarkers,
     filterSpendUsageTypes,
+    resolveBillingChartDates,
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
@@ -181,7 +182,7 @@ export interface billingSpendLogicMeta {
             id: number
             label: string
         }[]
-        dates: (billingSpendResponse: BillingSpendResponse | null) => string[]
+        dates: (billingSpendResponse: BillingSpendResponse | null, dateFrom: string, dateTo: string) => string[]
         dateOptions: (billingPeriodUTC: BillingPeriod) => DateMappingOption[]
         billingPeriodMarkers: (
             billingPeriodUTC: BillingPeriod,
@@ -352,8 +353,9 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             },
         ],
         dates: [
-            (s) => [s.billingSpendResponse],
-            (response: BillingSpendResponse | null) => response?.results?.[0]?.dates || [],
+            (s) => [s.billingSpendResponse, s.dateFrom, s.dateTo],
+            (response: BillingSpendResponse | null, dateFrom: string, dateTo: string) =>
+                response?.results?.length ? resolveBillingChartDates(response.results, dateFrom, dateTo) : [],
         ],
         dateOptions: [
             (s) => [s.billingPeriodUTC],
