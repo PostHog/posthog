@@ -19,6 +19,8 @@ from django.utils import timezone
 
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.common.utils import retry_on_db_connection_drop
+
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -62,7 +64,7 @@ class DefaultModelSpec:
     """Null config: defer to the team's active BYOK key."""
 
     def resolve(self, team_id: int) -> ResolvedModel:
-        key = _eval_config(team_id).active_provider_key
+        key = _active_key(_eval_config(team_id))
         if key is None:
             raise _provider_key_required()
 
@@ -88,13 +90,25 @@ def model_spec(model_configuration: dict[str, Any] | None) -> ModelSpec:
 
 def active_key_fallback(config: EvaluationConfig, provider: str) -> LLMProviderKey | None:
     """The BYOK key a config with no pinned key resolves to, or None when there is no usable active key."""
-    key = config.active_provider_key
+    key = _active_key(config)
     return key if key is not None and key.provider == provider else None
 
 
 def _eval_config(team_id: int) -> EvaluationConfig:
-    config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
-    return config
+    def _get_or_create() -> EvaluationConfig:
+        config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
+        return config
+
+    return retry_on_db_connection_drop(_get_or_create)
+
+
+def _active_key(config: EvaluationConfig) -> LLMProviderKey | None:
+    """The team's active BYOK key, or None when the config has none.
+
+    Dereferencing the FK is a second query, and Django caches the relation only once it resolves,
+    so a retry after a failed dereference genuinely re-reads instead of replaying stale state.
+    """
+    return retry_on_db_connection_drop(lambda: config.active_provider_key)
 
 
 def _provider_key_required() -> ApplicationError:
@@ -107,7 +121,7 @@ def _provider_key_required() -> ApplicationError:
 
 def _resolve_key_by_id(team_id: int, key_id: str) -> LLMProviderKey:
     try:
-        key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
+        key = retry_on_db_connection_drop(lambda: LLMProviderKey.objects.get(id=key_id, team_id=team_id))
     except LLMProviderKey.DoesNotExist:
         raise ApplicationError(
             "Provider key not found.",
@@ -124,6 +138,8 @@ def _ensure_usable(key: LLMProviderKey) -> LLMProviderKey:
             {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
             non_retryable=True,
         )
+    # Retrying this write is safe because the timestamp is fixed before it, so a second attempt
+    # persists the same value rather than drifting it forward.
     key.last_used_at = timezone.now()
-    key.save(update_fields=["last_used_at"])
+    retry_on_db_connection_drop(lambda: key.save(update_fields=["last_used_at"]))
     return key

@@ -140,7 +140,9 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
         const completionItems = response.suggestions
         const suggestions = completionItems.map<languages.CompletionItem>((item) => {
             const kind = convertCompletionItemKind(item.kind)
-            const sortText = kindToSortText(item.kind, item.label)
+            // The backend sets sortText when it can rank a suggestion, for example a function
+            // whose return type fits the comparison being written. Otherwise fall back to kind order.
+            const sortText = item.sortText ?? kindToSortText(item.kind, item.label)
 
             return {
                 label: {

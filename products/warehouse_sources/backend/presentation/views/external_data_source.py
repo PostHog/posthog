@@ -2209,6 +2209,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 EventSource.DESKTOP: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.MOBILE: ExternalDataSource.CreatedVia.SELF_DRIVING,
                 EventSource.POSTHOG_CODE: ExternalDataSource.CreatedVia.SELF_DRIVING,
+                EventSource.SELF_DRIVING: ExternalDataSource.CreatedVia.SELF_DRIVING,
             }
             created_via = transport_created_via.get(get_event_source(request), created_via)
             # The wizard's `self-driving` onboarding program shares the generic `posthog/wizard`
@@ -4720,7 +4721,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "direct_query_enabled",
                 "job_inputs",
             )
-            managed_source = next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
+            managed_source = next(
+                (source for source in managed_candidates if source.is_dynamic_managed_warehouse),
+                None,
+            ) or next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
             external_sources = connection_sources.exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
         else:
             canonical_source = _canonical_legacy_managed_warehouse_source(connection_sources)

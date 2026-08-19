@@ -154,7 +154,7 @@ capabilities:
     nodejs_session_replay:
         description: 'Node.js Session Replay - recording ingestion'
         requires: [event_ingestion]
-        docker_profiles: [replay]
+        docker_profiles: [replay, dynamodb]
 
     nodejs_logs:
         description: 'Node.js Logs - log ingestion'
