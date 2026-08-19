@@ -1035,18 +1035,18 @@ def team_api_test_factory():
             self.organization.available_product_features = []
             self.organization.save()
 
-            styling_response = self._patch_config(
-                "survey_config",
-                {"appearance": {"backgroundColor": "#123456"}},
-                expected_status=status.HTTP_400_BAD_REQUEST,
+            styling_response = self.client.patch(
+                "/api/environments/@current/",
+                {"survey_config": {"appearance": {"backgroundColor": "#123456"}}},
             )
+            assert styling_response.status_code == status.HTTP_400_BAD_REQUEST, styling_response.json()
             assert styling_response.json()["detail"] == "You need to upgrade your plan to customize survey styling"
 
-            white_label_response = self._patch_config(
-                "survey_config",
-                {"appearance": {"whiteLabel": True}},
-                expected_status=status.HTTP_400_BAD_REQUEST,
+            white_label_response = self.client.patch(
+                "/api/environments/@current/",
+                {"survey_config": {"appearance": {"whiteLabel": True}}},
             )
+            assert white_label_response.status_code == status.HTTP_400_BAD_REQUEST, white_label_response.json()
             assert (
                 white_label_response.json()["detail"]
                 == "You need to upgrade to PostHog Enterprise to use white labelling"
