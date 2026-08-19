@@ -1,8 +1,8 @@
 import type { DashboardTileSpacing } from '~/types'
 
 export const DASHBOARD_TILE_SPACING_GAPS: Record<DashboardTileSpacing, number> = {
-    tight: 4,
-    condensed: 8,
+    tight: 8,
+    condensed: 12,
     standard: 16,
     relaxed: 32,
     wide: 48,

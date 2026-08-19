@@ -271,11 +271,15 @@ describe('DashboardItems', () => {
         expect(container.firstChild).toMatchSnapshot()
     })
 
-    it('uses the dashboard tile spacing for tiles and the edit grid', () => {
+    it.each([
+        ['tight', '8,8'],
+        ['condensed', '12,12'],
+        ['relaxed', '32,32'],
+    ] as const)('uses %s tile spacing for tiles and the edit grid', (tileSpacing, margin) => {
         mockedUseValues.mockImplementation((logic) => {
             if (logic === dashboardLogic) {
                 return {
-                    dashboard: { id: 5, customization: { tile_spacing: 'relaxed' } },
+                    dashboard: { id: 5, customization: { tile_spacing: tileSpacing } },
                     tiles: [],
                     layouts: { sm: [] },
                     dashboardMode: DashboardMode.Edit,
@@ -302,8 +306,8 @@ describe('DashboardItems', () => {
         })
 
         const { container } = render(<DashboardItems />)
-        expect(container.querySelector('[data-attr="grid-background"]')).toHaveAttribute('data-margin', '32,32')
-        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-margin', '32,32')
+        expect(container.querySelector('[data-attr="grid-background"]')).toHaveAttribute('data-margin', margin)
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-margin', margin)
     })
 
     it('uses standard spacing when persisted customization is invalid', () => {
