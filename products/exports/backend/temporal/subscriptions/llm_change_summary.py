@@ -28,7 +28,7 @@ from posthog.security.llm_prompt_sanitization import (
 )
 from posthog.utils import get_instance_region
 
-from products.product_analytics.backend.api.insight_suggestions import get_query_specific_instructions
+from products.product_analytics.backend.facade.api import get_query_specific_instructions
 
 logger = structlog.get_logger(__name__)
 
