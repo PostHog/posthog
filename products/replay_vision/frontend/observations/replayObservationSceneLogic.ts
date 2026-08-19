@@ -40,7 +40,7 @@ export interface replayObservationSceneLogicMeta {
                 scannerId: string | null
                 scannerName: string | null
             },
-            searchParams: Record<string, string>
+            searchParams: Record<string, any>
         ) => Breadcrumb[]
     }
 }
@@ -84,7 +84,7 @@ export const replayObservationSceneLogic = kea<replayObservationSceneLogicType>(
             (
                 observationId: string,
                 scannerContext: { scannerId: string | null; scannerName: string | null },
-                searchParams: Record<string, string>
+                searchParams: Record<string, any>
             ): Breadcrumb[] => {
                 const breadcrumbs: Breadcrumb[] = [
                     {
