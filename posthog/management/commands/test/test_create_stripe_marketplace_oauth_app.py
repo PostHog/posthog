@@ -8,6 +8,7 @@ from django.core.management.base import CommandError
 
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth_provisioning import ProvisioningConfig
 
 MARKETPLACE_CLIENT_ID = "marketplace_client_id"
 ORCHESTRATOR_CLIENT_ID = "orchestrator_client_id"
@@ -30,7 +31,7 @@ class TestCreateStripeMarketplaceOauthApp(BaseTest):
         assert not OAuthApplication.objects.filter(client_id=ORCHESTRATOR_CLIENT_ID).exists()
 
     def test_reconciles_an_application_that_drifted(self):
-        OAuthApplication.objects.create(
+        drifted = OAuthApplication.objects.create(
             client_id=MARKETPLACE_CLIENT_ID,
             name="wrong name",
             client_secret="",
@@ -38,13 +39,24 @@ class TestCreateStripeMarketplaceOauthApp(BaseTest):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://localhost",
             algorithm="RS256",
-        ).update_provisioning(can_issue_deep_links=True)
+            is_provisioning_partner=True,
+        )
+        drifted.update_provisioning(
+            active=True,
+            can_issue_deep_links=True,
+            can_provision_resources=True,
+            can_create_accounts=True,
+            can_use_github_grants=True,
+            can_start_wizard_runs=True,
+            skip_existing_user_consent=True,
+        )
 
         call_command("create_stripe_marketplace_oauth_app", client_id=MARKETPLACE_CLIENT_ID, stdout=StringIO())
 
         app = OAuthApplication.objects.get(client_id=MARKETPLACE_CLIENT_ID)
         assert app.client_type == OAuthApplication.CLIENT_PUBLIC
-        assert app.provisioning.can_issue_deep_links is False
+        assert app.is_provisioning_partner is False
+        assert app.provisioning == ProvisioningConfig()
 
     def test_dry_run_writes_nothing(self):
         call_command(

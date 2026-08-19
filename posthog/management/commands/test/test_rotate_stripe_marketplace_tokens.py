@@ -181,6 +181,45 @@ class TestRotateStripeMarketplaceTokens(BaseTest):
             application=self.new_app, scoped_teams__contains=[other_team.pk]
         ).exists()
 
+    @patch("stripe.StripeClient")
+    @patch("posthog.management.commands.rotate_stripe_marketplace_tokens.capture_exception")
+    def test_partial_stripe_write_leaves_both_credentials_in_place(self, mock_capture, MockStripeClient) -> None:
+        mock_client = MagicMock()
+        MockStripeClient.return_value = mock_client
+
+        def fail_on_refresh_token(params, options):
+            if params["name"] == "posthog_refresh_token":
+                raise Exception("simulated Stripe API failure")
+            return MagicMock()
+
+        mock_client.apps.secrets.create.side_effect = fail_on_refresh_token
+
+        integration, stale_access, stale_refresh = self._create_integration_with_token(
+            self.team, "acct_partial", self.old_app, created_by=self.user
+        )
+
+        out = StringIO()
+        with self.settings(
+            STRIPE_MARKETPLACE_OAUTH_CLIENT_ID=self.new_app.client_id,
+            STRIPE_POSTHOG_OAUTH_CLIENT_ID=self.old_app.client_id,
+            STRIPE_APP_CLIENT_ID="stripe_app_client_id",
+            STRIPE_APP_SECRET_KEY="sk_test",
+        ):
+            call_command("rotate_stripe_marketplace_tokens", stdout=out)
+
+        output = out.getvalue()
+        assert "Rotated: 0" in output
+        assert "Failed: 1" in output
+        assert "needs manual repair" in output
+
+        # Stripe already serves the new token for posthog_access_token, so deleting it would break
+        # the customer. The stale token stays too, since it was never confirmed replaced.
+        assert OAuthAccessToken.objects.filter(pk=stale_access.pk).exists()
+        assert OAuthRefreshToken.objects.filter(pk=stale_refresh.pk).exists()
+        assert OAuthAccessToken.objects.filter(application=self.new_app, scoped_teams__contains=[self.team.pk]).exists()
+
+        mock_capture.assert_called_once()
+
     @parameterized.expand(
         [
             ("client_id_unset", ""),

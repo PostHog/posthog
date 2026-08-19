@@ -6,6 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth_provisioning import ProvisioningConfig
 
 APP_NAME = "PostHog Stripe marketplace app"
 
@@ -51,6 +52,7 @@ class Command(BaseCommand):
             "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
             "redirect_uris": "https://localhost",
             "algorithm": "RS256",
+            "is_provisioning_partner": False,
         }
 
         if dry_run:
@@ -64,10 +66,10 @@ class Command(BaseCommand):
         for field, value in desired.items():
             setattr(app, field, value)
         app.scopes = StripeIntegration.SCOPES.split()
+        # Assigning a fresh config rather than update_provisioning, which merges: on a drifted row
+        # that would leave every capability it does not name switched on.
+        app.provisioning = ProvisioningConfig()
         app.save()
-
-        # Readable by every member of the customer's Stripe account, so it must never mint a session.
-        app.update_provisioning(can_issue_deep_links=False)
 
         self.stdout.write(self.style.SUCCESS(f"{'Reconciled' if existing else 'Created'} {APP_NAME}"))
         self.stdout.write(f"  client_id: {client_id}")

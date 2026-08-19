@@ -5,8 +5,12 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration, StripeIntegration
+from posthog.models.integration import STRIPE_POSTHOG_SECRET_NAMES, Integration, StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+
+
+class PartialStripeWrite(Exception):
+    """Some secrets reached Stripe and some did not, so neither credential is safe to delete."""
 
 
 class Command(BaseCommand):
@@ -86,6 +90,11 @@ class Command(BaseCommand):
                 # Mint before revoking. Revoking first strands the customer whenever the Stripe
                 # write fails, because their app keeps reading a token that no longer exists.
                 unwritten = stripe_integration.write_posthog_secrets(integration.team_id, created_by)
+                if unwritten and len(unwritten) < len(STRIPE_POSTHOG_SECRET_NAMES):
+                    raise PartialStripeWrite(
+                        f"Stripe secret store partially updated, unwritten: {', '.join(unwritten)}. "
+                        "Old and new tokens both left in place; this integration needs manual repair."
+                    )
                 if unwritten:
                     raise RuntimeError(f"Stripe secret store not updated: {', '.join(unwritten)}")
 
@@ -93,14 +102,17 @@ class Command(BaseCommand):
                 OAuthRefreshToken.objects.filter(access_token__in=stale_tokens).delete()
                 stale_tokens.delete()
             except Exception as e:
-                # A partial mint leaves a credential nobody holds, since it never reached Stripe.
-                # Drop it so retrying does not accumulate one per attempt.
-                orphaned = OAuthAccessToken.objects.filter(
-                    application__in=StripeIntegration._posthog_oauth_apps_for_revocation(),
-                    scoped_teams__contains=[integration.team_id],
-                ).exclude(id__in=stale_token_ids)
-                OAuthRefreshToken.objects.filter(access_token__in=orphaned).delete()
-                orphaned.delete()
+                # A mint that never reached Stripe leaves a credential nobody holds; drop it so
+                # retrying does not accumulate one per attempt. A partial write is the opposite:
+                # Stripe is already serving the new token for some keys, so deleting it here is
+                # what would break the customer.
+                if not isinstance(e, PartialStripeWrite):
+                    orphaned = OAuthAccessToken.objects.filter(
+                        application__in=StripeIntegration._posthog_oauth_apps_for_revocation(),
+                        scoped_teams__contains=[integration.team_id],
+                    ).exclude(id__in=stale_token_ids)
+                    OAuthRefreshToken.objects.filter(access_token__in=orphaned).delete()
+                    orphaned.delete()
 
                 capture_exception(e, {"integration_id": integration.id, "team_id": integration.team_id})
                 self.stdout.write(self.style.ERROR(f"  {label}: failed ({e})"))

@@ -5038,7 +5038,10 @@ class StripeIntegration:
 
         oauth_app = self._get_posthog_oauth_app()
         if not oauth_app:
-            logger.warning("PostHog OAuth app not found, cannot write secrets to Stripe")
+            capture_exception(
+                Exception("Stripe marketplace OAuth application not found, cannot write secrets to Stripe"),
+                {"integration_id": self.integration.id, "team_id": self.integration.team_id},
+            )
             return list(STRIPE_POSTHOG_SECRET_NAMES)
 
         access_token_value = generate_random_oauth_access_token(None)
@@ -5155,16 +5158,17 @@ class StripeIntegration:
         while ee/partners/stripe/api/provisioning/authentication.py authorizes purely on
         application identity. Sharing one application therefore lets any of those people mint a
         deep-link login session as the admin who installed the app.
+
+        Returns None when the setting is unset, rather than falling back to the orchestrator.
         """
         client_id = settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID
         if not client_id:
-            logger.warning(
-                "stripe.marketplace_oauth_app_unconfigured",
-                fallback_client_id_configured=bool(settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID),
+            # Falling back to the orchestrator's application is the vulnerability, so this fails
+            # closed: a new install gets no credential rather than a privileged one.
+            capture_exception(
+                Exception("STRIPE_MARKETPLACE_OAUTH_CLIENT_ID is unset, refusing to mint a Stripe marketplace token"),
+                {"integration_id": self.integration.id, "team_id": self.integration.team_id},
             )
-            client_id = settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
-
-        if not client_id:
             return None
 
         return OAuthApplication.objects.filter(client_id=client_id).first()

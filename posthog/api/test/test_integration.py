@@ -40,6 +40,7 @@ from posthog.models.integration import (
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     SLACK_INTEGRATION_KINDS,
+    STRIPE_POSTHOG_SECRET_NAMES,
     EmailIntegration,
     GitHubInstallationAccess,
     GitHubIntegration,
@@ -4573,11 +4574,11 @@ class TestStripeIntegrationOAuthTokens:
         assert OAuthAccessToken.objects.filter(pk=access_token.pk).exists()
         assert OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists()
 
-    @pytest.mark.parametrize("marketplace_configured,expect_orchestrator_app", [(True, False), (False, True)])
+    @pytest.mark.parametrize("marketplace_configured", [True, False])
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
-    def test_minted_token_application_follows_the_marketplace_setting(
-        self, mock_settings, MockStripeClient, marketplace_configured, expect_orchestrator_app
+    def test_marketplace_token_never_mints_on_the_orchestrator_application(
+        self, mock_settings, MockStripeClient, marketplace_configured
     ):
         orchestrator_app = OAuthApplication.objects.create(
             name="Stripe orchestrator",
@@ -4600,11 +4601,17 @@ class TestStripeIntegrationOAuthTokens:
             integration_id="acct_split",
             created_by=self.user,
         )
-        StripeIntegration(integration).write_posthog_secrets(self.team.pk, self.user)
+        unwritten = StripeIntegration(integration).write_posthog_secrets(self.team.pk, self.user)
 
-        minted = OAuthAccessToken.objects.filter(scoped_teams__contains=[self.team.pk]).latest("id")
-        expected_app = orchestrator_app if expect_orchestrator_app else self.oauth_app
-        assert minted.application == expected_app
+        minted = OAuthAccessToken.objects.filter(scoped_teams__contains=[self.team.pk])
+        assert not minted.filter(application=orchestrator_app).exists()
+
+        if marketplace_configured:
+            assert unwritten == []
+            assert minted.latest("id").application == self.oauth_app
+        else:
+            assert unwritten == list(STRIPE_POSTHOG_SECRET_NAMES)
+            assert not minted.exists()
 
     @patch("posthog.models.integration.settings")
     def test_destroy_oauth_tokens_spans_the_pre_split_application(self, mock_settings):
@@ -4660,6 +4667,7 @@ class TestStripeIntegrationOAuthTokens:
     @patch("posthog.models.integration.settings")
     def test_write_posthog_secrets_mints_read_only_token(self, mock_settings, MockStripeClient):
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         mock_settings.STRIPE_APP_SECRET_KEY = "sk_test"
         MockStripeClient.return_value = MagicMock()
 
