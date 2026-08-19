@@ -231,6 +231,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
                 }
 
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.query(traceQuery)
 
                     if (response.results && response.results.length > 0) {

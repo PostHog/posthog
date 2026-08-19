@@ -305,6 +305,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
                     await breakpoint(300)
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -351,6 +352,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
                     await breakpoint(300)
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(
                         {
                             kind: NodeKind.HogQLQuery,
@@ -398,6 +400,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                     const totalMinutes = option.minutes * option.bucketCount
                     await breakpoint(300)
                     // The per-issue rate limiter emits app_metrics2 rows keyed by the issue id directly.
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(
                         {
                             kind: NodeKind.HogQLQuery,

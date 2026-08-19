@@ -205,6 +205,7 @@ export const suppressionRuleModalLogic = kea<suppressionRuleModalLogicType>([
                         ]
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(query)) as Record<string, any>
 
                     return {

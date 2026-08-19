@@ -120,6 +120,7 @@ export const generationTagRunsLogic = kea<generationTagRunsLogicType>([
                     }
                     // Let kea-loaders surface failures: a swallowed catch here would render
                     // empty-state for both "no tags" and "query broke", masking real errors.
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.query(query)
                     return (response.results || []).map((row: any[]) => ({
                         uuid: row[0],

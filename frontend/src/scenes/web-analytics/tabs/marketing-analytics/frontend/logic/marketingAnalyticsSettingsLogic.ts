@@ -607,6 +607,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 const query = `SELECT DISTINCT ${fieldInfo.nameField} as name, toString(${fieldInfo.idField}) as id FROM ${tableName} ORDER BY name LIMIT 1000`
 
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.query({
                         kind: NodeKind.HogQLQuery,
                         query,

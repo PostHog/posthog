@@ -712,7 +712,6 @@ function ColumnsAndRowFiltersSection({
         if (resyncAfter) {
             // Bypass the bulk-update debounce so resync reads the new config from the DB, not the
             // stale one a still-queued PATCH hasn't written yet.
-            // nosemgrep: prefer-codegen-api
             void api.externalDataSchemas
                 .update(schema.id, { enabled_columns: draftColumns, row_filters: draftRowFilters })
                 .then(() => {

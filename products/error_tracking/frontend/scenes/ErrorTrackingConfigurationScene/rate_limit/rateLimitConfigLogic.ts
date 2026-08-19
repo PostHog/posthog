@@ -249,6 +249,7 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                 loadVolume: async ({ bucketMinutes, force }: ChartLoadParams) => {
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(
                         {
                             kind: NodeKind.HogQLQuery,
@@ -281,6 +282,7 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
                     const appSourceId = `${values.currentTeamId}:exceptions:global`
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(
                         {
                             kind: NodeKind.HogQLQuery,

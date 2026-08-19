@@ -37,6 +37,7 @@ export async function hasRecentAIEvents(): Promise<boolean> {
     }
 
     // Fallback: query ClickHouse directly for recent events (new users)
+    // nosemgrep: prefer-codegen-api
     const response = await api.query<HogQLQuery>(
         {
             kind: NodeKind.HogQLQuery,

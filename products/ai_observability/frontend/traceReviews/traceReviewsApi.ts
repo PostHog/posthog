@@ -31,7 +31,6 @@ function isDuplicateTraceReviewError(error: unknown): boolean {
     return !!data && typeof data === 'object' && 'trace_id' in data
 }
 
-// nosemgrep: prefer-codegen-api
 function getTraceReviewsBaseUrl(teamId: number = ApiConfig.getCurrentTeamId()): string {
     return `/api/environments/${teamId}/llm_analytics/trace_reviews/`
 }
@@ -53,7 +52,6 @@ export function traceReviewListParamsFromFilters(
 }
 
 export function buildTraceReviewsListUrl(
-    // nosemgrep: prefer-codegen-api
     teamId: number = ApiConfig.getCurrentTeamId(),
     params?: TraceReviewListParams
 ): string {
@@ -81,10 +79,8 @@ export function buildTraceReviewsListUrl(
 export const traceReviewsApi = {
     list(
         params?: TraceReviewListParams,
-        // nosemgrep: prefer-codegen-api
         teamId: number = ApiConfig.getCurrentTeamId()
     ): Promise<CountedPaginatedResponse<TraceReview>> {
-        // nosemgrep: prefer-codegen-api
         return api
             .get<CountedPaginatedResponse<TraceReview>>(buildTraceReviewsListUrl(teamId, params))
             .then((response) => ({
@@ -93,15 +89,12 @@ export const traceReviewsApi = {
             }))
     },
 
-    // nosemgrep: prefer-codegen-api
     async getByTraceId(traceId: string, teamId: number = ApiConfig.getCurrentTeamId()): Promise<TraceReview | null> {
         const response = await traceReviewsApi.list({ trace_id: traceId, limit: 1 }, teamId)
         return response.results[0] ?? null
     },
 
-    // nosemgrep: prefer-codegen-api
     create(data: TraceReviewUpsertPayload, teamId: number = ApiConfig.getCurrentTeamId()): Promise<TraceReview> {
-        // nosemgrep: prefer-codegen-api
         return api
             .create<TraceReview, TraceReviewUpsertPayload>(getTraceReviewsBaseUrl(teamId), data)
             .then(normalizeTraceReview)
@@ -110,10 +103,8 @@ export const traceReviewsApi = {
     update(
         id: string,
         data: Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>,
-        // nosemgrep: prefer-codegen-api
         teamId: number = ApiConfig.getCurrentTeamId()
     ): Promise<TraceReview> {
-        // nosemgrep: prefer-codegen-api
         return api
             .update<TraceReview, Partial<Omit<TraceReviewUpsertPayload, 'trace_id'>>>(
                 `${getTraceReviewsBaseUrl(teamId)}${id}/`,
@@ -122,7 +113,6 @@ export const traceReviewsApi = {
             .then(normalizeTraceReview)
     },
 
-    // nosemgrep: prefer-codegen-api
     delete(id: string, teamId: number = ApiConfig.getCurrentTeamId()): Promise<void> {
         // nosemgrep: prefer-codegen-api
         return api.delete(`${getTraceReviewsBaseUrl(teamId)}${id}/`)
@@ -131,7 +121,6 @@ export const traceReviewsApi = {
     async save(
         data: TraceReviewUpsertPayload,
         existingReview: TraceReview | null,
-        // nosemgrep: prefer-codegen-api
         teamId: number = ApiConfig.getCurrentTeamId()
     ): Promise<TraceReview> {
         if (existingReview) {

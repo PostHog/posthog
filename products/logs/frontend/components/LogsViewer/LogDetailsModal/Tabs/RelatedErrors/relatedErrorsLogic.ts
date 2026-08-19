@@ -104,6 +104,7 @@ export const relatedErrorsLogic = kea<relatedErrorsLogicType>([
                     limit: 100,
                 }
 
+                // nosemgrep: prefer-codegen-api
                 const response = await api.query(query)
                 const issues = response.results as ErrorTrackingIssue[]
 

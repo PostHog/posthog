@@ -50,7 +50,6 @@ export interface RelationshipRow {
 }
 
 function projectId(): string {
-    // nosemgrep: prefer-codegen-api
     return String(ApiConfig.getCurrentTeamId())
 }
 

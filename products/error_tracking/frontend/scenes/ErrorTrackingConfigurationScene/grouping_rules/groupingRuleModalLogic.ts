@@ -196,6 +196,7 @@ export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
                         return null
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(query)) as Record<string, any>
 
                     return {

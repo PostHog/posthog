@@ -61,7 +61,6 @@ export interface MetricFromInsightRequest {
 }
 
 function projectId(): string {
-    // nosemgrep: prefer-codegen-api
     return String(ApiConfig.getCurrentTeamId())
 }
 

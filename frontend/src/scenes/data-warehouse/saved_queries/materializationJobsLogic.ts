@@ -350,7 +350,6 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
     listeners(({ actions, cache, props, values }) => ({
         resumeMaterialization: async () => {
             try {
-                // nosemgrep: prefer-codegen-api
                 await warehouseSavedQueriesResumeCreate(String(ApiConfig.getCurrentTeamId()), props.viewId)
                 lemonToast.success('Materialization resumed. The next scheduled run will include this view.')
                 actions.loadSavedQuery()

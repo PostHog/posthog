@@ -253,7 +253,6 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 if (!journey) {
                     return null
                 }
-                // nosemgrep: prefer-codegen-api
                 return await insightsApi.getByNumericId(journey.insight)
             },
         },

@@ -196,7 +196,6 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
             [] as ExperimentsPromptTemplatesRetrieve200Item[],
             {
                 loadTemplates: async () => {
-                    // nosemgrep: prefer-codegen-api
                     return await experimentsPromptTemplatesRetrieve(String(ApiConfig.getCurrentTeamId()))
                 },
             },
@@ -287,7 +286,6 @@ export const createPromptExperimentModalLogic = kea<createPromptExperimentModalL
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
                 const experiment = await experimentsCreateFromPromptCreate(String(ApiConfig.getCurrentTeamId()), {
                     prompt_name: values.promptName,
                     versions: values.selectedVersions,

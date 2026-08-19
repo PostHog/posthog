@@ -168,7 +168,6 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                         window.scrollTo(0, 0)
                     }
 
-                    // nosemgrep: prefer-codegen-api
                     const response = await llmPromptsList(String(ApiConfig.getCurrentTeamId()), params)
                     // Cast applies the deliberate narrowing documented in ./types.
                     return response as unknown as CountedPaginatedResponse<LLMPrompt>
@@ -231,7 +230,6 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
 
         deletePrompt: async ({ promptName }) => {
             try {
-                // nosemgrep: prefer-codegen-api
                 await llmPromptsNameArchiveCreate(String(ApiConfig.getCurrentTeamId()), promptName)
                 lemonToast.info(`${promptName || 'Prompt'} has been archived.`)
                 await asyncActions.loadPrompts(false)

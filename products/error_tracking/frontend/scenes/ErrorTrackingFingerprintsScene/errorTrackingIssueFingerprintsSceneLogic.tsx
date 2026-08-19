@@ -248,6 +248,7 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
                         issue.first_seen,
                         fingerprints.map((fingerprint) => fingerprint.fingerprint)
                     )
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.queryHogQL(query, {
                         scene: 'ErrorTrackingIssueFingerprints',
                         productKey: 'error_tracking',

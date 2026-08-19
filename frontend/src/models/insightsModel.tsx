@@ -72,7 +72,6 @@ export const insightsModel = kea<insightsModelType>([
                     insightName: (name) => (!name ? 'You must enter a name' : undefined),
                 },
                 onSubmit: async ({ insightName }) => {
-                    // nosemgrep: prefer-codegen-api
                     const updatedItem = await insightsApi.update(item.id, { name: insightName })
                     lemonToast.success(
                         <>
@@ -85,7 +84,6 @@ export const insightsModel = kea<insightsModelType>([
         },
         updateInsightDirect: async ({ item, updates }) => {
             try {
-                // nosemgrep: prefer-codegen-api
                 const updatedItem = await insightsApi.update(item.id, updates)
                 actions.renameInsightSuccess(updatedItem)
                 lemonToast.success('Insight updated')
@@ -97,9 +95,7 @@ export const insightsModel = kea<insightsModelType>([
         duplicateInsight: async ({ item }) => {
             // get the insight, to ensure we duplicate it without any changes that might have been made to it
             // e.g. any dashboard filters that were applied to it
-            // nosemgrep: prefer-codegen-api
             const insight = await insightsApi.getByNumericId(item.id)
-            // nosemgrep: prefer-codegen-api
             const addedItem = await insightsApi.duplicate(insight!)
 
             actions.duplicateInsightSuccess(addedItem)

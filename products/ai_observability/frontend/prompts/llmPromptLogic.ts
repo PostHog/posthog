@@ -155,7 +155,6 @@ async function fetchResolvedPrompt(
     params?: { version?: number; offset?: number; before_version?: number; limit?: number }
 ): Promise<ResolvedLLMPrompt> {
     return getResolvedPrompt(
-        // nosemgrep: prefer-codegen-api
         await llmPromptsResolveNameRetrieve(String(ApiConfig.getCurrentTeamId()), promptName, {
             ...params,
             limit: params?.limit ?? PROMPT_VERSIONS_LIMIT,
@@ -699,7 +698,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     const parsedConfig = parsePromptConfig(formValues.config).config
 
                     if (isNew) {
-                        // nosemgrep: prefer-codegen-api
                         savedPrompt = (await llmPromptsCreate(String(ApiConfig.getCurrentTeamId()), {
                             name: formValues.name,
                             prompt: formValues.prompt,
@@ -722,7 +720,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
                         const versionDescription = values.versionDescription.trim()
                         savedPrompt = (await llmPromptsNamePartialUpdate(
-                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentTeamId()),
                             props.promptName,
                             {
@@ -1222,7 +1219,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setLabel: async ({ labelName, version }) => {
             try {
                 const label = await llmPromptsNameLabelsUpdate(
-                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentTeamId()),
                     props.promptName,
                     labelName,
@@ -1259,7 +1255,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
         removeLabel: async ({ labelName }) => {
             try {
-                // nosemgrep: prefer-codegen-api
                 await llmPromptsNameLabelsDestroy(String(ApiConfig.getCurrentTeamId()), props.promptName, labelName)
             } catch (error) {
                 // 404 means the label is already gone; reflect that locally like a success.
@@ -1335,7 +1330,6 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         deletePrompt: async () => {
             if (props.promptName !== 'new' && values.prompt && isPrompt(values.prompt)) {
                 try {
-                    // nosemgrep: prefer-codegen-api
                     await llmPromptsNameArchiveCreate(String(ApiConfig.getCurrentTeamId()), values.prompt.name)
                     lemonToast.info(`${values.prompt.name || 'Prompt'} has been archived.`)
                     llmPromptsLogic.findMounted()?.actions.loadPrompts(false)

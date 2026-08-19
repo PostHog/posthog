@@ -1203,7 +1203,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             ? { version: payload.sourcePromptVersion }
                             : undefined
                         const fetchedPrompt = await llmPromptsNameRetrieve(
-                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentTeamId()),
                             payload.sourcePromptName,
                             versionParam
@@ -1366,11 +1365,9 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
             try {
                 const current = await llmPromptsNameRetrieve(
-                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentTeamId()),
                     linkedSource.promptName
                 )
-                // nosemgrep: prefer-codegen-api
                 await llmPromptsNamePartialUpdate(String(ApiConfig.getCurrentTeamId()), linkedSource.promptName, {
                     prompt: prompt.systemPrompt,
                     base_version: current.latest_version,
@@ -1461,7 +1458,6 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api
                 await llmPromptsCreate(String(ApiConfig.getCurrentTeamId()), { name, prompt: prompt.systemPrompt })
                 // Link the playground to the newly created prompt
                 actions.setPromptConfigs(

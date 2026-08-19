@@ -32,6 +32,7 @@ export async function fetchSamplingRuleDropTotalsLast24h(
         GROUP BY instance_id, metric_name
     ` as HogQLQueryString
 
+    // nosemgrep: prefer-codegen-api
     const response = await api.queryHogQL(query, {
         scene: 'logs_sampling',
         productKey: 'logs',

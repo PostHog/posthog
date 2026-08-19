@@ -1190,6 +1190,7 @@ export async function queryEvaluationRuns(params: {
         LIMIT ${EVALUATION_RUNS_QUERY_LIMIT}
     `
 
+    // nosemgrep: prefer-codegen-api
     const response = await api.queryHogQL(
         query,
         { scene: 'AIObservability', productKey: 'llm_analytics' },
@@ -1235,6 +1236,7 @@ export async function queryEvaluationRunsStats(params: {
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
     `
 
+    // nosemgrep: prefer-codegen-api
     const response = await api.queryHogQL(
         query,
         { scene: 'AIObservability', productKey: 'llm_analytics' },

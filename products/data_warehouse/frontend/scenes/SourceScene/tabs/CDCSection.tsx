@@ -251,7 +251,6 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
             onConfirm: async () => {
                 setBusy(true)
                 try {
-                    // nosemgrep: prefer-codegen-api
                     await externalDataSourcesRepairCdcCreate(String(ApiConfig.getCurrentTeamId()), source.id)
                     lemonToast.success('CDC repaired — schemas are re-syncing')
                     loadSource()
@@ -278,7 +277,6 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
             onConfirm: async () => {
                 setBusy(true)
                 try {
-                    // nosemgrep: prefer-codegen-api
                     await externalDataSourcesResumeCdcCreate(String(ApiConfig.getCurrentTeamId()), source.id)
                     lemonToast.success('CDC resumed')
                     loadSource()

@@ -28,7 +28,6 @@ export interface DataCatalogMetricSceneLogicProps {
 }
 
 function projectId(): string {
-    // nosemgrep: prefer-codegen-api
     return String(ApiConfig.getCurrentTeamId())
 }
 

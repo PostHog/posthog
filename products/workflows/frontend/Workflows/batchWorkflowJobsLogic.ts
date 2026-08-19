@@ -106,7 +106,6 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
                 return
             }
 
-            // nosemgrep: prefer-codegen-api
             const teamId = ApiConfig.getCurrentTeamId()
             try {
                 const response = await hogFlowsBatchJobsCancelCreate(String(teamId), props.id, jobId)

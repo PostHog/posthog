@@ -2573,7 +2573,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 const dashboardId = values.dashboardId
-                // nosemgrep: prefer-codegen-api
                 const insight = await insightsApi.create({
                     name,
                     query: sourceQueryToSave,
@@ -2707,7 +2706,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             saveAsMetricSubmit: async ({ name, description, queryOverride }) => {
                 const biEditorState = getActiveBIEditorState()
                 try {
-                    // nosemgrep: prefer-codegen-api
                     const metric = await dataCatalogMetricsCreate(String(ApiConfig.getCurrentTeamId()), {
                         name,
                         description,
@@ -2731,7 +2729,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const biEditorState = getActiveBIEditorState()
                 try {
                     await dataCatalogMetricsPartialUpdate(
-                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentTeamId()),
                         values.editingMetricName,
                         {
@@ -2796,7 +2793,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 let savedInsight: QueryBasedInsightModel
                 try {
-                    // nosemgrep: prefer-codegen-api
                     savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
                 } catch (e) {
                     actions.setInsightLoading(false)
@@ -3567,7 +3563,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setInsightLoading(true)
                     let insight: QueryBasedInsightModel | null
                     try {
-                        // nosemgrep: prefer-codegen-api
                         insight = await insightsApi.getByShortId(shortId, undefined, 'async')
                     } catch {
                         actions.setInsightLoading(false)
@@ -3625,7 +3620,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             throw new Error('Invalid metric name')
                         }
                         const metric = await dataCatalogMetricsRetrieve(
-                            // nosemgrep: prefer-codegen-api
                             String(ApiConfig.getCurrentTeamId()),
                             searchParams.edit_metric
                         )

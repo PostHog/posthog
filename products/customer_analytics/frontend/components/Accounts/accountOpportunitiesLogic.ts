@@ -111,6 +111,7 @@ export const accountOpportunitiesLogic = kea<accountOpportunitiesLogicType>([
                         return { sfdcId: null, opportunities: null }
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = (await api.query({
                             kind: NodeKind.HogQLQuery,
                             tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,

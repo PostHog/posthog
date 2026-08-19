@@ -219,6 +219,7 @@ export const evaluationMetricsLogic = kea<evaluationMetricsLogicType>([
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.query(query)
 
                         return (response.results || []).map((row: RawStatsRow) => {

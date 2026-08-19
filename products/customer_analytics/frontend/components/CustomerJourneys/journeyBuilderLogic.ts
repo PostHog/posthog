@@ -634,7 +634,6 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
 
         loadFromInsight: async ({ insightId }, breakpoint) => {
             try {
-                // nosemgrep: prefer-codegen-api
                 const insight = await insightsApi.getByNumericId(insightId)
                 breakpoint()
                 if (!insight?.query) {
@@ -669,7 +668,6 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
 
         setEditingJourney: async ({ insightId }, breakpoint) => {
             try {
-                // nosemgrep: prefer-codegen-api
                 const insight = await insightsApi.getByNumericId(insightId)
                 breakpoint()
                 if (!insight?.query) {
@@ -737,7 +735,6 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 }
 
                 if (editingJourneyId && editingInsightId) {
-                    // nosemgrep: prefer-codegen-api
                     await insightsApi.update(editingInsightId, {
                         query: saveQuery,
                         name: insightName,
@@ -750,7 +747,6 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                     })
                     actions.reportCustomerJourneyUpdated(editingJourneyId, name, series.length)
                 } else {
-                    // nosemgrep: prefer-codegen-api
                     const insight = await insightsApi.create({
                         query: saveQuery,
                         name: insightName,

@@ -198,6 +198,7 @@ export const assignmentRuleModalLogic = kea<assignmentRuleModalLogicType>([
                         return null
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.query(query)) as Record<string, any>
 
                     return {

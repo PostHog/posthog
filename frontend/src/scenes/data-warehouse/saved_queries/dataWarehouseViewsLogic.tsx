@@ -574,7 +574,6 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 }
             }
             try {
-                // nosemgrep: prefer-codegen-api
                 await warehouseSavedQueriesMaterializeCreate(String(ApiConfig.getCurrentTeamId()), viewId, {
                     sync_frequency: requestedFrequency,
                 })

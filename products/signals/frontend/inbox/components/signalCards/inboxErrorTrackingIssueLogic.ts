@@ -174,6 +174,7 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
             null as InboxErrorTrackingIssueSummary | null,
             {
                 loadSummary: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.issueId,

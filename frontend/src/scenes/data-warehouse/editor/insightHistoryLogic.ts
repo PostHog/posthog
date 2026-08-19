@@ -132,7 +132,6 @@ export const insightHistoryLogic = kea<insightHistoryLogicType>([
                 loadActivity: async () => {
                     const items: ActivityLogItem[] = []
                     for (let page = 1; page <= ACTIVITY_MAX_PAGES; page++) {
-                        // nosemgrep: prefer-codegen-api
                         const response = await api.activity
                             .listRequest({
                                 scope: ActivityScope.INSIGHT,

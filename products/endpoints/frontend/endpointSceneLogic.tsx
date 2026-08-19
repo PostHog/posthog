@@ -547,7 +547,6 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                     return null
                 }
                 return await endpointsMaterializationSuggestionCreate(
-                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentTeamId()),
                     endpoint.name,
                     {}
@@ -892,7 +891,6 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                     if (versionParam && values.endpoint?.name) {
                         // Load the requested version
                         const requestedVersion = versionParam
-                        // nosemgrep: prefer-codegen-api
                         api.endpoint
                             .get(name, versionParam)
                             .then((versionData) => {

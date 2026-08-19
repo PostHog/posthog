@@ -684,6 +684,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 if (!dayjs(timestamp).isValid()) {
                     return null
                 }
+                // nosemgrep: prefer-codegen-api
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
@@ -718,6 +719,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 // A reset dispatches several filter changes in one tick. Debounce them into one query,
                 // then discard its response if a newer load supersedes it while it is in flight.
                 await breakpoint(100)
+                // nosemgrep: prefer-codegen-api
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,

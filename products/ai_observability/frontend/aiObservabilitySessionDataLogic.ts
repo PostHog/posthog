@@ -499,6 +499,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     dateRange,
                 }
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.query(traceQuery)
                     if (dateRangeCacheKey !== getDateRangeCacheKey(values.dateRange)) {
                         return
@@ -571,6 +572,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                             traceId,
                             dateRange,
                         }
+                        // nosemgrep: prefer-codegen-api
                         const traceResponse = await api.query(traceQuery)
                         if (traceResponse.results && traceResponse.results[0]) {
                             fullTrace = traceResponse.results[0]

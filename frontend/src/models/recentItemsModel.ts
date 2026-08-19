@@ -96,7 +96,6 @@ export const recentItemsModel = kea<recentItemsModelType>([
             [] as FileSystemEntry[],
             {
                 loadRecents: async () => {
-                    // nosemgrep: prefer-codegen-api
                     if (!ApiConfig.hasCurrentTeamId()) {
                         return []
                     }
@@ -133,7 +132,6 @@ export const recentItemsModel = kea<recentItemsModelType>([
             {} as Record<string, string>,
             {
                 loadSceneLogViews: async () => {
-                    // nosemgrep: prefer-codegen-api
                     if (!ApiConfig.hasCurrentTeamId()) {
                         return {}
                     }
@@ -228,7 +226,6 @@ export const recentItemsModel = kea<recentItemsModelType>([
     })),
 
     afterMount(({ actions }) => {
-        // nosemgrep: prefer-codegen-api
         if (!ApiConfig.hasCurrentTeamId()) {
             return
         }

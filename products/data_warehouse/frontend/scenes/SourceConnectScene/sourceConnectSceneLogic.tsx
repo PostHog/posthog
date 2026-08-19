@@ -226,7 +226,6 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                     return
                 }
                 const credential = await externalDataSourcesStoreCredentialsCreate(
-                    // nosemgrep: prefer-codegen-api
                     String(ApiConfig.getCurrentTeamId()),
                     { source_type: values.sourceConfig.name, payload }
                 )

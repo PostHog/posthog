@@ -102,6 +102,7 @@ export const feedbackViewLogic = kea<feedbackViewLogicType>([
             {
                 loadSurveyEvents: async (createdAt: string) => {
                     const date = dayjs(createdAt)
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT uuid, event, timestamp, properties

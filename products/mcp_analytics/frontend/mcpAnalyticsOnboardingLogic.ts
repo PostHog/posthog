@@ -150,6 +150,7 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
                 // graduates to the full dashboard (see loadSignalsSuccess), so this is bounded
                 // to the onboarding + activity window, and the query itself is cheap (event-name
                 // counts on the sort key).
+                // nosemgrep: prefer-codegen-api
                 const response = (await api.query(
                     {
                         kind: NodeKind.HogQLQuery,

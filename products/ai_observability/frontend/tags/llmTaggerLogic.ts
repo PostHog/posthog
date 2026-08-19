@@ -506,6 +506,7 @@ export const llmTaggerLogic = kea<llmTaggerLogicType>([
                 },
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.query(query)
                 const runs = (response.results || []).map((row: any[]) => ({
                     timestamp: row[0],

@@ -563,7 +563,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     try {
                         // `ApiConfig` over `teamLogic.values.currentTeamId`: the team loads async, so
                         // on a cold mount the kea value is still null and the source reads as off.
-                        // nosemgrep: prefer-codegen-api
                         const response = await visionScannersList(String(ApiConfig.getCurrentProjectId()), {
                             enabled: 'enabled',
                             limit: ENTITY_PAGE_SIZE,
@@ -583,7 +582,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         return scanners
                     }
                     const updated = await visionScannersPartialUpdate(
-                        // nosemgrep: prefer-codegen-api
                         String(ApiConfig.getCurrentProjectId()),
                         scannerId,
                         { emits_signals: !scanner.emits_signals }
@@ -601,7 +599,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     )
                     const updated = await Promise.all(
                         changing.map((scanner: ReplayScannerApi) =>
-                            // nosemgrep: prefer-codegen-api
                             visionScannersPartialUpdate(String(ApiConfig.getCurrentProjectId()), scanner.id, {
                                 emits_signals: enabled,
                             })

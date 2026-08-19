@@ -235,6 +235,7 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.query(query)
                         return (response.results || []).map((row: RawStatsRow) => ({
                             tagger_id: row[0],
@@ -274,6 +275,7 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.query(query)
                         return (response.results || []).map((row: RawTagCountRow) => ({
                             tagger_id: row[0],
