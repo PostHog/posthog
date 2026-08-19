@@ -483,7 +483,7 @@ class CTETableAliasType(BaseTableType):
         return self.cte_table_type.resolve_column_constant_type(name, context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True)  # nosemgrep: prefer-frozen-dataclasses -- mutable AST type node, resolved in place
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectSetQueryType
@@ -679,7 +679,7 @@ class ExpressionFieldType(Type):
         return UnknownType()
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True)  # nosemgrep: prefer-frozen-dataclasses -- mutable AST type node, resolved in place
 class FieldType(Type):
     name: str
     table_type: TableOrSelectType
