@@ -52,6 +52,7 @@ import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useCo
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
 import { ArtifactChip } from "@posthog/ui/primitives/ArtifactChip";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { getObjectKind } from "@posthog/ui/utils/objectKinds";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { type ReactNode, useMemo, useState } from "react";
 
@@ -301,7 +302,10 @@ function eventLabel(
     case "artifact_created":
       return (
         <>
-          Agent created{" "}
+          Agent{" "}
+          {event.payload.referenceType === "posthog_object"
+            ? "added"
+            : "created"}{" "}
           <span className="font-medium">{event.payload.name}</span>
         </>
       );
@@ -513,13 +517,21 @@ export function ArtifactEventDetail({
 }) {
   const { download, downloadingId } = useArtifactDownload();
   const runId = payload.runId;
-  const canDownload = Boolean(taskId && runId && payload.artifactId);
+  const isPostHogReference = payload.referenceType === "posthog_object";
+  const objectKind = getObjectKind(payload.objectKind ?? "");
+  const canDownload = Boolean(
+    !isPostHogReference && taskId && runId && payload.artifactId,
+  );
 
   return (
     <ArtifactChip
       label={payload.name}
       name={payload.name}
-      meta={`v${payload.version}`}
+      meta={
+        isPostHogReference
+          ? `${objectKind.kindLabel} · ${objectKind.source}`
+          : `v${payload.version}`
+      }
       onOpen={onOpen}
       onDownload={
         canDownload && taskId && runId
@@ -694,13 +706,18 @@ export function ActivityEventRow({
   runOrdinal?: number;
   detail?: ReactNode;
 }) {
+  const ObjectIcon =
+    event.kind === "artifact_created" &&
+    event.payload.referenceType === "posthog_object"
+      ? getObjectKind(event.payload.objectKind ?? "").icon
+      : null;
   return (
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
       gutter={
         <EventBead tone={EVENT_TONES[event.kind]}>
-          {EVENT_ICONS[event.kind]}
+          {ObjectIcon ? <ObjectIcon size={11} /> : EVENT_ICONS[event.kind]}
         </EventBead>
       }
       timestamp={timestamp}

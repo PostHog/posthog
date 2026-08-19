@@ -22,6 +22,7 @@ import {
   buildPrOutput,
   getErrorMessage,
   isIgnoredSkillPath,
+  isSkillBundleArtifactMetadata,
   type McpServerConnection,
   mergePrUrls,
   parseMcpToolName,
@@ -3004,7 +3005,8 @@ export class AgentServer {
       const hasMatchingArtifact = artifacts.some(
         (artifact) =>
           artifact.type === "skill_bundle" &&
-          artifact.metadata?.skill_name === invocation.skillName,
+          isSkillBundleArtifactMetadata(artifact.metadata) &&
+          artifact.metadata.skill_name === invocation.skillName,
       );
       const installedSkill = hasMatchingArtifact
         ? this.installedSkillBundleInfo.get(
@@ -3045,8 +3047,16 @@ export class AgentServer {
     messageText: string,
   ): LocalSkillPromptContext | null {
     const installed = artifacts
-      .filter((artifact) => artifact.type === "skill_bundle")
-      .map((artifact) => artifact.metadata?.skill_name)
+      .filter(
+        (artifact) =>
+          artifact.type === "skill_bundle" &&
+          isSkillBundleArtifactMetadata(artifact.metadata),
+      )
+      .map((artifact) =>
+        isSkillBundleArtifactMetadata(artifact.metadata)
+          ? artifact.metadata.skill_name
+          : null,
+      )
       .filter((name): name is string => typeof name === "string")
       .map((name) =>
         this.installedSkillBundleInfo.get(
@@ -3167,15 +3177,14 @@ export class AgentServer {
     artifact: TaskRunArtifact,
   ): Promise<void> {
     const metadata = artifact.metadata;
-    const skillName = metadata?.skill_name;
-    const expectedSha256 = metadata?.content_sha256;
-
-    if (!artifact.storage_path || !skillName || !expectedSha256) {
+    if (!artifact.storage_path || !isSkillBundleArtifactMetadata(metadata)) {
       throw new Error(
         `Skill bundle artifact ${artifact.name} is missing metadata`,
       );
     }
 
+    const skillName = metadata.skill_name;
+    const expectedSha256 = metadata.content_sha256;
     const installKey = `${runId}:${expectedSha256}:${skillName}`;
     if (
       this.installedSkillBundles.has(installKey) &&

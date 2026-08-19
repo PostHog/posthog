@@ -13,6 +13,7 @@ import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import {
   type CreateResourceCommentRequest,
   type PostHogAPIClient,
+  type PostHogObjectReferenceInput,
   type ResourceComment,
   SESSION_LOGS_MAX_PAGE_SIZE,
   type TaskRunSessionLogsResult,
@@ -62,6 +63,7 @@ import {
 } from "@posthog/shared/domain-types";
 import type { CommentTarget } from "../comments/anchors";
 import type { AgentSessionNotification } from "../notification/agentSessionNotifications";
+import { extractPostHogObjectReferences } from "../posthog-objects/references";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
@@ -1674,6 +1676,17 @@ function readSteering(result: unknown): string | undefined {
   return (result as { steering?: string } | undefined)?.steering;
 }
 
+function readTurnAgentText(msg: AcpMessage["message"]): string {
+  if (!("method" in msg) || msg.method !== "session/update") return "";
+  const update = (msg as { params?: { update?: Record<string, unknown> } })
+    .params?.update;
+  if (update?.sessionUpdate !== "agent_message_chunk") return "";
+  const content = update.content as
+    | { type?: string; text?: string }
+    | undefined;
+  return content?.type === "text" ? (content.text ?? "") : "";
+}
+
 function classifyTurnEventKind(
   msg: AcpMessage["message"],
 ): "text" | "output" | "other" {
@@ -1771,7 +1784,12 @@ export class SessionService {
   private respondedCloudPermissionRequestIds = new Set<string>();
   private liveTurnContent = new Map<
     string,
-    { startedAtTs: number; agentTextChunks: number; agentOutputEvents: number }
+    {
+      startedAtTs: number;
+      agentTextChunks: number;
+      agentOutputEvents: number;
+      agentText: string;
+    }
   >();
   private pendingPermissionHydratedRuns = new Set<string>();
   /** In-flight hydrations keyed by `${taskRunId}:${hydrationMode}` */
@@ -3226,6 +3244,44 @@ export class SessionService {
     } else {
       this.d.log.info("Turn completed", payload);
     }
+
+    if (!session?.taskId || !tally.agentText) return;
+    const references = extractPostHogObjectReferences(tally.agentText);
+    if (references.length === 0) return;
+    const sourceMessageId = `turn-${tally.startedAtTs}`;
+    const inputs: PostHogObjectReferenceInput[] = references.map(
+      (reference) => ({
+        name: reference.label,
+        object_kind: reference.kind,
+        object_id: reference.id,
+        source_message_id: sourceMessageId,
+      }),
+    );
+    void this.registerPostHogReferences(session.taskId, taskRunId, inputs);
+  }
+
+  private async registerPostHogReferences(
+    taskId: string,
+    taskRunId: string,
+    references: PostHogObjectReferenceInput[],
+  ): Promise<void> {
+    try {
+      const authStatus = await this.getAuthCredentialsStatus();
+      if (authStatus.kind !== "ready") return;
+      const artifacts =
+        await authStatus.auth.client.registerTaskRunPostHogReferences(
+          taskId,
+          taskRunId,
+          references,
+        );
+      this.d.store.updateSession(taskRunId, { cloudArtifacts: artifacts });
+    } catch (error) {
+      this.d.log.warn("Failed to register PostHog object references", {
+        taskId,
+        taskRunId,
+        error: String(error),
+      });
+    }
   }
 
   private updatePromptStateFromEvents(
@@ -3241,13 +3297,13 @@ export class SessionService {
       if (this.isSteerMessage(msg)) {
         continue;
       }
-      const turnTally = isLive
-        ? this.liveTurnContent.get(taskRunId)
-        : undefined;
+      const turnTally = this.liveTurnContent.get(taskRunId);
       if (turnTally) {
         const kind = classifyTurnEventKind(msg);
-        if (kind === "text") turnTally.agentTextChunks += 1;
-        else if (kind === "output") turnTally.agentOutputEvents += 1;
+        if (kind === "text") {
+          turnTally.agentTextChunks += 1;
+          turnTally.agentText += readTurnAgentText(msg);
+        } else if (kind === "output") turnTally.agentOutputEvents += 1;
       }
       if (isJsonRpcRequest(msg) && msg.method === "session/prompt") {
         this.d.store.updateSession(taskRunId, {
@@ -3256,13 +3312,12 @@ export class SessionService {
           pausedDurationMs: 0,
           currentPromptId: msg.id,
         });
-        if (isLive) {
-          this.liveTurnContent.set(taskRunId, {
-            startedAtTs: acpMsg.ts,
-            agentTextChunks: 0,
-            agentOutputEvents: 0,
-          });
-        }
+        this.liveTurnContent.set(taskRunId, {
+          startedAtTs: acpMsg.ts,
+          agentTextChunks: 0,
+          agentOutputEvents: 0,
+          agentText: "",
+        });
         const promptSession = this.d.store.getSessions()[taskRunId];
         if (promptSession?.isCloud) {
           this.cloudRunIdleTracker.markBusy(promptSession);
@@ -3302,9 +3357,7 @@ export class SessionService {
           promptStartedAt: null,
           currentPromptId: null,
         });
-        if (isLive) {
-          this.finalizeTurnContent(taskRunId, "stop_reason", acpMsg.ts);
-        }
+        this.finalizeTurnContent(taskRunId, "stop_reason", acpMsg.ts);
       }
       if (isTurnCompleteEvent(acpMsg)) {
         // Local sessions use the JSON-RPC response as the canonical turn-done
@@ -3340,8 +3393,8 @@ export class SessionService {
               );
             }
             this.d.taskViewedApi.markActivity(session.taskId);
-            this.finalizeTurnContent(taskRunId, "turn_complete", acpMsg.ts);
           }
+          this.finalizeTurnContent(taskRunId, "turn_complete", acpMsg.ts);
         }
       }
       // Lifecycle handshake from the agent — flip status to "connected"

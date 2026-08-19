@@ -24,6 +24,7 @@ import {
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
+import { PostHogObjectPage } from "@posthog/ui/features/posthog-objects/PostHogObjectPage";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import {
@@ -61,19 +62,19 @@ function artifactVersionsFromRuns(
   name: string,
 ): ArtifactVersion[] {
   const files = runs.flatMap((run) =>
-    parseRunArtifacts(run.artifacts, OUTPUT_ARTIFACT_TYPES).flatMap((file) =>
-      file.name === name && file.id
-        ? [
-            {
-              ...file,
-              id: file.id,
-              name: file.name,
-              type: file.type as TaskRunArtifact["type"],
-              runId: run.id,
-            },
-          ]
-        : [],
-    ),
+    parseRunArtifacts(run.artifacts, OUTPUT_ARTIFACT_TYPES).flatMap((file) => {
+      if (file.name !== name || !file.id) return [];
+      const { metadata: _metadata, ...fileFields } = file;
+      return [
+        {
+          ...fileFields,
+          id: file.id,
+          name: file.name,
+          type: file.type as TaskRunArtifact["type"],
+          runId: run.id,
+        },
+      ];
+    }),
   );
   return (
     groupRunArtifactVersions(files).find((candidate) => candidate.name === name)
@@ -310,6 +311,17 @@ export function ArtifactPreview({
     );
   }
   if (isError || imageError) return <ArtifactPreviewError />;
+
+  if (
+    previewData &&
+    typeof previewData === "object" &&
+    !(previewData instanceof Blob) &&
+    previewData.kind === "posthog-object"
+  ) {
+    return (
+      <PostHogObjectPage metadata={previewData.metadata} fallbackName={name} />
+    );
+  }
 
   if (
     editing.isEditing &&

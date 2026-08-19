@@ -164,6 +164,23 @@ TASK_RUN_ARTIFACT_TYPE_CHOICES = [
 TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES = ["utf-8", "base64"]
 TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES = ["zip"]
 TASK_RUN_SKILL_SOURCE_CHOICES = ["user", "repo", "marketplace", "codex"]
+POSTHOG_OBJECT_KIND_CHOICES = [
+    "insight",
+    "hogql",
+    "dashboard",
+    "error",
+    "replay",
+    "flag",
+    "experiment",
+    "survey",
+    "ticket",
+    "trace",
+    "eval",
+    "event",
+    "cohort",
+    "action",
+    "person",
+]
 TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES = [choice for choice, _label in TaskArtifactType.choices]
 TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES = [choice for choice, _label in TaskArtifactAdapter.choices]
 TASK_RUN_LIVING_ARTIFACT_WRITE_ADAPTER_CHOICES = TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES
@@ -241,26 +258,67 @@ class TaskRunUpdateSerializer(serializers.Serializer):
 
 class TaskRunArtifactMetadataSerializer(serializers.Serializer):
     skill_name = serializers.CharField(
+        required=False,
         allow_blank=False,
         max_length=255,
         help_text="Name of the local skill included in a skill_bundle artifact.",
     )
     skill_source = serializers.ChoiceField(
+        required=False,
         choices=TASK_RUN_SKILL_SOURCE_CHOICES,
         help_text="Local source for the uploaded skill bundle, such as user or repo.",
     )
     content_sha256 = serializers.RegexField(
+        required=False,
         regex=r"^[a-f0-9]{64}$",
         help_text="SHA-256 hex digest of the uploaded skill bundle bytes.",
     )
     bundle_format = serializers.ChoiceField(
+        required=False,
         choices=TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES,
         help_text="Archive format used for the local skill bundle.",
     )
     schema_version = serializers.IntegerField(
+        required=False,
         min_value=1,
         help_text="Version of the local skill bundle metadata schema.",
     )
+    reference_type = serializers.ChoiceField(
+        required=False,
+        choices=["posthog_object"],
+        help_text="Reference metadata type. posthog_object identifies a live PostHog object.",
+    )
+    object_kind = serializers.ChoiceField(
+        required=False,
+        choices=POSTHOG_OBJECT_KIND_CHOICES,
+        help_text="PostHog object kind used to resolve the reference.",
+    )
+    object_id = serializers.CharField(
+        required=False,
+        max_length=16384,
+        help_text="Exact PostHog object identifier, flag key, event name, or SQL query.",
+    )
+    source_message_ids = serializers.ListField(
+        required=False,
+        child=serializers.CharField(max_length=255),
+        max_length=100,
+        help_text="Completed assistant message identifiers that referenced the object.",
+    )
+    occurrence_count = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Number of distinct completed assistant messages that referenced the object.",
+    )
+
+    def validate(self, attrs):
+        if attrs.get("reference_type") == "posthog_object":
+            required = ["object_kind", "object_id", "source_message_ids", "occurrence_count"]
+        else:
+            required = ["skill_name", "skill_source", "content_sha256", "bundle_format", "schema_version"]
+        missing = [field for field in required if field not in attrs]
+        if missing:
+            raise serializers.ValidationError(dict.fromkeys(missing, "This field is required."))
+        return attrs
 
 
 def validate_task_run_artifact_metadata(attrs: dict[str, Any]) -> dict[str, Any]:
@@ -291,8 +349,11 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Optional structured metadata for special artifact types, such as skill bundles.",
     )
-    storage_path = serializers.CharField(help_text="S3 object key for the artifact")
-    uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+    storage_path = serializers.CharField(
+        required=False,
+        help_text="S3 object key for file artifacts. Reference artifacts do not have one.",
+    )
+    uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded or registered")
     uploaded_by = serializers.ChoiceField(
         choices=["agent", "user"],
         required=False,
@@ -978,6 +1039,35 @@ class TaskRunArtifactsUploadRequestSerializer(serializers.Serializer):
 
 class TaskRunArtifactsUploadResponseSerializer(serializers.Serializer):
     artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run")
+
+
+class TaskRunPostHogReferenceSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255, help_text="Fallback display name for the referenced object.")
+    object_kind = serializers.ChoiceField(
+        choices=POSTHOG_OBJECT_KIND_CHOICES,
+        help_text="PostHog object kind used to resolve the reference.",
+    )
+    object_id = serializers.CharField(
+        max_length=16384,
+        help_text="Exact PostHog object identifier, flag key, event name, or SQL query.",
+    )
+    source_message_id = serializers.CharField(
+        max_length=255,
+        help_text="Stable identifier of the completed assistant message containing the reference.",
+    )
+
+
+class TaskRunPostHogReferencesRequestSerializer(serializers.Serializer):
+    references = serializers.ListField(
+        child=TaskRunPostHogReferenceSerializer(),
+        allow_empty=False,
+        max_length=50,
+        help_text="PostHog object references extracted from one completed assistant message.",
+    )
+
+
+class TaskRunPostHogReferencesResponseSerializer(serializers.Serializer):
+    artifacts = TaskRunArtifactResponseSerializer(many=True, help_text="Updated list of artifacts on the run.")
 
 
 class TaskRunLivingArtifactResponseSerializer(serializers.Serializer):

@@ -1316,33 +1316,117 @@ export const TaskRunReasoningEffortEnumApi = {
     Ultracode: 'ultracode',
 } as const
 
+/**
+ * * `posthog_object` - posthog_object
+ */
+export type ReferenceTypeEnumApi = (typeof ReferenceTypeEnumApi)[keyof typeof ReferenceTypeEnumApi]
+
+export const ReferenceTypeEnumApi = {
+    PosthogObject: 'posthog_object',
+} as const
+
+/**
+ * * `insight` - insight
+ * * `hogql` - hogql
+ * * `dashboard` - dashboard
+ * * `error` - error
+ * * `replay` - replay
+ * * `flag` - flag
+ * * `experiment` - experiment
+ * * `survey` - survey
+ * * `ticket` - ticket
+ * * `trace` - trace
+ * * `eval` - eval
+ * * `event` - event
+ * * `cohort` - cohort
+ * * `action` - action
+ * * `person` - person
+ */
+export type ObjectKindEnumApi = (typeof ObjectKindEnumApi)[keyof typeof ObjectKindEnumApi]
+
+export const ObjectKindEnumApi = {
+    Insight: 'insight',
+    Hogql: 'hogql',
+    Dashboard: 'dashboard',
+    Error: 'error',
+    Replay: 'replay',
+    Flag: 'flag',
+    Experiment: 'experiment',
+    Survey: 'survey',
+    Ticket: 'ticket',
+    Trace: 'trace',
+    Eval: 'eval',
+    Event: 'event',
+    Cohort: 'cohort',
+    Action: 'action',
+    Person: 'person',
+} as const
+
 export interface TaskRunArtifactMetadataApi {
     /**
      * Name of the local skill included in a skill_bundle artifact.
      * @maxLength 255
      */
-    skill_name: string
+    skill_name?: string
     /** Local source for the uploaded skill bundle, such as user or repo.
      *
      * * `user` - user
      * * `repo` - repo
      * * `marketplace` - marketplace
      * * `codex` - codex */
-    skill_source: SkillSourceEnumApi
+    skill_source?: SkillSourceEnumApi
     /**
      * SHA-256 hex digest of the uploaded skill bundle bytes.
      * @pattern ^[a-f0-9]{64}$
      */
-    content_sha256: string
+    content_sha256?: string
     /** Archive format used for the local skill bundle.
      *
      * * `zip` - zip */
-    bundle_format: BundleFormatEnumApi
+    bundle_format?: BundleFormatEnumApi
     /**
      * Version of the local skill bundle metadata schema.
      * @minimum 1
      */
-    schema_version: number
+    schema_version?: number
+    /** Reference metadata type. posthog_object identifies a live PostHog object.
+     *
+     * * `posthog_object` - posthog_object */
+    reference_type?: ReferenceTypeEnumApi
+    /** PostHog object kind used to resolve the reference.
+     *
+     * * `insight` - insight
+     * * `hogql` - hogql
+     * * `dashboard` - dashboard
+     * * `error` - error
+     * * `replay` - replay
+     * * `flag` - flag
+     * * `experiment` - experiment
+     * * `survey` - survey
+     * * `ticket` - ticket
+     * * `trace` - trace
+     * * `eval` - eval
+     * * `event` - event
+     * * `cohort` - cohort
+     * * `action` - action
+     * * `person` - person */
+    object_kind?: ObjectKindEnumApi
+    /**
+     * Exact PostHog object identifier, flag key, event name, or SQL query.
+     * @maxLength 16384
+     */
+    object_id?: string
+    /**
+     * Completed assistant message identifiers that referenced the object.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    source_message_ids?: string[]
+    /**
+     * Number of distinct completed assistant messages that referenced the object.
+     * @minimum 1
+     */
+    occurrence_count?: number
 }
 
 /**
@@ -1371,9 +1455,9 @@ export interface TaskRunArtifactResponseApi {
     content_type?: string
     /** Optional structured metadata for special artifact types, such as skill bundles. */
     metadata?: TaskRunArtifactMetadataApi
-    /** S3 object key for the artifact */
-    storage_path: string
-    /** Timestamp when the artifact was uploaded */
+    /** S3 object key for file artifacts. Reference artifacts do not have one. */
+    storage_path?: string
+    /** Timestamp when the artifact was uploaded or registered */
     uploaded_at: string
     /** Whether the artifact version was uploaded by the task agent or an interactive user.
      *
@@ -3094,6 +3178,55 @@ export interface TaskRunArtifactPresignResponseApi {
     url: string
     /** URL expiry in seconds */
     expires_in: number
+}
+
+export interface TaskRunPostHogReferenceApi {
+    /**
+     * Fallback display name for the referenced object.
+     * @maxLength 255
+     */
+    name: string
+    /** PostHog object kind used to resolve the reference.
+     *
+     * * `insight` - insight
+     * * `hogql` - hogql
+     * * `dashboard` - dashboard
+     * * `error` - error
+     * * `replay` - replay
+     * * `flag` - flag
+     * * `experiment` - experiment
+     * * `survey` - survey
+     * * `ticket` - ticket
+     * * `trace` - trace
+     * * `eval` - eval
+     * * `event` - event
+     * * `cohort` - cohort
+     * * `action` - action
+     * * `person` - person */
+    object_kind: ObjectKindEnumApi
+    /**
+     * Exact PostHog object identifier, flag key, event name, or SQL query.
+     * @maxLength 16384
+     */
+    object_id: string
+    /**
+     * Stable identifier of the completed assistant message containing the reference.
+     * @maxLength 255
+     */
+    source_message_id: string
+}
+
+export interface TaskRunPostHogReferencesRequestApi {
+    /**
+     * PostHog object references extracted from one completed assistant message.
+     * @maxItems 50
+     */
+    references: TaskRunPostHogReferenceApi[]
+}
+
+export interface TaskRunPostHogReferencesResponseApi {
+    /** Updated list of artifacts on the run. */
+    artifacts: TaskRunArtifactResponseApi[]
 }
 
 export interface TaskRunCancelRequestApi {

@@ -999,6 +999,80 @@ describe("PostHogAPIClient", () => {
     );
   });
 
+  it("registers PostHog references without file upload fields", async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        artifacts: [
+          {
+            id: "phref-1",
+            name: "Checkout funnel",
+            type: "reference",
+            source: "posthog_object",
+            uploaded_at: "2026-08-19T00:00:00Z",
+            metadata: {
+              reference_type: "posthog_object",
+              object_kind: "insight",
+              object_id: "9pQx3",
+              source_message_ids: ["turn-1"],
+              occurrence_count: 1,
+            },
+          },
+        ],
+      }),
+    });
+    const client = new PostHogAPIClient(
+      "http://localhost:8000",
+      async () => "token",
+      async () => "token",
+      123,
+    );
+    (
+      client as unknown as {
+        api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+      }
+    ).api = {
+      baseUrl: "http://localhost:8000",
+      fetcher: { fetch },
+    };
+
+    await expect(
+      client.registerTaskRunPostHogReferences("task-123", "run-123", [
+        {
+          name: "Checkout funnel",
+          object_kind: "insight",
+          object_id: "9pQx3",
+          source_message_id: "turn-1",
+        },
+      ]),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "phref-1",
+        type: "reference",
+        source: "posthog_object",
+        metadata: expect.objectContaining({ object_id: "9pQx3" }),
+      }),
+    ]);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "post",
+        path: "/api/projects/123/tasks/task-123/runs/run-123/artifacts/references/",
+        overrides: {
+          body: JSON.stringify({
+            references: [
+              {
+                name: "Checkout funnel",
+                object_kind: "insight",
+                object_id: "9pQx3",
+                source_message_id: "turn-1",
+              },
+            ],
+          }),
+        },
+      }),
+    );
+  });
+
   it("presigns a task run artifact for preview", async () => {
     const fetch = vi.fn().mockResolvedValue({
       ok: true,

@@ -1937,6 +1937,12 @@ export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOn
     '^[a-f0-9]{64}$'
 )
 
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneObjectIdMax = 16384
+
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsItemMax = 255
+
+export const tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsMax = 100
+
 export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -1982,12 +1988,14 @@ export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.
                         skill_name: zod
                             .string()
                             .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .optional()
                             .describe('Name of the local skill included in a skill_bundle artifact.'),
                         skill_source: zod
                             .enum(['user', 'repo', 'marketplace', 'codex'])
                             .describe(
                                 '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
                             )
+                            .optional()
                             .describe(
                                 'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
                             ),
@@ -1996,15 +2004,73 @@ export const TasksStagedArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.
                             .regex(
                                 tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp
                             )
+                            .optional()
                             .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
                         bundle_format: zod
                             .enum(['zip'])
                             .describe('\* `zip` - zip')
+                            .optional()
                             .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
                         schema_version: zod
                             .number()
                             .min(1)
+                            .optional()
                             .describe('Version of the local skill bundle metadata schema.'),
+                        reference_type: zod
+                            .enum(['posthog_object'])
+                            .describe('\* `posthog_object` - posthog_object')
+                            .optional()
+                            .describe(
+                                'Reference metadata type. posthog_object identifies a live PostHog object.\n\n\* `posthog_object` - posthog_object'
+                            ),
+                        object_kind: zod
+                            .enum([
+                                'insight',
+                                'hogql',
+                                'dashboard',
+                                'error',
+                                'replay',
+                                'flag',
+                                'experiment',
+                                'survey',
+                                'ticket',
+                                'trace',
+                                'eval',
+                                'event',
+                                'cohort',
+                                'action',
+                                'person',
+                            ])
+                            .describe(
+                                '\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                            )
+                            .optional()
+                            .describe(
+                                'PostHog object kind used to resolve the reference.\n\n\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                            ),
+                        object_id: zod
+                            .string()
+                            .max(tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneObjectIdMax)
+                            .optional()
+                            .describe('Exact PostHog object identifier, flag key, event name, or SQL query.'),
+                        source_message_ids: zod
+                            .array(
+                                zod
+                                    .string()
+                                    .max(
+                                        tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsItemMax
+                                    )
+                            )
+                            .max(
+                                tasksStagedArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsMax
+                            )
+                            .optional()
+                            .describe('Completed assistant message identifiers that referenced the object.'),
+                        occurrence_count: zod
+                            .number()
+                            .min(1)
+                            .optional()
+                            .describe('Number of distinct completed assistant messages that referenced the object.'),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -2031,6 +2097,12 @@ export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOne
 export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
     '^[a-f0-9]{64}$'
 )
+
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneObjectIdMax = 16384
+
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsItemMax = 255
+
+export const tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsMax = 100
 
 export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
@@ -2077,12 +2149,14 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
                         skill_name: zod
                             .string()
                             .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .optional()
                             .describe('Name of the local skill included in a skill_bundle artifact.'),
                         skill_source: zod
                             .enum(['user', 'repo', 'marketplace', 'codex'])
                             .describe(
                                 '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
                             )
+                            .optional()
                             .describe(
                                 'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
                             ),
@@ -2091,15 +2165,71 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
                             .regex(
                                 tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp
                             )
+                            .optional()
                             .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
                         bundle_format: zod
                             .enum(['zip'])
                             .describe('\* `zip` - zip')
+                            .optional()
                             .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
                         schema_version: zod
                             .number()
                             .min(1)
+                            .optional()
                             .describe('Version of the local skill bundle metadata schema.'),
+                        reference_type: zod
+                            .enum(['posthog_object'])
+                            .describe('\* `posthog_object` - posthog_object')
+                            .optional()
+                            .describe(
+                                'Reference metadata type. posthog_object identifies a live PostHog object.\n\n\* `posthog_object` - posthog_object'
+                            ),
+                        object_kind: zod
+                            .enum([
+                                'insight',
+                                'hogql',
+                                'dashboard',
+                                'error',
+                                'replay',
+                                'flag',
+                                'experiment',
+                                'survey',
+                                'ticket',
+                                'trace',
+                                'eval',
+                                'event',
+                                'cohort',
+                                'action',
+                                'person',
+                            ])
+                            .describe(
+                                '\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                            )
+                            .optional()
+                            .describe(
+                                'PostHog object kind used to resolve the reference.\n\n\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                            ),
+                        object_id: zod
+                            .string()
+                            .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneObjectIdMax)
+                            .optional()
+                            .describe('Exact PostHog object identifier, flag key, event name, or SQL query.'),
+                        source_message_ids: zod
+                            .array(
+                                zod
+                                    .string()
+                                    .max(
+                                        tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsItemMax
+                                    )
+                            )
+                            .max(tasksStagedArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsMax)
+                            .optional()
+                            .describe('Completed assistant message identifiers that referenced the object.'),
+                        occurrence_count: zod
+                            .number()
+                            .min(1)
+                            .optional()
+                            .describe('Number of distinct completed assistant messages that referenced the object.'),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -2318,6 +2448,12 @@ export const tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneSkillNameMax = 
 
 export const tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp('^[a-f0-9]{64}$')
 
+export const tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneObjectIdMax = 16384
+
+export const tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneSourceMessageIdsItemMax = 255
+
+export const tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneSourceMessageIdsMax = 100
+
 export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -2366,27 +2502,83 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                         skill_name: zod
                             .string()
                             .max(tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .optional()
                             .describe('Name of the local skill included in a skill_bundle artifact.'),
                         skill_source: zod
                             .enum(['user', 'repo', 'marketplace', 'codex'])
                             .describe(
                                 '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
                             )
+                            .optional()
                             .describe(
                                 'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
                             ),
                         content_sha256: zod
                             .string()
                             .regex(tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneContentSha256RegExp)
+                            .optional()
                             .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
                         bundle_format: zod
                             .enum(['zip'])
                             .describe('\* `zip` - zip')
+                            .optional()
                             .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
                         schema_version: zod
                             .number()
                             .min(1)
+                            .optional()
                             .describe('Version of the local skill bundle metadata schema.'),
+                        reference_type: zod
+                            .enum(['posthog_object'])
+                            .describe('\* `posthog_object` - posthog_object')
+                            .optional()
+                            .describe(
+                                'Reference metadata type. posthog_object identifies a live PostHog object.\n\n\* `posthog_object` - posthog_object'
+                            ),
+                        object_kind: zod
+                            .enum([
+                                'insight',
+                                'hogql',
+                                'dashboard',
+                                'error',
+                                'replay',
+                                'flag',
+                                'experiment',
+                                'survey',
+                                'ticket',
+                                'trace',
+                                'eval',
+                                'event',
+                                'cohort',
+                                'action',
+                                'person',
+                            ])
+                            .describe(
+                                '\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                            )
+                            .optional()
+                            .describe(
+                                'PostHog object kind used to resolve the reference.\n\n\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                            ),
+                        object_id: zod
+                            .string()
+                            .max(tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneObjectIdMax)
+                            .optional()
+                            .describe('Exact PostHog object identifier, flag key, event name, or SQL query.'),
+                        source_message_ids: zod
+                            .array(
+                                zod
+                                    .string()
+                                    .max(tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneSourceMessageIdsItemMax)
+                            )
+                            .max(tasksRunsArtifactsCreateBodyArtifactsItemMetadataOneSourceMessageIdsMax)
+                            .optional()
+                            .describe('Completed assistant message identifiers that referenced the object.'),
+                        occurrence_count: zod
+                            .number()
+                            .min(1)
+                            .optional()
+                            .describe('Number of distinct completed assistant messages that referenced the object.'),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -2450,6 +2642,12 @@ export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneC
     '^[a-f0-9]{64}$'
 )
 
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneObjectIdMax = 16384
+
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsItemMax = 255
+
+export const tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsMax = 100
+
 export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
         .array(
@@ -2495,12 +2693,14 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                         skill_name: zod
                             .string()
                             .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .optional()
                             .describe('Name of the local skill included in a skill_bundle artifact.'),
                         skill_source: zod
                             .enum(['user', 'repo', 'marketplace', 'codex'])
                             .describe(
                                 '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
                             )
+                            .optional()
                             .describe(
                                 'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
                             ),
@@ -2509,15 +2709,71 @@ export const TasksRunsArtifactsFinalizeUploadCreateBody = /* @__PURE__ */ zod.ob
                             .regex(
                                 tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp
                             )
+                            .optional()
                             .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
                         bundle_format: zod
                             .enum(['zip'])
                             .describe('\* `zip` - zip')
+                            .optional()
                             .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
                         schema_version: zod
                             .number()
                             .min(1)
+                            .optional()
                             .describe('Version of the local skill bundle metadata schema.'),
+                        reference_type: zod
+                            .enum(['posthog_object'])
+                            .describe('\* `posthog_object` - posthog_object')
+                            .optional()
+                            .describe(
+                                'Reference metadata type. posthog_object identifies a live PostHog object.\n\n\* `posthog_object` - posthog_object'
+                            ),
+                        object_kind: zod
+                            .enum([
+                                'insight',
+                                'hogql',
+                                'dashboard',
+                                'error',
+                                'replay',
+                                'flag',
+                                'experiment',
+                                'survey',
+                                'ticket',
+                                'trace',
+                                'eval',
+                                'event',
+                                'cohort',
+                                'action',
+                                'person',
+                            ])
+                            .describe(
+                                '\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                            )
+                            .optional()
+                            .describe(
+                                'PostHog object kind used to resolve the reference.\n\n\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                            ),
+                        object_id: zod
+                            .string()
+                            .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneObjectIdMax)
+                            .optional()
+                            .describe('Exact PostHog object identifier, flag key, event name, or SQL query.'),
+                        source_message_ids: zod
+                            .array(
+                                zod
+                                    .string()
+                                    .max(
+                                        tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsItemMax
+                                    )
+                            )
+                            .max(tasksRunsArtifactsFinalizeUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsMax)
+                            .optional()
+                            .describe('Completed assistant message identifiers that referenced the object.'),
+                        occurrence_count: zod
+                            .number()
+                            .min(1)
+                            .optional()
+                            .describe('Number of distinct completed assistant messages that referenced the object.'),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -2544,6 +2800,12 @@ export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSk
 export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp = new RegExp(
     '^[a-f0-9]{64}$'
 )
+
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneObjectIdMax = 16384
+
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsItemMax = 255
+
+export const tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsMax = 100
 
 export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.object({
     artifacts: zod
@@ -2590,27 +2852,85 @@ export const TasksRunsArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.obj
                         skill_name: zod
                             .string()
                             .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSkillNameMax)
+                            .optional()
                             .describe('Name of the local skill included in a skill_bundle artifact.'),
                         skill_source: zod
                             .enum(['user', 'repo', 'marketplace', 'codex'])
                             .describe(
                                 '\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
                             )
+                            .optional()
                             .describe(
                                 'Local source for the uploaded skill bundle, such as user or repo.\n\n\* `user` - user\n\* `repo` - repo\n\* `marketplace` - marketplace\n\* `codex` - codex'
                             ),
                         content_sha256: zod
                             .string()
                             .regex(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneContentSha256RegExp)
+                            .optional()
                             .describe('SHA-256 hex digest of the uploaded skill bundle bytes.'),
                         bundle_format: zod
                             .enum(['zip'])
                             .describe('\* `zip` - zip')
+                            .optional()
                             .describe('Archive format used for the local skill bundle.\n\n\* `zip` - zip'),
                         schema_version: zod
                             .number()
                             .min(1)
+                            .optional()
                             .describe('Version of the local skill bundle metadata schema.'),
+                        reference_type: zod
+                            .enum(['posthog_object'])
+                            .describe('\* `posthog_object` - posthog_object')
+                            .optional()
+                            .describe(
+                                'Reference metadata type. posthog_object identifies a live PostHog object.\n\n\* `posthog_object` - posthog_object'
+                            ),
+                        object_kind: zod
+                            .enum([
+                                'insight',
+                                'hogql',
+                                'dashboard',
+                                'error',
+                                'replay',
+                                'flag',
+                                'experiment',
+                                'survey',
+                                'ticket',
+                                'trace',
+                                'eval',
+                                'event',
+                                'cohort',
+                                'action',
+                                'person',
+                            ])
+                            .describe(
+                                '\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                            )
+                            .optional()
+                            .describe(
+                                'PostHog object kind used to resolve the reference.\n\n\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                            ),
+                        object_id: zod
+                            .string()
+                            .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneObjectIdMax)
+                            .optional()
+                            .describe('Exact PostHog object identifier, flag key, event name, or SQL query.'),
+                        source_message_ids: zod
+                            .array(
+                                zod
+                                    .string()
+                                    .max(
+                                        tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsItemMax
+                                    )
+                            )
+                            .max(tasksRunsArtifactsPrepareUploadCreateBodyArtifactsItemMetadataOneSourceMessageIdsMax)
+                            .optional()
+                            .describe('Completed assistant message identifiers that referenced the object.'),
+                        occurrence_count: zod
+                            .number()
+                            .min(1)
+                            .optional()
+                            .describe('Number of distinct completed assistant messages that referenced the object.'),
                     })
                     .optional()
                     .describe('Optional structured metadata for special artifact types, such as skill bundles.'),
@@ -2630,6 +2950,64 @@ export const TasksRunsArtifactsPresignCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(tasksRunsArtifactsPresignCreateBodyStoragePathMax)
         .describe('S3 storage path returned in the artifact manifest'),
+})
+
+/**
+ * Attach live PostHog object references to the run artifact manifest without uploading files.
+ * @summary Register PostHog object references for a task run
+ */
+export const tasksRunsArtifactsReferencesCreateBodyReferencesItemNameMax = 255
+
+export const tasksRunsArtifactsReferencesCreateBodyReferencesItemObjectIdMax = 16384
+
+export const tasksRunsArtifactsReferencesCreateBodyReferencesItemSourceMessageIdMax = 255
+
+export const tasksRunsArtifactsReferencesCreateBodyReferencesMax = 50
+
+export const TasksRunsArtifactsReferencesCreateBody = /* @__PURE__ */ zod.object({
+    references: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .max(tasksRunsArtifactsReferencesCreateBodyReferencesItemNameMax)
+                    .describe('Fallback display name for the referenced object.'),
+                object_kind: zod
+                    .enum([
+                        'insight',
+                        'hogql',
+                        'dashboard',
+                        'error',
+                        'replay',
+                        'flag',
+                        'experiment',
+                        'survey',
+                        'ticket',
+                        'trace',
+                        'eval',
+                        'event',
+                        'cohort',
+                        'action',
+                        'person',
+                    ])
+                    .describe(
+                        '\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                    )
+                    .describe(
+                        'PostHog object kind used to resolve the reference.\n\n\* `insight` - insight\n\* `hogql` - hogql\n\* `dashboard` - dashboard\n\* `error` - error\n\* `replay` - replay\n\* `flag` - flag\n\* `experiment` - experiment\n\* `survey` - survey\n\* `ticket` - ticket\n\* `trace` - trace\n\* `eval` - eval\n\* `event` - event\n\* `cohort` - cohort\n\* `action` - action\n\* `person` - person'
+                    ),
+                object_id: zod
+                    .string()
+                    .max(tasksRunsArtifactsReferencesCreateBodyReferencesItemObjectIdMax)
+                    .describe('Exact PostHog object identifier, flag key, event name, or SQL query.'),
+                source_message_id: zod
+                    .string()
+                    .max(tasksRunsArtifactsReferencesCreateBodyReferencesItemSourceMessageIdMax)
+                    .describe('Stable identifier of the completed assistant message containing the reference.'),
+            })
+        )
+        .max(tasksRunsArtifactsReferencesCreateBodyReferencesMax)
+        .describe('PostHog object references extracted from one completed assistant message.'),
 })
 
 /**

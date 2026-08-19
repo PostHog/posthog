@@ -69,6 +69,8 @@ export interface ArtifactPayload {
   version: number;
   /** Names the run whose artifact tab can open this; null on rows that predate it. */
   runId: string | null;
+  referenceType: string | null;
+  objectKind: string | null;
 }
 
 export interface CanvasCreatedPayload {
@@ -145,6 +147,8 @@ function artifactPayload(payload: Record<string, unknown>): ArtifactPayload {
     artifactType: str(payload.artifact_type),
     version: num(payload.version, 1),
     runId: optionalStr(payload.run_id),
+    referenceType: optionalStr(payload.reference_type),
+    objectKind: optionalStr(payload.object_kind),
   };
 }
 
@@ -216,7 +220,12 @@ export function parseActivityEvent(message: {
     case "artifact_created":
     case "artifact_revised": {
       const parsed = artifactPayload(payload);
-      return RUN_ARTIFACT_TYPES_WITHOUT_TIMELINE_EVENTS.has(parsed.artifactType)
+      const visiblePostHogReference =
+        parsed.artifactType === "reference" &&
+        parsed.referenceType === "posthog_object";
+      return RUN_ARTIFACT_TYPES_WITHOUT_TIMELINE_EVENTS.has(
+        parsed.artifactType,
+      ) && !visiblePostHogReference
         ? null
         : { kind: event, payload: parsed };
     }

@@ -8147,6 +8147,50 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
+class TestTaskRunPostHogReferencesAPI(BaseTaskAPITest):
+    @patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
+    def test_registers_idempotent_reference_artifacts_and_announces_them_once(self, _enabled: MagicMock) -> None:
+        task = self.create_task()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/references/"
+        reference = {
+            "name": "Checkout funnel",
+            "object_kind": "insight",
+            "object_id": "9pQx3",
+            "source_message_id": "turn-1-message-1",
+        }
+
+        first = self.client.post(url, {"references": [reference]}, format="json")
+        retry = self.client.post(url, {"references": [reference]}, format="json")
+        second_message = self.client.post(
+            url,
+            {"references": [{**reference, "source_message_id": "turn-2-message-1"}]},
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(retry.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_message.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual(len(run.artifacts), 1)
+        artifact = run.artifacts[0]
+        self.assertEqual(artifact["type"], "reference")
+        self.assertEqual(artifact["source"], "posthog_object")
+        self.assertNotIn("storage_path", artifact)
+        self.assertEqual(artifact["metadata"]["occurrence_count"], 2)
+        self.assertEqual(
+            artifact["metadata"]["source_message_ids"],
+            ["turn-1-message-1", "turn-2-message-1"],
+        )
+        events = TaskThreadMessage.objects.for_team(self.team.id).filter(
+            task=task,
+            event="artifact_created",
+            payload__artifact_id=artifact["id"],
+        )
+        self.assertEqual(events.count(), 1)
+        self.assertEqual(events.get().payload["reference_type"], "posthog_object")
+
+
 class TestTaskRunArtifactDismissAPI(BaseTaskAPITest):
     def _create_run_with_artifacts(self) -> tuple[Task, TaskRun]:
         task = self.create_task()
