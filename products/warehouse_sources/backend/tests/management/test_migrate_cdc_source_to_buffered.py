@@ -271,6 +271,21 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         mocks["pause"].assert_called_once()
         mocks["unpause"].assert_not_called()
 
+    def test_the_flip_waits_out_an_in_flight_extraction_run(self):
+        # A legacy run with the shadow lane on keeps writing buffer files after the schedule pauses;
+        # one landing after the purge would be merged on top of rows legacy already delivered.
+        source = self._source()
+        self._schema(source, "users")
+
+        with _mocked_side_effects(extraction_running=True) as mocks:
+            with pytest.raises(CommandError, match="still executing"):
+                self._run(source, drain_timeout=0)
+
+        source.refresh_from_db()
+        assert "cdc_ingest_mode" not in source.job_inputs
+        mocks["purge"].assert_not_called()
+        mocks["unpause"].assert_not_called()
+
     def test_rollback_waits_out_an_in_flight_extraction_run(self):
         # Pausing the schedule does not stop a running workflow — one still executing would keep
         # writing buffer files and advancing the slot behind the drain check.

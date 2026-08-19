@@ -58,10 +58,10 @@ preserved, so there is no WAL gap and no re-sync.
 python manage.py migrate_cdc_source_to_buffered --source-id <uuid>
 ```
 
-The command pauses the extraction schedule, waits for in-flight `sourcebatch` batches to reach a
-terminal state, purges pre-flip buffer files **and aborts if any file survives the purge**, sets
-`job_inputs.cdc_ingest_mode = "buffered"`, then unpauses the extraction schedule and each eligible
-schema's own schedule.
+The command pauses the extraction schedule, waits for the in-flight extraction run to finish, waits
+for in-flight `sourcebatch` batches to reach a terminal state, purges pre-flip buffer files **and
+aborts if any file survives the purge**, sets `job_inputs.cdc_ingest_mode = "buffered"`, then
+unpauses the extraction schedule and each eligible schema's own schedule.
 
 If a batch is still working after the drain timeout the command aborts with the source **left
 paused**. That is deliberate — flipping on top of a stuck load lets that batch land against a table
@@ -70,11 +70,15 @@ the buffered lane has already started writing. Investigate the stuck load, then 
 Pre-flip buffer files are purged because the legacy lane already delivered those rows, and the load
 position has no watermark for them yet.
 
-An extraction run already in flight when the schedule pauses can still enqueue legacy batches after
-the drain check passed. That is safe: the consumer no-ops while any legacy delivery for the schema
-is in flight (deferred runs or unfinished `sourcebatch` batches), so late legacy batches always land
-before the first buffered merge. The same gate holds the consumer off during a post-flip re-snapshot
-until the deferred backlog lands.
+The wait for the extraction run matters because pausing a Temporal schedule does not stop a workflow
+already running. With the shadow lane on — the normal state before a flip, since validation needs
+it — that run keeps writing buffer files, and one landing after the purge would be merged by the
+consumer even though the legacy lane already delivered those rows.
+
+The consumer also no-ops while any legacy delivery for the schema is in flight (deferred runs or
+unfinished `sourcebatch` batches), so a legacy batch that lands late still lands before the first
+buffered merge. The same gate holds the consumer off during a post-flip re-snapshot until the
+deferred backlog lands.
 
 ### Verify
 

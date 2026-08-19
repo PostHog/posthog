@@ -79,8 +79,8 @@ class Command(BaseCommand):
         if not cdc_schemas:
             raise CommandError(f"Source {source_id} has no CDC schemas")
 
-        # Mirror capture's _get_cdc_schemas: a user-disabled schema must not be flipped — step 5
-        # would unpause its schedule, reversing the disable.
+        # Mirror capture's _get_cdc_schemas: a user-disabled schema must not be flipped — the last
+        # step would unpause its schedule, reversing the disable.
         eligible = [s for s in cdc_schemas if s.should_sync and serves_buffered_lane(s)]
         ineligible = [s for s in cdc_schemas if s not in eligible]
         current_mode = (source.job_inputs or {}).get("cdc_ingest_mode", "legacy")
@@ -190,28 +190,30 @@ class Command(BaseCommand):
 
         source_id = str(source.id)
 
-        self.stdout.write("1/5 pausing extraction schedule")
+        self.stdout.write("1/6 pausing extraction schedule")
         pause_cdc_extraction_schedule(source_id)
 
-        # An extraction run already in flight can still enqueue after this drain returns — pausing a
-        # Temporal schedule does not stop a running workflow. That is safe: the consumer no-ops
-        # while any sourcebatch batch for the schema is non-terminal (has_pending_legacy_backlog),
-        # so late legacy batches always land before the first buffered merge.
-        self.stdout.write("2/5 draining sourcebatch")
+        # Pausing the schedule stops future firings, not a workflow already running. A legacy run
+        # with the shadow lane on keeps writing buffer files, and one landing after the purge would
+        # be merged by the consumer even though the legacy lane already delivered those rows.
+        self.stdout.write("2/6 waiting for the in-flight extraction run to finish")
+        self._wait_for_extraction_idle(source_id, drain_timeout)
+
+        self.stdout.write("3/6 draining sourcebatch")
         self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
         # Pre-flip files were already delivered by the legacy lane, and replaying them would
         # re-apply rows against a position the guard has no watermark for yet.
-        self.stdout.write("3/5 purging pre-flip buffer files")
+        self.stdout.write("4/6 purging pre-flip buffer files")
         for schema in eligible:
             purge_buffer_prefix(source.team_id, str(schema.id), logger)
         self._verify_prefixes_empty(source.team_id, eligible)
 
-        self.stdout.write("4/5 setting cdc_ingest_mode=buffered")
+        self.stdout.write("5/6 setting cdc_ingest_mode=buffered")
         source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "buffered"}
         source.save(update_fields=["job_inputs"])
 
-        self.stdout.write("5/5 unpausing schedules")
+        self.stdout.write("6/6 unpausing schedules")
         unpause_cdc_extraction_schedule(source_id)
         self._set_schema_schedules(eligible, paused=False)
 
