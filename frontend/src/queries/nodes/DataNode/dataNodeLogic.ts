@@ -1322,9 +1322,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         responseErrorIsTransient: [
             false,
             {
+                // Track the same events as `responseError` so the two stay in lockstep: an
+                // automatic refresh (`loadNewData`) network failure is flagged transient too,
+                // and a following load resets the flag so a later server error isn't misreported.
                 loadData: () => false,
+                loadNewData: () => false,
                 loadDataFailure: (_, { errorObject }) => isNetworkError(errorObject),
+                loadNewDataFailure: (_, { errorObject }) => isNetworkError(errorObject),
                 loadDataSuccess: () => false,
+                loadNewDataSuccess: () => false,
             },
         ],
         responseError: [

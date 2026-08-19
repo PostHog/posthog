@@ -135,6 +135,39 @@ describe('dataNodeLogic', () => {
         await expectLogic(logic).delay(0).toMatchValues({ response: null, responseErrorIsTransient: false })
     })
 
+    it('flags an automatic-refresh network failure as transient and clears the flag on a later server error', async () => {
+        const initialResults = {
+            columns: ['*', 'event', 'timestamp'],
+            results: [[{ ...commonResult }, 'update user properties', '2022-12-24T17:00:41.165000Z']],
+            hasMore: true,
+        }
+        mockedQuery.mockResolvedValueOnce(initialResults)
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+            }),
+        })
+        logic.mount()
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({ response: partial(initialResults), canLoadNewData: true, responseErrorIsTransient: false })
+
+        // An automatic refresh (loadNewData) that never reaches the server keeps the rows and is flagged transient,
+        // so the table shows the "out of date" banner rather than silently dropping the failure.
+        mockedQuery.mockRejectedValueOnce(new NetworkError('network'))
+        logic.actions.loadNewData()
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({ response: partial(initialResults), responseErrorIsTransient: true })
+
+        // A following automatic refresh that hits a genuine server error must not stay flagged transient.
+        mockedQuery.mockRejectedValueOnce(new Error('boom'))
+        logic.actions.loadNewData()
+        await expectLogic(logic).delay(0).toMatchValues({ responseErrorIsTransient: false })
+    })
+
     it('can load new data if EventsQuery sorted by timestamp', async () => {
         const results = [
             [
