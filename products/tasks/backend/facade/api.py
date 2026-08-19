@@ -5514,6 +5514,17 @@ def run_task(
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
     if task is None:
         return None
+    if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
+        from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
+            enforce_report_implementation_rerun_cap,
+        )
+
+        # Ahead of the warm-run reuse below, which returns early: a task released its slot when
+        # its runs all failed, so another implementation may hold it by now.
+        with transaction.atomic():
+            enforce_report_implementation_rerun_cap(
+                team_id=team_id, report_id=str(task.signal_report_id), task_id=str(task.id)
+            )
     mode = validated_data.get("mode", "background")
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")

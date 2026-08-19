@@ -2097,6 +2097,38 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertEqual(response.json()["code"], "signal_report_task_cap")
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
+    @parameterized.expand(
+        [
+            # Another task took the slot this one released, so rerunning would make two live
+            # implementations for the report.
+            ("another_task_holds_the_slot", True, True),
+            # Nothing else claimed it, so the ordinary "my run failed, try again" path stands.
+            ("reclaims_its_own_released_slot", False, False),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_rerunning_a_released_implementation_rechecks_the_report_slot(
+        self, _name, create_second_task, expect_refused, mock_workflow
+    ):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        # Every run failed without a PR, which releases the slot for a second implementation.
+        task = self._create_implementation_task_with_runs(report, [("failed", None), ("failed", None)])
+        if create_second_task:
+            self.assertEqual(
+                self._post_signal_report_task(report.id, "implementation").status_code, status.HTTP_201_CREATED
+            )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+
+        if expect_refused:
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(response.json()["code"], "signal_report_task_cap")
+            mock_workflow.assert_not_called()
+        else:
+            self.assertNotEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
     def test_discussion_task_cap_per_report_counts_free_form_labels(self):
         from products.signals.backend.models import SignalReport
         from products.signals.backend.task_run_artefacts import MAX_DISCUSSION_TASKS_PER_REPORT
