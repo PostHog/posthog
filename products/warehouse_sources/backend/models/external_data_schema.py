@@ -921,6 +921,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if save:
             self.save(skip_activity_log=True)
 
+    def clear_xmin_state(self, save: bool = True) -> None:
+        # Drops the cursor so the next run takes the backfill path and re-reads the whole table,
+        # upserting by primary key. Use it to repair a schema whose backfill missed rows.
+        self.sync_type_config.pop("xmin_last_value", None)
+        self.sync_type_config.pop("xmin_ceiling", None)
+        self.sync_type_config.pop("xmin_num_wraparound", None)
+
+        if save:
+            self.save(skip_activity_log=True)
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = timezone.now()
