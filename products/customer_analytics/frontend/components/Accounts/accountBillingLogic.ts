@@ -254,6 +254,7 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
                     const insights = await Promise.all(
                         BILLING_INSIGHT_SHORT_IDS[props.kind].map(async (shortId) => {
                             try {
+                                // nosemgrep: prefer-codegen-api
                                 return await insightsApi.getByShortId(shortId)
                             } catch (error) {
                                 if (isBreakpoint(error as Error)) {

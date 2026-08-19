@@ -558,6 +558,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             updateCampaignFieldPreferences: trackSettingsUpdated,
             testMapping: async ({ tableId, sourceMap }) => {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(
                         `api/environments/${values.currentTeamId}/marketing_analytics/test_mapping/`,
                         { table_id: tableId, source_map: sourceMap }

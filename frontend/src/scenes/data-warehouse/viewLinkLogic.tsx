@@ -490,6 +490,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 if (values.joinToEdit?.id && values.selectedSourceTable) {
                     // Edit join
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await api.dataWarehouseViewLinks.update(values.joinToEdit.id, {
                             source_table_name: source_table_name ?? values.selectedSourceTable.name,
                             source_table_key,
@@ -510,6 +511,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 } else if (values.selectedSourceTable) {
                     // Create join
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await api.dataWarehouseViewLinks.create({
                             source_table_name: source_table_name ?? values.selectedSourceTable.name,
                             source_table_key,
@@ -623,6 +625,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             }
             actions.validateJoinStarted()
             try {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.dataWarehouseViewLinks.validate({
                     source_table_name: values.selectedSourceTableName,
                     source_table_key: sourceTableKey,

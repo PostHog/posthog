@@ -144,12 +144,14 @@ export const draftsLogic = kea<draftsLogicType>([
             {} as PaginatedResponse<DataWarehouseSavedQueryDraft>,
             {
                 loadDrafts: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const drafts = await api.dataWarehouseSavedQueryDrafts.list()
 
                     return drafts
                 },
                 loadMoreDrafts: async () => {
                     if (values.draftsResponse.next) {
+                        // nosemgrep: prefer-codegen-api
                         const drafts = await api.get<PaginatedResponse<DataWarehouseSavedQueryDraft>>(
                             values.draftsResponse.next
                         )
@@ -188,6 +190,7 @@ export const draftsLogic = kea<draftsLogicType>([
         },
         saveAsDraft: async ({ query, viewId, tab }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 const draft = await api.dataWarehouseSavedQueryDrafts.create({
                     query,
                     saved_query_id: viewId,
@@ -208,6 +211,7 @@ export const draftsLogic = kea<draftsLogicType>([
         },
         updateDraft: async ({ draft }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 const updatedDraft = await api.dataWarehouseSavedQueryDrafts.update(draft.id, draft)
                 lemonToast.success('Draft updated')
                 const newDrafts = values.drafts.map((d) => (d.id === draft.id ? updatedDraft : d))
@@ -222,6 +226,7 @@ export const draftsLogic = kea<draftsLogicType>([
         },
         deleteDraft: async ({ draftId, viewName }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.dataWarehouseSavedQueryDrafts.delete(draftId)
                 lemonToast.success('Draft deleted')
 
@@ -237,12 +242,14 @@ export const draftsLogic = kea<draftsLogicType>([
             }
         },
         renameDraft: async ({ draftId, name }) => {
+            // nosemgrep: prefer-codegen-api
             await api.dataWarehouseSavedQueryDrafts.update(draftId, { name })
             actions.setDrafts(values.drafts.map((d) => (d.id === draftId ? { ...d, name } : d)))
         },
         saveOrUpdateDraft: async ({ query, viewId, draftId, activeTab }) => {
             if (draftId) {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const updatedDraft = await api.dataWarehouseSavedQueryDrafts.update(draftId, {
                         query,
                     })
@@ -257,6 +264,7 @@ export const draftsLogic = kea<draftsLogicType>([
                     posthog.captureException(e)
                 }
             } else {
+                // nosemgrep: prefer-codegen-api
                 const existingDrafts = await api.dataWarehouseSavedQueryDrafts.list()
                 const existingDraft = existingDrafts.results.find((draft) => draft.saved_query_id === viewId)
 

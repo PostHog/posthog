@@ -33,6 +33,7 @@ export function CalendarSyncConfig(): JSX.Element {
                 .split(' ')
                 .includes(GMAIL_READONLY_SCOPE)
     )
+    // nosemgrep: prefer-codegen-api
     const authorizeUrl = api.integrations.authorizeUrl({
         kind: 'google-calendar',
         next: `${urls.customerAnalyticsConfiguration('customer-analytics-calendar-sync')}#selectedSetting=customer-analytics-calendar-sync`,

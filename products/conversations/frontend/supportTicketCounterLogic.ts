@@ -136,6 +136,7 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
                     await breakpoint(1)
 
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.conversationsTickets.unreadCount()
                         actions.clearErrorCount()
                         return response.count

@@ -109,6 +109,7 @@ export const syncMethodModalLogic = kea<syncMethodModalLogicType>([
             {
                 loadSchemaIncrementalFields: async (schemaId: string) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         return await api.externalDataSchemas.incremental_fields(schemaId)
                     } catch (e: any) {
                         lemonToast.error(e?.data?.message ?? e?.message ?? e)

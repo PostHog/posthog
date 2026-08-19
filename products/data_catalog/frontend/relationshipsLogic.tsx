@@ -50,6 +50,7 @@ export interface RelationshipRow {
 }
 
 function projectId(): string {
+    // nosemgrep: prefer-codegen-api
     return String(ApiConfig.getCurrentTeamId())
 }
 
@@ -205,6 +206,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
             [] as DataWarehouseViewLink[],
             {
                 loadJoins: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.dataWarehouseViewLinks.list()
                     return response.results || []
                 },

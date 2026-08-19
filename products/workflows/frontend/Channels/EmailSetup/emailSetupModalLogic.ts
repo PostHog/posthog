@@ -217,10 +217,12 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 try {
                     let integration: IntegrationType
                     if (values.savedIntegration) {
+                        // nosemgrep: prefer-codegen-api
                         integration = await api.integrations.updateEmailConfig(values.savedIntegration.id, {
                             config,
                         })
                     } else {
+                        // nosemgrep: prefer-codegen-api
                         integration = await api.integrations.create({
                             kind: 'email',
                             config,
@@ -243,6 +245,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         verification: {
             verifyDomain: async () => {
                 if (values.savedIntegration) {
+                    // nosemgrep: prefer-codegen-api
                     return api.integrations.verifyEmail(values.savedIntegration.id)
                 }
             },

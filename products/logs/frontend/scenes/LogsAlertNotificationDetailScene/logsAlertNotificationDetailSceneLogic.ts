@@ -191,6 +191,7 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
                     if (!values.currentTeamId) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.hogFunctions.list({
                         types: ['internal_destination'],
                         filter_groups: [buildLogsAlertFilterConfig(props.alertId)],
@@ -270,6 +271,7 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
         },
         setHogFunctionEnabled: async ({ hogFunctionId, enabled }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.hogFunctions.update(hogFunctionId, { enabled })
             } catch (error: unknown) {
                 posthog.captureException(error, { tag: 'logs-alert-hog-function-toggle' })

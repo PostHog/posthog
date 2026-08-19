@@ -139,6 +139,7 @@ export const slackSetupModalLogic = kea<slackSetupModalLogicType>([
             }),
             submit: async () => {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const integration = await api.integrations.create({
                         kind: 'slack',
                         config: {

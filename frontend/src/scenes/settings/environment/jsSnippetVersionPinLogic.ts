@@ -79,6 +79,7 @@ export const jsSnippetVersionPinLogic = kea<jsSnippetVersionPinLogicType>([
                     if (!teamId) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api
                     return await api.get(`api/projects/${teamId}/js-snippet/version`)
                 },
                 saveVersionPin: async ({ pin }: { pin: string | null }) => {
@@ -86,6 +87,7 @@ export const jsSnippetVersionPinLogic = kea<jsSnippetVersionPinLogicType>([
                     if (!teamId) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.update(`api/projects/${teamId}/js-snippet/version`, {
                         js_snippet_version: pin,
                     })

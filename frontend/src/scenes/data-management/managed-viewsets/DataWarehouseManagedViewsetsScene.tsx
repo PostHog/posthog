@@ -63,8 +63,10 @@ export function DataWarehouseManagedViewsetsScene(): JSX.Element | null {
         }
 
         try {
+            // nosemgrep: prefer-codegen-api
             await api.dataWarehouseManagedViewsets.toggle(kind, false)
             if (kind === 'revenue_analytics') {
+                // nosemgrep: prefer-codegen-api
                 await api.revenueAnalyticsJoins.sync(false)
             }
             lemonToast.success(`${VIEWSET_TITLES[kind]} viewset disabled and views deleted successfully`)

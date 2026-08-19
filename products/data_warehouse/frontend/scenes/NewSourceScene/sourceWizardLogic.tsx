@@ -2577,6 +2577,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     const payload = ((values.sourceConnectionDetails as any)?.payload || {}) as Record<string, any>
                     const mode = (payload.cdc_management_mode || 'posthog') as 'posthog' | 'self_managed'
                     try {
+                        // nosemgrep: prefer-codegen-api
                         return await api.externalDataSources.check_cdc_prerequisites(
                             {
                                 source_type: (values.selectedConnector?.name || 'Postgres') as ExternalDataSourceType,
@@ -2614,6 +2615,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         .filter((s: any) => s.should_sync && s.sync_type === 'cdc')
                         .map((s: any) => s.table as string)
                     try {
+                        // nosemgrep: prefer-codegen-api
                         return await api.externalDataSources.check_cdc_prerequisites(
                             {
                                 source_type: (values.selectedConnector?.name || 'Postgres') as ExternalDataSourceType,
@@ -3320,6 +3322,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const registerRequiredWebhookAndComplete = async (sourceId: string): Promise<void> => {
                 let webhookResult: WebhookCreateResult
                 try {
+                    // nosemgrep: prefer-codegen-api
                     webhookResult = await api.externalDataSources.createWebhook(sourceId)
                 } catch (e: any) {
                     posthog.captureException(e)
@@ -3354,6 +3357,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             try {
+                // nosemgrep: prefer-codegen-api
                 const { id } = await api.externalDataSources.create({
                     ...values.source,
                     source_type: values.selectedConnector.name,
@@ -3412,6 +3416,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             try {
+                // nosemgrep: prefer-codegen-api
                 const result = await api.externalDataSources.createWebhook(values.sourceId)
                 actions.setWebhookResult(result)
             } catch (e: any) {
@@ -3431,6 +3436,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             const fieldValues = values.webhookFieldInputs
             if (Object.keys(fieldValues).length > 0) {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.externalDataSources.updateWebhookInputs(values.sourceId, fieldValues)
                 } catch (e: any) {
                     lemonToast.error(e.data?.message ?? e.message ?? 'Failed to update webhook inputs')
@@ -3468,6 +3474,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setIsLoading(true)
 
             try {
+                // nosemgrep: prefer-codegen-api
                 const schemas = await api.externalDataSources.database_schema(
                     values.selectedConnector.name,
                     getDatabaseSchemaPayload(values.source)
@@ -3790,6 +3797,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                     try {
                         if (!isDirectQueryMode) {
+                            // nosemgrep: prefer-codegen-api
                             await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
                         }
 

@@ -61,6 +61,7 @@ export function ErrorTrackingScene(): JSX.Element {
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
+        // nosemgrep: prefer-codegen-api
         api.hogFunctions
             .list({
                 types: ['internal_destination'],

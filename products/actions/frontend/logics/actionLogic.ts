@@ -112,6 +112,7 @@ export const actionLogic = kea<actionLogicType>([
                     if (!props.id) {
                         throw new Error('Cannot fetch an unsaved action from the API.')
                     }
+                    // nosemgrep: prefer-codegen-api
                     return await api.actions.get(props.id)
                 },
             },
@@ -120,6 +121,7 @@ export const actionLogic = kea<actionLogicType>([
             null as HogFunctionType[] | null,
             {
                 loadMatchingHogFunctions: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const res = await api.hogFunctions.list({
                         filter_groups: [{ actions: [{ id: `${props.id}`, type: 'actions' }] }],
                     })

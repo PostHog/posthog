@@ -191,10 +191,12 @@ export const actionsLogic = kea<actionsLogicType>([
             { count: 0, results: [] } as ActionsResponse,
             {
                 loadActions: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.actions.list(values.apiParams)
                     return { count: response.count ?? 0, results: response.results ?? [] }
                 },
                 pinAction: async (action: ActionType) => {
+                    // nosemgrep: prefer-codegen-api
                     const updated = await api.actions.update(action.id, {
                         name: action.name,
                         pinned_at: new Date().toISOString(),
@@ -208,6 +210,7 @@ export const actionsLogic = kea<actionsLogicType>([
                     }
                 },
                 unpinAction: async (action: ActionType) => {
+                    // nosemgrep: prefer-codegen-api
                     const updated = await api.actions.update(action.id, {
                         name: action.name,
                         pinned_at: null,

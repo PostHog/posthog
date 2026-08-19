@@ -261,6 +261,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             loadEarlyAccessFeature: async () => {
                 if (props.id && props.id !== 'new') {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.earlyAccessFeatures.get(props.id)
                         return response
                     } catch (error: any) {
@@ -275,10 +276,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             ) => {
                 let result: EarlyAccessFeatureType
                 if (props.id === 'new') {
+                    // nosemgrep: prefer-codegen-api
                     result = await api.earlyAccessFeatures.create(
                         updatedEarlyAccessFeature as NewEarlyAccessFeatureType
                     )
                 } else {
+                    // nosemgrep: prefer-codegen-api
                     result = await api.earlyAccessFeatures.update(
                         props.id,
                         updatedEarlyAccessFeature as EarlyAccessFeatureType
@@ -581,6 +584,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         },
         deleteEarlyAccessFeature: async ({ earlyAccessFeatureId }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.earlyAccessFeatures.delete(earlyAccessFeatureId)
                 lemonToast.info(
                     'Early access feature deleted. Remember to delete corresponding feature flag if necessary'

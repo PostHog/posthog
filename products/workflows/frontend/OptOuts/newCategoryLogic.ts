@@ -136,10 +136,12 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
             submit: async (formValues: CategoryForm) => {
                 if (props.category) {
                     // Update existing category
+                    // nosemgrep: prefer-codegen-api
                     await api.messaging.updateCategory(props.category.id, formValues)
                     lemonToast.success('Category updated successfully')
                 } else {
                     // Create new category
+                    // nosemgrep: prefer-codegen-api
                     await api.messaging.createCategory(formValues)
                     lemonToast.success('Category created successfully')
                 }

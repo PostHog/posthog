@@ -166,11 +166,13 @@ export const annotationsModel = kea<annotationsModelType>([
         rawAnnotations: {
             __default: [],
             loadAnnotations: async () => {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.annotations.list({ hidden_in_user_interface: false })
                 actions.setNext(response.next || null)
                 return response.results
             },
             createAnnotationGenerically: async (annotationData: AnnotationData) => {
+                // nosemgrep: prefer-codegen-api
                 const createdAnnotation = await api.annotations.create(annotationData)
                 actions.appendAnnotations([createdAnnotation])
             },
@@ -181,11 +183,13 @@ export const annotationsModel = kea<annotationsModelType>([
                 annotationId: RawAnnotationType['id']
                 annotationData: AnnotationDataWithoutInsight
             }) => {
+                // nosemgrep: prefer-codegen-api
                 const updatedAnnotation = await api.annotations.update(annotationId, annotationData)
                 actions.replaceAnnotation(updatedAnnotation)
             },
             deleteAnnotation: async ({ annotation }) => {
                 await deleteWithUndo({
+                    // nosemgrep: prefer-codegen-api
                     endpoint: api.annotations.determineDeleteEndpoint(),
                     object: { name: `${annotation.date_marker} annotation`, ...annotation },
                     callback: (undo, annotation) => {
@@ -241,6 +245,7 @@ export const annotationsModel = kea<annotationsModelType>([
         loadAnnotationsNext: async () => {
             let results: RawAnnotationType[] = []
             if (values.next) {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.get(values.next)
                 actions.setNext(response.next)
                 results = response.results

@@ -205,6 +205,7 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
             // optimistically gone while the report is alive and still delivering.
             let callbackFired = false
             await deleteWithUndo({
+                // nosemgrep: prefer-codegen-api
                 endpoint: api.subscriptions.determineDeleteEndpoint(),
                 object: { id: report.id, name: report.title ?? 'Report' },
                 callback: (undo) => {

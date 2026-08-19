@@ -664,6 +664,7 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
         },
 
         loadDefinitionOptions: async ({ replace }, breakpoint) => {
+            // nosemgrep: prefer-codegen-api
             const teamId = values.currentTeamId ?? ApiConfig.getCurrentTeamId()
 
             if (!teamId) {
@@ -694,6 +695,7 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
         },
 
         loadModalData: async () => {
+            // nosemgrep: prefer-codegen-api
             const teamId = values.currentTeamId ?? ApiConfig.getCurrentTeamId()
 
             if (!teamId) {
@@ -722,6 +724,7 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
         },
 
         saveCurrentReview: async () => {
+            // nosemgrep: prefer-codegen-api
             const teamId = values.currentTeamId ?? ApiConfig.getCurrentTeamId()
 
             if (!teamId || !values.isFormValid) {
@@ -743,6 +746,7 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
         },
 
         removeCurrentReview: async () => {
+            // nosemgrep: prefer-codegen-api
             const teamId = values.currentTeamId ?? ApiConfig.getCurrentTeamId()
 
             if (!teamId || !values.currentReview) {

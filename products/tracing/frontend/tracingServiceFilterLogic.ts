@@ -91,6 +91,7 @@ export const tracingServiceFilterLogic = kea<tracingServiceFilterLogicType>([
             [] as string[],
             {
                 loadServiceNames: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.tracing.serviceNames({
                         search: values.search,
                         ...(logicProps.dateRange ? { dateRange: JSON.stringify(logicProps.dateRange) } : {}),

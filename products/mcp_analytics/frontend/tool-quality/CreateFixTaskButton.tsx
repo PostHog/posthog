@@ -102,12 +102,14 @@ function openCreateFixTaskForm(context: MCPErrorContext, githubIntegrations: Int
 
             let task
             try {
+                // nosemgrep: prefer-codegen-api
                 task = await api.tasks.create(taskData)
             } catch (error) {
                 lemonToast.error('Failed to create the task')
                 throw error
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.tasks.run(task.id)
                 lemonToast.success('Fix task created and agent run started')
             } catch {

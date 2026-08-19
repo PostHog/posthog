@@ -265,6 +265,7 @@ export const apnsSetupModalLogic = kea<apnsSetupModalLogicType>([
             }),
             submit: async () => {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const integration = await api.integrations.create({
                         kind: 'apns',
                         config: {

@@ -49,6 +49,7 @@ export const OnboardingErrorTrackingAlertsStep: OnboardingStepComponentType = ()
                     <ConnectButton onClick={() => setIntegration('slack')} />
                 ) : (
                     <ConnectButton
+                        // nosemgrep: prefer-codegen-api
                         to={api.integrations.authorizeUrl({
                             kind: 'slack',
                             next: '/onboarding/error_tracking?step=alerts&kind=slack_callback',

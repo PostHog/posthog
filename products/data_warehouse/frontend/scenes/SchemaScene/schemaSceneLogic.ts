@@ -200,6 +200,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             {
                 loadSchema: async () => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         return await api.externalDataSchemas.get(props.schemaId)
                     } catch (error: any) {
                         if (error?.status === 404) {
@@ -218,6 +219,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             {
                 loadSchemaIncrementalFields: async (schemaId: string) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         return await api.externalDataSchemas.incremental_fields(schemaId)
                     } catch (e: any) {
                         lemonToast.error(e?.data?.message ?? e?.message ?? e)
@@ -336,6 +338,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 actions.loadSchemaSuccess({ ...current, ...schema })
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.externalDataSchemas.update(schema.id, buildSchemaUpdatePayload(schema))
             } catch (e: any) {
                 lemonToast.error(e?.message || "Can't update schema at this time")
@@ -349,6 +352,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 actions.loadSchemaSuccess({ ...current, status: ExternalDataSchemaStatus.Running })
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.externalDataSchemas.reload(schema.id)
                 posthog.capture('schema reloaded', { sourceType: values.source?.source_type })
             } catch (e: any) {
@@ -363,6 +367,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 actions.loadSchemaSuccess({ ...current, status: ExternalDataSchemaStatus.Running })
             }
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.externalDataSchemas.resync(schema.id)
                 posthog.capture('schema resynced', { sourceType: values.source?.source_type })
                 lemonToast.success(`Resync started for ${schema.label ?? schema.name}`)
@@ -375,6 +380,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         },
         cancelSchema: async ({ schema }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.externalDataSchemas.cancel(schema.id)
                 posthog.capture('schema sync cancelled', { sourceType: values.source?.source_type })
                 lemonToast.success('Sync cancelled')
@@ -386,6 +392,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         },
         deleteTable: async ({ schema }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.externalDataSchemas.delete_data(schema.id)
                 posthog.capture('schema data deleted', { sourceType: values.source?.source_type })
                 lemonToast.success(`Data for ${schema.label ?? schema.name} has been deleted`)
@@ -401,6 +408,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                     added = 0,
                     deleted = 0,
                     total_tables_seen = 0,
+                // nosemgrep: prefer-codegen-api
                 } = await api.externalDataSources.refreshSchemas(cleanSourceId(props.sourceId))
                 actions.loadSchema()
                 posthog.capture('schemas refreshed', {

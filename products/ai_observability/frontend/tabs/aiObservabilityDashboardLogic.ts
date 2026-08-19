@@ -228,6 +228,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
             }>,
             {
                 loadLLMDashboards: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.dashboards.list({
                         tags: 'llm-analytics',
                         creation_mode: 'unlisted',
@@ -238,6 +239,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
                         dashboards.map(async (dashboardSummary) => {
                             const dashboard = dashboardSummary.persisted_filters
                                 ? dashboardSummary
+                                // nosemgrep: prefer-codegen-api
                                 : await api.dashboards.get(dashboardSummary.id)
 
                             return {
@@ -261,6 +263,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
         loadLLMDashboardsSuccess: async ({ availableDashboards }, breakpoint) => {
             if (availableDashboards.length === 0) {
                 try {
+                    // nosemgrep: prefer-codegen-api
                     await api.dashboards.createUnlistedDashboard('llm-analytics')
                     await breakpoint(100)
                     actions.loadLLMDashboards()

@@ -44,6 +44,7 @@ export const EMPTY_NEW_CERTIFICATION_FORM: NewCertificationForm = {
 }
 
 function projectId(): string {
+    // nosemgrep: prefer-codegen-api
     return String(ApiConfig.getCurrentTeamId())
 }
 

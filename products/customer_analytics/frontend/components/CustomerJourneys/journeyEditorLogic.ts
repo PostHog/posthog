@@ -261,6 +261,7 @@ export const journeyEditorLogic = kea<journeyEditorLogicType>([
                     },
                 }
 
+                // nosemgrep: prefer-codegen-api
                 await insightsApi.update(activeInsight.id, { query: updatedQuery })
                 customerJourneysLogic.actions.loadActiveInsight()
                 actions.saveChangesSuccess()

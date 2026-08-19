@@ -131,6 +131,7 @@ export const actionsModel = kea<actionsModelType>([
         actions: {
             __default: [] as ActionType[],
             loadActions: async () => {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.actions.list(props.params)
                 return response.results ?? []
             },
@@ -138,6 +139,7 @@ export const actionsModel = kea<actionsModelType>([
         },
         pin: {
             pinAction: async (action: ActionType) => {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.actions.update(action.id, {
                     name: action.name,
                     pinned_at: new Date().toISOString(),
@@ -145,6 +147,7 @@ export const actionsModel = kea<actionsModelType>([
                 actions.updateAction(response)
             },
             unpinAction: async (action: ActionType) => {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.actions.update(action.id, {
                     name: action.name,
                     pinned_at: null,

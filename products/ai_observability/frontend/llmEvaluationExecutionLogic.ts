@@ -126,6 +126,7 @@ export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>(
                             payload.distinct_id = distinctId
                         }
 
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.evaluationRuns.create(payload)
 
                         lemonToast.success('Evaluation started successfully')

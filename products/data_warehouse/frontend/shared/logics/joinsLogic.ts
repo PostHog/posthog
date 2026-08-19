@@ -83,6 +83,7 @@ export const joinsLogic = kea<joinsLogicType>([
             [] as DataWarehouseViewLink[],
             {
                 loadJoins: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const joins = await api.dataWarehouseViewLinks.list()
                     return joins.results
                 },

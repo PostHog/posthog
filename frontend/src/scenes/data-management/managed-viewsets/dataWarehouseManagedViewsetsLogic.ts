@@ -109,8 +109,10 @@ export const dataWarehouseManagedViewsetsLogic = kea<dataWarehouseManagedViewset
 
                     // If enabling, proceed directly
                     try {
+                        // nosemgrep: prefer-codegen-api
                         await api.dataWarehouseManagedViewsets.toggle(kind, true)
                         if (kind === 'revenue_analytics') {
+                            // nosemgrep: prefer-codegen-api
                             await api.revenueAnalyticsJoins.sync(true)
                         }
                         lemonToast.success(`Viewset enabled successfully`)

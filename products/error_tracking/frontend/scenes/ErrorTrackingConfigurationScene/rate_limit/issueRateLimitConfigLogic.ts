@@ -293,6 +293,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             null as ErrorTrackingSettings | null,
             {
                 loadConfig: async () => {
+                    // nosemgrep: prefer-codegen-api
                     return await api.errorTracking.getSettings()
                 },
             },
@@ -451,6 +452,7 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             submit: async ({ per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes }) => {
                 try {
                     const payload = { per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes }
+                    // nosemgrep: prefer-codegen-api
                     await api.errorTracking.updateSettings(payload)
                     actions.resetConfigForm(payload)
                     posthog.capture('error_tracking_per_issue_rate_limit_updated', payload)

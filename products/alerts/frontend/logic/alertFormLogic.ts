@@ -501,6 +501,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         return null
                     }
                     const formConfig = values.alertForm.config
+                    // nosemgrep: prefer-codegen-api
                     return await api.alerts.simulate({
                         insight: props.insightId,
                         detector_config: detectorConfig,
@@ -641,7 +642,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 let updatedAlert: AlertType
                 try {
                     updatedAlert = isNewAlert
+                        // nosemgrep: prefer-codegen-api
                         ? await api.alerts.create(payload)
+                        // nosemgrep: prefer-codegen-api
                         : await api.alerts.update(existingAlertId, payload)
                 } catch (error: unknown) {
                     // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
@@ -850,6 +853,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot delete alert that doesn't exist")
                 }
+                // nosemgrep: prefer-codegen-api
                 await api.alerts.delete(values.alertForm.id)
                 lemonToast.success('Alert deleted.')
                 const parent = getParentLogic()
@@ -863,6 +867,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
+                // nosemgrep: prefer-codegen-api
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: resolveSnoozeUntil(snoozeUntil),
                 })
@@ -878,6 +883,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot resolve alert that doesn't exist")
                 }
+                // nosemgrep: prefer-codegen-api
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: null,
                 })

@@ -275,6 +275,7 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
             const establishConnection = async (isReconnect: boolean): Promise<boolean> => {
                 let token: string
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.maxHandsFree.token()
                     token = response.token
                 } catch (err) {
@@ -496,6 +497,7 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
             cache.speakAbortController = controller
 
             try {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.maxHandsFree.synthesize(spokenText, { signal: controller.signal })
                 if (!response.ok) {
                     throw new Error(`TTS returned ${response.status}`)

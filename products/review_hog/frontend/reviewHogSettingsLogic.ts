@@ -1123,11 +1123,13 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             try {
                 let repository: string | undefined
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const { repositories } = await api.tasks.repositories()
                     repository = repositories[0]
                 } catch {
                     repository = undefined
                 }
+                // nosemgrep: prefer-codegen-api
                 const task = await api.tasks.create({
                     title,
                     description: prompt,

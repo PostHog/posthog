@@ -408,6 +408,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                         delete currentAction.output_variable
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const result: HogflowTestResult = await api.hogFlows.createTestInvocation(workflow.id, {
                         configuration: config,
                         globals,

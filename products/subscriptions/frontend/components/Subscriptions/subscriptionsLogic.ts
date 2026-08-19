@@ -123,6 +123,7 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                 breakpoint?.()
 
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
+                // nosemgrep: prefer-codegen-api
                 const response = await api.subscriptions.list({
                     dashboardId: props.dashboardId,
                     insights: insightId ? [insightId] : undefined,
@@ -140,6 +141,7 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                     return []
                 }
                 breakpoint?.()
+                // nosemgrep: prefer-codegen-api
                 const response = await api.subscriptions.list({ dashboardTiles: props.dashboardId })
                 breakpoint?.()
                 return response.results
@@ -179,6 +181,7 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
         },
         deleteSubscription: async ({ id }) => {
             await deleteWithUndo({
+                // nosemgrep: prefer-codegen-api
                 endpoint: api.subscriptions.determineDeleteEndpoint(),
                 object: { name: 'Subscription', id },
                 callback: () => {
@@ -187,6 +190,7 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
             })
         },
         deliverSubscription: async ({ id }) => {
+            // nosemgrep: prefer-codegen-api
             const result = await runSubscriptionTestDelivery(() => api.subscriptions.testDelivery(id))
             if (result === 'success') {
                 actions.deliverSubscriptionSuccess()

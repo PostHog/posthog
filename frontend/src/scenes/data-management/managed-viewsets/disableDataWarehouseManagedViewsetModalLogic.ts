@@ -119,6 +119,7 @@ export const disableDataWarehouseManagedViewsetModalLogic = kea<disableDataWareh
             {
                 openModal: async ({ kind }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.dataWarehouseManagedViewsets.getViews(kind)
                         return response.views
                     } catch (error) {

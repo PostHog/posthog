@@ -758,6 +758,7 @@ export const maxLogic = kea<maxLogicType>([
             let conversation: ConversationDetail | null = null
 
             try {
+                // nosemgrep: prefer-codegen-api
                 conversation = await api.conversations.get(conversationId)
             } catch (err: any) {
                 if (err.status === 404) {

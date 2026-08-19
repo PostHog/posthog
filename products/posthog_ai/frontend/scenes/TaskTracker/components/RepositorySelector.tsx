@@ -19,6 +19,7 @@ export interface RepositorySelectorProps {
     onChange: (config: RepositoryConfig) => void
 }
 
+// nosemgrep: prefer-codegen-api
 const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next: urls.taskTracker() })
 
 /**

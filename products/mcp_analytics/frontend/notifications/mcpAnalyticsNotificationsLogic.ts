@@ -130,6 +130,7 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
             0,
             {
                 loadNotificationCount: async (): Promise<number> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.hogFunctions.list({
                         filter_groups: getMCPNotificationFilterGroups(),
                         types: ['destination'],
@@ -144,6 +145,7 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
             [] as HogFunctionType[],
             {
                 loadNotifications: async (): Promise<HogFunctionType[]> => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.hogFunctions.list({
                         filter_groups: getMCPNotificationFilterGroups(),
                         types: ['destination'],
@@ -280,6 +282,7 @@ export const mcpAnalyticsNotificationsLogic = kea<mcpAnalyticsNotificationsLogic
                 applyEnabled(enabled)
 
                 try {
+                    // nosemgrep: prefer-codegen-api
                     const updatedNotification = await api.hogFunctions.update(notificationId, { enabled })
                     actions.setNotifications(
                         values.notifications.map((notification) =>

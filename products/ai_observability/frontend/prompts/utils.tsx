@@ -187,6 +187,7 @@ export function openArchivePromptDialog(onArchive: () => void): void {
 
 export async function requestPromptDuplicate(sourceName: string, newName: string): Promise<void> {
     try {
+        // nosemgrep: prefer-codegen-api
         await llmPromptsNameDuplicateCreate(String(ApiConfig.getCurrentTeamId()), sourceName, { new_name: newName })
         lemonToast.success(`Prompt duplicated as "${newName}".`)
         router.actions.push(urls.aiObservabilityPrompt(newName))

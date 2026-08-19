@@ -447,6 +447,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         url ||
                         `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
 
+                    // nosemgrep: prefer-codegen-api
                     const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)
 
                     return {
@@ -468,6 +469,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
 
                 const beforeChange = { ...values.rawDashboards[id] }
 
+                // nosemgrep: prefer-codegen-api
                 const response = await api.update<DashboardType>(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
@@ -490,6 +492,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         button: {
                             label: 'Undo',
                             action: async () => {
+                                // nosemgrep: prefer-codegen-api
                                 const reverted = await api.update<DashboardType>(
                                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                                     beforeChange
@@ -514,6 +517,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
             deleteDashboard: async ({ id, deleteInsights }) => {
                 const deleted = getQueryBasedDashboard(
+                    // nosemgrep: prefer-codegen-api
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: true,
                         delete_insights: deleteInsights,
@@ -524,6 +528,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
             restoreDashboard: async ({ id }) => {
                 const restored = getQueryBasedDashboard(
+                    // nosemgrep: prefer-codegen-api
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: false,
                     })
@@ -532,6 +537,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 return restored
             },
             pinDashboard: async ({ id, source }) => {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.update(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     {
@@ -542,6 +548,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 return getQueryBasedDashboard(response)!
             },
             unpinDashboard: async ({ id, source }) => {
+                // nosemgrep: prefer-codegen-api
                 const response = await api.update<DashboardType>(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     {
@@ -552,6 +559,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 return getQueryBasedDashboard(response)!
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
+                // nosemgrep: prefer-codegen-api
                 const result = await api.create<DashboardType>(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
                     {

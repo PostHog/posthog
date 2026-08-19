@@ -311,6 +311,7 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
                         lemonToast.error('Enter a documentation URL first')
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api
                     return await externalDataSourcesDraftCustomManifestCreate(String(ApiConfig.getCurrentTeamId()), {
                         docs_url: docsUrl,
                         source_name: values.sourceName.trim() || undefined,

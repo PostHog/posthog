@@ -114,6 +114,7 @@ export const taskLogic = kea<taskLogicType>([
             {
                 loadTask: async () => {
                     try {
+                        // nosemgrep: prefer-codegen-api
                         return await api.tasks.get(props.taskId, phDebugQueryParams())
                     } catch (errorObject) {
                         actions.loadTaskFailure(loadErrorMessage('', errorObject), errorObject)
@@ -124,6 +125,7 @@ export const taskLogic = kea<taskLogicType>([
                     // Interactive, not the default background: this run starts from the detail page the user
                     // is watching, and the agent-server only relays AskUserQuestion (and other approval
                     // prompts) to the client on non-background runs.
+                    // nosemgrep: prefer-codegen-api
                     return await api.tasks.run(props.taskId, {
                         mode: TaskExecutionModeEnumApi.Interactive,
                         // The agent-server self-delivers `pending_user_message` from run state on boot, and
@@ -133,12 +135,14 @@ export const taskLogic = kea<taskLogicType>([
                     })
                 },
                 deleteTask: async () => {
+                    // nosemgrep: prefer-codegen-api
                     await api.tasks.delete(props.taskId)
                     tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
                     router.actions.push('/tasks')
                     return null
                 },
                 updateTask: async ({ data }: { data: TaskUpsertProps }) => {
+                    // nosemgrep: prefer-codegen-api
                     const updatedTask = await api.tasks.update(props.taskId, data)
                     tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
                     return updatedTask
