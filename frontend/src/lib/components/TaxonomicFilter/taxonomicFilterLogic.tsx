@@ -648,7 +648,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     props({} as TaxonomicFilterLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}`),
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic']),
-    connect(() => ({
+    connect((props) => ({
         values: [
             teamLogic,
             ['currentTeamId', 'currentTeam'],
@@ -668,7 +668,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['primaryProperties'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
-        logic: [actionsModel],
+        logic: props.taxonomicGroupTypes?.includes(TaxonomicFilterGroupType.Actions) ? [actionsModel] : [],
     })),
     actions(() => ({
         moveUp: true,
