@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -21,7 +23,7 @@ def _last_modified_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@frozen
 class BloomerangEndpointConfig:
     name: str
     path: str  # path under https://api.bloomerang.co/v2

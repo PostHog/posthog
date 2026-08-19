@@ -1,6 +1,7 @@
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang.settings import (
     BLOOMERANG_ENDPOINTS,
@@ -23,7 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 BASE_URL = "https://api.bloomerang.co/v2"
 
 
-@dataclasses.dataclass
+@frozen
 class BloomerangResumeConfig:
     # Next `skip` value to resume from. Matches OffsetPaginator's own resume-state shape.
     next_offset: int
