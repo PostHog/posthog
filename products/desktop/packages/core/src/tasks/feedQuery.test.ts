@@ -401,6 +401,15 @@ describe("feedQuery", () => {
       expect(plan.requests).toEqual([{ pinned: true }]);
     });
 
+    it("matches no tasks when archived is both required and excluded", () => {
+      const plan = planFeedQuery(
+        parseFeedQuery("is:archived -is:archived"),
+        context,
+      );
+      expect(plan.requests).toEqual([{}]);
+      expect(plan.matches(task())).toBe(false);
+    });
+
     it("flags -is:pinned as unsupported instead of silently ignoring it", () => {
       const plan = planFeedQuery(parseFeedQuery("-is:pinned"), context);
       expect(plan.requests).toEqual([{}]);
