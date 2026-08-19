@@ -928,6 +928,7 @@ from .procore.source import ProcoreSource
 from .productboard.source import ProductboardSource
 from .productiv.source import ProductivSource
 from .productive.source import ProductiveSource
+from .profound.source import ProfoundSource
 from .prompting_company.source import PromptingCompanySource
 from .promptwatch.source import PromptWatchSource
 from .proofpoint_tap.source import ProofpointTapSource

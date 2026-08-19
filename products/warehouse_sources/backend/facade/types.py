@@ -1362,6 +1362,7 @@ class ExternalDataSourceType(models.TextChoices):
     SAMCART = "SamCart", "SamCart"
     IRONSOURCEADS = "IronSourceAds", "IronSourceAds"
     MICROSOFTEXCEL = "MicrosoftExcel", "MicrosoftExcel"
+    PROFOUND = "Profound", "Profound"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
