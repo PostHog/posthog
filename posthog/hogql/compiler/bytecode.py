@@ -49,7 +49,7 @@ ARITHMETIC_OPERATIONS = {
 }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class Local:
     name: str
     depth: int
