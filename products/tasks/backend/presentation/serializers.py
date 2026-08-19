@@ -401,6 +401,9 @@ class WizardCloudRunSerializer(DataclassSerializer):
 # Mirrors the routing-safe identifier rule in `signals` `artefact_schemas` (_IDENTIFIER_PART_RE),
 # kept inline so presentation never imports the other product's internals.
 _SIGNAL_REPORT_TASK_RELATIONSHIP_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+# String literals rather than an import: presentation must not import signals internals, and the
+# vocabulary (products/signals/backend/artefact_schemas.py TASK_RUN_TYPE_*) is stable.
+_SERVER_ONLY_SIGNAL_REPORT_TASK_RELATIONSHIPS = frozenset({"research", "repo_selection", "scout"})
 
 
 class TaskSerializer(DataclassSerializer):
@@ -526,10 +529,11 @@ class TaskWriteSerializer(serializers.Serializer):
         write_only=True,
         max_length=200,
         help_text=(
-            "How the created task relates to the signal report (e.g. 'implementation', 'discussion', "
-            "'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens "
-            "the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, "
-            "'_', '-') is accepted."
+            "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). "
+            "Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start "
+            "spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted "
+            "except labels reserved for server-created tasks ('research', 'repo_selection', 'scout'). "
+            "Non-implementation labels count toward the report's discussion task limit."
         ),
     )
     json_schema = serializers.JSONField(
@@ -537,10 +541,10 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_null=True,
         help_text="JSON schema used to validate the output of the task.",
     )
-    internal = serializers.BooleanField(
-        required=False,
-        help_text="If true, this task is for internal use and should not be exposed to end users.",
-    )
+    # `internal` is deliberately not writable here: only server-side creators (auto-start,
+    # research, loops) set it via the facade. A client-set `internal=True` on a signals-origin
+    # task would drop the token's interactive-run marker and with it the `signals_interactive`
+    # budget and per-task spend ceiling (see is_interactive_signals_task in temporal/oauth.py).
     archived = serializers.BooleanField(
         required=False,
         help_text="If true, the task is hidden from default list responses.",
@@ -721,6 +725,11 @@ class TaskWriteSerializer(serializers.Serializer):
                 "Must contain only lowercase letters, numbers, underscores, or hyphens, "
                 "and start with a lowercase letter or number."
             )
+        # Labels the signals pipeline writes itself. Client-asserted, they would misrepresent a
+        # user-started task as pipeline work — and dodge the per-report cap, which counts every
+        # non-implementation label as a discussion except these server-only ones.
+        if normalized in _SERVER_ONLY_SIGNAL_REPORT_TASK_RELATIONSHIPS:
+            raise serializers.ValidationError(f"Relationship '{normalized}' is reserved for server-created tasks.")
         return normalized
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -802,6 +811,18 @@ class TaskCreateSerializer(TaskWriteSerializer):
         required=False,
         help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        # Mirror image of the signal_report_task_relationship check: a report-less signal_report
+        # task still mints under the Signals OAuth app with the interactive run scope, but skips
+        # the per-report cap entirely. Require the report so the cap and interactive budget always
+        # see the run. Create-only, since origin_product is not writable on update.
+        if attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT and not attrs.get(
+            "signal_report"
+        ):
+            raise serializers.ValidationError({"signal_report": "Requires signal_report when set."})
+        return attrs
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
