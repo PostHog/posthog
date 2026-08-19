@@ -714,3 +714,18 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
         help_text="Which model this batch export is exporting.",
     )
     filters = models.JSONField(null=True, blank=True)
+
+
+def batch_export_run_review_path(run: BatchExportRun) -> str | None:
+    """Return the in-app path to review a failed run, or None when it has no page.
+
+    A scheduled `BatchExport` has a configuration page at `/pipeline/batch-exports/<id>`.
+    On-demand (file-download) runs have no such page, and a deleted export no longer
+    resolves, so callers describe what happened instead of linking to a page that renders
+    "Batch export not found". The path uses the team id because that is the id the app
+    resolves in `/project/<id>/` URLs.
+    """
+    parent = run.parent
+    if isinstance(parent, BatchExport) and not parent.deleted:
+        return f"/project/{parent.team_id}/pipeline/batch-exports/{parent.id}"
+    return None

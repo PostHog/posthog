@@ -19,6 +19,7 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.scoping import team_scope
 from posthog.tasks.email import (
     get_members_to_notify_for_pipeline_error,
     login_from_new_device_notification,
@@ -49,7 +50,12 @@ from posthog.tasks.email import (
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
@@ -585,7 +591,37 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].html_body
+        html_body = mocked_email_messages[0].html_body
+        assert html_body
+        # Links to the live route, so it resolves instead of rendering "Batch export not found".
+        assert f"/project/{user.team.id}/pipeline/batch-exports/{batch_export.id}" in html_body
+
+    def test_send_batch_export_run_failure_for_on_demand_run_omits_the_dead_link(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
+        )
+        with team_scope(team_id=user.team.pk, canonical=True):
+            batch_export = BatchExportOnDemand.objects.create(team=user.team, destination=destination, model="events")
+        now = dt.datetime.now()
+        batch_export_run = BatchExportRun.objects.create(
+            batch_export_on_demand=batch_export,
+            status=BatchExportRun.Status.FAILED,
+            data_interval_start=now - dt.timedelta(hours=1),
+            data_interval_end=now,
+        )
+
+        send_batch_export_run_failure(batch_export_run.id)
+
+        assert len(mocked_email_messages) == 1
+        html_body = mocked_email_messages[0].html_body
+        assert html_body
+        # An on-demand run has no page, so the email explains that instead of linking to one.
+        assert "pipeline/batch-exports" not in html_body
+        assert "one-off export" in html_body
 
     def test_send_batch_export_run_failure_with_settings(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

@@ -1,27 +1,34 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
-{% block preheader %}Failing batch exports are automatically paused{% endblock %}
-{% block heading %}PostHog batch export {{ name }} has failed{% endblock %}
+{% block preheader %}{% if review_url %}Failing batch exports are automatically paused{% else %}A batch export run failed and needs your attention{% endif %}{% endblock %}
+{% block heading %}{% if name %}PostHog batch export {{ name }} has failed{% else %}Your PostHog batch export has failed{% endif %}{% endblock %}
 {% block section %}
 <p>
-  Your batch export {{ name }} failed with a fatal error at {{ time }}. We really tried to handle this by ourselves but, due to the nature of the error, we could not automatically recover from it and it requires your manual intervention.
-
-  Please review the batch export for error details:
+  {% if name %}Your batch export {{ name }} failed{% else %}Your batch export failed{% endif %} with a fatal error at {{ time }}. We tried to recover from it automatically, but due to the nature of the error we could not, and it needs your attention.
 </p>
 
+{% if review_url %}
+<p>Review the batch export for error details:</p>
+
 <div class="mb mt text-center">
-  <a href="{% absolute_uri '/project' %}/{{ team.id }}/batch_exports/{{ id }}"
-     target="_blank"><b>Go to the batch export</b></a>
+  <a href="{% absolute_uri review_url %}" target="_blank"><b>Go to the batch export</b></a>
 </div>
 
 <p>
-  In the logs you may find errors that need to be addressed by you, like invalid credentials, or an unreachable destination.
-
-  If you can't diagnose the issue or if you think this issue could have been automatically resolved, please contact us.
+  In the logs you may find errors that you need to address, like invalid credentials or an unreachable destination. If you can't diagnose the issue, or you think we could have resolved it automatically, please contact us.
 </p>
 
 <p class="mt">
-  Failing batch exports are <b>automatically paused</b> by PostHog
+  Failing batch exports are <b>automatically paused</b> by PostHog.
 </p>
+{% elif on_demand %}
+<p>
+  This was a one-off export, so there is no batch export page to review. Run the export again to see the error details. If you can't diagnose the issue, please contact us.
+</p>
+{% else %}
+<p>
+  This batch export has since been deleted, so there is no page left to review. If you can't diagnose the issue, please contact us.
+</p>
+{% endif %}
 
 {% endblock %}
 

@@ -43,7 +43,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun, batch_export_run_review_path
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
@@ -783,9 +783,10 @@ def send_batch_export_run_failure(
 
     campaign_key: str = f"batch_export_run_email_batch_export_{batch_export.id}_last_updated_at_{last_updated_at_date}"
 
+    is_scheduled = isinstance(batch_export, BatchExport)
     subject = (
         f"PostHog: {batch_export.name} batch export run failure"
-        if isinstance(batch_export, BatchExport)
+        if is_scheduled
         else "PostHog: batch export on demand run failure"
     )
     message = EmailMessage(
@@ -794,9 +795,10 @@ def send_batch_export_run_failure(
         template_name="batch_export_run_failure",
         template_context={
             "time": batch_export_run.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
-            "team": team,
-            "id": batch_export.id,
-            "name": batch_export.name if isinstance(batch_export, BatchExport) else "",
+            "name": batch_export.name if is_scheduled else "",
+            # None for on-demand runs and deleted exports, which have no page to link to.
+            "review_url": batch_export_run_review_path(batch_export_run),
+            "on_demand": not is_scheduled,
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)
