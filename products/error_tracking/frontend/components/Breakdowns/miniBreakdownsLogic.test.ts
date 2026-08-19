@@ -157,6 +157,30 @@ describe('miniBreakdownsLogic', () => {
         expect(breakdowns.values.selectedBreakdownProperty).toBeNull()
     })
 
+    it('reloads breakdowns and details with the active property filters', async () => {
+        await expectLogic(breakdowns).toFinishAllListeners()
+        const queryMock = jest.mocked(api.query)
+        const previousBreakdownQueryCount = queryMock.mock.calls.filter(
+            ([query]) => query.kind === 'ErrorTrackingBreakdownsQuery'
+        ).length
+
+        await expectLogic(breakdowns, () => {
+            filters.actions.addPropertyFilter('$browser', 'Chrome')
+        }).toFinishAllListeners()
+
+        const breakdownQueries = queryMock.mock.calls
+            .map(([query]) => query)
+            .filter((query): query is ErrorTrackingBreakdownsQuery => query.kind === 'ErrorTrackingBreakdownsQuery')
+        expect(breakdownQueries).toHaveLength(previousBreakdownQueryCount + 1)
+        expect(breakdownQueries.at(-1)?.filterGroup).toEqual(filters.values.filterGroup)
+
+        await expectLogic(breakdowns, () => {
+            breakdowns.actions.openBreakdownDetails(BREAKDOWN_PRESETS[0])
+        }).toFinishAllListeners()
+        const detailsQuery = queryMock.mock.calls.at(-1)?.[0] as ErrorTrackingBreakdownsQuery
+        expect(detailsQuery.filterGroup).toEqual(filters.values.filterGroup)
+    })
+
     it('discards details returned for a property that was superseded', async () => {
         await expectLogic(breakdowns).toFinishAllListeners()
         let resolveFirstRequest: (response: ErrorTrackingBreakdownsQueryResponse) => void = () => {}
