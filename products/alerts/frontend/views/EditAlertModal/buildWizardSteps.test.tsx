@@ -22,8 +22,6 @@ describe('buildWizardSteps', () => {
     it.each([
         ['missing name', { alertName: '' }, 'monitor', 'Enter an alert name.'],
         ['invalid threshold', { thresholdValidationError: 'Enter a threshold' }, 'monitor', 'Enter a threshold'],
-        // Forecast modes have no threshold, so gating only on that let a target alert with no
-        // target advance and dead-end on the Review step with nothing marked to go back and fix.
         ['invalid forecast', { forecastValidationError: 'Enter a target value' }, 'monitor', 'Enter a target value'],
         [
             'invalid schedule',

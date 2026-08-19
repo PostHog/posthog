@@ -129,8 +129,6 @@ describe('alertFormSchema', () => {
         ).toEqual({})
     })
 
-    // A target alert carries its own target value, so the threshold bounds row is not shown and must
-    // not block saving. Only future_breach reads those bounds.
     it('does not require threshold bounds for a target-by-date forecast', () => {
         expect(
             thresholdAlertHasBounds({
@@ -148,9 +146,6 @@ describe('alertFormSchema', () => {
         ).toBe(true)
     })
 
-    // A band-deviation forecast scores the actual against the forecast's own uncertainty band, so it
-    // has no user-set threshold — bounds must not be required. A future-breach forecast still checks
-    // against the threshold bounds below, so it must keep requiring them.
     it.each([
         [ForecastConditionType.BAND_DEVIATION, true],
         [ForecastConditionType.FUTURE_BREACH, false],
@@ -170,9 +165,6 @@ describe('alertFormSchema', () => {
 })
 
 describe('a target alert whose date has passed', () => {
-    // The server re-checks the target date whenever a request carries a forecast config at all, so
-    // the editor has to block on exactly the same trigger. Keying the editor on the date alone let
-    // an edit to the target send a stale past date and take a 400 with no field marked.
     const savedForecastConfig = {
         type: 'ForecastConfig' as const,
         engine: ForecastEngineType.PROPHET,
@@ -215,8 +207,6 @@ describe('a target alert with no target', () => {
                 engine: ForecastEngineType.PROPHET,
                 condition: ForecastConditionType.TARGET_BY_DATE,
                 target_direction: ForecastTargetDirection.AT_MOST,
-                // Within range, because picking the condition seeds a valid date: the realistic
-                // first state is a good date and no target yet.
                 target_date: dayjs().add(30, 'day').format('YYYY-MM-DD'),
             },
         })

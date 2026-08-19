@@ -23,7 +23,6 @@ import {
     maxHorizonForInterval,
 } from 'products/alerts/frontend/logic/forecastReach'
 
-/** Labels the horizon input. Keyed by the insight's interval, since that is what the horizon counts. */
 const HORIZON_UNIT: Partial<Record<IntervalType, string>> = {
     minute: 'minutes',
     hour: 'hours',
@@ -32,30 +31,19 @@ const HORIZON_UNIT: Partial<Record<IntervalType, string>> = {
     month: 'months',
 }
 
-/** Default lookahead window for a "predicted to breach" forecast, in calculation-interval units. */
 const DEFAULT_HORIZON = 7
-/** Default band width, matching the "Wider" option that fires only on clear deviations. */
 const DEFAULT_INTERVAL_WIDTH = 0.95
-/** Fire as soon as a value leaves the range, which is how band alerts behaved before the control existed. */
 const DEFAULT_SCORE_THRESHOLD = 0
-/** One full band half-width past the edge. Above roughly two, a well-calibrated band never fires. */
 const FAR_PAST_SCORE_THRESHOLD = 1
-/** Default distance for percentage mode, as a fraction. */
 const DEFAULT_ERROR_THRESHOLD_PCT = 0.2
-/** Default runway for a new target, comfortably inside the six month reach cap. */
 const DEFAULT_TARGET_DAYS = 90
 
-/** Mirrors _resolve_sensitivity in products/alerts/backend/evaluation/forecast.py. A target has months
- *  of runway so flapping is the failure mode; a predicted breach exists for lead time, so it keeps the
- *  point forecast and its firing does not move. */
 export function defaultSensitivity(condition: ForecastConditionType): ForecastSensitivity {
     return condition === ForecastConditionType.TARGET_BY_DATE
         ? ForecastSensitivity.BEST_CASE
         : ForecastSensitivity.FORECAST
 }
 
-/** The threshold inputs are stored as fractions and shown as percentages, so a user types 20 rather
- *  than 0.2. Kept together so the two conversions cannot drift apart. */
 function toPercent(fraction: number | null | undefined): number | undefined {
     return fraction == null ? undefined : Math.round(fraction * 1000) / 10
 }
@@ -64,8 +52,6 @@ function fromPercent(percent: number | null | undefined): number | undefined {
     return percent == null ? undefined : percent / 100
 }
 
-/** Seeds the threshold a mode reads and drops the ones it does not, so a value left over from
- *  another mode cannot reach the evaluator unseen. */
 export function withErrorModeDefaults(config: ForecastConfig, errorMode: ForecastErrorMode): ForecastConfig {
     return {
         ...config,
@@ -79,21 +65,13 @@ export function withErrorModeDefaults(config: ForecastConfig, errorMode: Forecas
     }
 }
 
-/** Seeds the fields a condition needs when the user switches to it, so a target starts with a date
- *  already in range rather than an empty control the save path would reject. */
 export function withConditionDefaults(config: ForecastConfig, condition: ForecastConditionType): ForecastConfig {
-    // Each condition reads a different subset, and the unread fields still reach the engine. A
-    // horizon left over from a predicted breach inflates the query window for a condition that
-    // forecasts one interval, and a band width left over from an expected-range alert silently
-    // moves when a predicted breach fires, with no control on screen showing it.
     const next: ForecastConfig = {
         ...config,
         condition,
         horizon: condition === ForecastConditionType.FUTURE_BREACH ? config.horizon : undefined,
         interval_width:
             condition === ForecastConditionType.BAND_DEVIATION ? config.interval_width : DEFAULT_INTERVAL_WIDTH,
-        // These four only mean anything to an expected-range alert. Left behind, they would reach the
-        // evaluator with no control on screen showing them.
         ...(condition === ForecastConditionType.BAND_DEVIATION
             ? {}
             : {
@@ -127,8 +105,6 @@ export function getDefaultForecastConfig(insightInterval?: IntervalType | null):
     )
 }
 
-/** A setting's label with an info balloon saying what the setting is for, rather than what it does.
- *  The per-option tooltips already cover the mechanics. */
 function SettingHelp({ text }: { text: string }): JSX.Element {
     return (
         <Tooltip title={text} delayMs={0}>
@@ -140,24 +116,19 @@ function SettingHelp({ text }: { text: string }): JSX.Element {
 interface ForecastSelectorProps {
     value: ForecastConfig | null
     onChange: (config: ForecastConfig) => void
-    /** The insight's grouping interval. The horizon counts insight buckets, not check cadence. */
     insightInterval: IntervalType | null | undefined
 }
 
 export function ForecastSelector({ value, onChange, insightInterval }: ForecastSelectorProps): JSX.Element {
     const config = value ?? getDefaultForecastConfig(insightInterval)
     const unit = HORIZON_UNIT[insightInterval ?? 'day'] ?? 'intervals'
-    // The backend caps reach as a duration, so this ceiling moves with the insight's interval.
     const maxHorizon = maxHorizonForInterval(insightInterval)
     const targetDateError = forecastTargetDateError(config.target_date, dayjs())
-    // The save blocks on this, so the field it names has to show it.
     const targetValueError =
         config.condition === ForecastConditionType.TARGET_BY_DATE ? forecastTargetValueError(config.target) : null
     const errorMode = config.error_mode ?? ForecastErrorMode.PREDICTION_INTERVAL
-    // The save blocks on this, so the field it names has to show it.
     const thresholdError =
         config.condition === ForecastConditionType.BAND_DEVIATION ? forecastErrorThresholdError(config) : null
-    // A predicted breach has a threshold to cross, not a target to miss.
     const missesOrCrosses = config.condition === ForecastConditionType.FUTURE_BREACH ? 'crosses it' : 'misses'
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -313,7 +284,6 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
                     ) : null}
                 </div>
             )}
-            {/* The label and its control wrap as one unit, so the label never strands on the row above. */}
             {config.condition === ForecastConditionType.BAND_DEVIATION &&
                 errorMode === ForecastErrorMode.PREDICTION_INTERVAL && (
                     <div className="flex items-center gap-2">
@@ -361,7 +331,6 @@ export function ForecastSelector({ value, onChange, insightInterval }: ForecastS
                     </div>
                 )}
             {config.condition !== ForecastConditionType.BAND_DEVIATION && (
-                /* The band width does not decide when these two fire; which line they read does. */
                 <div className="flex items-center gap-2">
                     <span className="text-secondary whitespace-nowrap">Alert when</span>
                     <SettingHelp text="How certain to be before alerting. The best case waits until the outcome can no longer be avoided, so it fires less often." />

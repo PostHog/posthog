@@ -65,8 +65,6 @@ export interface AlertPreviewCardProps {
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
     checkPreview?: TrendsAlertPreviewSeries
-    /** A forecast simulation the user just ran. It replaces the card's own chart so the editor
-     *  shows one preview rather than a second chart below the controls. */
     forecast?: { result: ForecastSimulateResponseApi; thresholdBounds: InsightsThresholdBounds | null }
     // Keeps the card visible with a skeleton while data loads instead of popping in once it arrives.
     loading?: boolean
@@ -91,8 +89,6 @@ export function AlertPreviewCard({
               alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
           )
         : null
-    // Only a predicted breach reads the thresholds. The other two forecast conditions score against
-    // the forecast's own band or a target, so bounds are neither asked for nor used.
     const forecastReadsThreshold =
         !alertForm.forecast_config || alertForm.forecast_config.condition === ForecastConditionType.FUTURE_BREACH
     const referenceLines = forecastReadsThreshold ? thresholdReferenceLines(alertForm) : []

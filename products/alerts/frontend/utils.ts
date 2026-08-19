@@ -108,16 +108,10 @@ export function isFailedDelivery(check: AlertCheck): boolean {
     return check.investigation_status !== 'pending' && check.investigation_status !== 'running'
 }
 
-/** A target alert that reached its date is finished, not switched off. The backend disables it there
- *  rather than adding an AlertState, so both halves are required: a user can also disable one by hand
- *  before its date, which is a different thing and must not read as finished. */
 export function isTargetDatePassed(alert: AlertType, today: Date): boolean {
     const config = alert.forecast_config
     if (config?.condition !== ForecastConditionType.TARGET_BY_DATE || !config.target_date) {
         return false
     }
-    // The backend disables on the target date itself, so on-or-before, not strictly before.
-    // Compare whole days: the stored value is a date with no time, and an hours-apart comparison
-    // would flip the tag partway through the day.
     return !alert.enabled && !dayjs(config.target_date).isAfter(dayjs(today), 'day')
 }

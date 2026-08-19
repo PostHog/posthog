@@ -19,9 +19,6 @@ describe('withConditionDefaults', () => {
         interval_width: 0.8,
     }
 
-    // Each condition reads a different subset, and unread fields still reach the engine: a stale
-    // horizon inflates the query window, and a stale band width moves when a breach fires with no
-    // control on screen showing it.
     it('drops the horizon when leaving predicted-to-breach', () => {
         expect(withConditionDefaults(base, ForecastConditionType.BAND_DEVIATION).horizon).toBeUndefined()
         expect(withConditionDefaults(base, ForecastConditionType.TARGET_BY_DATE).horizon).toBeUndefined()
@@ -44,8 +41,6 @@ describe('withConditionDefaults', () => {
 })
 
 describe('getDefaultForecastConfig', () => {
-    // The seed is a second write path alongside load. Seeding 7 on a monthly insight, where the cap
-    // is 6, sent a horizon the user never typed and the save rejected.
     it.each([
         ['clamps the seeded horizon to a monthly cap', 'month', 6],
         ['leaves the seeded horizon alone where it fits', 'day', 7],
@@ -64,8 +59,6 @@ describe('withErrorModeDefaults', () => {
         score_threshold: 0.75,
     }
 
-    // Each mode reads one of these. A value left over from another mode would still reach the
-    // evaluator with no control on screen showing it.
     it.each([
         ['percentage keeps only its own threshold', ForecastErrorMode.RELATIVE, ['error_threshold_pct']],
         ['fixed amount keeps only its own threshold', ForecastErrorMode.ABSOLUTE, ['error_threshold_abs']],

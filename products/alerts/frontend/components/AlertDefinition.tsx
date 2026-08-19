@@ -25,8 +25,6 @@ export function AlertDefinitionRow({ label, children, className }: AlertDefiniti
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
     if (!alert.enabled) {
-        // A target alert disables itself on its date. That is finished, not switched off, and the
-        // two look identical without this.
         return isTargetDatePassed(alert, new Date()) ? (
             <LemonTag type="muted">Target date passed</LemonTag>
         ) : (

@@ -334,9 +334,6 @@ describe('alertFormLogic', () => {
     })
 
     it('leaves an unchanged forecast config out of the update, so a finished target alert stays editable', async () => {
-        // The server only re-checks that a target date is in the future for a config the request
-        // sends. Sending it every time made a target alert whose date had passed impossible to
-        // rename or turn off from the modal.
         const forecastConfig = {
             type: 'ForecastConfig',
             engine: ForecastEngineType.PROPHET,
@@ -476,8 +473,6 @@ describe('alertFormLogic', () => {
             return logic
         }
 
-        // Regression guard: a dropped/misrouted response here would leave the preview blank even
-        // though the simulation succeeded — the loader value is what `ForecastPreview` renders from.
         it('stores the response from a successful simulation', async () => {
             const mockResponse = {
                 data: [1, 2, 3],
@@ -501,8 +496,6 @@ describe('alertFormLogic', () => {
             expect(logic.values.forecastSimulationResultLoading).toBe(false)
         })
 
-        // Double-submit guard: the Simulate button disables on `forecastSimulationResultLoading`.
-        // If a failure left it stuck `true`, the button would stay disabled forever.
         it('resets loading and shows an error toast when the simulation fails', async () => {
             ;(alertsSimulateForecastCreate as jest.Mock).mockRejectedValueOnce(
                 new Error('Not enough history to forecast')
@@ -518,9 +511,6 @@ describe('alertFormLogic', () => {
             expect(logic.values.forecastSimulationResultLoading).toBe(false)
         })
 
-        // The endpoint rejects breakdowns and unsupported intervals with a DRF `detail` body. If the
-        // error extraction stopped preferring `detail`, those two guards would reach the user as a
-        // generic failure instead of telling them what to change.
         it('surfaces the reason from a rejected simulation', async () => {
             const rejection = await ApiError.fromResponse(
                 new Response(JSON.stringify({ detail: "Forecast alerts don't support breakdowns yet" }), {

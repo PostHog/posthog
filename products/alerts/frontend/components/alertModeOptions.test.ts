@@ -1,9 +1,6 @@
 import { alertModeOptions } from './alertModeOptions'
 
 describe('alertModeOptions', () => {
-    // Each optional mode is gated on its own flag and capability. An earlier version showed the
-    // picker whenever either was enabled but left anomaly detection unconditionally in the list,
-    // so the forecast flag alone surfaced anomaly detection on insight kinds that cannot run it.
     it.each([
         ['neither available', false, false, ['threshold']],
         ['anomaly only', true, false, ['threshold', 'detector']],
@@ -32,8 +29,6 @@ describe('alertModeOptions', () => {
             supportsForecast: true,
             showAnomalyGuidance: false,
         }).find((option) => option.value === 'forecast')
-        // The mode covers a predicted breach, an expected range and a target, so a description that
-        // mentions only a threshold is wrong for two of the three.
         expect(forecast?.description).not.toContain('threshold')
     })
 })

@@ -6072,7 +6072,6 @@ export interface AlertScheduleRestriction {
     blocked_windows: AlertScheduleRestrictionWindow[]
 }
 
-// Forecast alerts (third alert mode alongside threshold and detector)
 export enum ForecastEngineType {
     PROPHET = 'prophet',
 }

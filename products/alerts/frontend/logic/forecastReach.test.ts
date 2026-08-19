@@ -11,9 +11,6 @@ import {
 } from './forecastReach'
 
 describe('maxHorizonForInterval', () => {
-    // Keyed by the INSIGHT's interval, not the check cadence. The backend counts horizon in insight
-    // buckets, so a weekly insight checked daily must still cap in weeks or the editor offers
-    // horizons the save path rejects.
     it.each([
         ['hour' as const, 4392],
         ['day' as const, 183],
@@ -47,9 +44,6 @@ describe('forecastTargetDateError', () => {
 })
 
 describe('clampHorizon', () => {
-    // The editor used to clamp for display only, so an insight whose interval changed after the
-    // alert was saved showed one number and submitted another, and the save 400d on a value the
-    // user never saw.
     it.each([
         ['pulls a horizon down to the cap', 100, 'week', 26],
         ['leaves a horizon inside the cap', 7, 'day', 7],
@@ -69,8 +63,6 @@ describe('clampHorizon', () => {
 })
 
 describe('intervalSupportsForecast', () => {
-    // Mirrors SUPPORTED_FORECAST_INTERVALS on the backend. Offering the mode where the save path
-    // rejects it is what this guard exists to stop.
     it.each([
         ['hour', true],
         ['day', true],
@@ -89,9 +81,6 @@ describe('intervalSupportsForecast', () => {
 describe('forecastTargetDateError measures reach from today', () => {
     const today = dayjs('2026-06-01')
 
-    // Reach does not vary by interval. Save is the only place that enforces the cap, and evaluation
-    // derives its own horizon from the last completed bucket without re-checking it, so an
-    // interval-aware cap here could only disagree with the server, never help it.
     it.each(['hour', 'day', 'week', 'month'] as const)('%s allows the full six months', (interval) => {
         void interval
         expect(forecastTargetDateError(today.add(183, 'day').format('YYYY-MM-DD'), today)).toBeNull()
@@ -102,8 +91,6 @@ describe('forecastTargetDateError measures reach from today', () => {
 })
 
 describe('forecastErrorThresholdError', () => {
-    // Percentage and fixed-amount modes each need a number the user supplies. Without this the save
-    // failed at the server with no field marked, the way the missing target used to.
     it.each([
         ['percentage mode with no value', { error_mode: ForecastErrorMode.RELATIVE }, 'Enter a percentage above zero'],
         [

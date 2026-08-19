@@ -15,7 +15,6 @@ import { getSimulationRangeOptions } from './editAlertModalUtils'
 
 interface ForecastSimulationSectionProps {
     alertForm: AlertFormType
-    /** The insight's grouping interval, which decides how many points a range actually yields. */
     insightInterval: IntervalType | null | undefined
     forecastSimulationResultLoading: boolean
     simulationDateFrom: string | null
@@ -23,8 +22,6 @@ interface ForecastSimulationSectionProps {
     onSetSimulationDateFrom: (value: string) => void
 }
 
-/** Controls for the forecast simulation. The result renders in the editor's preview card rather
- *  than here, so the user sees one chart instead of a second one under the controls. */
 export function ForecastSimulationSection({
     alertForm,
     insightInterval,
@@ -33,10 +30,7 @@ export function ForecastSimulationSection({
     onSimulateForecast,
     onSetSimulationDateFrom,
 }: ForecastSimulationSectionProps): JSX.Element {
-    // The endpoint rejects an out-of-range target, so block the request rather than spending a round
-    // trip to surface an error the editor already knows about.
     const targetDateError = forecastTargetDateError(alertForm.forecast_config?.target_date, dayjs())
-    // Offering a range too short to fit is offering a guaranteed "Not enough history" error.
     const rangeOptions = usableSimulationRanges(
         getSimulationRangeOptions(alertForm.calculation_interval),
         insightInterval,
@@ -44,8 +38,6 @@ export function ForecastSimulationSection({
     )
     const selectedRange = simulationDateFrom ?? getDefaultSimulationRange(alertForm.calculation_interval)
     const range = rangeOptions.some((o) => o.value === selectedRange) ? selectedRange : rangeOptions[0].value
-    // The request reads simulationDateFrom, so a range that is only clamped for display would send a
-    // different window than the one on screen.
     useEffect(() => {
         if (range !== selectedRange) {
             onSetSimulationDateFrom(range)

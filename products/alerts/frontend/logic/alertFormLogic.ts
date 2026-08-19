@@ -239,7 +239,6 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
     }
 }
 
-/** kea-forms addresses a nested field as an array path, so the first element is the top-level key. */
 function invalidatesForecastSimulation(name: FieldName): boolean {
     const field = Array.isArray(name) ? name[0] : name
     return field === 'forecast_config' || field === 'threshold' || field === 'config'
@@ -252,8 +251,6 @@ function alertToFormType(
 ): AlertFormType {
     return {
         ...alert,
-        // The insight's interval can change after the alert is saved, which moves the reach cap.
-        // Clamping on load keeps the horizon the editor shows the one it submits.
         forecast_config: alert.forecast_config ? clampHorizon(alert.forecast_config, insightInterval) : null,
         insight: insightId,
     }
@@ -528,16 +525,10 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
             },
         ],
-        // Reset here rather than in the loaders block. kea-loaders shares one clearSimulationSuccess
-        // action across every loader with the same trigger, so adding clearSimulation to this value's
-        // loader would silently stop it resetting.
         forecastSimulationResult: [
             null as ForecastSimulateResponseApi | null,
             {
                 clearSimulation: () => null,
-                // A simulation belongs to the config that produced it. The chart is drawn against the
-                // form's current thresholds, so keeping an old run on screen after either side changes
-                // shows a forecast and a threshold that were never evaluated together.
                 setAlertFormValue: (state, { name }) => (invalidatesForecastSimulation(name) ? null : state),
                 setAlertFormValues: (state, { values: changed }) =>
                     'forecast_config' in changed || 'threshold' in changed || 'config' in changed ? null : state,
@@ -582,8 +573,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
             {
                 simulateForecast: async (): Promise<ForecastSimulateResponseApi | null> => {
                     const forecastConfig = values.alertForm.forecast_config
-                    // An unresolved team would build /api/projects/null/... and 404. Say so rather
-                    // than leaving the click with no response at all.
                     if (!forecastConfig || !props.insightId || !values.currentTeamId) {
                         lemonToast.error('Simulation is not available yet. Try again in a moment.')
                         return null
@@ -591,8 +580,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     const formConfig = values.alertForm.config
                     return await alertsSimulateForecastCreate(String(values.currentTeamId), {
                         insight: props.insightId,
-                        // The schema-general enums and the generated string-literal type serialize
-                        // identically, so the cast is safe.
                         forecast_config: forecastConfig as unknown as ForecastConfigApi,
                         series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
                         date_from:
@@ -698,10 +685,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
                             : null,
                 }
 
-                // The server only re-checks that a target date is in the future for a config the request
-                // actually sends. Leaving an unchanged one out is what keeps an alert whose target date
-                // has passed editable, so it can still be renamed or turned off. PATCH, so a missing key
-                // means "leave it alone".
                 if (forecastConfigUnchanged) {
                     delete payload.forecast_config
                 }
@@ -1006,7 +989,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
             },
             simulateAlertSuccess: ({ simulationResult }) => {
                 // simulateAlert returns null early for threshold alerts (no API call),
-                // so null here means nothing actually ran — skip the event.
                 if (simulationResult) {
                     const detectorConfig = values.alertForm.detector_config
                     const isBreakdown = Boolean(
@@ -1075,8 +1057,6 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
             },
             simulateForecastSuccess: ({ forecastSimulationResult }) => {
-                // simulateForecast returns null early for non-forecast alerts (no API call),
-                // so null here means nothing actually ran — skip the event.
                 if (!forecastSimulationResult) {
                     return
                 }

@@ -24,14 +24,11 @@ describe('alerts utils', () => {
                 },
             }) as AlertType
 
-        // Both halves are required. A user can also disable a target alert by hand before its date,
-        // which is not the same thing and must not read as finished.
         it.each([
             ['finished once the date passed', '2026-01-01', false, true],
             ['still running before the date', '2026-12-31', true, false],
             ['disabled by hand before the date', '2026-12-31', false, false],
             ['past date but still enabled', '2026-01-01', true, false],
-            // The backend disables on the date itself, so this is the day the tag matters most.
             ['finished on the date itself', '2026-06-01', false, true],
         ])('%s', (_name, date, enabled, expected) => {
             expect(isTargetDatePassed(targetAlert(date, enabled), new Date('2026-06-01'))).toBe(expected)

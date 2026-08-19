@@ -31,7 +31,6 @@ const FIT_QUALITY_COPY: Record<
     [ForecastFitQualityVerdictEnumApi.Good]: { type: 'success', label: 'Good fit' },
     [ForecastFitQualityVerdictEnumApi.Noisy]: { type: 'warning', label: 'Noisy fit - this alert may fire often' },
     [ForecastFitQualityVerdictEnumApi.Poor]: { type: 'danger', label: 'Poor fit - the forecast may not be reliable' },
-    // Not enough data to assess the fit, so hide the badge rather than guess.
     [ForecastFitQualityVerdictEnumApi.Unknown]: null,
 }
 
@@ -71,7 +70,6 @@ function ForecastChart({
     const forecastLength = result.forecast_dates.length
     const lastActual = result.data[result.data.length - 1] ?? null
 
-    // Anchor the forecast line to the last actual point so History and Forecast connect visually.
     const nullPad = (values: number[]): (number | null)[] => [
         ...Array(Math.max(historyLength - 1, 0)).fill(null),
         lastActual,
@@ -80,8 +78,6 @@ function ForecastChart({
 
     const forecastData = nullPad(result.forecast_yhat)
 
-    // The in-sample band comes from the same fit as the forecast band, so the two join into one
-    // continuous interval. Engines that produce no in-sample band fall back to the forecast span.
     const { history_lower: historyLower, history_upper: historyUpper } = result
     const hasHistoryBand =
         historyLower != null &&
@@ -208,8 +204,6 @@ export function ForecastPreview({
     forecastConfig: ForecastConfig | null
 }): JSX.Element {
     const hasBounds = !!thresholdBounds && (thresholdBounds.upper != null || thresholdBounds.lower != null)
-    // The marker must read the same series the evaluator does, or it points at a day the alert
-    // will not fire on. The direction flips per bound, so findFirstCrossing owns the matrix.
     const bestCase = forecastConfig?.sensitivity === ForecastSensitivity.BEST_CASE
     const crossingIndex = hasBounds
         ? findFirstCrossing(
@@ -246,8 +240,6 @@ export function ForecastPreview({
                         <span>Not predicted to cross the threshold within the forecast window</span>
                     )
                 ) : forecastConfig?.condition === ForecastConditionType.FUTURE_BREACH ? (
-                    // Simulating before entering a threshold used to land in the branch below and
-                    // report missing data, when all that is missing is the threshold.
                     <span>Set less than or more than to see when this is predicted to breach</span>
                 ) : deviation == null ? (
                     <span>

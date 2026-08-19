@@ -22,8 +22,6 @@ export function thresholdAlertHasBounds(alert: AlertFormType | AlertType): boole
     if (alert.detector_config) {
         return true
     }
-    // A band-deviation forecast scores the value against the forecast's own band, so there is no
-    // threshold for the user to enter. A future-breach forecast still uses the bounds below.
     if (alert.forecast_config && alert.forecast_config.condition !== ForecastConditionType.FUTURE_BREACH) {
         return true
     }
@@ -93,11 +91,7 @@ const alertFormSchema = z
             })
         }
 
-        // Save used to be the only thing that checked a target, so the user met the server's
-        // message as a toast with no field marked, after a round trip.
         const forecast = (alert as AlertFormType).forecast_config
-        // A band alert in percentage or fixed-amount mode has a number the user must supply, the
-        // same way a target alert does.
         if (forecast?.condition === ForecastConditionType.BAND_DEVIATION) {
             const thresholdError = forecastErrorThresholdError(forecast)
             if (thresholdError) {
@@ -124,13 +118,7 @@ const alertFormSchema = z
         }
     })
 
-/** What the form alone cannot tell us. `savedTargetDate` is the date already stored on the alert:
- *  one that was legitimate when it was saved must keep saving, or a target alert whose date has
- *  arrived can no longer be renamed or turned off. The server draws the same line. */
 export interface AlertValidationContext {
-    /** The target date already stored on the alert. The server requires a future date only when the
-     *  submitted one differs from this, so an unchanged date keeps saving and a finished alert can
-     *  still be renamed or turned off. Keyed on the same thing here. */
     savedTargetDate?: string
 }
 

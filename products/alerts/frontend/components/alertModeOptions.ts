@@ -8,15 +8,11 @@ export interface AlertModeOption {
 }
 
 interface AlertModeOptionsInput {
-    /** Anomaly detection is available: its flag is on and the insight kind supports it. */
     supportsAnomalyDetection: boolean
-    /** Forecasting is available: its flag is on and the insight kind supports it. */
     supportsForecast: boolean
     showAnomalyGuidance: boolean
 }
 
-/** Options for the alert mode picker. Each optional mode is gated on its own flag and capability,
- * so turning one on never surfaces the other on an insight kind that cannot run it. */
 export function alertModeOptions({
     supportsAnomalyDetection,
     supportsForecast,

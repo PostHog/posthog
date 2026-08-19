@@ -249,8 +249,6 @@ export const alertLogic = kea<alertLogicType>([
                 if (usesAnomalyScores) {
                     return 'Anomaly score' as const
                 }
-                // A predicted breach records the forecast value on a check that fires and the latest
-                // actual on one that does not, so "Value" would name only the quiet points.
                 return alert?.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
                     ? ('Value or forecast' as const)
                     : ('Value' as const)

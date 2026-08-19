@@ -9,8 +9,6 @@ describe('findFirstCrossing', () => {
         upper: number[]
     ): { yhat: number[]; lower: number[]; upper: number[] } => ({ yhat, lower, upper })
 
-    // Mirrors TestFutureBreachSensitivity in the backend. best_case reads the edge that keeps the
-    // metric on the acceptable side: the LOWER edge against a ceiling, the UPPER edge against a floor.
     it.each([
         ['forecast crosses a ceiling', false, { upper: 100 }, [95, 105], [70, 80], [120, 130], 1],
         ['forecast clears a ceiling', false, { upper: 100 }, [95, 96], [70, 80], [120, 130], null],
@@ -37,8 +35,6 @@ describe('findFirstCrossing', () => {
 })
 
 describe('targetSummary', () => {
-    // The two booleans are the two crossings the backend already computed. Rendering both is what
-    // lets a user pick a sensitivity by seeing the gap rather than reasoning about credible intervals.
     it.each([
         ['misses both ways', true, true, 'Falls short, and misses even in the best case'],
         ['misses on the forecast only', true, false, 'Falls short on the current forecast'],

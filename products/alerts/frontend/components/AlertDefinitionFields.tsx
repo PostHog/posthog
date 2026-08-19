@@ -21,8 +21,6 @@ import { AlertMode, isFunnelsAlertConfig, isHogQLAlertConfig } from 'products/al
 
 import { HogQLAlertPreviewBanner, HogQLAlertPreviewRowsTable } from './HogQLAlertPreview'
 
-/** Copy for why breakdowns are unsupported/limited under the active alert mode — shared between the
- * series picker's disabled reason and the standalone warning banner above it. */
 export const breakdownDisabledReason = (alertMode: AlertMode): string => {
     if (alertMode === 'detector') {
         return 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'

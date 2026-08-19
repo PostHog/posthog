@@ -12,7 +12,6 @@ interface WizardStepInput {
     advancedNode: ReactNode
     summary: { fires: string; cadence: string; notifies: string }
     thresholdValidationError?: string
-    /** Same role as thresholdValidationError, for the forecast modes that have no threshold. */
     forecastValidationError?: string
     scheduleRestrictionFormError?: string
     alertFormHasErrors: boolean

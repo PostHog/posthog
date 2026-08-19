@@ -61,14 +61,10 @@ export const supportsTimeWindow = (config: AlertConfig | null | undefined): bool
 export const supportsAnomalyDetection = (config: AlertConfig | null | undefined): boolean =>
     isTrendsAlertConfig(config) || (isHogQLAlertConfig(config) && !isAnyRowHogQLConfig(config))
 
-/** Forecasting needs a plain time series with enough history: trends only in v1 (no SQL, no funnels). */
 export const supportsForecast = (config: AlertConfig | null | undefined): boolean => isTrendsAlertConfig(config)
 
-/** Which evaluation strategy the alert editor is configuring. */
 export type AlertMode = 'detector' | 'threshold' | 'forecast'
 
-/** The mode an alert is in, from the config it carries. Derive it here rather than at each call
- *  site, so adding a mode cannot leave one reader behind reporting the wrong thing. */
 export const alertModeOf = (alert: { detector_config?: object | null; forecast_config?: object | null }): AlertMode =>
     alert.forecast_config ? 'forecast' : alert.detector_config ? 'detector' : 'threshold'
 

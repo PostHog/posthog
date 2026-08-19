@@ -99,8 +99,6 @@ function detectorSummary(): string {
     return 'an anomaly'
 }
 
-/** A forecast alert fires on a prediction, not on the latest value, so the threshold phrasing below
- *  would describe the wrong thing. Each condition reads a different part of the config. */
 function forecastSummary(config: AlertFormType['forecast_config']): string {
     if (!config) {
         return 'the forecast crosses your threshold'
@@ -111,7 +109,6 @@ function forecastSummary(config: AlertFormType['forecast_config']): string {
     if (config.condition === ForecastConditionType.TARGET_BY_DATE) {
         const target = config.target != null ? humanFriendlyNumber(config.target) : 'a target'
         const direction = config.target_direction === ForecastTargetDirection.AT_MOST ? 'above' : 'below'
-        // The preview card formats the same field this way, and both render in the same modal.
         const on = config.target_date ? ` on ${dayjs(config.target_date).format('MMM D, YYYY')}` : ''
         return `the forecast is ${direction} ${target}${on}`
     }

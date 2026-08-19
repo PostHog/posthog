@@ -75,7 +75,6 @@ export interface AlertDefinitionSectionProps {
     hogql: HogQLDefinitionProps
     supportsAnomalyDetection: boolean
     supportsForecast: boolean
-    /** The insight's grouping interval, which is what a forecast horizon counts in. */
     insightInterval: IntervalType | null | undefined
     showAnomalyGuidance?: boolean
     twoColumnLayout?: boolean
@@ -125,12 +124,8 @@ export function AlertDefinitionSection({
     // value to compare against. A historical-trend funnel is a time series, so it does support them.
     const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
     const supportsRelativeConditions = !isFunnelAlert || funnel.isTrendsFunnel
-    // A future-breach forecast fires when the prediction crosses the user's threshold, so it reuses
-    // the threshold bounds. A band-deviation forecast scores against its own band and has none.
     const forecastUsesThresholdBounds =
         alertMode === 'forecast' && alertForm.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
-    // Forecast bounds are always an absolute comparison, so the row renders as bare bounds inputs:
-    // its condition picker is suppressed here and its %/# toggle hides itself on ABSOLUTE_VALUE.
     const showThresholdRow = alertMode === 'threshold' || forecastUsesThresholdBounds
     const thresholdRowProps: ThresholdRowRenderProps = {
         alertForm,
@@ -205,14 +200,9 @@ export function AlertDefinitionSection({
                                     'forecast_config',
                                     value === 'forecast' ? getDefaultForecastConfig(insightInterval) : null
                                 )
-                                // The previous mode's simulation no longer describes the config.
                                 onClearSimulation()
                                 onClearSimulationOverlay()
                                 if (value === 'forecast') {
-                                    // A predicted breach compares the forecast against a fixed value, so a
-                                    // relative condition carried over from threshold mode would not apply.
-                                    // Convert the bounds with it: a relative threshold stores a fraction, so
-                                    // switching the type alone turns "more than 20%" into "more than 0.2".
                                     onSetAlertFormValue('condition', { type: AlertConditionType.ABSOLUTE_VALUE })
                                     onSetAlertFormValue('threshold', {
                                         configuration: thresholdForConditionChange(
