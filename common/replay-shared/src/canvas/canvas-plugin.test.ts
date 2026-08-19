@@ -538,4 +538,42 @@ describe('CanvasReplayerPlugin', () => {
             expect(call.target.height).toBe(400)
         })
     })
+
+    describe('error handling', () => {
+        it('forwards the real error to onError, not the mutation payload', async () => {
+            const canvas = document.createElement('canvas')
+            canvas.width = 300
+            canvas.height = 150
+
+            const event = {
+                type: EventType.IncrementalSnapshot as const,
+                data: {
+                    source: IncrementalSource.CanvasMutation as const,
+                    id: 7,
+                    type: 0,
+                    commands: [{ property: 'drawImage', args: [{}, 0, 0] }],
+                },
+                timestamp: 1000,
+            }
+
+            const onError = jest.fn()
+            const plugin = CanvasReplayerPlugin([event], onError)
+            const replayer = {
+                getMirror: () => ({ getNode: (id: number) => (id === 7 ? canvas : null) }),
+            }
+
+            plugin.onBuild?.(canvas, { id: 7, replayer } as any)
+            plugin.handler!(event, false, { replayer } as any)
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            expect(canvasMutation).toHaveBeenCalled()
+            const { errorHandler } = (canvasMutation as jest.Mock).mock.calls.at(-1)[0]
+
+            // rrweb calls the handler as (target, error), so the real error is the second argument
+            const realError = new Error('canvas playback failed')
+            errorHandler(event.data, realError)
+
+            expect(onError).toHaveBeenCalledWith(realError)
+        })
+    })
 })

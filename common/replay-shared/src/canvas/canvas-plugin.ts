@@ -227,7 +227,7 @@ export const CanvasReplayerPlugin = (
             target: target,
             imageMap,
             canvasEventMap,
-            errorHandler: (error: unknown) => {
+            errorHandler: (_target: unknown, error: unknown) => {
                 onError(error)
             },
         })
