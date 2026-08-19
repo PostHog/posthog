@@ -103,18 +103,24 @@ class TestRenderCommunitySkillFiles:
                 continue
             raise AssertionError(f"expected rejection for slug {bad!r}")
 
-    def test_rejects_path_traversal_in_bundled_file(self) -> None:
-        try:
+    @parameterized.expand(
+        [
+            ("path traversal", ["../escape.md"]),
+            ("overwriting the rendered SKILL.md", ["SKILL.md"]),
+            # Ingest case-folds paths and drops the whole entry on a collision, so publishing both
+            # opens a pull request that merges and then never appears in the catalog.
+            ("paths differing only by case", ["references/Guide.md", "references/guide.md"]),
+        ]
+    )
+    def test_rejects_unpublishable_bundled_file_paths(self, _label: str, paths: list[str]) -> None:
+        with pytest.raises(CommunitySkillPublishError):
             render_community_skill_files(
                 slug="make-pr",
                 name="n",
                 description="d",
                 body="b",
-                files=[{"path": "../escape.md", "content": "x", "content_type": "text/plain"}],
+                files=[{"path": path, "content": "x", "content_type": "text/plain"} for path in paths],
             )
-        except CommunitySkillPublishError:
-            return
-        raise AssertionError("expected rejection for path traversal")
 
 
 TEAM_A = "11111111-1111-1111-1111-111111111111"
@@ -254,6 +260,9 @@ class TestPublishSkillToCommunity:
             self._publish(publisher)
 
         assert publisher.delete_branch.call_args.args[1] == TEAM_A_BRANCH
+        # Conditional on our own commit: the branch name is shared with every concurrent publish of
+        # this skill from this team, and deleting theirs destroys work only we could have recovered.
+        assert publisher.delete_branch.call_args.kwargs["expected_sha"] == "abc123"
 
     def test_github_being_unreachable_raises_a_publish_error(self) -> None:
         publisher = self._publisher()

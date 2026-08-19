@@ -1941,7 +1941,6 @@ class TestGitHubIntegrationModel(BaseTest):
 
     @staticmethod
     def _git_data_api_request(*, ref_status: int = 201):
-        """Fake the git-data endpoints commit_files_to_branch walks, recording each call."""
         calls: list[tuple[str, str, Optional[dict]]] = []
 
         def _request(method, path, **kwargs):
@@ -1999,6 +1998,25 @@ class TestGitHubIntegrationModel(BaseTest):
         github = self._github_for_org()
         with patch.object(github, "api_request", return_value=MagicMock(status_code=status_code)):
             assert github.delete_branch("community-skills", "community-skill/x")["success"] is True
+
+    @parameterized.expand([("the expected commit", "mine", True), ("someone else's commit", "theirs", False)])
+    def test_delete_branch_with_an_expected_sha_only_deletes_its_own_commit(
+        self, _name: str, head_sha: str, deleted: bool
+    ):
+        github = self._github_for_org()
+        methods: list[str] = []
+
+        def _request(method, path, **kwargs):
+            methods.append(method)
+            if method == "GET":
+                return MagicMock(status_code=200, **{"json.return_value": {"object": {"sha": head_sha}}})
+            return MagicMock(status_code=204)
+
+        with patch.object(github, "api_request", side_effect=_request):
+            result = github.delete_branch("community-skills", "community-skill/x", expected_sha="mine")
+
+        assert result["success"] is True
+        assert ("DELETE" in methods) is deleted
 
     def test_get_open_pull_request_for_head_returns_number_and_url(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})

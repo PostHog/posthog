@@ -3926,9 +3926,32 @@ class GitHubIntegration(GitHubIntegrationBase):
             }
         return {"success": True, "branch_name": branch_name, "commit_sha": commit_sha, "created_branch": False}
 
-    def delete_branch(self, repository: str, branch_name: str) -> dict[str, Any]:
-        """Delete a branch reference. A branch that is already gone counts as success."""
+    def delete_branch(self, repository: str, branch_name: str, expected_sha: str | None = None) -> dict[str, Any]:
+        """Delete a branch reference. A branch that is already gone counts as success.
+
+        ``expected_sha`` makes the delete conditional: the ref is read first and left alone when it
+        has moved on, which is what a caller cleaning up its own failed write wants on a branch name
+        that is shared by construction. GitHub has no conditional delete, so this narrows the race
+        rather than closing it.
+        """
         org = self.organization()
+
+        if expected_sha is not None:
+            head_response = self.api_request(
+                "GET",
+                f"/repos/{org}/{repository}/git/ref/heads/{branch_name}",
+                endpoint="/repos/{owner}/{repo}/git/ref/heads/{branch}",
+            )
+            if head_response.status_code == 404:
+                return {"success": True, "branch_name": branch_name}
+            if head_response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Failed to read branch {branch_name}: {head_response.text}",
+                    "status_code": head_response.status_code,
+                }
+            if head_response.json()["object"]["sha"] != expected_sha:
+                return {"success": True, "branch_name": branch_name, "skipped": True}
 
         response = self.api_request(
             "DELETE",

@@ -199,12 +199,21 @@ def render_community_skill_files(
         )
     ]
 
+    seen_paths = {rendered[0].path.lower()}
     for file in files or []:
         rel_path = file["path"].lstrip("/")
         # Confine writes to the skill directory — a bundled file must never escape skills/<slug>/.
-        if rel_path == "SKILL.md" or ".." in rel_path.split("/"):
+        if ".." in rel_path.split("/"):
             raise CommunitySkillPublishError(f"Invalid bundled file path '{file['path']}'.")
-        rendered.append(RenderedFile(path=f"{skill_root}/{rel_path}", content=file["content"]))
+        path = f"{skill_root}/{rel_path}"
+        # Case-insensitive, matching community_skill_sync._validate_entry_within_caps: two paths
+        # differing only by case pass every check on this side, and then ingest rejects the whole
+        # entry, so the pull request merges and the skill never appears in the catalog. Seeding the
+        # set with SKILL.md is also what stops a bundled file from overwriting the rendered one.
+        if path.lower() in seen_paths:
+            raise CommunitySkillPublishError(f"Duplicate bundled file path '{file['path']}'.")
+        seen_paths.add(path.lower())
+        rendered.append(RenderedFile(path=path, content=file["content"]))
 
     return rendered
 
@@ -352,6 +361,7 @@ def _write_branch_and_pull_request(
     )
     if not commit_result.get("success"):
         raise CommunitySkillPublishError(f"Failed to commit skill files: {commit_result.get('error')}")
+    commit_sha = commit_result.get("commit_sha")
 
     if existing_pr is not None:
         pr_url = existing_pr.get("url")
@@ -376,7 +386,7 @@ def _write_branch_and_pull_request(
         reconciled = _reconcile_open_pr(publisher, repo=repo, slug=slug, branch=branch, base=base)
         if reconciled is not None:
             return reconciled
-        _delete_publish_branch(publisher, repo=repo, slug=slug, branch=branch)
+        _delete_publish_branch(publisher, repo=repo, slug=slug, branch=branch, commit_sha=commit_sha)
         raise
 
     if pr_result.get("success"):
@@ -393,7 +403,7 @@ def _write_branch_and_pull_request(
             return reconciled
         raise CommunitySkillPublishError("A pull request for this skill is already open for review.")
 
-    _delete_publish_branch(publisher, repo=repo, slug=slug, branch=branch)
+    _delete_publish_branch(publisher, repo=repo, slug=slug, branch=branch, commit_sha=commit_sha)
     # GitHub refuses a pull request with an empty diff, which is what an unchanged skill produces.
     if "no commits between" in error.lower():
         raise CommunitySkillPublishError(
@@ -444,14 +454,20 @@ def _reconcile_open_pr(
     return {"pr_url": pull["url"], "pr_number": pull["number"], "branch": branch}
 
 
-def _delete_publish_branch(publisher: GitHubIntegration, *, repo: str, slug: str, branch: str) -> None:
+def _delete_publish_branch(
+    publisher: GitHubIntegration, *, repo: str, slug: str, branch: str, commit_sha: str | None
+) -> None:
     """Remove a branch this publish created. Cleanup failure is logged, never raised over the cause.
 
     This also runs while handling a GitHub failure, where a raise here would replace the error that
     actually explains the publish with one about the tidy-up after it.
+
+    The delete is conditional on ``commit_sha``: the branch name is shared by every publish of this
+    skill from this team, so an unconditional delete could take out a concurrent publisher's commit,
+    which they cannot recover the way the publisher who wrote it can.
     """
     try:
-        cleanup_result = publisher.delete_branch(repo, branch)
+        cleanup_result = publisher.delete_branch(repo, branch, expected_sha=commit_sha)
     except (GitHubIntegrationError, GitHubRateLimitError):
         logger.warning("community_skill_publish_branch_cleanup_failed", slug=slug, branch=branch, exc_info=True)
         return
