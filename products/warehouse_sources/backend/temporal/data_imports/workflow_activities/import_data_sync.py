@@ -290,7 +290,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
 
         # None for a source that reads everything, which is most of them.
-        history_start = await database_sync_to_async_pool(history_start_for_schema)(schema)
+        history_start = await database_sync_to_async_pool(history_start_for_schema)(schema, inputs.run_id)
         if history_start is not None:
             await logger.adebug(f"History start for this schema is: {history_start}")
 

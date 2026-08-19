@@ -30,7 +30,7 @@ class TestHistoryStartForSchema(BaseTest):
     def test_a_schema_that_never_synced_starts_its_window_now(self):
         schema = self._schema()
 
-        assert history_start_for_schema(schema, now=NOW) == NOW - dt.timedelta(days=2 * 365)
+        assert self._resolve(schema) == NOW - dt.timedelta(days=2 * 365)
 
         schema.refresh_from_db()
         assert schema.history_start == NOW - dt.timedelta(days=2 * 365)
@@ -40,26 +40,30 @@ class TestHistoryStartForSchema(BaseTest):
         recorded = dt.datetime(2020, 2, 8, tzinfo=dt.UTC)
         schema = self._schema(history_start=recorded)
 
-        assert history_start_for_schema(schema, now=NOW) == recorded
+        assert self._resolve(schema) == recorded
 
-    def _completed_job(self, schema: ExternalDataSchema) -> None:
-        ExternalDataJob.objects.create(
+    def _job(self, schema: ExternalDataSchema, *, running: bool = False) -> ExternalDataJob:
+        return ExternalDataJob.objects.create(
             team=self.team,
             pipeline=schema.source,
             schema=schema,
-            status=ExternalDataJob.Status.COMPLETED,
-            rows_synced=1,
+            status=ExternalDataJob.Status.RUNNING if running else ExternalDataJob.Status.COMPLETED,
+            rows_synced=0 if running else 1,
             workflow_id="wf",
         )
+
+    def _resolve(self, schema: ExternalDataSchema) -> dt.datetime | None:
+        """Call it the way the activity does: this run's job row already exists."""
+        return history_start_for_schema(schema, self._job(schema, running=True).pk, now=NOW)
 
     def test_a_schema_already_syncing_records_nothing(self):
         # The lookback is only truthful for a schema with nothing yet. One already holding data
         # covers a range nobody recorded, so it reads as unbounded rather than as a guess.
         table = DataWarehouseTable.objects.create(team=self.team, name="campaign_stats", format="Delta")
         schema = self._schema(table=table)
-        self._completed_job(schema)
+        self._job(schema)
 
-        assert history_start_for_schema(schema, now=NOW) is None
+        assert self._resolve(schema) is None
 
         schema.refresh_from_db()
         assert schema.history_start is None
@@ -69,9 +73,9 @@ class TestHistoryStartForSchema(BaseTest):
         # link cannot stand in for "never synced". Recording a lookback here writes down a narrower
         # range than the schema covered, which every later re-import would then honour.
         schema = self._schema()
-        self._completed_job(schema)
+        self._job(schema)
 
-        assert history_start_for_schema(schema, now=NOW) is None
+        assert self._resolve(schema) is None
 
         schema.refresh_from_db()
         assert schema.history_start is None
@@ -82,7 +86,7 @@ class TestHistoryStartForSchema(BaseTest):
         schema = self._schema()
 
         with mock.patch.object(ExternalDataSchema, "save", autospec=True) as saved:
-            history_start_for_schema(schema, now=NOW)
+            self._resolve(schema)
 
         assert saved.call_args.kwargs["skip_activity_log"] is True
 
@@ -90,7 +94,7 @@ class TestHistoryStartForSchema(BaseTest):
         source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe", job_inputs={})
         schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="charges")
 
-        assert history_start_for_schema(schema, now=NOW) is None
+        assert self._resolve(schema) is None
 
         schema.refresh_from_db()
         assert schema.history_start is None
@@ -101,7 +105,7 @@ class TestHistoryStartForSchema(BaseTest):
         schema = self._schema()
         ExternalDataSchema.objects.filter(pk=schema.pk).update(status="Completed")
 
-        history_start_for_schema(schema, now=NOW)
+        self._resolve(schema)
 
         schema.refresh_from_db()
         assert schema.status == "Completed"

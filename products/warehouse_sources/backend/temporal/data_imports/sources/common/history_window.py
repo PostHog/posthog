@@ -8,16 +8,23 @@ Still resolving it per run: `adobe_analytics`, `hatchet`, and `google_play_conso
 `resolve_history_start` is this name for the opposite idea.
 """
 
+import uuid
 import datetime as dt
 from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
-def history_start_for_schema(schema: "ExternalDataSchema", now: dt.datetime | None = None) -> dt.datetime | None:
+def history_start_for_schema(
+    schema: "ExternalDataSchema", current_job_id: str | uuid.UUID, now: dt.datetime | None = None
+) -> dt.datetime | None:
     """The oldest point this schema covers, or None for no bound.
 
     Written on a first sync, the one moment the lookback is the truthful answer. A schema already
@@ -32,6 +39,10 @@ def history_start_for_schema(schema: "ExternalDataSchema", now: dt.datetime | No
     try:
         source = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
     except ValueError:
+        # An unknown type means the source's module failed to import, not that it reads everything.
+        # Both answer None here, so say which one this was rather than leave a widened range
+        # looking like a declared one.
+        logger.warning("history_window.unknown_source_type", source_type=schema.source.source_type)
         return None
 
     lookback = source.history_lookback
@@ -41,9 +52,10 @@ def history_start_for_schema(schema: "ExternalDataSchema", now: dt.datetime | No
     if schema.history_start is not None:
         return schema.history_start
 
-    # Not `table_id`: `delete_table` nulls it on a schema that has synced for years. Jobs outlive
-    # the wipe, so they tell a genuine first sync from a wiped one.
-    if ExternalDataJob.objects.filter(schema_id=schema.pk).exists():
+    # Whether a run before this one exists, not whether a table does: `delete_table` nulls the table
+    # link on a schema that has synced for years, and jobs outlive the wipe. This run's own job is
+    # already created by the time the import activity calls this, so it has to be excluded.
+    if ExternalDataJob.objects.filter(schema_id=schema.pk).exclude(pk=current_job_id).exists():
         return None
 
     # `update_fields` because the pipeline loaded this instance before the run linked its table.
