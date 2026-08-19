@@ -32,7 +32,12 @@ import {
   GridPlacementTile,
   type PlacementTileActions,
 } from "./GridPlacementTile";
-import { collides, type GridRect, surfaceRows } from "./gridGeometry";
+import {
+  collides,
+  type GridRect,
+  rectFromCells,
+  surfaceRows,
+} from "./gridGeometry";
 import { type GridDragOutcome, useGridDrag } from "./useGridDrag";
 import { useGridLayout, usePatchLayout } from "./useGridLayout";
 
@@ -292,10 +297,9 @@ export function GridCanvasView({
   const pitchX = (surfaceWidth + grid.gap) / grid.columns;
   const pitchY = grid.rowHeight + grid.gap;
   // A cell already under a tile is not free to draw on, so it stays unlit.
+  const hoveredRect = hover && rectFromCells(hover, hover);
   const hoveredCell =
-    hover && !collides({ x: hover.col, y: hover.row, w: 1, h: 1 }, placements)
-      ? { x: hover.col, y: hover.row, w: 1, h: 1 }
-      : null;
+    hoveredRect && !collides(hoveredRect, placements) ? hoveredRect : null;
 
   return (
     <div className="flex h-full">
