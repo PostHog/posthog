@@ -660,6 +660,10 @@ def google_ads_source(
         # runs, take this path.
         if pipeline_is_incremental and table.requires_filter and incremental_field_type == IncrementalFieldType.Date:
             if db_incremental_field_last_value is not None:
+                # A stated start date is deliberately not read here: the cursor is where this table
+                # got to, and reading anything older would re-import a range it already holds on
+                # every run. Stating an earlier date therefore takes effect on the next re-import,
+                # which is what the field's caption says.
                 start = _incremental_value_as_date(db_incremental_field_last_value)
                 # The cursor arrives shifted back by the schema's lookback, so the windows up to the
                 # cursor itself re-read rows the table already has. They don't count as progress.

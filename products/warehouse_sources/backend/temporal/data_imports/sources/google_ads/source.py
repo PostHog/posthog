@@ -286,9 +286,10 @@ class GoogleAdsSource(
                         name="start_date",
                         label="Start date",
                         caption=(
-                            "Earliest date to import, as YYYY-MM-DD. Applies to the first sync and to "
-                            "a full re-import. Leave empty for the last two years. An earlier date "
-                            "imports more rows, which count towards your billed row usage."
+                            "Earliest date to import, as YYYY-MM-DD. On a source that has already "
+                            "synced, changing this takes effect on the next full re-import — Sync "
+                            "keeps going from where it left off. Leave empty for the last two years; "
+                            "an earlier date imports more rows, which count towards your billed row usage."
                         ),
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
