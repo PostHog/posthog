@@ -78,8 +78,9 @@ class PayPalSource(ResumableSource[PayPalSourceConfig, PayPalResumeConfig]):
         schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
         for schema in schemas:
             if schema.name == "transactions":
-                # A transaction can take up to three hours to become searchable, so each
-                # incremental run re-reads a trailing window (the merge dedupes on the id).
+                # Transactions are restated after creation but PayPal has no update-time filter, so
+                # each incremental run re-reads a trailing window and the merge on transaction_id
+                # refreshes them. The window also covers PayPal's up-to-three-hour search delay.
                 schema.default_incremental_lookback_seconds = TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS
         return schemas
 

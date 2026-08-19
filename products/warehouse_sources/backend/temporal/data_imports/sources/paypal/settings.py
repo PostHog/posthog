@@ -27,9 +27,13 @@ TRANSACTION_HISTORY_DAYS = 3 * 365
 # The disputes list rejects a `start_time` older than 180 days with a non-retryable 400, so an
 # incremental watermark is clamped to this floor before it becomes the filter.
 DISPUTE_HISTORY_DAYS = 180
-# Transactions can take up to three hours to become searchable, so an incremental run must
-# re-read a trailing window instead of starting exactly at the previous watermark.
-TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS = 24 * 60 * 60
+# The transactions cursor `transaction_initiation_date` is stamped once and never moves, and
+# PayPal has no update-time filter for transaction search. A transaction restated after creation
+# (an eCheck clearing, a reversal, a denial) would otherwise freeze at its first-seen status, so
+# each incremental run re-reads a trailing 30-day window and the merge on transaction_id refreshes
+# it. This also absorbs the up-to-three-hour delay before a transaction becomes searchable. Users
+# can tune the window per table; 30 days matches the Dodo Payments restated-lookback default.
+TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
 
 
 @frozen
