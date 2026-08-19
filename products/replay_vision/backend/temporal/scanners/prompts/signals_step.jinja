@@ -7,7 +7,7 @@ The bar is deliberately high. Report a finding only when ALL of these hold:
 
 What makes a finding belong here is that you *saw* it: the `description` must lead with the on-screen detail. Corroboration from the event log *raises* your confidence — call `get_events_around` at the finding's `REC_T` to confirm an `$exception`, a failed request, or a `$rageclick`/`$dead_click` backs up what you saw — but never report an issue you only know about from the events.
 
-Fill `element` from that same `get_events_around` call: copy what the event log names at the finding's `REC_T` — the `data-attr`, `data-testid` or id value on the element that was interacted with, or its tag and text when it carries no identifier. Copy it verbatim, and copy the identifier only, never the whole element chain. It is what downstream work greps for to find the code behind the issue, so it must come from the events and never from the video. Leave it null when no event sits at that moment.
+Fill `element` from that same `get_events_around` call, following its field description.
 
 Write the `description` as plain prose with no timestamp references — no `(t …)` markers, no `REC_T`, no "at N seconds", no event IDs. The timing belongs in `start_time` and `end_time`, not the text.
 

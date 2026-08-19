@@ -1,49 +1,28 @@
 ---
 name: correlating-recordings-to-code
 description: >
-  Goes from a moment in a session recording to the source file behind it. Use when you know
-  when something went wrong in a recording (a Replay Vision finding, a rageclick, a crash, a
-  timestamp a user pointed at) and you need to find the code that caused it. Turns a
-  recording-relative offset into an absolute instant, queries the events around it, and ranks
-  what those events carry by how reliably it maps to a file you can grep for. Covers web and
-  mobile autocapture, exception stack traces, and what to do when no event backs the moment.
+  Goes from a moment in a session recording to the source file behind it. Use when you know when something went wrong in a recording (a Replay Vision finding, a rageclick, a crash, a timestamp a user pointed at) and you need to find the code that caused it. Turns a recording-relative offset into an absolute instant, queries the events around it, and ranks what those events carry by how reliably it maps to a file you can grep for. Covers web and mobile autocapture, exception stack traces, and what to do when no event backs the moment.
 ---
 
 # Correlating a recording moment to code
 
-You know when something went wrong in a recording. You need the file that caused it.
-
-The recording itself does not name code. The events captured alongside it sometimes do, and
-that is the whole trick: convert the moment into an absolute timestamp, pull the events in a
-few seconds around it, and read the fields that carry a developer-authored string. Some of
-those strings are in the source tree verbatim. Some are worthless. This skill says which.
+The recording itself does not name code. The events captured alongside it sometimes do, and that is the whole trick: convert the moment into an absolute timestamp, pull the events in a few seconds around it, and read the fields that carry a developer-authored string. Some of those strings are in the source tree verbatim. Some are worthless. This skill says which.
 
 ## 1. Find the absolute instant
-
-Recording timestamps are relative. A Replay Vision finding says `start_time: 139`, meaning 139
-seconds after the recording started, not after the session started and not a wall-clock time.
 
 ```text
 anchor = recording_start_time + start_time
 ```
 
-`recording_start_time` is the `REC_T = 0` point. A Replay Vision signal carries both values in
-its `extra`: `recording_start_time` (ISO 8601) and `start_time` (whole seconds).
+`start_time` is seconds since the recording started, not since the session started and not a wall clock. A Replay Vision signal carries both values in its `extra`: `recording_start_time` (ISO 8601) and `start_time` (whole seconds). Without one, take the recording's start time from `session-recording-get`.
 
-Recording bounds are not session bounds. Depending on the customer's config, recording can
-begin well after the session did, so never substitute the session's first event for
-`recording_start_time`.
-
-If you have no `recording_start_time`, get it from the recording itself with
-`session-recording-get`, and use its start time.
+Recording bounds are not session bounds. Depending on the customer's config, recording can begin well after the session did, so never substitute the session's first event for `recording_start_time`.
 
 ## 2. Query the window
 
-Two steps, because the raw `elements_chain` is enormous. A single interaction on a modern app
-serializes to several kilobytes of nested divs, and a 10 second window holds dozens of events.
-Pulling raw chains for all of them buries the answer.
+Two steps, because a raw `elements_chain` runs to kilobytes of nested divs and a 10 second window holds dozens of events — pulling raw chains for all of them buries the answer.
 
-**Step one, scan the window.** Materialized columns only, so this stays readable:
+**Step one, scan the window** on materialized columns only:
 
 ```sql
 SELECT
@@ -68,124 +47,67 @@ WHERE properties.$session_id = '<session_id>'
 ORDER BY timestamp ASC
 ```
 
-Widen `INTERVAL 5 SECOND` if it comes back empty, but 5 seconds either side is the right first
-try. Wider windows pull in unrelated interactions and you end up attributing the wrong click.
+Widen `INTERVAL 5 SECOND` only if it comes back empty. Wider windows pull in unrelated interactions and you end up attributing the wrong click.
 
-**Step two, pull the raw chain for the one row that matters.** Custom attributes appear only
-there, which is where tier 2 below lives. Pick the interaction nearest the anchor and add
-`AND event = '$autocapture' AND timestamp = toDateTime64('<its timestamp>', 3)`, selecting
-`elements_chain`. Read only the first element or two of the chain: that is the element the user
-touched, and everything after it is ancestors.
+**Step two, pull the raw chain for the one row that matters**, since custom attributes (tier 2 below) appear only there. Take the interaction nearest the anchor, add `AND event = '$autocapture' AND timestamp = toDateTime64('<its timestamp>', 3)`, and select `elements_chain`. Read only its first element or two: that is the element the user touched, and everything after it is ancestors.
 
 Both run through `execute-sql`.
 
 ## 3. Rank what came back
 
-Not every anchor is worth the same. Work down this list and stop at the first tier that
-produces a candidate, because a lower tier never beats a higher one.
+Work down this list and stop at the first tier that produces a candidate, because a lower tier never beats a higher one.
 
 ### Tier 1: stack traces
 
-An `$exception` in the window is the strongest possible anchor. It names a source file
-outright, with no inference:
+An `$exception` in the window is the strongest possible anchor. It names a source file outright, with no inference:
 
-- `$exception_sources` is an **array** of the source files the stack touched, for example
-  `["posthog/temporal/common/posthog_client.py", "products/error_tracking/backend/temporal/weekly_digest/activities.py"]`.
-  Read all of them, and take the one inside the customer's own tree rather than assuming a
-  position. The array is not one entry per frame and index 1 is not reliably the thrower.
-- `$exception_types` and `$exception_values` are arrays too, holding the exception class and
-  message. Their lengths do not line up with `$exception_sources`.
-- `$exception_issue_id` points at the error tracking issue. Follow it with
-  `query-error-tracking-issue-events` (`verbosity: stack`) for the full stack trace, the
-  symbolicated frames, and captured code variables.
+- `$exception_sources` is an **array** of the source files the stack touched, for example `["posthog/temporal/common/posthog_client.py", "products/error_tracking/backend/temporal/weekly_digest/activities.py"]`. Read all of them and take the one inside the customer's own tree: the array is not one entry per frame, and index 1 is not reliably the thrower.
+- `$exception_types` and `$exception_values` are arrays too, holding the exception class and message. Their lengths do not line up with `$exception_sources`.
+- `$exception_issue_id` points at the error tracking issue. Follow it with `query-error-tracking-issue-events` (`verbosity: stack`) for the full stack trace, the symbolicated frames, and captured code variables.
 
-The singular forms (`$exception_type`, `$exception_message`) are emitted on a tiny fraction of
-events. Do not filter on them.
+The singular forms (`$exception_type`, `$exception_message`) are emitted on a tiny fraction of events, so do not filter on them.
 
-Caveat: an unsymbolicated frame names the compiled artifact, not the source. If the paths look
-like bundle chunks or a binary rather than files in the repo, symbolication has not run for
-that release and you are back at tier 2.
+An unsymbolicated frame names the compiled artifact, not the source. Paths that look like bundle chunks or a binary mean symbolication has not run for that release, and you are back at tier 2.
 
 ### Tier 2: developer-authored element identifiers
 
-These are strings a human typed into their own source, so they are greppable by construction.
-On web, from `elements_chain`:
+`data-attr` (PostHog's default data attribute, configurable per team), `data-testid`, and the HTML `id` are strings a human typed into their own source, so they are greppable by construction.
 
-- `data-attr` (PostHog's default data attribute, configurable per team)
-- `data-testid`
-- the HTML `id`
+Two things about how they appear that the format reference does not say. posthog-js writes captured DOM attributes with an `attr__` prefix, so you will read `attr__data-attr="capability-badge-sql"` and `attr__id="main-content"` alongside a separate un-prefixed `attr_id="main-content"` — match on the `key="value"` part and grep the repo for the **value** alone. And `elements_chain_ids` gives you the ids as an array with no parsing at all, so start there and read the raw chain only when you need a `data-*` attribute.
 
-Two things about how they actually appear, which the format reference does not say. First,
-posthog-js writes captured DOM attributes with an `attr__` prefix, so you will read
-`attr__data-attr="capability-badge-sql"` and `attr__id="main-content"`, alongside a separate
-un-prefixed `attr_id="main-content"`. Match on the `key="value"` part and grep the repo for the
-**value** alone. Second, `elements_chain_ids` gives you the ids as an array with no parsing at
-all, so start there and only read the raw chain when you need a `data-*` attribute.
+On mobile, autocapture carries the label the developer set on the view, and the SDKs spell it differently (React Native uses `ph-label` and falls back to `testID`; iOS uses `postHogLabel`). Whatever the SDK set lands in the chain as a `key="value"` pair, because the chain carries arbitrary attributes through unchanged, so read the chain and take the label you actually find rather than assuming a key name. Android and Flutter follow the same shape but are unverified here.
 
-On mobile, autocapture carries the label the developer set on the view. The SDKs spell it
-differently (React Native uses `ph-label` and falls back to `testID`; iOS uses
-`postHogLabel`). Whatever the SDK set lands in the chain as a `key="value"` pair, because the
-chain carries arbitrary attributes through unchanged, so read the chain and take the label you
-actually find rather than assuming a key name. Android and Flutter follow the same shape but
-are unverified here.
-
-For the chain's grammar and its CSS-selector-to-regex mapping, read the
-`elements-chain-format.md` reference in the `exploring-autocapture-events` skill, keeping the
-`attr__` prefix above in mind as you read it.
+For the chain's grammar and its CSS-selector-to-regex mapping, read the `elements-chain-format.md` reference in the `exploring-autocapture-events` skill, keeping the `attr__` prefix above in mind as you read it.
 
 ### Tier 3: text and route
 
 Weaker, but usually present.
 
-- **Element text**, from `elements_chain_texts`. Greppable, and often the fastest hit in a
-  small codebase. Fragile under i18n (the string in the repo is a translation key, not the
-  rendered text) and under interpolated or dynamic content.
-- **Route**, from `$current_url` / `$pathname` on web and `$screen_name` on mobile. For
-  file-routed frameworks (Next.js app router, Nuxt, SvelteKit, Remix) the URL maps to a file
-  almost mechanically, which makes this the most reliable fallback when there is no
-  interaction to work from.
+- **Element text**, from `elements_chain_texts`. Greppable, and often the fastest hit in a small codebase. Fragile under i18n (the string in the repo is a translation key, not the rendered text) and under interpolated or dynamic content.
+- **Route**, from `$current_url` / `$pathname` on web and `$screen_name` on mobile. For file-routed frameworks (Next.js app router, Nuxt, SvelteKit, Remix) the URL maps to a file almost mechanically, which makes this the most reliable fallback when there is no interaction to work from.
 
 ### Worthless: class names
 
-Do not grep class names. Tailwind and utility-CSS class soup matches everything, and
-CSS modules and styled-components emit hashed names that appear nowhere in the source. You will
-burn your whole budget grepping `flex items-center` and find nothing.
+Do not grep class names. Tailwind and utility-CSS class soup matches everything, and CSS modules and styled-components emit hashed names that appear nowhere in the source.
 
-The mobile equivalent is the bare widget type. When no label was set, the chain holds
-`UIButton` or `UITextField`, which identifies a framework class, not the customer's code.
-Treat it as no anchor at all.
+The mobile equivalent is the bare widget type. When no label was set, the chain holds `UIButton` or `UITextField`, which identifies a framework class, not the customer's code. Treat it as no anchor at all.
 
 ## 4. When the window is empty
 
-An empty window is information, not a failure, but it is not proof that nothing happened. It
-usually means no interaction at that moment, which is what you would expect from a banner that
-rendered on load, a layout that broke on resize, or a crash mid-render. It can also mean the
-interaction went uncaptured (autocapture is off for the team) or that the anchor is wrong.
+An empty window is information, not a failure, but it is not proof that nothing happened. It usually means no interaction at that moment, which is what you would expect from a banner that rendered on load, a layout that broke on resize, or a crash mid-render. It can also mean the interaction went uncaptured (autocapture is off for the team) or that the anchor is wrong.
 
-In that case:
-
-1. Fall back to tier 3 and attribute by route alone.
-2. Say the element is unknown.
-
-Do not invent an element. A fabricated selector sends the next reader, or the coding agent
-downstream, into the wrong file with false confidence.
+Fall back to tier 3 and attribute by route alone, and say the element is unknown. Do not invent one: a fabricated selector sends the next reader, or the coding agent downstream, into the wrong file with false confidence.
 
 ## 5. Take the anchor to the repo
 
-With a candidate string in hand:
-
 ```bash
-rg -F 'checkout-submit'          # tier 2: an id or data-attr, fixed-string
+rg -F 'checkout-submit'                  # tier 2: an id or data-attr, fixed-string
 rg -F 'Payment could not be processed'   # tier 3: on-screen text
 ```
 
-Then `git blame --ignore-revs-file $(git rev-parse --show-toplevel)/.git-blame-ignore-revs` the
-region you land on to find the commit that introduced the behavior.
+Then `git blame --ignore-revs-file $(git rev-parse --show-toplevel)/.git-blame-ignore-revs` the region you land on to find the commit that introduced the behavior.
 
 Two things to hold onto:
 
-- **A hit is a candidate, not an answer.** Confirm the file you found actually renders the
-  element or route the events named, before reporting it.
-- **Attribution quality tracks the customer's own conventions.** A codebase with `data-attr` or
-  `postHogLabel` discipline resolves at tier 2 nearly every time. One without drops to tier 3
-  and is genuinely harder. Say which tier a finding rests on so the reader can weigh it.
+- **A hit is a candidate, not an answer.** Confirm the file you found actually renders the element or route the events named, before reporting it.
+- **Attribution quality tracks the customer's own conventions.** A codebase with `data-attr` or `postHogLabel` discipline resolves at tier 2 nearly every time; one without drops to tier 3 and is genuinely harder. Say which tier a finding rests on so the reader can weigh it.

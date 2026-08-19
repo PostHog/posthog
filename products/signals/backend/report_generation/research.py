@@ -469,26 +469,19 @@ _REPLAY_ATTRIBUTION_BLOCK = """## Attributing a session recording moment to code
 
 At least one signal below came from a session recording, so it carries a moment rather than a
 file. Turn that moment into a source file before you start grepping the description's prose.
+The `correlating-recordings-to-code` skill is the full recipe — read it unless `extra` already
+answers you.
 
-- **Anchor:** `recording_start_time + start_time` is the finding's absolute instant.
-  `start_time` is seconds since the recording started, not since the session started.
-- **Window:** query events on `properties.$session_id` within ~5 seconds either side of the
-  anchor, selecting `elements_chain*`, `properties.$event_type`, `properties.$current_url`,
-  `properties.$screen_name`, and the `properties.$exception_*` family.
-- **Rank what comes back.** An `$exception` names a file outright via `$exception_sources`:
-  stop there. Otherwise use developer-authored element identifiers (`attr_id`, `data-attr`,
-  `data-testid` on web; the SDK label on mobile), which are in the source verbatim. Element
-  text and the URL/screen route are the fallback. Never grep class names: utility-CSS and
-  hashed module names match everything or nothing.
-- **When `extra` already carries an `element`**, the scanner read it off the event log at that
-  exact moment; prefer it over re-deriving one from the window.
-- **An empty window means the events do not cover this moment**, not that nothing happened:
-  the moment may be a render, layout, or load with no interaction, or the interaction went
-  uncaptured (autocapture off) or the anchor is wrong. Attribute by route and say the element
-  is unknown rather than inventing one.
-
-Full recipe, including the queries and the mobile specifics: the
-`correlating-recordings-to-code` skill."""
+- **Prefer `extra.element`.** The scanner read it off the event log at that exact moment, so it
+  beats anything you re-derive.
+- **Otherwise anchor, then look.** `recording_start_time + start_time` is the absolute instant
+  (`start_time` is seconds since the recording started, not since the session started). Query
+  events on `properties.$session_id` within ~5 seconds either side of it.
+- **Rank what comes back and stop at the first hit:** `$exception_sources` names a file
+  outright, then developer-authored identifiers (`data-attr`, `data-testid`, id), then element
+  text and the URL or screen route. Never grep class names.
+- **An empty window is not proof that nothing happened.** Attribute by route and say the
+  element is unknown rather than inventing one."""
 
 _ACTIONABILITY_CRITERIA = """## Actionability criteria
 
