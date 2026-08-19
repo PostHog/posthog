@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
@@ -8,6 +8,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -18,6 +19,7 @@ import { AnyPropertyFilter, type CohortType, PropertyOperator, type TeamPublicTy
 
 import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 
+import { applyTestAccountFilterLogic } from './applyTestAccountFilterLogic'
 import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
 
 function createTestAccountFilterWarningLabels(
@@ -60,6 +62,8 @@ function createTestAccountFilterWarningLabels(
 function TestAccountFiltersConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { setTeamDefault } = useActions(filterTestAccountsDefaultsLogic)
+    const { applyToExistingInsights } = useActions(applyTestAccountFilterLogic)
+    const { bulkSetResponseLoading } = useValues(applyTestAccountFilterLogic)
     const { reportTestAccountFiltersUpdated } = useActions(eventUsageLogic)
     const { currentTeam, currentTeamLoading, testAccountFilterFrequentMistakes } = useValues(teamLogic)
     const { filterTestAccounts } = useValues(revenueAnalyticsSettingsLogic)
@@ -71,6 +75,7 @@ function TestAccountFiltersConfig(): JSX.Element {
     })
 
     const testAccountFilterWarningLabels = createTestAccountFilterWarningLabels(currentTeam, cohortsById)
+    const noFiltersReason = currentTeam?.test_account_filters?.length ? null : 'Add at least one filter above first'
 
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -147,6 +152,41 @@ function TestAccountFiltersConfig(): JSX.Element {
                 label="Enable this filter on all new insights"
                 bordered
             />
+            <div className="flex">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    data-attr="apply-test-account-filter-to-existing-insights"
+                    loading={bulkSetResponseLoading}
+                    disabled={currentTeamLoading}
+                    disabledReason={restrictedReason ?? noFiltersReason}
+                    onClick={() => {
+                        const enabled = !!currentTeam?.test_account_filters_default_checked
+                        LemonDialog.open({
+                            title: `Turn this filter ${enabled ? 'on' : 'off'} for every existing insight?`,
+                            description: (
+                                <>
+                                    The setting above only decides the default for new insights. This applies it to the
+                                    insights you already have. SQL insights have no such filter, so they stay as they
+                                    are, and so do insights you can't edit. Dashboards follow their insights unless a
+                                    dashboard sets its own override.
+                                    <br />
+                                    <br />
+                                    There's no undo. Running it the other way later would also flip insights that were
+                                    set differently before.
+                                </>
+                            ),
+                            primaryButton: {
+                                children: `Turn it ${enabled ? 'on' : 'off'}`,
+                                onClick: () => applyToExistingInsights(enabled),
+                            },
+                            secondaryButton: { children: 'Cancel' },
+                        })
+                    }}
+                >
+                    Apply to existing insights
+                </LemonButton>
+            </div>
             <LemonSwitch
                 onChange={updateFilterTestAccounts}
                 checked={filterTestAccounts}

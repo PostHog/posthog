@@ -270,6 +270,13 @@ export const InsightsBulkRestoreCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Turn 'filter out internal and test users' on or off for every existing insight in the project. The project setting of the same name only decides the default for new insights; this applies it to the insights that already exist. Insights with nowhere to put the toggle, such as SQL insights, are left alone, as are insights the requester cannot edit. Dashboards follow their insights unless the dashboard sets its own override. Insights are updated in batches, so a failure part way through leaves the finished batches applied. Retrying is safe and picks up the rest.
+ */
+export const InsightsBulkSetTestAccountFilterCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe('Whether every existing insight should filter out internal and test users.'),
+})
+
+/**
  * Bulk update tags on multiple objects.
  *
  * PAT access: this action has no ``required_scopes=`` on the decorator —

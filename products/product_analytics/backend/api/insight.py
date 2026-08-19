@@ -156,6 +156,7 @@ from products.product_analytics.backend.api.insight_metadata import (
     generate_insight_metadata,
 )
 from products.product_analytics.backend.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
+from products.product_analytics.backend.insight_test_account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.logic import map_stale_to_latest
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -1623,6 +1624,24 @@ class InsightBulkRestoreResponseSerializer(serializers.Serializer):
     )
 
 
+INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE = 500
+
+
+class InsightBulkSetTestAccountFilterRequestSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        help_text="Whether every existing insight should filter out internal and test users."
+    )
+
+
+class InsightBulkSetTestAccountFilterResponseSerializer(serializers.Serializer):
+    updated = serializers.IntegerField(help_text="Number of insights whose test account filter was changed.")
+    unchanged = serializers.IntegerField(help_text="Number of insights that already had the requested value.")
+    unsupported = serializers.IntegerField(
+        help_text="Number of insights with no test account filter to set, such as SQL insights."
+    )
+    skipped = serializers.IntegerField(help_text="Number of insights the requester cannot edit.")
+
+
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 @extend_schema_view(
     list=extend_schema(
@@ -2738,6 +2757,114 @@ When set, the specified dashboard's filters and date range override will be appl
             self.user_permissions.reset_insights_dashboard_cached_results()
 
         return Response({"restored": restored, "skipped": skipped})
+
+    @validated_request(
+        request_serializer=InsightBulkSetTestAccountFilterRequestSerializer,
+        responses={200: OpenApiResponse(response=InsightBulkSetTestAccountFilterResponseSerializer)},
+        description=(
+            "Turn 'filter out internal and test users' on or off for every existing insight in the project. The "
+            "project setting of the same name only decides the default for new insights; this applies it to the "
+            "insights that already exist. Insights with nowhere to put the toggle, such as SQL insights, are left "
+            "alone, as are insights the requester cannot edit. Dashboards follow their insights unless the "
+            "dashboard sets its own override. Insights are updated in batches, so a failure part way through "
+            "leaves the finished batches applied. Retrying is safe and picks up the rest."
+        ),
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
+    def bulk_set_test_account_filter(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        enabled: bool = request.validated_data["enabled"]
+        insight_ids = list(
+            Insight.objects.filter(team__project_id=self.team.project_id, saved=True)
+            .order_by("id")
+            .values_list("id", flat=True)
+        )
+
+        totals = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": 0}
+        for start in range(0, len(insight_ids), INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE):
+            batch_ids = insight_ids[start : start + INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE]
+            for key, count in self._set_test_account_filter_on_batch(batch_ids, enabled=enabled).items():
+                totals[key] += count
+
+        if totals["updated"]:
+            self.user_permissions.reset_insights_dashboard_cached_results()
+
+        return Response(totals)
+
+    def _set_test_account_filter_on_batch(self, insight_ids: Sequence[int], *, enabled: bool) -> dict[str, int]:
+        counts = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": 0}
+        insights = list(Insight.objects.filter(id__in=insight_ids))
+        if self.user_access_control:
+            self.user_access_control.preload_object_access_controls(cast(list, insights))
+
+        current_user = cast(User, self.request.user)
+        was_impersonated = is_impersonated(self.request)
+        organization_id = current_user.current_organization_id
+        modified_at = now()
+
+        to_update: list[Insight] = []
+        activity_log_entries: list[LogActivityEntry] = []
+        for insight in insights:
+            if self.user_access_control:
+                user_access_level = self.user_access_control.get_user_access_level(insight)
+                if not (
+                    user_access_level and access_level_satisfied_for_resource("insight", user_access_level, "editor")
+                ):
+                    counts["skipped"] += 1
+                    continue
+
+            update = plan_test_account_filter_update(insight.query, insight.filters, enabled=enabled)
+            if not update.supported:
+                counts["unsupported"] += 1
+                continue
+            if not update.changed:
+                counts["unchanged"] += 1
+                continue
+
+            changes: list[Change] = []
+            if update.query is not None:
+                changes.append(
+                    Change(type="Insight", field="query", action="changed", before=insight.query, after=update.query)
+                )
+                insight.query = update.query
+            if update.filters is not None:
+                changes.append(
+                    Change(
+                        type="Insight", field="filters", action="changed", before=insight.filters, after=update.filters
+                    )
+                )
+                insight.filters = update.filters
+            insight.last_modified_at = modified_at
+            insight.last_modified_by = current_user
+            to_update.append(insight)
+            counts["updated"] += 1
+
+            insight_name = insight.name or insight.derived_name
+            # The experiments feature creates unnamed insights; the single-update path skips logging those.
+            if insight_name:
+                activity_log_entries.append(
+                    LogActivityEntry(
+                        organization_id=organization_id,
+                        team_id=self.team_id,
+                        user=current_user,
+                        was_impersonated=was_impersonated,
+                        item_id=insight.id,
+                        scope="Insight",
+                        activity="updated",
+                        detail=Detail(name=insight_name, short_id=insight.short_id, changes=changes),
+                    )
+                )
+
+        if to_update:
+            with transaction.atomic():
+                # `query_metadata` is derived from the query's entities, which this toggle doesn't touch, so it
+                # stays valid even though bulk_update skips the regeneration in `Insight.save`.
+                Insight.objects.bulk_update(
+                    to_update,
+                    ["query", "filters", "last_modified_at", "last_modified_by"],
+                )
+                bulk_log_activity(activity_log_entries)
+
+        return counts
 
     @extend_schema(
         operation_id="insights_all_activity_retrieve",

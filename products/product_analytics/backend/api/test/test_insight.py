@@ -5299,3 +5299,84 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self.assertFalse(Insight.objects_including_soft_deleted.get(id=insight.id).deleted)
         # The insight comes back, but its tile on a dashboard the user can only view stays hidden.
         self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
+
+
+class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def _create_query_insight(self, *, name: str = "Trend", filter_test_accounts: bool | None = None) -> Insight:
+        source: dict[str, Any] = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
+        if filter_test_accounts is not None:
+            source["filterTestAccounts"] = filter_test_accounts
+        return Insight.objects.create(
+            team=self.team,
+            name=name,
+            saved=True,
+            created_by=self.user,
+            query={"kind": "InsightVizNode", "source": source},
+        )
+
+    def _reloaded_source(self, insight: Insight) -> dict[str, Any]:
+        insight.refresh_from_db()
+        assert insight.query is not None
+        return insight.query["source"]
+
+    def _bulk_set(self, enabled: bool) -> Any:
+        return self.client.post(
+            f"/api/environments/{self.team.id}/insights/bulk_set_test_account_filter/",
+            {"enabled": enabled},
+            format="json",
+        )
+
+    @parameterized.expand([("turn on", True), ("turn off", False)])
+    def test_sets_the_filter_on_every_query_insight(self, _name: str, enabled: bool) -> None:
+        needs_change = self._create_query_insight(filter_test_accounts=not enabled)
+        already_set = self._create_query_insight(name="Already set", filter_test_accounts=enabled)
+
+        response = self._bulk_set(enabled)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), {"updated": 1, "unchanged": 1, "unsupported": 0, "skipped": 0})
+        self.assertEqual(self._reloaded_source(needs_change)["filterTestAccounts"], enabled)
+        self.assertEqual(self._reloaded_source(already_set)["filterTestAccounts"], enabled)
+
+    def test_treats_a_missing_filter_as_off(self) -> None:
+        insight = self._create_query_insight()
+
+        self.assertEqual(self._bulk_set(False).json()["unchanged"], 1)
+        self.assertEqual(self._bulk_set(True).json()["updated"], 1)
+
+        self.assertTrue(self._reloaded_source(insight)["filterTestAccounts"])
+
+    def test_leaves_sql_insights_alone(self) -> None:
+        sql_insight = Insight.objects.create(
+            team=self.team,
+            name="SQL",
+            saved=True,
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
+        )
+
+        response = self._bulk_set(True)
+
+        self.assertEqual(response.json(), {"updated": 0, "unchanged": 0, "unsupported": 1, "skipped": 0})
+        self.assertNotIn("filterTestAccounts", self._reloaded_source(sql_insight))
+
+    def test_sets_the_legacy_filter_on_insights_without_a_query(self) -> None:
+        legacy = Insight.objects.create(
+            team=self.team, name="Legacy", saved=True, filters={"insight": "TRENDS", "events": [{"id": "$pageview"}]}
+        )
+
+        response = self._bulk_set(True)
+
+        self.assertEqual(response.json()["updated"], 1)
+        legacy.refresh_from_db()
+        self.assertTrue(legacy.filters["filter_test_accounts"])
+
+    def test_records_the_change_in_the_activity_log(self) -> None:
+        insight = self._create_query_insight()
+
+        self._bulk_set(True)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/insights/{insight.id}/activity/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        activities = response.json()["results"]
+        self.assertEqual(activities[0]["activity"], "updated")
+        self.assertEqual([change["field"] for change in activities[0]["detail"]["changes"]], ["query"])
