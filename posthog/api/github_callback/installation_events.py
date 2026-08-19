@@ -56,12 +56,16 @@ def handle_installation_event(payload: dict) -> HttpResponse:
 
     team_deleted, _ = Integration.objects.filter(kind="github", integration_id=installation_id).delete()
     user_deleted, _ = UserIntegration.objects.filter(kind="github", integration_id=installation_id).delete()
+    # Approved install requests referencing the installation must go too, or the
+    # desktop keeps deriving an "approved, now connect" state from a dead install.
+    requests_deleted, _ = GitHubInstallRequest.objects.filter(installation_id=installation_id).delete()
 
     logger.info(
         "github_installation_webhook_uninstalled",
         installation_id=installation_id,
         team_integrations_deleted=team_deleted,
         user_integrations_deleted=user_deleted,
+        install_requests_deleted=requests_deleted,
     )
 
     return HttpResponse(status=200)
