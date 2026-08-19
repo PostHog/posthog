@@ -1,4 +1,3 @@
-import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
@@ -26,7 +25,6 @@ import {
     mergeSuccess,
 } from './person-merge-types'
 import { extractEventOps } from './person-update'
-import { mergePayloadFingerprint } from './person-uuid'
 import {
     MergeFoldAbortReason,
     MergePersonsRequest,
@@ -244,64 +242,12 @@ export class PersonMergeService {
             [{ distinctId: otherPersonDistinctId, eventUuid: this.context.event.uuid }],
             timestamp
         )
-        // The store owns the whole merge; retryable conflicts re-enter
-        // here with fresh state. The Postgres merge surfaces them as
-        // throws; the saga answers skipped_conflict — re-classified fresh
-        // for inline conflicts, but RECORDED terminally when the saga
-        // itself aborted on a held person. A recorded conflict replays
-        // forever under its op id, so each retry after a conflict salts
-        // the op id and runs as a fresh op. That cannot double-merge: a
-        // conflict verdict proves the aborted op destroyed nothing (aborts
-        // happen strictly before the flip), and a fresh op against an
-        // already-merged world settles as noop_same_person.
-        let conflictRetries = 0
-        let payloadSalted = false
-        const result = await promiseRetry(async () => {
-            // Two salts, two problems. A conflict salt counts attempts:
-            // conflicts clear with time, so a fresh op per retry gets a real
-            // second look. A FAILED_PRECONDITION salt is the payload
-            // fingerprint: the recorded op refuses this request shape, and
-            // payloads drift across deliveries (GeoIP refreshes,
-            // transformation stamps) — so the salt must be stable within a
-            // delivery (its retries attach to what the salted op recorded)
-            // yet different for a drifted delivery (a fresh op that settles
-            // noop_same_person when the recorded merge committed). A
-            // counter restarts every delivery and wedges after a few
-            // drifted redeliveries exhaust its reachable ids.
-            const baseOpId = payloadSalted
-                ? `${request.opId}#fp${mergePayloadFingerprint(
-                      request.eventOps.set,
-                      request.eventOps.setOnce,
-                      request.createdAtMs
-                  )}`
-                : request.opId
-            let attempt
-            try {
-                attempt = await this.context.personStore.mergePersons(
-                    conflictRetries === 0
-                        ? { ...request, opId: baseOpId }
-                        : { ...request, opId: `${baseOpId}#conflict${conflictRetries}` }
-                )
-            } catch (error) {
-                if (
-                    error instanceof PersonMergeCallFailedError &&
-                    error.failure instanceof ConnectError &&
-                    error.failure.code === Code.FailedPrecondition
-                ) {
-                    payloadSalted = true
-                }
-                throw error
-            }
-            const attempted = attempt.results.find((source) => source.sourceDistinctId === otherPersonDistinctId)
-            if (attempted?.outcome === 'skipped_conflict') {
-                conflictRetries += 1
-                throw new PersonClaimedByLifecycleOpError(
-                    'merge saga: a live lifecycle operation holds a person in this merge',
-                    this.context.team.id
-                )
-            }
-            return attempt
-        }, 'merge_distinct_ids')
+        // The store owns the whole merge, its own record-escape retries
+        // included: retryable conflicts surface here as throws — the
+        // Postgres merge throws them directly, the personhog store throws
+        // only after its internal salted re-attempts exhaust — and each
+        // re-entry runs against fresh state.
+        const result = await promiseRetry(() => this.context.personStore.mergePersons(request), 'merge_distinct_ids')
         return this.mapSingleSourceResult(result, otherPersonDistinctId, mergeIntoDistinctId)
     }
 

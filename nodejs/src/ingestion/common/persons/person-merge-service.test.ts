@@ -1,4 +1,3 @@
-import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
@@ -185,70 +184,17 @@ describe('PersonMergeService store-owned merges', () => {
         expect(warned).toContain('cannot_merge_with_illegal_distinct_id')
     })
 
-    it('a FAILED_PRECONDITION call failure salts the retry op id', async () => {
-        // A recorded op refuses a drifted redelivery forever under one op
-        // id (payloads legitimately drift — GeoIP refreshes, transformation
-        // stamps), so the retry must run as a fresh op, which settles as a
-        // no-op when the recorded merge committed.
-        const opIds: string[] = []
-        store.mergePersons.mockImplementation((request: { opId: string }) => {
-            opIds.push(request.opId)
-            if (opIds.length === 1) {
-                return Promise.reject(
-                    new PersonMergeCallFailedError(
-                        'personhog merge call failed with no verdict: op_id was already used',
-                        new ConnectError('op_id was already used for a different request', Code.FailedPrecondition)
-                    )
-                )
-            }
-            return Promise.resolve(result('merged'))
-        })
-        const service = makeService()
-
-        const mergeResult = await service.merge('anon-1', 'd1', 1, timestamp)
-
-        expect(mergeResult.success).toBe(true)
-        expect(opIds).toHaveLength(2)
-        expect(opIds[1]).not.toBe(opIds[0])
-        expect(opIds[1]).toContain(opIds[0])
-        // The salt is the payload fingerprint, not an attempt counter: a
-        // counter restarts every delivery, so a few payload-drifting
-        // redeliveries exhaust its reachable op ids and the merge wedges
-        // behind recorded mismatches forever. The fingerprint is stable
-        // within a delivery and fresh for a drifted one.
-        expect(opIds[1]).toMatch(/#fp[0-9a-f]{8}$/)
-    })
-
-    it('a conflict gets the full retry budget before surfacing as the claim error', async () => {
+    it('a returned conflict verdict surfaces as the claim error without a retry', async () => {
+        // Both backends settle or throw conflicts themselves — the Postgres
+        // merge throws, the personhog store retries internally with salted
+        // op ids — so a returned conflict is contract-breaking input the
+        // backstop must refuse to ack as a merge.
         store.mergePersons.mockResolvedValue(result('skipped_conflict'))
         const service = makeService()
         await expect(service.merge('anon-1', 'd1', 1, timestamp)).rejects.toBeInstanceOf(
             PersonClaimedByLifecycleOpError
         )
-        expect(store.mergePersons).toHaveBeenCalledTimes(3)
-        // A saga-aborted conflict is recorded terminally and replays under
-        // its op id even after the conflicting op cleared, so every retry
-        // after a conflict must present a fresh, salted op id to get a real
-        // second look. Safe: a conflict verdict proves nothing was
-        // destroyed, so a fresh op cannot double-merge.
-        const opIds = store.mergePersons.mock.calls.map(([request]: any[]) => request.opId)
-        expect(new Set(opIds).size).toBe(3)
-        expect(opIds[1]).toContain(opIds[0])
-    })
-
-    it('a conflict that clears on a salted retry still maps the verdict to its source', async () => {
-        store.mergePersons.mockResolvedValueOnce(result('skipped_conflict')).mockResolvedValueOnce(result('merged'))
-        const service = makeService()
-        const mergeResult = await service.merge('anon-1', 'd1', 1, timestamp)
-        expect(mergeResult.success && mergeResult.person?.version).toBe(5)
-        expect(store.mergePersons.mock.calls[1][0].opId).not.toBe(store.mergePersons.mock.calls[0][0].opId)
-    })
-
-    it('a conflict that clears on retry merges normally', async () => {
-        store.mergePersons.mockResolvedValueOnce(result('skipped_conflict')).mockResolvedValueOnce(result('merged'))
-        const service = makeService()
-        const mergeResult = await service.merge('anon-1', 'd1', 1, timestamp)
-        expect(mergeResult.success && mergeResult.person?.version).toBe(5)
+        expect(store.mergePersons).toHaveBeenCalledTimes(1)
     })
 
     it('an over-limit source returns the limit error result for the merge-mode policy', async () => {
