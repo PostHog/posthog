@@ -151,11 +151,14 @@ export function GitHubConnectPanel() {
       timedOut,
       errorCode: connectError?.code,
     };
-    // Any terminal outcome ends the in-flight attempt, even one the dedupe below
-    // decides not to report again.
-    const flowType = inFlightConnectRef.current?.flowType ?? "user_new";
-    inFlightConnectRef.current = null;
     const fingerprint = buildConnectFailureFingerprint(failureInputs);
+    const flowType = inFlightConnectRef.current?.flowType ?? "user_new";
+    // Clear the marker only on a terminal outcome — even a deduped one. A
+    // non-terminal re-run (a retry moving error/timeout back to connecting)
+    // must leave it intact so a later unmount still records the abandonment.
+    if (fingerprint !== null) {
+      inFlightConnectRef.current = null;
+    }
     if (!connectService.shouldReportFailure(fingerprint)) return;
     if (isPendingApproval) {
       track(ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN, {
