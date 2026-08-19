@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from django.db import migrations
 
 BATCH_SIZE = 1000
@@ -12,12 +14,20 @@ def remove_deleted_experiment_file_system_entries(apps, schema_editor):
     FileSystem = apps.get_model("posthog", "FileSystem")
     FileSystemShortcut = apps.get_model("posthog", "FileSystemShortcut")
 
-    deleted_ids = list(Experiment.objects.filter(deleted=True).values_list("id", flat=True).order_by("id"))
+    # Every index on both tables leads with team_id, so a filter of only (type, ref) scans the whole
+    # table. Bucket refs by team up front and include team_id in each delete so it becomes an index
+    # range read instead.
+    refs_by_team: dict[int, list[str]] = defaultdict(list)
+    for team_id, experiment_id in (
+        Experiment.objects.filter(deleted=True).values_list("team_id", "id").order_by("team_id", "id").iterator()
+    ):
+        refs_by_team[team_id].append(str(experiment_id))
 
-    for start in range(0, len(deleted_ids), BATCH_SIZE):
-        refs = [str(experiment_id) for experiment_id in deleted_ids[start : start + BATCH_SIZE]]
-        FileSystem.objects.filter(type="experiment", ref__in=refs).delete()
-        FileSystemShortcut.objects.filter(type="experiment", ref__in=refs).delete()
+    for team_id, refs in refs_by_team.items():
+        for start in range(0, len(refs), BATCH_SIZE):
+            batch = refs[start : start + BATCH_SIZE]
+            FileSystem.objects.filter(team_id=team_id, type="experiment", ref__in=batch).delete()
+            FileSystemShortcut.objects.filter(team_id=team_id, type="experiment", ref__in=batch).delete()
 
 
 class Migration(migrations.Migration):
