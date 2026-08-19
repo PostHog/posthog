@@ -301,7 +301,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,
             },
-            should_delete=self.deleted,
+            should_delete=bool(self.deleted),
         )
 
 
