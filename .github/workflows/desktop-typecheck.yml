@@ -117,6 +117,12 @@ jobs:
             - name: Run type check
               run: pnpm run typecheck
 
+            - name: Check workspace dependencies
+              # Advisory while the existing findings are triaged. Older PR branches
+              # may not have the Knip script yet.
+              continue-on-error: true
+              run: pnpm run --if-present knip
+
     # Collation job for the required status check; must be registered as the
     # required check instead of the individual jobs.
     desktop-typecheck-pass:
