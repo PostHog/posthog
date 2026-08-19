@@ -78,6 +78,8 @@ from products.tasks.backend.models import (
     TaskPin,
     TaskRun,
     TaskSession,
+    TaskThreadMessage,
+    TaskThreadMessageMention,
 )
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_MAX_SIZE_BYTES,
@@ -4295,6 +4297,72 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_filter_by_pr_ci_rejects_unknown_value(self, param):
         response = self.client.get(f"/api/projects/@current/tasks/?{param}=sideways")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_filter_by_pinned_returns_only_own_pins(self):
+        other_user = User.objects.create_user(email="pinner@example.com", first_name="Pinner", password="password")
+        self.organization.members.add(other_user)
+
+        mine = self.create_task("My pinned task")
+        TaskPin.objects.create(user=self.user, task=mine)
+
+        theirs = self.create_task("Their pinned task")
+        TaskPin.objects.create(user=other_user, task=theirs)
+
+        self.create_task("Unpinned task")
+
+        response = self.client.get("/api/projects/@current/tasks/?pinned=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({t["id"] for t in response.json()["results"]}, {str(mine.id)})
+
+    def test_filter_by_commented_by_counts_human_comments_only(self):
+        commented = self.create_task("Commented task")
+        TaskThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team, task=commented, author=self.user, content="looks good"
+        )
+
+        agent_only = self.create_task("Agent-comment task")
+        TaskThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=agent_only,
+            author=self.user,
+            author_kind=TaskThreadMessage.AuthorKind.AGENT,
+            content="turn complete",
+        )
+
+        self.create_task("Silent task")
+
+        response = self.client.get(f"/api/projects/@current/tasks/?commented_by={self.user.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({t["id"] for t in response.json()["results"]}, {str(commented.id)})
+
+    def test_filter_by_mentions(self):
+        mentioned = self.create_task("Mentioned task")
+        message = TaskThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team, task=mentioned, author=self.user, content="cc @me"
+        )
+        TaskThreadMessageMention.objects.for_team(self.team.id).create(
+            team=self.team, message=message, task=mentioned, mentioned_user=self.user
+        )
+
+        # A legacy turn_complete mention row must not surface the task.
+        legacy = self.create_task("Legacy mention task")
+        legacy_message = TaskThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=legacy,
+            author=self.user,
+            author_kind=TaskThreadMessage.AuthorKind.AGENT,
+            event="turn_complete",
+            content="done",
+        )
+        TaskThreadMessageMention.objects.for_team(self.team.id).create(
+            team=self.team, message=legacy_message, task=legacy, mentioned_user=self.user
+        )
+
+        self.create_task("Unmentioned task")
+
+        response = self.client.get(f"/api/projects/@current/tasks/?mentions={self.user.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({t["id"] for t in response.json()["results"]}, {str(mentioned.id)})
 
     def test_filter_by_pr_state_uses_latest_run_not_any_run(self):
         """A task whose latest run has no PR state must not match an older run's state."""

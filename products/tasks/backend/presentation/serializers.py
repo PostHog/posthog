@@ -1529,6 +1529,18 @@ class TaskListQuerySerializer(serializers.Serializer):
             "observed from GitHub. 'none' means the PR has no checks."
         ),
     )
+    pinned = serializers.BooleanField(
+        required=False,
+        help_text="With true, only tasks the requesting user has pinned.",
+    )
+    commented_by = serializers.IntegerField(
+        required=False,
+        help_text="Filter to tasks carrying a thread comment written by this user ID.",
+    )
+    mentions = serializers.IntegerField(
+        required=False,
+        help_text="Filter to tasks whose thread mentions this user ID.",
+    )
     internal = serializers.ChoiceField(
         required=False,
         choices=["true", "false", "all"],

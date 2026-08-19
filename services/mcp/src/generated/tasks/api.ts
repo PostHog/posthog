@@ -882,6 +882,10 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.\n\n\* `passing` - passing\n\* `failing` - failing\n\* `pending` - pending\n\* `none` - none"
         ),
+    commented_by: zod
+        .number()
+        .optional()
+        .describe('Filter to tasks carrying a thread comment written by this user ID.'),
     created_by: zod.number().optional().describe('Filter by creator user ID'),
     internal: zod
         .enum(['true', 'false', 'all'])
@@ -895,6 +899,7 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         .max(tasksListQueryLimitMax)
         .default(tasksListQueryLimitDefault)
         .describe('Number of results to return per page.'),
+    mentions: zod.number().optional().describe('Filter to tasks whose thread mentions this user ID.'),
     offset: zod
         .number()
         .min(tasksListQueryOffsetMin)
@@ -908,6 +913,7 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         ),
     organization: zod.string().min(1).optional().describe('Filter by repository organization'),
     origin_product: zod.string().min(1).optional().describe('Filter by origin product'),
+    pinned: zod.boolean().optional().describe('With true, only tasks the requesting user has pinned.'),
     pr_state: zod
         .enum(['open', 'draft', 'merged', 'closed'])
         .optional()
