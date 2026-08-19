@@ -66,6 +66,15 @@ class CheckTypeSpec(ABC):
         """The second subject this check needs resolved before it can compile, if any."""
         return None
 
+    def referenced_table_names(self, config: CheckConfig) -> list[str]:
+        """Warehouse names this check reads directly, besides its subject and related subject.
+
+        Only ``custom_sql`` needs this -- its query names arbitrary tables. Every structured type
+        reaches exactly its subject plus, via ``related_subject_ref``, one other, so the default is
+        empty. Used to authorize every subject a check reads, since the worker executes with team
+        scope only."""
+        return []
+
     @abstractmethod
     def build(
         self,

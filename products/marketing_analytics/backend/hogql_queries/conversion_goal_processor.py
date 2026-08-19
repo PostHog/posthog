@@ -99,9 +99,12 @@ TRACKED_FIELDS: list[TrackedField] = [
     TrackedField("content", "utm_content", "utm_content_name"),
     TrackedField("term", "utm_term", "utm_term_name"),
     TrackedField("referring_domain", "$referring_domain", None, "$direct"),
-    TrackedField("gclid", "$gclid"),
-    TrackedField("fbclid", "$fbclid"),
-    TrackedField("gad_source", "$gad_source"),
+    # Unprefixed: these are the names the SDK writes on the event (see CAMPAIGN_PROPERTIES
+    # in posthog/taxonomy/taxonomy.py). The `$initial_*` forms channel_type reads are
+    # person-scoped copies derived from these, and `$gclid` exists nowhere at all.
+    TrackedField("gclid", "gclid"),
+    TrackedField("fbclid", "fbclid"),
+    TrackedField("gad_source", "gad_source"),
 ]
 
 
