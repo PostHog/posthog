@@ -4,7 +4,7 @@ import { ComponentType, JSX, useEffect, useRef } from 'react'
 import { captureInboxReportsImpressed, captureInboxViewed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
-import { reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
+import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
 import { InboxFlatListTabKey, SignalReport } from '../types'
 import { DismissalReasonValue } from '../utils/dismissalReasons'
 import { CardSkeleton } from './cards/CardSkeleton'
@@ -55,22 +55,51 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     const listVisible = !selectedReportId && !selectedScoutSkillName && !isScratchpadOpen && !isFindingsOpen
     const sentinelRef = useRef<HTMLDivElement>(null)
 
-    // Fire `Inbox viewed` once per tab mount, the first time its list settles while visible.
+    // The Pull requests / Reports badge counts go on every `Inbox viewed`, whatever tab is open: the
+    // active tab's `total_count` alone says nothing about a user who lands on Pull requests and has
+    // 200 reports waiting. These share the tab bar's keyed instances, so no extra requests.
+    const { count: pullsCount, countLoading: pullsCountLoading } = useValues(
+        reportListLogic({ tabKey: 'pulls', listParams: INBOX_FLAT_TAB_LIST_PARAMS.pulls })
+    )
+    const { count: reportsCount, countLoading: reportsCountLoading } = useValues(
+        reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports })
+    )
+    // A badge count is settled once loaded, or once its request failed (count stays null, not loading).
+    const badgeCountsSettled =
+        (pullsCount !== null || !pullsCountLoading) && (reportsCount !== null || !reportsCountLoading)
+
+    // Fire `Inbox viewed` once per tab mount, the first time its list and the badge counts settle
+    // while visible.
     const viewedFiredRef = useRef(false)
     useEffect(() => {
-        if (listVisible && isLoaded && count !== null && !viewedFiredRef.current) {
+        if (listVisible && isLoaded && count !== null && badgeCountsSettled && !viewedFiredRef.current) {
             viewedFiredRef.current = true
             captureInboxViewed({
                 tab: tabKey,
                 reports,
                 totalCount: count,
+                pullsCount,
+                reportsCount,
                 hasActiveFilters,
                 sourceProductFilter,
                 priorityFilter,
                 scope,
             })
         }
-    }, [listVisible, isLoaded, count, reports, tabKey, hasActiveFilters, sourceProductFilter, priorityFilter, scope])
+    }, [
+        listVisible,
+        isLoaded,
+        count,
+        badgeCountsSettled,
+        pullsCount,
+        reportsCount,
+        reports,
+        tabKey,
+        hasActiveFilters,
+        sourceProductFilter,
+        priorityFilter,
+        scope,
+    ])
 
     // Impression log for ranking-model training: record each report the first time it appears in
     // the visible list (initial page, pagination, refresh), with its rank at that moment. Deduped

@@ -50,12 +50,34 @@ describe('inboxAnalytics', () => {
             tab: 'reports',
             reports: [],
             totalCount: 0,
+            pullsCount: 3,
+            reportsCount: 212,
             hasActiveFilters: false,
             sourceProductFilter: [],
             priorityFilter: [],
             scope: 'for-you',
         })
         expect(lastCapture(INBOX_EVENTS.VIEWED)?.inbox_client).toBe('cloud')
+    })
+
+    it('carries the tab badge counts regardless of the active tab', () => {
+        captureInboxViewed({
+            tab: 'pulls',
+            reports: [],
+            totalCount: 0,
+            pullsCount: 0,
+            reportsCount: 212,
+            hasActiveFilters: false,
+            sourceProductFilter: [],
+            priorityFilter: [],
+            scope: 'for-you',
+        })
+        expect(lastCapture(INBOX_EVENTS.VIEWED)).toMatchObject({
+            tab: 'pulls',
+            total_count: 0,
+            pulls_count: 0,
+            reports_count: 212,
+        })
     })
 
     it('breaks the visible reports down by priority and actionability', () => {
@@ -67,6 +89,8 @@ describe('inboxAnalytics', () => {
                 makeReport({ id: 'c', priority: null, actionability: null }),
             ],
             totalCount: 3,
+            pullsCount: 1,
+            reportsCount: 3,
             hasActiveFilters: true,
             sourceProductFilter: ['error_tracking'],
             priorityFilter: ['P0'],
