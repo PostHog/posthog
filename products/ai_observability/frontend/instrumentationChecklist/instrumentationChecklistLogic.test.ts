@@ -201,6 +201,16 @@ describe('instrumentationChecklistLogic', () => {
             'collecting',
         ],
         [
+            'every check that was not dismissed is below its volume floor',
+            [
+                InstrumentationCheckStatusEnumApi.Dismissed,
+                InstrumentationCheckStatusEnumApi.Pending,
+                InstrumentationCheckStatusEnumApi.Pending,
+                InstrumentationCheckStatusEnumApi.Pending,
+            ],
+            'collecting',
+        ],
+        [
             'only some checks are below their volume floor',
             [
                 InstrumentationCheckStatusEnumApi.Ok,

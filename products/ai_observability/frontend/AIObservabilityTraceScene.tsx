@@ -1231,7 +1231,7 @@ function TraceSidebar({
                         showBillingInfo={showBillingInfo}
                     />
                 </ul>
-                <TraceStructureNote />
+                <TraceStructureNote events={trace.events} />
             </div>
         </aside>
     )

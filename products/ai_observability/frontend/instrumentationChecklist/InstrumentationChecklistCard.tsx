@@ -138,7 +138,7 @@ export function InstrumentationChecklistCard(): JSX.Element | null {
                                         <span className="text-danger text-xs">Could not refresh the checklist.</span>
                                     ) : (
                                         <span className="text-muted text-xs">
-                                            {windowDays !== null ? `Checked over the last ${windowDays} days.` : null}
+                                            Checked over the last {windowDays} days.
                                         </span>
                                     )}
                                     <LemonButton

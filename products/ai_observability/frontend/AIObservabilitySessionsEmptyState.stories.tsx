@@ -23,8 +23,8 @@ function checklistWith(status: InstrumentationCheckStatusEnumApi): Instrumentati
                     'No traces include $ai_session_id. If your product has multi-turn conversations, setting it ' +
                     'lets us group them into sessions. Workloads that are complete in one trace, like batch jobs ' +
                     'or one-shot generation, do not need it.',
-                docs_url: 'https://posthog.com/docs/ai-observability/installation',
-                stats: { generations: 1284, generations_with_session: 0 },
+                docs_url: 'https://posthog.com/docs/ai-observability/sessions',
+                stats: { generations: 1284, events_with_session: 0 },
             },
         ],
     }

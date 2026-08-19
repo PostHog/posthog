@@ -12,40 +12,46 @@ import {
 } from '../generated/api.schemas'
 import { InstrumentationChecklistCard } from './InstrumentationChecklistCard'
 
-const DOCS_URL = 'https://posthog.com/docs/ai-observability/installation'
+// Every title, detail and docs URL below is copied from the grader that produces them,
+// products/ai_observability/backend/instrumentation_checklist/grading.py. These stories are the
+// card's visual-regression baseline, so copy invented here would get approved as the way the card
+// looks even though the API never sends it.
+const INSTALLATION_DOCS_URL = 'https://posthog.com/docs/ai-observability/installation'
+const SESSIONS_DOCS_URL = 'https://posthog.com/docs/ai-observability/sessions'
+const TOOLS_DOCS_URL = 'https://posthog.com/docs/ai-observability/tools'
 
 const SESSIONS: Record<InstrumentationCheckStatusEnumApi, InstrumentationCheckApi> = {
     ok: {
         key: AIObservabilityInstrumentationCheckEnumApi.Sessions,
         status: InstrumentationCheckStatusEnumApi.Ok,
         title: 'Sessions',
-        detail: '842 of 1284 generations carry $ai_session_id, so traces group into sessions.',
-        docs_url: DOCS_URL,
-        stats: { generations: 1284, generations_with_session: 842 },
+        detail: 'Traces are grouping into sessions.',
+        docs_url: SESSIONS_DOCS_URL,
+        stats: { generations: 1284, events_with_session: 842 },
     },
     warning: {
         key: AIObservabilityInstrumentationCheckEnumApi.Sessions,
         status: InstrumentationCheckStatusEnumApi.Warning,
         title: 'Sessions',
         detail: 'No traces include $ai_session_id. If your product has multi-turn conversations, setting it lets us group them into sessions. Workloads that are complete in one trace, like batch jobs or one-shot generation, do not need it.',
-        docs_url: DOCS_URL,
-        stats: { generations: 1284, generations_with_session: 0 },
+        docs_url: SESSIONS_DOCS_URL,
+        stats: { generations: 1284, events_with_session: 0 },
     },
     pending: {
         key: AIObservabilityInstrumentationCheckEnumApi.Sessions,
         status: InstrumentationCheckStatusEnumApi.Pending,
         title: 'Sessions',
         detail: 'Still collecting data. This check runs once there are 20 generations.',
-        docs_url: DOCS_URL,
-        stats: { generations: 4, generations_with_session: 0 },
+        docs_url: SESSIONS_DOCS_URL,
+        stats: { generations: 4, events_with_session: 0 },
     },
     dismissed: {
         key: AIObservabilityInstrumentationCheckEnumApi.Sessions,
         status: InstrumentationCheckStatusEnumApi.Dismissed,
         title: 'Sessions',
         detail: 'No traces include $ai_session_id. If your product has multi-turn conversations, setting it lets us group them into sessions. Workloads that are complete in one trace, like batch jobs or one-shot generation, do not need it.',
-        docs_url: DOCS_URL,
-        stats: { generations: 1284, generations_with_session: 0 },
+        docs_url: SESSIONS_DOCS_URL,
+        stats: { generations: 1284, events_with_session: 0 },
     },
 }
 
@@ -54,16 +60,16 @@ const TOOL_CALLS: Record<InstrumentationCheckStatusEnumApi, InstrumentationCheck
         key: AIObservabilityInstrumentationCheckEnumApi.ToolCalls,
         status: InstrumentationCheckStatusEnumApi.Ok,
         title: 'Tool calls',
-        detail: 'Tool calls are being recorded on 310 of 1284 generations.',
-        docs_url: DOCS_URL,
-        stats: { generations: 1284, generations_with_tool_calls: 310 },
+        detail: 'Tool calls are being recorded.',
+        docs_url: TOOLS_DOCS_URL,
+        stats: { generations: 1284, generations_with_tool_calls: 310, generations_with_tools_declared: 640 },
     },
     warning: {
         key: AIObservabilityInstrumentationCheckEnumApi.ToolCalls,
         status: InstrumentationCheckStatusEnumApi.Warning,
         title: 'Tool calls',
         detail: 'No tool calls recorded, but you are sending tool definitions. If your agent does call tools, check that your SDK version reports them.',
-        docs_url: DOCS_URL,
+        docs_url: TOOLS_DOCS_URL,
         stats: { generations: 1284, generations_with_tool_calls: 0, generations_with_tools_declared: 640 },
     },
     pending: {
@@ -71,16 +77,16 @@ const TOOL_CALLS: Record<InstrumentationCheckStatusEnumApi, InstrumentationCheck
         status: InstrumentationCheckStatusEnumApi.Pending,
         title: 'Tool calls',
         detail: 'Still collecting data. This check runs once there are 20 generations.',
-        docs_url: DOCS_URL,
-        stats: { generations: 4, generations_with_tool_calls: 0 },
+        docs_url: TOOLS_DOCS_URL,
+        stats: { generations: 4, generations_with_tool_calls: 0, generations_with_tools_declared: 0 },
     },
     dismissed: {
         key: AIObservabilityInstrumentationCheckEnumApi.ToolCalls,
         status: InstrumentationCheckStatusEnumApi.Dismissed,
         title: 'Tool calls',
         detail: 'No tool calls recorded. If your app uses tool or function calling, capture it to see which tools run and how often.',
-        docs_url: DOCS_URL,
-        stats: { generations: 1284, generations_with_tool_calls: 0 },
+        docs_url: TOOLS_DOCS_URL,
+        stats: { generations: 1284, generations_with_tool_calls: 0, generations_with_tools_declared: 0 },
     },
 }
 
@@ -90,32 +96,32 @@ const USER_IDENTITY: Record<InstrumentationCheckStatusEnumApi, InstrumentationCh
         status: InstrumentationCheckStatusEnumApi.Ok,
         title: 'User identity',
         detail: 'AI events are attributed to identified users.',
-        docs_url: DOCS_URL,
-        stats: { generations: 1284, generations_identified: 1284 },
+        docs_url: INSTALLATION_DOCS_URL,
+        stats: { sdk_generations: 1284, sdk_generations_identified: 1284 },
     },
     warning: {
         key: AIObservabilityInstrumentationCheckEnumApi.UserIdentity,
         status: InstrumentationCheckStatusEnumApi.Warning,
         title: 'User identity',
-        detail: 'Every event uses its trace ID as the distinct ID, so usage and cost cannot be tied to people. Set distinct_id to your own user identifier.',
-        docs_url: DOCS_URL,
-        stats: { generations: 1284, generations_identified: 0 },
+        detail: 'Generations are arriving with their trace ID as the distinct ID, so usage and cost cannot be tied to people. Set distinct_id to your own user identifier.',
+        docs_url: INSTALLATION_DOCS_URL,
+        stats: { sdk_generations: 1284, sdk_generations_identified: 0 },
     },
     pending: {
         key: AIObservabilityInstrumentationCheckEnumApi.UserIdentity,
         status: InstrumentationCheckStatusEnumApi.Pending,
         title: 'User identity',
-        detail: 'Still collecting data. This check runs once there are 20 generations.',
-        docs_url: DOCS_URL,
-        stats: { generations: 4, generations_identified: 0 },
+        detail: 'This check runs once there are 20 generations from a PostHog SDK. Generations sent over OpenTelemetry are not counted, because we cannot tell whether they are identified.',
+        docs_url: INSTALLATION_DOCS_URL,
+        stats: { sdk_generations: 4, sdk_generations_identified: 0 },
     },
     dismissed: {
         key: AIObservabilityInstrumentationCheckEnumApi.UserIdentity,
         status: InstrumentationCheckStatusEnumApi.Dismissed,
         title: 'User identity',
-        detail: 'Every event uses its trace ID as the distinct ID, so usage and cost cannot be tied to people. Set distinct_id to your own user identifier.',
-        docs_url: DOCS_URL,
-        stats: { generations: 1284, generations_identified: 0 },
+        detail: 'Generations are arriving with their trace ID as the distinct ID, so usage and cost cannot be tied to people. Set distinct_id to your own user identifier.',
+        docs_url: INSTALLATION_DOCS_URL,
+        stats: { sdk_generations: 1284, sdk_generations_identified: 0 },
     },
 }
 
@@ -124,8 +130,8 @@ const TRACE_STRUCTURE: Record<InstrumentationCheckStatusEnumApi, Instrumentation
         key: AIObservabilityInstrumentationCheckEnumApi.TraceStructure,
         status: InstrumentationCheckStatusEnumApi.Ok,
         title: 'Trace structure',
-        detail: 'Traces include spans.',
-        docs_url: DOCS_URL,
+        detail: 'Traces show the steps around your LLM calls.',
+        docs_url: INSTALLATION_DOCS_URL,
         stats: { total_events: 1611, spans: 327, events_with_parent: 327 },
     },
     warning: {
@@ -133,7 +139,7 @@ const TRACE_STRUCTURE: Record<InstrumentationCheckStatusEnumApi, Instrumentation
         status: InstrumentationCheckStatusEnumApi.Warning,
         title: 'Trace structure',
         detail: 'Without spans, a trace shows LLM calls but not the retrieval, chains or sub-agent steps around them.',
-        docs_url: DOCS_URL,
+        docs_url: INSTALLATION_DOCS_URL,
         stats: { total_events: 1611, spans: 0, events_with_parent: 0 },
     },
     pending: {
@@ -141,7 +147,7 @@ const TRACE_STRUCTURE: Record<InstrumentationCheckStatusEnumApi, Instrumentation
         status: InstrumentationCheckStatusEnumApi.Pending,
         title: 'Trace structure',
         detail: 'Still collecting data. This check runs once there are 20 AI events.',
-        docs_url: DOCS_URL,
+        docs_url: INSTALLATION_DOCS_URL,
         stats: { total_events: 6, spans: 0, events_with_parent: 0 },
     },
     dismissed: {
@@ -149,7 +155,7 @@ const TRACE_STRUCTURE: Record<InstrumentationCheckStatusEnumApi, Instrumentation
         status: InstrumentationCheckStatusEnumApi.Dismissed,
         title: 'Trace structure',
         detail: 'Without spans, a trace shows LLM calls but not the retrieval, chains or sub-agent steps around them.',
-        docs_url: DOCS_URL,
+        docs_url: INSTALLATION_DOCS_URL,
         stats: { total_events: 1611, spans: 0, events_with_parent: 0 },
     },
 }

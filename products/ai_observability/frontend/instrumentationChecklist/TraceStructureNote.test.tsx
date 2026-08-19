@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { LLMTraceEvent } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -41,6 +42,12 @@ const MODEL_FILTER: AnyPropertyFilter = {
     operator: PropertyOperator.Exact,
     value: ['gpt-4o'],
 }
+
+function traceEvent(event: string, properties: Record<string, unknown> = {}): LLMTraceEvent {
+    return { id: `${event}-1`, event, properties, createdAt: '2026-01-01T00:00:00Z' }
+}
+
+const GENERATIONS_ONLY = [traceEvent('$ai_generation'), traceEvent('$ai_generation')]
 
 function checklistWith(status: InstrumentationCheckStatusEnumApi): InstrumentationChecklistApi {
     return {
@@ -92,11 +99,22 @@ describe('TraceStructureNote', () => {
         sharedLogic.actions.setPropertyFilters([MODEL_FILTER])
         sharedLogic.actions.setDates('-6m', null)
 
-        render(<TraceStructureNote />)
+        render(<TraceStructureNote events={GENERATIONS_ONLY} />)
 
         expect(screen.getByText(NOTE_LABEL)).not.toBeNull()
         expect(screen.getByText(TRACE_STRUCTURE_DETAIL, { exact: false })).not.toBeNull()
         expect(screen.getByText('Learn more').closest('a')?.getAttribute('href')).toBe(DOCS_URL)
+    })
+
+    // The verdict covers 30 days, while a single trace still renders from beyond that window, so a
+    // project that stopped emitting spans can open a trace that visibly has them.
+    it.each([
+        ['a span', [traceEvent('$ai_generation'), traceEvent('$ai_span')]],
+        ['an event nested under a parent', [traceEvent('$ai_generation', { $ai_parent_id: 'trace-1' })]],
+    ])('says nothing about a trace that has %s', (_, events) => {
+        const { container } = render(<TraceStructureNote events={events} />)
+
+        expect(container.innerHTML).toBe('')
     })
 
     it.each([
@@ -108,7 +126,7 @@ describe('TraceStructureNote', () => {
         checklistLogic.actions.loadInstrumentationChecklist()
         await expectLogic(checklistLogic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
 
-        const { container } = render(<TraceStructureNote />)
+        const { container } = render(<TraceStructureNote events={GENERATIONS_ONLY} />)
 
         expect(container.innerHTML).toBe('')
     })

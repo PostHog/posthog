@@ -24,8 +24,9 @@ import {
  *
  * - `hidden`: nothing to say. No checklist has loaded, the flag is off, or the request failed.
  * - `warnings`: at least one check is missing instrumentation.
- * - `collecting`: every check is below its volume floor, so none of them can be judged yet.
- * - `passing`: everything is either fine or dismissed.
+ * - `collecting`: nothing has been graded yet, because every check the team still wants judged is
+ *   below its volume floor.
+ * - `passing`: at least one check graded ok, or every check has been dismissed.
  */
 export type InstrumentationChecklistCardState = 'hidden' | 'warnings' | 'collecting' | 'passing'
 
@@ -194,7 +195,11 @@ export const instrumentationChecklistLogic = kea<instrumentationChecklistLogicTy
                 if (checks.some((check) => check.status === InstrumentationCheckStatusEnumApi.Warning)) {
                     return 'warnings'
                 }
-                if (checks.every((check) => check.status === InstrumentationCheckStatusEnumApi.Pending)) {
+                // A dismissal is the team's judgement, not evidence the project passed anything, so
+                // it must not turn a project whose every other check is still pending into 'passing'.
+                const gradedOk = checks.some((check) => check.status === InstrumentationCheckStatusEnumApi.Ok)
+                const stillPending = checks.some((check) => check.status === InstrumentationCheckStatusEnumApi.Pending)
+                if (!gradedOk && stillPending) {
                     return 'collecting'
                 }
                 return 'passing'
