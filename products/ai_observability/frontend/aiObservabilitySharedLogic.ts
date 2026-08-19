@@ -525,8 +525,14 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     // The verdict only ever looked at the window, so it cannot vouch for a range
                     // starting before it. An unresolvable start ('all', or nothing at all) has no
                     // lower bound, which reaches earlier than any window.
+                    //
+                    // Both sides are anchored to the start of a day, because `dateStringToDayJs`
+                    // already anchors day-and-larger units there. Comparing that against an
+                    // instantaneous `now - windowDays` would put a range of exactly the window's
+                    // length, '-30d' against 30 days, up to a day outside its own window.
                     const rangeStart = dateStringToDayJs(dateFilter.dateFrom)
-                    return rangeStart !== null && !rangeStart.isBefore(dayjs().subtract(windowDays, 'day'))
+                    const windowStart = dayjs().subtract(windowDays, 'day').startOf('day')
+                    return rangeStart !== null && !rangeStart.isBefore(windowStart)
                 }
             },
         ],

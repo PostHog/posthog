@@ -33,7 +33,7 @@ const mockHasRecentAIEvents = hasRecentAIEvents as jest.MockedFunction<typeof ha
 const GENERIC_COPY = 'No sessions yet'
 const INSTRUMENTATION_HEADING = 'Traces are not grouped into sessions'
 const SESSIONS_DETAIL = 'No traces include $ai_session_id.'
-const DOCS_URL = 'https://posthog.com/docs/ai-observability/installation'
+const DOCS_URL = 'https://posthog.com/docs/ai-observability/sessions'
 
 function checklistWith(status: InstrumentationCheckStatusEnumApi): InstrumentationChecklistApi {
     return {
@@ -45,7 +45,7 @@ function checklistWith(status: InstrumentationCheckStatusEnumApi): Instrumentati
                 title: 'Sessions',
                 detail: SESSIONS_DETAIL,
                 docs_url: DOCS_URL,
-                stats: { generations: 100, generations_with_session: 0 },
+                stats: { generations: 100, events_with_session: 0 },
             },
         ],
     }
@@ -101,6 +101,7 @@ describe('AIObservabilitySessionsEmptyState', () => {
     it.each([
         ['the range is the last 24 hours', (): void => sharedLogic.actions.setDates('-24h', null)],
         ['the range is the last 7 days', (): void => sharedLogic.actions.setDates('-7d', null)],
+        ['the range is exactly the checklist window', (): void => sharedLogic.actions.setDates('-30d', null)],
         ['an end date closes the range early', (): void => sharedLogic.actions.setDates('-7d', '-1d')],
     ])('names the missing instrumentation when %s', (_, applyFilter) => {
         applyFilter()
@@ -117,6 +118,10 @@ describe('AIObservabilitySessionsEmptyState', () => {
     it.each([
         ['a property filter is applied', (): void => sharedLogic.actions.setPropertyFilters([MODEL_FILTER])],
         ['test accounts are filtered out', (): void => sharedLogic.actions.setShouldFilterTestAccounts(true)],
+        [
+            'the range starts one day before the checklist window',
+            (): void => sharedLogic.actions.setDates('-31d', null),
+        ],
         ['the range starts before the checklist window', (): void => sharedLogic.actions.setDates('-6m', null)],
         ['the range covers all time', (): void => sharedLogic.actions.setDates('all', null)],
         ['the range has no start at all', (): void => sharedLogic.actions.setDates(null, null)],
