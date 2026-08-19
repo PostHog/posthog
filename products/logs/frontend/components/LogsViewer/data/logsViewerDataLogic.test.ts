@@ -66,6 +66,7 @@ describe('logsViewerDataLogic', () => {
 
         it.each([
             ['new query started', 'exact match for NEW_QUERY_STARTED_ERROR_MESSAGE'],
+            ['unmounting component', 'exact match for UNMOUNTING_ERROR_MESSAGE'],
             ['Fetch is aborted', 'Safari abort message'],
             ['The operation was aborted', 'alternative abort message'],
             ['ABORTED', 'uppercase abort'],
