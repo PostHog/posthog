@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -22,7 +24,7 @@ _COURSE_FANOUT = DependentEndpointConfig(
 )
 
 
-@dataclass
+@frozen
 class CanvasEndpointConfig:
     name: str
     path: str  # relative to /api/v1

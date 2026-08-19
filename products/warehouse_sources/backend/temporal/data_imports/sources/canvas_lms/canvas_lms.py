@@ -1,5 +1,4 @@
 import re
-import dataclasses
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
@@ -7,6 +6,8 @@ from urllib.parse import urlparse
 
 import requests
 from requests import Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.settings import (
     CANVAS_ENDPOINTS,
@@ -43,7 +44,7 @@ class CanvasHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class CanvasLmsResumeConfig:
     # Top-level endpoints (courses, users) resume from the opaque Link-header `next` URL.
     next_url: Optional[str] = None
@@ -134,6 +135,15 @@ def _client_config(domain: str, api_key: str) -> ClientConfig:
         "paginator": CanvasLinkPaginator(domain),
         # A validated host could 3xx to an internal address; refuse to follow redirects (SSRF).
         "allow_redirects": False,
+        # Pins every outgoing request -- including Link-header pagination and resumed fan-out
+        # checkpoint URLs -- to the configured domain's exact scheme/host/port (the base_url host
+        # is implicitly allowed). The `_is_same_host`/paginator checks above only compare hostname,
+        # so this is what actually rejects a same-host scheme downgrade (https->http) or a
+        # different port before the Authorization header goes out (SSRF / credential exfiltration).
+        "allowed_hosts": [],
+        # A source pointed at a customer-controlled host that accepts a connection and then never
+        # responds would otherwise hold an import worker forever; bound every request.
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
 
 
