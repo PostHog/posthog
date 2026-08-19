@@ -1,3 +1,4 @@
+import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
 import { ApiRequestError } from "./fetcher";
 import {
@@ -9,6 +10,58 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it("fetches later task pages before reporting complete results", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    const getTasksPage = vi
+      .spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 2 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 2 });
+
+    await expect(
+      client.getTasksWithStatus(
+        { repository: "posthog/posthog" },
+        { maxPages: 2 },
+      ),
+    ).resolves.toMatchObject({
+      isComplete: true,
+      tasks: [{ id: "task-1" }, { id: "task-2" }],
+    });
+    expect(getTasksPage).toHaveBeenNthCalledWith(1, {
+      limit: 100,
+      offset: 0,
+      repository: "posthog/posthog",
+    });
+    expect(getTasksPage).toHaveBeenNthCalledWith(2, {
+      limit: 100,
+      offset: 1,
+      repository: "posthog/posthog",
+    });
+  });
+
+  it("reports partial task results after reaching the page cap", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    vi.spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 3 });
+
+    await expect(
+      client.getTasksWithStatus(undefined, { maxPages: 2 }),
+    ).resolves.toMatchObject({
+      isComplete: false,
+      tasks: [{ id: "task-1" }, { id: "task-2" }],
+    });
+  });
+
   it.each([
     "user_message",
     "permission_response",
@@ -1342,6 +1395,60 @@ describe("PostHogAPIClient", () => {
       const client = makeClient(fetch);
 
       await expect(client.getSignalReport("abc")).rejects.toThrow("[500]");
+    });
+  });
+
+  describe("clearTaskRunConversation", () => {
+    function makeClient(fetch: ReturnType<typeof vi.fn>) {
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
+      return client;
+    }
+
+    it("surfaces the backend's clean error message", async () => {
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            'Failed request: [409] {"error":"Run is still active; send /clear to its agent instead"}',
+          ),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.clearTaskRunConversation("task-1", "run-1"),
+      ).rejects.toThrow(
+        "Run is still active; send /clear to its agent instead",
+      );
+    });
+
+    it("falls back to a status-coded message on an older backend's generic 404", async () => {
+      // A pre-#76943 backend has no clear_conversation route, so DRF's router
+      // returns its generic {"detail":"Not found."} rather than a message
+      // this endpoint controls. Surfacing that verbatim would read as "Not
+      // found." with no indication a clear was attempted or what to do next.
+      const fetch = vi
+        .fn()
+        .mockRejectedValue(
+          new Error('Failed request: [404] {"detail":"Not found."}'),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.clearTaskRunConversation("task-1", "run-1"),
+      ).rejects.toThrow("Couldn’t clear the conversation. (HTTP 404)");
     });
   });
 

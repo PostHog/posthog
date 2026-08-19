@@ -578,6 +578,8 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         body = response.json()
         assert body["count"] == 3
         assert body["scout_count"] == 2
+        # The quiet run counts as a run; the other team's does not.
+        assert body["run_count"] == 3
         assert body["latest_at"] is not None
 
     def test_summary_counts_report_channel_activity(self) -> None:
@@ -625,6 +627,7 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         body = response.json()
         assert body["count"] == 1
         assert body["scout_count"] == 1
+        assert body["run_count"] == 1
 
 
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):

@@ -1084,10 +1084,22 @@ class SignalReportArtefact(UUIDModel):
         parsed = parse_artefact_content(self.type, content)
         # The `task` FK is the association and is creation-time only; an edit must not let
         # content.task_id drift away from it.
-        if isinstance(parsed, TaskRunArtefact) and str(parsed.task_id) != str(self.task_id):
-            raise ArtefactContentValidationError(
-                "task_run content.task_id must match the artefact's task and cannot be reassigned by editing"
-            )
+        if isinstance(parsed, TaskRunArtefact):
+            if str(parsed.task_id) != str(self.task_id):
+                raise ArtefactContentValidationError(
+                    "task_run content.task_id must match the artefact's task and cannot be reassigned by editing"
+                )
+            # (product, type) is the run's purpose and feeds the per-report task cap, which counts
+            # non-pipeline signals runs; letting an edit relabel a discussion as pipeline work
+            # would free its slot in the count.
+            existing = parse_artefact_content(self.type, self.content)
+            if isinstance(existing, TaskRunArtefact) and (parsed.product, parsed.type) != (
+                existing.product,
+                existing.type,
+            ):
+                raise ArtefactContentValidationError(
+                    "task_run content.product and content.type record what ran and cannot be changed by editing"
+                )
         self.content = parsed.model_dump_json()
         self.save(update_fields=["content", "updated_at"])
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:

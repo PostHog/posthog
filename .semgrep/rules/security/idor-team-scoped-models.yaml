@@ -333,6 +333,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
                               |TaskThreadMessage
@@ -696,6 +697,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskWorkflowDispatch
                         |TaskSession
                         |TaskThreadMessage
                         |TaskThreadMessageMention
@@ -824,6 +826,7 @@ rules:
                               |CIMDVerificationToken
                               |IdentityProviderConfig
                               |LegalDocument
+                              |ManagedWarehouseSourceLifecycle
                               |OrganizationMembership
                               |OrganizationDomain
                               |OrganizationIntegration
@@ -895,6 +898,7 @@ rules:
                         |CIMDVerificationToken
                         |IdentityProviderConfig
                         |LegalDocument
+                        |ManagedWarehouseSourceLifecycle
                         |OrganizationMembership
                         |OrganizationDomain
                         |OrganizationIntegration

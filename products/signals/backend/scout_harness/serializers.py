@@ -497,6 +497,13 @@ class FleetFindingsSummarySerializer(serializers.Serializer):
             "falls outside the cap counts as edited)."
         )
     )
+    run_count = serializers.IntegerField(
+        help_text=(
+            "Number of scout runs created in the window, whether or not they produced output. "
+            "Unlike the report tallies it is not capped, so it is the fleet's activity over the "
+            "same span the output counts describe."
+        )
+    )
     latest_at = serializers.DateTimeField(
         allow_null=True,
         help_text=(

@@ -9,13 +9,13 @@ import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
+import { urls } from 'scenes/urls'
 
 import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
@@ -184,7 +184,6 @@ function SignalSourcesWidget(): JSX.Element {
 function ScoutTroopWidget(): JSX.Element {
     useMountedLogic(scoutFleetLogic)
     const { scoutConfigs, enabledCount } = useValues(scoutFleetLogic)
-    const { openSetupModal } = useActions(agentSetupModalLogic)
     const hasAny = enabledCount > 0
     return (
         <SetupWidgetCard
@@ -195,7 +194,7 @@ function ScoutTroopWidget(): JSX.Element {
             loading={scoutConfigs === null}
             status={hasAny ? `${enabledCount} on patrol` : 'No scouts running'}
             description="Scheduled agents that sweep this project on a cadence and report signals."
-            onClick={() => openSetupModal('scout-troop')}
+            to={urls.inbox('scouts')}
         />
     )
 }
@@ -270,12 +269,6 @@ const SETUP_MODALS: Record<
         description: 'Each source watches for signals, and spins up an agent to look into them.',
         width: 760,
         body: <SignalSourcesPanel />,
-    },
-    'scout-troop': {
-        title: 'Scout troop',
-        description: 'Scheduled agents that sweep this project on a cadence and emit signals to your inbox.',
-        width: 760,
-        body: <ScoutsFleetSection />,
     },
     slack: {
         title: 'Notifications',
