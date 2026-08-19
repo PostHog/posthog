@@ -125,6 +125,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDCSourceAdapter,
     ClickHouseSource,
     Config,
+    ConfigValueError,
     CustomSource,
     CustomSourceConfig,
     DocsFetchError,
@@ -173,7 +174,6 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import ConfigValueError
 
 logger = structlog.get_logger(__name__)
 
