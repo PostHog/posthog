@@ -594,6 +594,12 @@ def test_create_batch_export_with_custom_schema(
             "distinct_id, elements_chain, event, person_id, person_properties, properties, team_id, "
             "timestamp, uuid.",
         ),
+        (
+            "SELECT event, person.created_at FROM events",
+            "Batch exports cannot read these fields: person_created_at. Supported fields are: created_at, "
+            "distinct_id, elements_chain, event, person_id, person_properties, properties, team_id, "
+            "timestamp, uuid.",
+        ),
     ],
 )
 def test_create_batch_export_fails_with_invalid_query(
