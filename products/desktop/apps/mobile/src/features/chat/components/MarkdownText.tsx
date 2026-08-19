@@ -16,7 +16,7 @@ import { PostHogRefChip } from "./PostHogRefChip";
 
 const IMAGE_LINE_PATTERN = /^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/;
 const BARE_POSTHOG_REF_PATTERN =
-  /(https?:\/\/(?:app\.posthog\.com|(?:us|eu)\.posthog\.com|code\.posthog\.com|(?:www\.)?posthog\.com|localhost(?::\d+)?)\/[^\s<>()\]]+|\/(?:insights|project|organization|settings|feature_flags|experiments|dashboard|dashboards|replay|session_replay|recordings|error_tracking|task|inbox|automation)\b[^\s<>()\]]*)/g;
+  /(https?:\/\/(?:app\.posthog\.com|(?:us|eu)\.posthog\.com|code\.posthog\.com|(?:www\.)?posthog\.com|localhost(?::\d+)?)\/[^\s<>()\]]+|\/(?:insights|project|organization|settings|feature_flags|experiments|dashboard|dashboards|replay|session_replay|recordings|error_tracking|task|inbox)\b[^\s<>()\]]*)/g;
 
 interface MarkdownTextProps {
   content: string;
