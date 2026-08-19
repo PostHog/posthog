@@ -1,7 +1,8 @@
-import dataclasses
 from typing import Any, Optional
 
 from requests import PreparedRequest, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
@@ -30,7 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kickscale.
 )
 
 
-@dataclasses.dataclass
+@frozen
 class KickscaleResumeConfig:
     page: int
 

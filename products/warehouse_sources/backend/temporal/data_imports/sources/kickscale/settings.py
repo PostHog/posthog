@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
@@ -17,7 +19,7 @@ DEFAULT_PAGE_SIZE = 100
 INCREMENTAL_LOOKBACK_SECONDS = 14 * 24 * 60 * 60
 
 
-@dataclass
+@frozen
 class KickscaleEndpointConfig:
     name: str
     path: str
