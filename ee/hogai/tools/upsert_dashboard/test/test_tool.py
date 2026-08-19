@@ -136,7 +136,7 @@ class TestUpsertDashboardTool(BaseTest):
         result, _ = await tool._arun_impl(action)
 
         dashboard = await Dashboard.objects.aget(name="URL Dashboard")
-        expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
+        expected_url = f"/dashboard/{dashboard.id}"
         self.assertIn(f"Dashboard URL: {expected_url}", result)
         self.assertNotIn("/dashboards/", result)
 
@@ -159,7 +159,7 @@ class TestUpsertDashboardTool(BaseTest):
 
         result, _ = await tool._arun_impl(action)
 
-        expected_url = f"/project/{self.team.id}/dashboard/{dashboard.id}"
+        expected_url = f"/dashboard/{dashboard.id}"
         self.assertIn(f"Dashboard URL: {expected_url}", result)
         self.assertNotIn("/dashboards/", result)
 
