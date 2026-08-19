@@ -1,10 +1,17 @@
-from django.core.management.base import BaseCommand
+import logging
+from functools import partial
+from typing import Any
+
+from django.core.management.base import BaseCommand, CommandParser
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+
+logger = logging.getLogger(__name__)
 
 # The email step's sender picker persisted this fallback into from.email on every sender pick
 # between Aug 2025 (#35984) and June 2026 (#60438). The value was inert until #83059 made
@@ -13,7 +20,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 PLACEHOLDER_SENDER = "default@example.com"
 
 
-def _strip_placeholder(actions: list | None) -> int:
+def _strip_placeholder(actions: list[Any] | None) -> int:
     stripped = 0
     for action in actions or []:
         if not isinstance(action, dict):
@@ -35,13 +42,13 @@ class Command(BaseCommand):
         "dry-run; pass --live-run to apply."
     )
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", default=None, type=int, help="Limit to a specific team ID")
         parser.add_argument("--live-run", action="store_true", help="Apply changes (default is dry-run)")
 
-    def handle(self, *args, **options):
-        live_run = options.get("live_run", False)
-        team_id = options.get("team_id")
+    def handle(self, *args: Any, **options: Any) -> None:
+        live_run: bool = options.get("live_run", False)
+        team_id: int | None = options.get("team_id")
         mode = "LIVE RUN" if live_run else "DRY RUN"
         self.stdout.write(f"Starting strip_placeholder_sender_overrides ({mode})")
 
@@ -54,6 +61,7 @@ class Command(BaseCommand):
 
         flows_changed = 0
         overrides_stripped = 0
+        flows_failed = 0
         for flow in flows.iterator():
             live_stripped = _strip_placeholder(flow.actions)
             draft_actions = (flow.draft or {}).get("actions") if isinstance(flow.draft, dict) else None
@@ -73,23 +81,50 @@ class Command(BaseCommand):
             # Re-read the row under a lock and strip that value, not the one the scan saw. A
             # customer saving the workflow between the scan and this write would otherwise have
             # their edit overwritten by the stale blob this command is holding - the same lost
-            # write rewrite_email_asset_url and the API save paths guard against.
-            with transaction.atomic():
-                locked = HogFlow.objects.select_for_update().get(pk=flow.pk)
-                live_stripped = _strip_placeholder(locked.actions)
-                locked_draft_actions = (locked.draft or {}).get("actions") if isinstance(locked.draft, dict) else None
-                draft_stripped = _strip_placeholder(locked_draft_actions)
-                if not live_stripped and not draft_stripped:
-                    continue
+            # write rewrite_email_asset_url and the API save paths guard against. One failed row
+            # (a lock timeout, a Redis blip on the reload publish) must not abandon the rest of
+            # the sweep: each row commits on its own and the command is idempotent, so a rerun
+            # recovers the failed ones.
+            try:
+                with transaction.atomic():
+                    locked = HogFlow.objects.select_for_update().get(pk=flow.pk)
+                    live_stripped = _strip_placeholder(locked.actions)
+                    locked_draft_actions = (
+                        (locked.draft or {}).get("actions") if isinstance(locked.draft, dict) else None
+                    )
+                    draft_stripped = _strip_placeholder(locked_draft_actions)
+                    if not live_stripped and not draft_stripped:
+                        continue
 
-                update_fields: dict = {}
-                if live_stripped:
-                    update_fields["actions"] = locked.actions
-                if draft_stripped:
-                    update_fields["draft"] = locked.draft
-                # .update() avoids bumping updated_at / firing save signals for a backfill; workers
-                # cache the live flow config, so a live-actions change needs an explicit reload.
-                HogFlow.objects.filter(pk=locked.pk).update(**update_fields)
+                    update_fields: list[str] = []
+                    if live_stripped:
+                        # updated_at is auto_now, so listing it is enough. Bumping it lets the
+                        # editor's stale-write fence reject a tab opened before the cleanup, which
+                        # still holds the placeholder and would otherwise save it straight back.
+                        update_fields += ["actions", "updated_at"]
+                    if draft_stripped:
+                        locked.draft_updated_at = timezone.now()
+                        update_fields += ["draft", "draft_updated_at"]
+                    locked.save(update_fields=update_fields)
+
+                    # The post_save receiver publishes the worker reload from inside this
+                    # transaction, so a worker can re-read the row before the UPDATE commits and
+                    # cache the old blob for another refresh window. Publishing again on commit is
+                    # what workers actually act on; the duplicate is harmless. Draft-only strips
+                    # publish nothing, matching the receiver that skips them.
+                    if live_stripped:
+                        transaction.on_commit(
+                            partial(
+                                reload_hog_flows_on_workers,
+                                team_id=locked.team_id,
+                                hog_flow_ids=[str(locked.pk)],
+                            )
+                        )
+            except Exception:
+                logger.exception("Failed to strip placeholder sender", extra={"hog_flow_id": str(flow.pk)})
+                self.stderr.write(f"  FAILED on flow id={flow.id} team_id={flow.team_id}; continuing")
+                flows_failed += 1
+                continue
 
             self.stdout.write(
                 f"  Stripping {live_stripped} live / {draft_stripped} draft "
@@ -97,8 +132,6 @@ class Command(BaseCommand):
             )
             flows_changed += 1
             overrides_stripped += live_stripped + draft_stripped
-            if live_stripped:
-                reload_hog_flows_on_workers(team_id=flow.team_id, hog_flow_ids=[str(flow.id)])
 
         verb = "stripped" if live_run else "to strip"
         self.stdout.write(
@@ -106,5 +139,7 @@ class Command(BaseCommand):
                 f"Completed ({mode}): {overrides_stripped} override(s) {verb} across {flows_changed} flow(s)"
             )
         )
+        if flows_failed:
+            self.stderr.write(self.style.ERROR(f"{flows_failed} flow(s) failed; rerun to retry them"))
         if not live_run and flows_changed > 0:
             self.stdout.write(self.style.NOTICE("Run with --live-run to apply changes"))

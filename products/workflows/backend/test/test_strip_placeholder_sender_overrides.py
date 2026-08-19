@@ -62,7 +62,11 @@ class TestStripPlaceholderSenderOverrides(BaseTest):
             draft={"actions": [_email_action("a1", dict(placeholder_from))]},
         )
 
-        call_command("strip_placeholder_sender_overrides", "--live-run")
+        affected_updated_at_before = affected.updated_at
+        draft_only_updated_at_before = draft_only.updated_at
+
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("strip_placeholder_sender_overrides", "--live-run")
 
         affected.refresh_from_db()
         cleaned_from = affected.actions[0]["config"]["inputs"]["email"]["value"]["from"]
@@ -82,13 +86,20 @@ class TestStripPlaceholderSenderOverrides(BaseTest):
         assert draft_only_draft is not None
         assert "email" not in draft_only_draft["actions"][0]["config"]["inputs"]["email"]["value"]["from"]
 
+        # The editor's stale-write fence compares against these timestamps. Without the bump, a
+        # tab opened before the cleanup passes the fence and saves the placeholder straight back.
+        assert affected.updated_at > affected_updated_at_before
+        assert draft_only.updated_at == draft_only_updated_at_before
+        assert draft_only.draft_updated_at is not None
+
         # Workers cache the live flow config, so a flow whose live actions changed must be
         # reloaded; a draft-only change runs nothing and must not be.
         mock_command_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(affected.id)])
 
         # Idempotent: a second live-run finds nothing to strip.
         mock_command_reload.reset_mock()
-        call_command("strip_placeholder_sender_overrides", "--live-run")
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("strip_placeholder_sender_overrides", "--live-run")
         mock_command_reload.assert_not_called()
 
     @patch(
