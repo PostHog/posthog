@@ -343,18 +343,6 @@ export {
   stripFrontmatter,
 } from "./skills";
 export type { PostHogAPIConfig } from "./task";
-export {
-  type CreateTaskAutomationOptions,
-  createTaskAutomationSchema,
-  type TaskAutomation,
-  type TaskAutomationList,
-  type TaskAutomationValidationErrorDetails,
-  taskAutomationListSchema,
-  taskAutomationSchema,
-  taskAutomationValidationErrorSchema,
-  type UpdateTaskAutomationOptions,
-  updateTaskAutomationSchema,
-} from "./task-automation";
 export type {
   TaskCreationInput,
   TaskCreationOutput,
