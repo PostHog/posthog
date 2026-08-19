@@ -1,6 +1,6 @@
 # First-party signal receivers connected after a bare django.setup(), as signal:module.qualname.
 # Maintained by test_setup_receivers_match_baseline — regenerate with:
-#   UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/test_startup_import_budget.py -k receivers_match
+#   UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/repo_invariants/test_startup_import_budget.py -k receivers_match
 # A receiver disappearing from this set means it connects in NO process (silent audit/cache loss):
 # restore its AppConfig.ready() wiring instead of deleting the line.
 model_activity:posthog.models.activity_logging.signal_handlers.handle_experiment_holdout_change

@@ -14,9 +14,11 @@ from posthog.clickhouse.property_values import (
 #   but the topic is produced to warpstream_ingestion. Drop the MV first, then
 #   the Kafka table, then recreate both with the right named collection.
 #   Storage table is untouched.
-# - DEV: 0244's AUX ops no-op'd because dev has no hostClusterRole=aux nodes.
-#   Create storage, Kafka, and MV on DATA. Dev's `aux` cluster aliases to those
-#   same hosts so the existing Distributed proxy resolves correctly.
+# - DEV: 0244's AUX ops no-op'd because dev had no hostClusterRole=aux nodes at
+#   the time. Create storage, Kafka, and MV on DATA. Dev's `aux` cluster aliased
+#   to those same hosts so the existing Distributed proxy resolved correctly.
+#   (Historical: dev now runs a real aux cluster with the same layout as US/EU —
+#   do not copy this DEV branching into new migrations.)
 
 if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
     operations = [
