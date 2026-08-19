@@ -24,14 +24,13 @@ export function createIncrementalThreadGrouper() {
   const rebuildAll = (
     items: ConversationItem[],
     overrides: Record<string, boolean>,
-    stablePrefixItemCount: number,
   ): ThreadGrouping => {
     const grouping = buildThreadGroups(items, overrides);
     cache = {
       items,
       overrides,
       grouping,
-      stablePrefixItemCount,
+      stablePrefixItemCount: findStablePrefixItemCount(items),
     };
     return grouping;
   };
@@ -39,16 +38,16 @@ export function createIncrementalThreadGrouper() {
   const update = (
     items: ConversationItem[],
     overrides: Record<string, boolean>,
-    stablePrefixItemCount = 0,
   ): ThreadGrouping => {
     if (!cache || cache.overrides !== overrides) {
-      return rebuildAll(items, overrides, stablePrefixItemCount);
+      return rebuildAll(items, overrides);
     }
 
     if (cache.items === items) {
       return cache.grouping;
     }
 
+    const stablePrefixItemCount = findStablePrefixItemCount(items);
     const rebuildStart = groupBoundaryAtOrBefore(
       items,
       Math.min(cache.stablePrefixItemCount, stablePrefixItemCount),
@@ -62,7 +61,7 @@ export function createIncrementalThreadGrouper() {
       rebuildStart > 0 &&
       cache.items[rebuildStart - 1] !== items[rebuildStart - 1]
     ) {
-      return rebuildAll(items, overrides, stablePrefixItemCount);
+      return rebuildAll(items, overrides);
     }
 
     const prefixRowCount = getPrefixRowCount(
@@ -101,6 +100,22 @@ export function createIncrementalThreadGrouper() {
   };
 
   return { update };
+}
+
+/**
+ * Index of the first item belonging to the still-streaming tail: walk back over
+ * the trailing run of active (not turn-complete) session updates.
+ */
+function findStablePrefixItemCount(items: ConversationItem[]): number {
+  let count = items.length;
+  while (count > 0) {
+    const item = items[count - 1];
+    if (item.type !== "session_update" || item.turnContext.turnComplete) {
+      break;
+    }
+    count--;
+  }
+  return count;
 }
 
 /**

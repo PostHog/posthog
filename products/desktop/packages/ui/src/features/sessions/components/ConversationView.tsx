@@ -26,7 +26,7 @@ import {
   type ConversationTurn,
   groupRowsIntoTurns,
 } from "@posthog/ui/features/sessions/components/groupConversationTurns";
-import { createIncrementalConversationMerger } from "@posthog/ui/features/sessions/components/mergeConversationItems";
+import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
 import type {
   ThreadGrouping,
   ThreadRow,
@@ -142,11 +142,10 @@ export function ConversationView({
   // Streaming appends one event per token. The parse is incremental — each
   // event is handled once and completed turns are reused by reference — so per
   // token the work tracks the active turn, not the whole thread. We feed
-  // `events` directly; the controller batches streaming-only updates while
-  // terminal and status events still flush immediately.
+  // `events` directly (no frame-throttle) so a sent message's optimistic->real
+  // swap is never delayed past the frame the store commits it.
   const {
     items: conversationItems,
-    stablePrefixItemCount,
     lastTurnInfo,
     isCompacting,
     isClearing,
@@ -182,29 +181,15 @@ export function ConversationView({
 
   const isCloud = session?.isCloud ?? false;
 
-  const mergerRef = useRef<ReturnType<
-    typeof createIncrementalConversationMerger
-  > | null>(null);
-  mergerRef.current ??= createIncrementalConversationMerger();
-  const merger = mergerRef.current;
-  const mergedConversation = useMemo(
+  const items = useMemo<ConversationItem[]>(
     () =>
-      merger.update({
+      mergeConversationItems({
         conversationItems,
         optimisticItems,
         isCloud,
-        stablePrefixItemCount,
       }),
-    [
-      conversationItems,
-      optimisticItems,
-      isCloud,
-      merger,
-      stablePrefixItemCount,
-    ],
+    [conversationItems, optimisticItems, isCloud],
   );
-  const items = mergedConversation.items;
-  const mergedStablePrefixItemCount = mergedConversation.stablePrefixItemCount;
 
   // Fold each completed turn's tool-call work into a collapsible chip, and emit
   // the keepMounted indices (standalone MCP-app rows, whose iframes must survive
@@ -215,9 +200,8 @@ export function ConversationView({
   threadGrouperRef.current ??= createIncrementalThreadGrouper();
   const threadGrouper = threadGrouperRef.current;
   const grouping = useMemo<ThreadGrouping>(
-    () =>
-      threadGrouper.update(items, groupOverrides, mergedStablePrefixItemCount),
-    [items, groupOverrides, mergedStablePrefixItemCount, threadGrouper],
+    () => threadGrouper.update(items, groupOverrides),
+    [items, groupOverrides, threadGrouper],
   );
   const threadRows = grouping.rows;
   const rowKeepMounted = grouping.keepMounted;

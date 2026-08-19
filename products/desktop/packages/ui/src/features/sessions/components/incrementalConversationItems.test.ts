@@ -301,6 +301,27 @@ const EQUIVALENCE_CASES = Object.entries(SCENARIOS).flatMap(([name, events]) =>
 );
 
 describe("createIncrementalConversationBuilder", () => {
+  it("classifies historical thoughts during hydration and transcript replacement", () => {
+    const transcript = () => [
+      userPromptMsg(1, 1, "first"),
+      thoughtChunk(2, "thinking"),
+      progressMsg(3, "setup", "completed", "Ready"),
+      userPromptMsg(4, 2, "second"),
+      agentChunk(5, "working"),
+    ];
+    const inc = createIncrementalConversationBuilder();
+
+    const hydrated = transcript();
+    expect(normalize(inc.update(hydrated, true))).toEqual(
+      normalize(buildConversationItems(hydrated, true)),
+    );
+
+    const replacement = transcript();
+    expect(normalize(inc.update(replacement, true))).toEqual(
+      normalize(buildConversationItems(replacement, true)),
+    );
+  });
+
   it("resets the stable prefix when a transcript is replaced with the same prompt ids", () => {
     const inc = createIncrementalConversationBuilder();
     inc.update(

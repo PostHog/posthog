@@ -167,12 +167,6 @@ export function createIncrementalConversationBuilder() {
         ? builder.currentTurnStartIndex
         : builder.items.length;
 
-    // An event reached back across a turn boundary. Rebuild the visible snapshot
-    // so cached rows observe it; the persistent builder remains valid.
-    if (hadProcessedEvents && builder.lowestTouchedItemIndex < activeStart) {
-      return buildConversationItems(events, isPromptPending, options);
-    }
-
     // `buildConversationItems` always marks a trailing implicit turn complete.
     // Replicate that on the live turn's context so thought-completion matches;
     // it's safe to persist (a later real completion still flows through
@@ -184,7 +178,16 @@ export function createIncrementalConversationBuilder() {
       }
     }
 
-    markThoughtCompletion(builder.items, activeStart);
+    const thoughtScanStart = didRebuild
+      ? 0
+      : Math.min(activeStart, builder.lowestTouchedItemIndex);
+    markThoughtCompletion(builder.items, thoughtScanStart);
+
+    // An event reached back across a turn boundary. Rebuild the visible snapshot
+    // so cached rows observe it; the persistent builder remains valid.
+    if (hadProcessedEvents && builder.lowestTouchedItemIndex < activeStart) {
+      return buildConversationItems(events, isPromptPending, options);
+    }
 
     // Published rows retain identity until their content or turn context
     // changes. Snapshot contexts keep later builder mutations out of results

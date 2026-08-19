@@ -592,10 +592,10 @@ function handlePromptRequest(
     for (const card of b.progressCards.values()) {
       if (card.itemIndex >= insertIndex) card.itemIndex++;
     }
-    // The shifted cards may live inside a turn the incremental builder already
-    // froze; flag the mutation so it falls back to a full rebuild.
-    if (insertIndex < b.lowestTouchedItemIndex) {
-      b.lowestTouchedItemIndex = insertIndex;
+    // The shifted cards can settle a thought anywhere in the preceding turn.
+    // Flag that whole turn so the incremental builder reclassifies it once.
+    if (b.currentTurnStartIndex < b.lowestTouchedItemIndex) {
+      b.lowestTouchedItemIndex = b.currentTurnStartIndex;
     }
   }
 
