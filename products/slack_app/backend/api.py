@@ -3159,8 +3159,11 @@ def _report_slack_mention_received(
             "session_message_count": session_message_count,
             "slack_session_id": f"{slack_team_id}:{channel}:{thread_ts}" if channel and thread_ts else None,
             "slack_team_id": slack_team_id,
+            "slack_workspace_id": slack_team_id,
             "slack_channel": channel,
+            "slack_channel_id": channel,
             "slack_thread_ts": thread_ts,
+            "slack_message_ts": message_ts,
             "slack_user_id": slack_user_id,
             "posthog_user_identified": identified_distinct_id is not None,
         }
