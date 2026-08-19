@@ -1158,6 +1158,28 @@ def _app_authorship_ignore_reason(event: dict[str, Any]) -> str | None:
     return None
 
 
+_MENTION_WITH_TRAILING_SLASH_RE = re.compile(r"<@[A-Z0-9]+>(/?)")
+
+
+def _every_mention_is_a_path_segment(event: dict[str, Any]) -> bool:
+    """Whether every user mention in the text is glued to a following ``/``.
+
+    Slack linkifies a typed ``@PostHog`` even inside an org-scoped package or repo path, so
+    ``@PostHog/react-native-plugin`` reaches us as ``<@BOT>/react-native-plugin`` and fires a
+    real ``app_mention``. Nobody addressed the app in that message, they named a package, and
+    answering it starts an agent run against a prompt that is only the path's tail.
+
+    Requiring *every* mention to be glued keeps this from firing on a message that also tags
+    the app properly, because the app's own mention can't be told apart from a teammate's
+    without a ``users.info`` round-trip that this gate runs too early to afford.
+    """
+    text = event.get("text")
+    if not isinstance(text, str):
+        return False
+    trailing_slashes = _MENTION_WITH_TRAILING_SLASH_RE.findall(text)
+    return bool(trailing_slashes) and all(trailing_slashes)
+
+
 def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     """Return a short reason if this app_mention shouldn't trigger the coding agent, else None.
 
@@ -1167,10 +1189,16 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     - "bot_author" / "app_authored": see ``_app_authorship_ignore_reason``. Foreign bots
       that quote `<@PostHog>` in their text (incident bots, alert relays, our own
       notifications integration) would trigger reply loops on every re-post.
+    - "path_mention": see ``_every_mention_is_a_path_segment``.
     """
     if event.get("edited") or event.get("subtype") == "message_changed":
         return "edit"
-    return _app_authorship_ignore_reason(event)
+    authorship = _app_authorship_ignore_reason(event)
+    if authorship:
+        return authorship
+    if _every_mention_is_a_path_segment(event):
+        return "path_mention"
+    return None
 
 
 def _thread_message_event_has_files(event: dict[str, Any]) -> bool:

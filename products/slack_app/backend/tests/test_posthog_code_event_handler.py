@@ -47,6 +47,25 @@ class TestLinkSharedUrlRegion(SimpleTestCase):
         assert _link_shared_url_region(event) == expected
 
 
+class TestAppMentionIgnoreReason(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("package_path_only", "<@U0BOT>/react-native-plugin", "path_mention"),
+            ("repo_path_mid_sentence", "have a look at <@U0BOT>/posthog-js", "path_mention"),
+            # A glued path alongside a real tag means somebody is addressing the app for real,
+            # and we can't tell which of the two mentions is ours without a users.info call.
+            ("path_plus_tagged_mention", "<@U0BOT>/posthog-js is broken <@U0BOT> fix it", None),
+            ("plain_mention", "<@U0BOT> fix the login redirect", None),
+            ("no_mention", "fix the login redirect", None),
+        ]
+    )
+    def test_mentions_glued_to_a_path_are_ignored(self, _name: str, text: str, expected: str | None) -> None:
+        from products.slack_app.backend.api import _app_mention_ignore_reason
+
+        event = {"type": "app_mention", "channel": "C001", "user": "U123", "ts": "1234.5678", "text": text}
+        assert _app_mention_ignore_reason(event) == expected
+
+
 class TestPostHogCodeEventHandler(SimpleTestCase):
     def setUp(self):
         self.client = APIClient()
@@ -409,6 +428,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             ("app_id", {"app_id": "A0ALERT"}, "ignored:app_authored"),
             ("bot_message_subtype", {"subtype": "bot_message"}, "ignored:bot_author"),
             ("slackbot_user", {"user": "USLACKBOT"}, "ignored:bot_author"),
+            ("path_mention", {"text": "<@U0BOT>/react-native-plugin"}, "ignored:path_mention"),
         ]
     )
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
