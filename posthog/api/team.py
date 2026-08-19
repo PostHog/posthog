@@ -112,6 +112,7 @@ from posthog.utils import (
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.logs.backend.models import TeamLogsConfig
+from products.surveys.backend.api.survey_appearance import validate_survey_appearance
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
@@ -1818,6 +1819,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             )
 
         if "survey_config" in validated_data:
+            incoming_survey_config = validated_data.get("survey_config")
+            if isinstance(incoming_survey_config, dict) and "appearance" in incoming_survey_config:
+                current_appearance = (instance.survey_config or {}).get("appearance")
+                incoming_survey_config["appearance"] = validate_survey_appearance(
+                    incoming_survey_config["appearance"],
+                    current_appearance=current_appearance,
+                    organization=instance.organization,
+                )
+
             if instance.survey_config is not None and validated_data.get("survey_config") is not None:
                 validated_data["survey_config"] = {
                     **instance.survey_config,

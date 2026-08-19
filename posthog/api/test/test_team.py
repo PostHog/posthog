@@ -1004,6 +1004,11 @@ def team_api_test_factory():
             assert second_get_response.json()["session_recording_network_payload_capture_config"] is None
 
         def test_can_set_and_unset_survey_settings(self):
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.SURVEYS_STYLING, "name": AvailableFeature.SURVEYS_STYLING}
+            ]
+            self.organization.save()
+
             survey_appearance = {
                 "thankYouMessageHeader": "Thanks for your feedback!",
                 "thankYouMessageDescription": "We'll use it to make notebooks better",
@@ -1023,6 +1028,35 @@ def team_api_test_factory():
 
             self._patch_config("survey_config", None)
             self._assert_replay_config_is(None)
+
+        def test_survey_config_appearance_enforces_styling_entitlement(self):
+            # Without the entitlement, the team-level default appearance cannot carry paid styling
+            # or white labelling — this path used to bypass both checks.
+            self.organization.available_product_features = []
+            self.organization.save()
+
+            styling_response = self.client.patch(
+                "/api/environments/@current/",
+                {"survey_config": {"appearance": {"backgroundColor": "#123456"}}},
+            )
+            assert styling_response.status_code == status.HTTP_400_BAD_REQUEST, styling_response.json()
+            assert styling_response.json()["detail"] == "You need to upgrade your plan to customize survey styling"
+
+            white_label_response = self.client.patch(
+                "/api/environments/@current/",
+                {"survey_config": {"appearance": {"whiteLabel": True}}},
+            )
+            assert white_label_response.status_code == status.HTTP_400_BAD_REQUEST, white_label_response.json()
+            assert (
+                white_label_response.json()["detail"]
+                == "You need to upgrade to PostHog Enterprise to use white labelling"
+            )
+
+            self._patch_config(
+                "survey_config",
+                {"appearance": {"thankYouMessageHeader": "Thanks!"}},
+            )
+            self._assert_surveys_config_is({"appearance": {"thankYouMessageHeader": "Thanks!"}})
 
         def test_can_set_and_unset_session_replay_config(self) -> None:
             # can set

@@ -121,6 +121,7 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
+from products.surveys.backend.api.survey_appearance import validate_survey_appearance
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
 from ee.api.rbac.access_control_settings import AccessControlSettingsViewSetMixin
@@ -1137,6 +1138,15 @@ class ProjectBackwardCompatSerializer(
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])
 
         if "survey_config" in validated_data:
+            incoming_survey_config = validated_data.get("survey_config")
+            if isinstance(incoming_survey_config, dict) and "appearance" in incoming_survey_config:
+                current_appearance = (team.survey_config or {}).get("appearance")
+                incoming_survey_config["appearance"] = validate_survey_appearance(
+                    incoming_survey_config["appearance"],
+                    current_appearance=current_appearance,
+                    organization=instance.organization,
+                )
+
             if team.survey_config is not None and validated_data.get("survey_config") is not None:
                 validated_data["survey_config"] = {
                     **team.survey_config,
