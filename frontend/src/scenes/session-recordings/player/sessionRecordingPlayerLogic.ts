@@ -176,6 +176,16 @@ const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 // Safety-net cadence for re-running syncPlayerState while buffering, since neither backed-off source polling nor the non-reactive wall-clock grace check re-triggers verdict re-evaluation on its own.
 const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
 
+// A buffer that stays stuck this long with no new snapshot data is a load failure the user can retry, not an endless spinner.
+const STUCK_BUFFER_TIMEOUT_MS = 30000
+
+function countLoadedSnapshots(sessionPlayerData: SessionPlayerData): number {
+    return Object.values(sessionPlayerData.snapshotsByWindowId).reduce(
+        (total, snapshots) => total + snapshots.length,
+        0
+    )
+}
+
 export type SeekRenderability =
     // a FullSnapshot exists at or before the timestamp for its window
     | { kind: 'renderable' }
@@ -758,6 +768,9 @@ export interface sessionRecordingPlayerLogicActions {
     allowPlayerChromeToHide: () => {
         value: true
     }
+    armStuckBufferWatchdog: () => {
+        value: true
+    }
     caughtAssetErrorFromIframe: (errorDetails: ResourceErrorDetails) => {
         errorDetails: ResourceErrorDetails
     }
@@ -975,6 +988,9 @@ export interface sessionRecordingPlayerLogicActions {
         value: true
     }
     stopAnimation: () => {
+        value: true
+    }
+    stuckBufferTimeoutReached: () => {
         value: true
     }
     syncPlayerSpeed: () => {
@@ -1200,6 +1216,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setEndReached: (reached: boolean = true) => ({ reached }),
         startBuffer: true,
         endBuffer: true,
+        armStuckBufferWatchdog: true,
+        stuckBufferTimeoutReached: true,
         startScrub: true,
         endScrub: true,
         setPlayerError: (reason: string) => ({ reason }),
@@ -2651,10 +2669,46 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         startBuffer: () => {
             actions.stopAnimation()
+            actions.armStuckBufferWatchdog()
+        },
+        endBuffer: () => {
+            cache.stuckBufferWatchdogArmed = false
+            cache.disposables.dispose('stuckBufferWatchdog')
+        },
+        armStuckBufferWatchdog: () => {
+            // Only the main player surfaces a terminal state; previews and the export rasterizer are left alone.
+            const mode = props.mode ?? SessionRecordingPlayerMode.Standard
+            if (mode !== SessionRecordingPlayerMode.Standard || cache.stuckBufferWatchdogArmed) {
+                return
+            }
+            cache.stuckBufferWatchdogArmed = true
+            cache.stuckBufferLoadedCount = countLoadedSnapshots(values.sessionPlayerData)
+            cache.disposables.add(() => {
+                const timeoutId = setTimeout(() => actions.stuckBufferTimeoutReached(), STUCK_BUFFER_TIMEOUT_MS)
+                return () => clearTimeout(timeoutId)
+            }, 'stuckBufferWatchdog')
+        },
+        stuckBufferTimeoutReached: () => {
+            cache.stuckBufferWatchdogArmed = false
+            if (!values.isBuffering) {
+                return
+            }
+            // Still-ingesting recordings buffer legitimately, and the ingestion grace path owns that terminal state.
+            // New snapshot data since we armed means the load is progressing, so give it another window.
+            if (
+                values.isWaitingForIngestion ||
+                countLoadedSnapshots(values.sessionPlayerData) !== cache.stuckBufferLoadedCount
+            ) {
+                actions.armStuckBufferWatchdog()
+                return
+            }
+            actions.setPlayerError('bufferTimeout')
         },
         setPlayerError: () => {
             actions.incrementErrorCount()
             actions.stopAnimation()
+            cache.stuckBufferWatchdogArmed = false
+            cache.disposables.dispose('stuckBufferWatchdog')
         },
         startScrub: () => {
             actions.stopAnimation()
@@ -3015,10 +3069,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 let lastSnapshotCount = 0
                 while (!values.sessionPlayerData.fullyLoaded) {
                     const currentCount = values.sessionPlayerData.snapshotsByWindowId
-                        ? Object.values(values.sessionPlayerData.snapshotsByWindowId).reduce(
-                              (sum, snaps) => sum + snaps.length,
-                              0
-                          )
+                        ? countLoadedSnapshots(values.sessionPlayerData)
                         : 0
                     if (currentCount > lastSnapshotCount) {
                         stallCount = 0

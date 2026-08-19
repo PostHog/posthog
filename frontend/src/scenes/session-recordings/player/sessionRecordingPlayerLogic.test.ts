@@ -824,6 +824,37 @@ describe('sessionRecordingPlayerLogic', () => {
             }
         })
 
+        it('surfaces a retryable error when a buffer stays stuck with no new data', () => {
+            // A buffer that never resolves (data pending, sources not exhausted) used to spin "Buffering…"
+            // forever; the watchdog turns it into a terminal state the user can retry.
+            seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+            logic.actions.seekToTimestamp(START + 61500)
+            expect(logic.values.isBuffering).toBe(true)
+            expect(logic.values.playerError).toBeNull()
+
+            logic.actions.stuckBufferTimeoutReached()
+
+            expect(logic.values.playerError).toBe('bufferTimeout')
+        })
+
+        it('does not error a still-ingesting recording when the buffer watchdog fires', () => {
+            const graceSpy = jest
+                .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
+                .mockReturnValue(true)
+            try {
+                seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isWaitingForIngestion).toBe(true)
+
+                logic.actions.stuckBufferTimeoutReached()
+
+                expect(logic.values.playerError).toBeNull()
+            } finally {
+                graceSpy.mockRestore()
+            }
+        })
+
         it.each([
             {
                 description: 'reports the leading unplayable span when the initial full snapshot is late',
