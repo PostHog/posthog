@@ -1401,13 +1401,13 @@ snapshots:
     components-mcp-use-case-card--surveys-create--light:
         hash: v1.k794b7964.693a3cba67de29bb7ecea8b07f3ae05b0201c2785fa2f2d4975e481b6fdc349e.ROQjP-mA4zsLzJifJv9uIKLgwuM0h84NwoFZJ90rSyc
     components-navpanelproductpush--all-products--dark:
-        hash: v1.k794b7964.fb29cbd78a154a52102b09ddfda363b224066d65abeadebee5d74d7bd0197106.L-TFWS6usny3pfuC-UJ6v94m-7elprvCKQEiQu4uia4
+        hash: v1.k794b7964.24e54b2883443ad9a2c5a22bffe7a7870f1ccfd0ea97a2b4e1201c2ba7192623.gIA9Y2g7eZARK8cEyyopNP4lxl5PogVL-6S-jGYZk0w
     components-navpanelproductpush--all-products--light:
-        hash: v1.k794b7964.1ca851e68f3282f393b55cc08c83d14985438bc2c4a358632108dbff9f1f0971.SdrRB9BIGy04vEgIPioVHwDgmv12Mbn-eEL8aUFg_O8
+        hash: v1.k794b7964.bfe2812c6586da7d0c0454f04cb61c468d134b78b7463271549ae314a0dab52c.RUyduXzLwObD97z9SoIFh8-GdIMI3PsDH0by5d-ZdwQ
     components-navpanelproductpush--default-fallback--dark:
-        hash: v1.k794b7964.73c20ea721009efba63d0b347a37dbef0ca34d3d19724c6f5158aadbc138f20e.Aih-CDdZmGHnefWI5954Zgk2lpSJXuVKgluWjrNUOqg
+        hash: v1.k794b7964.020f807f2d17fdf515b84c8800c37e0b6d8b0bda09421fbe1f0d3bcf9aeb23d4.C0OD2Gur0abSVWhBC5aarFDYTYRrudc-F6CjqvjhJ5o
     components-navpanelproductpush--default-fallback--light:
-        hash: v1.k794b7964.c21ed9ee3902f9b0f242e207c5d9d15353b4927f6153d251a35421048c602544.VYc6ozOtCMTbvtt4k9YpZURkEostfdIBq1-WLe6i1WY
+        hash: v1.k794b7964.06ad78d5182a189840a64537f4fffe5aae18b33328c8da550e09227aa506d3af.C5iY4j46abCd6Uf6SVnMZegPSQP9oqMPFb5dSeCdmzo
     components-networkrequest-navigationitem--all-slow--dark:
         hash: v1.k794b7964.d09d9acbf8cb33a45a26cc9fd6e238dd97fa80b5b38c244dab95cd662d085c42.iV22pgH-xBLY-79NVxnPiKvZQ3vbBvZ7uthloHKd9Sc
     components-networkrequest-navigationitem--all-slow--light:
@@ -8497,21 +8497,21 @@ snapshots:
     scenes-other-welcome-dialog--default--light:
         hash: v1.k794b7964.94d0889537f8a4a1345a155d78629fa3e090e1e8830323a77f37557c249ff45d.kPlrU8LIQApctwOYT1bNNhPfH3iynBBs41dZv4PqyzI
     scenes-other-welcome-dialog--empty-organization--dark:
-        hash: v1.k794b7964.9951b983bc53fd0147615d6216e76c8971dafa5fe5f5dcf2f89b076f21d05ac4.xD0q1sDMZaYraoKBg4mlmlnUldBZlVO1PNUkqLXfBuY
+        hash: v1.k794b7964.9324445da230670fa129f51933cbf12208a7bf02b333faa5aa5ef3b488bd127f.jIvaRPb7hDK4CXABpsQQu3Hixs3mSTJ5fUf3oRkDuBM
     scenes-other-welcome-dialog--empty-organization--light:
-        hash: v1.k794b7964.eb441c3b4223d47e62b1ad8f39138d27b4621e5c059ed4b8bcd90dee3fc7ee8d.CuE1WUVJAOt82qzcXB6UwIyUCLHw5Gu_NYnTrmgYlFk
+        hash: v1.k794b7964.6a0c8b6ebb92d1906513350ec2032a618a365767f090ad7f601050549486da16.KAlCXZL7Kf0kVpFz4c850yN4zW6eKXMCciXpcIDPtV4
     scenes-other-welcome-dialog--no-inviter--dark:
         hash: v1.k794b7964.7b34aac52fe0499a37f5971ccf76a25e12cde19e7c3e6f2f779802111fb99cd7.pF2gizxUDboEBZD4sG2K5U7GkIqm-yX_Ch6gtey_Mng
     scenes-other-welcome-dialog--no-inviter--light:
         hash: v1.k794b7964.f766cbd27b7bc11b50ce42602ca2fcab11fa005e795aad0d66e6f67e627570d2.M3CFGWAqq3ebMX5h9Rlb9cCCOBUfhrdc86fQexL6-MA
     scenes-other-welcome-dialog--provisioned--dark:
-        hash: v1.k794b7964.ca1f1c0c19f2b721c8a57b8ab8527214aa231c3557caedcf392b4f7f531a267b.fd-faV75IyRDiQaarDTPWOAU3fiQYfGTgwg-1kAqZ88
+        hash: v1.k794b7964.f2c3d2da5c26ff0d4e4883583589df344c65b8d6b58ae37ef5c4792c02b5d026.G7Cluv7BykKb0ZB6ox1bq_ETjWtz13E0kNhkGxqV-ao
     scenes-other-welcome-dialog--provisioned--light:
-        hash: v1.k794b7964.4241f0cd5107adba6f5385cad103712e340ab458747b0936107c9a85e0c9f423.L5KqvkCuIdvMTJ4AknHk45IwOt-XgmGYjBmeDA_Bkuc
+        hash: v1.k794b7964.7bc96d4f26a15090c0e0822f013065ffbf00a22f0edda8572b12c01a531fe6dc.x21M2rAOPxoCSK84EZ-zyIs4Mvpl_BEBXhi33H3UJzw
     scenes-other-welcome-flagshipproductscard--default--dark:
-        hash: v1.k794b7964.d3a26ab7dedc62599bcc213bc25209189a39ec87e2472821d79dec3d5062d38d.DJtX4EJhBeB0ZjyBmXhQK3F1oZ1BK1Nm7TU4bH0RXnE
+        hash: v1.k794b7964.6851560ee74f548c534d5cca9da3f4130b8246bde9d7fd55e2a488b9796776e9.gxmuoqSgNubqjgDwXDAI-4YD0l4yMr4us4kdAc9gcaQ
     scenes-other-welcome-flagshipproductscard--default--light:
-        hash: v1.k794b7964.358a8cb872b3bc97b9f8844bb29bf00638879dc17dd20d5e93479d59b4064d36.YYXK42rCO__vp0IfRMrfGQyICVpArFGBiHNY7Ka1JNY
+        hash: v1.k794b7964.9810dedb36d0fb0dfe89ba8fd57aa27370e4961c268c5da91fb43afdcb5465d7.Eu1Q6DWylPXCKEIbi9oks2v6lS9n_udV2AeY2-4_spo
     scenes-other-welcome-installprogresscard--default--dark:
         hash: v1.k794b7964.b321aa0af8cd6635d3746c0f22e768f1ef0ed4a56210e219babebd1c38896890.2f7pqD-CII2Cb_5O9oo_SAA4A-hzd2n42nThxggLws8
     scenes-other-welcome-installprogresscard--default--light:
