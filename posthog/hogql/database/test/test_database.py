@@ -2890,6 +2890,79 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(activitylog.fields.get("team"), LazyJoin)
         assert isinstance(database.get_table("postgres.ph3.posthog_team").fields.get("posthog_activitylogs"), LazyJoin)
 
+    def test_deferred_foreign_keys_do_not_replace_event_modifier_field_mappings(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="ph3",
+        )
+        team_table = DataWarehouseTable.objects.create(
+            name="posthog_team",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "row_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "team_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "timestamp": {"hogql": "datetime", "clickhouse": "DateTime64(6, 'UTC')", "schema_valid": True},
+            },
+        )
+        ExternalDataSchema.objects.create(name="posthog_team", team=self.team, source=source, table=team_table)
+        # A foreign key on `id` collides with the event-modifier `id` mapping; the `team_id` one does not.
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        {"column": "id", "target_table": "posthog_team", "target_column": "id"},
+                        {"column": "team_id", "target_table": "posthog_team", "target_column": "id"},
+                    ]
+                }
+            },
+        )
+
+        modifiers = create_default_modifiers_for_team(
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                dataWarehouseEventsModifiers=[
+                    DataWarehouseEventsModifier(
+                        table_name="postgres.ph3.posthog_activitylog",
+                        id_field="row_id",
+                        timestamp_field="timestamp",
+                        distinct_id_field="distinct_id",
+                    )
+                ],
+            ),
+        )
+
+        database = Database.create_for(team=self.team, modifiers=modifiers)
+        activitylog = database.get_table("postgres.ph3.posthog_activitylog")
+
+        # The modifier's `id` mapping wins over the colliding foreign key, as it did in the eager path.
+        assert isinstance(activitylog.fields.get("id"), ExpressionField)
+        # The non-colliding foreign key still wired, proving the deferred build actually ran.
+        assert isinstance(activitylog.fields.get("team"), LazyJoin)
+
     def test_serialize_direct_postgres_skips_foreign_key_join_when_target_table_is_missing(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team

@@ -600,6 +600,10 @@ class Database(BaseModel):
     _deferred_foreign_key_tables: list[Any] = []
     _foreign_keys_built: bool = True
     _foreign_key_trigger_names: Optional[set[str]] = None
+    # ids of the ExpressionField objects saved expressions added at build time. The deferred build
+    # lets a foreign key replace only these (see _ensure_foreign_keys_built), never the id/timestamp
+    # mappings event modifiers write, which the eager path preserved.
+    _deferred_overridable_expression_field_ids: set[int] = set()
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -628,6 +632,7 @@ class Database(BaseModel):
         self._deferred_foreign_key_tables = []
         self._foreign_keys_built = True
         self._foreign_key_trigger_names = None
+        self._deferred_overridable_expression_field_ids = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
 
@@ -695,8 +700,9 @@ class Database(BaseModel):
         field precedence match the eager path exactly. `_foreign_keys_built` is set before the loop
         because resolving a foreign-key target re-enters get_table, which must not recurse here.
         Saved expressions were applied at build time (before this runs), so foreign keys are allowed
-        to replace a colliding expression field — preserving the eager "expressions never shadow a
-        join field" invariant.
+        to replace a colliding saved-expression field — preserving the eager "saved expressions never
+        shadow a join field" invariant. Only fields saved expressions created are overridable; the
+        id/timestamp mappings event modifiers write stay put, as they did in the eager order.
         """
         if self._foreign_keys_built:
             return
@@ -710,7 +716,7 @@ class Database(BaseModel):
                     warehouse_table=warehouse_table_model,
                     database=self,
                     schemas=_get_active_external_data_schemas(warehouse_table_model),
-                    override_expression_fields=True,
+                    overridable_expression_field_ids=self._deferred_overridable_expression_field_ids,
                 )
 
     def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
@@ -2323,11 +2329,16 @@ class Database(BaseModel):
                     # off chance duplicates exist.
                     if saved_expression.field_name in expression_table.fields:
                         continue
-                    expression_table.fields[saved_expression.field_name] = ExpressionField(
+                    saved_expression_field = ExpressionField(
                         name=saved_expression.field_name,
                         expr=parse_expr(saved_expression.expression),
                         isolate_scope=True,
                     )
+                    expression_table.fields[saved_expression.field_name] = saved_expression_field
+                    # A deferred foreign key may replace this saved-expression field (eager order wired
+                    # foreign keys first); track it so only these fields, not event-modifier mappings, are
+                    # overridable when the deferred build runs.
+                    database._deferred_overridable_expression_field_ids.add(id(saved_expression_field))
                 except Exception as e:
                     capture_exception(e)
 

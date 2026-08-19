@@ -28,17 +28,26 @@ class WarehouseForeignKey:
     target_column: str
 
 
-def _existing_field_blocks_join(existing: FieldOrTable | None, override_expression_fields: bool) -> bool:
+def _existing_field_blocks_join(
+    existing: FieldOrTable | None, overridable_expression_field_ids: set[int] | None
+) -> bool:
     """Whether an already-present field stops us from adding a foreign-key join under this name.
 
-    Any existing field blocks by default. The one exception is the deferred build path
-    (`override_expression_fields=True`): there, saved expressions are applied before foreign keys
-    (the reverse of the eager order), so a saved expression is allowed to be replaced by a foreign
-    key — preserving the eager invariant that a saved expression never shadows a join field.
+    Any existing field blocks by default. The one exception is the deferred build path: it passes the
+    ids of the ExpressionField objects that *saved expressions* created (`overridable_expression_field_ids`).
+    Because saved expressions are applied before foreign keys there (the reverse of the eager order), a
+    saved expression is allowed to be replaced by a foreign key — preserving the eager invariant that a
+    saved expression never shadows a join field. Other ExpressionField values (e.g. the id/timestamp
+    mappings event modifiers write at build time) are not in the set and keep blocking, matching the
+    eager path where those mappings won over foreign keys.
     """
     if existing is None:
         return False
-    if override_expression_fields and isinstance(existing, ExpressionField):
+    if (
+        overridable_expression_field_ids is not None
+        and isinstance(existing, ExpressionField)
+        and id(existing) in overridable_expression_field_ids
+    ):
         return False
     return True
 
@@ -48,7 +57,7 @@ def add_postgres_foreign_key_lazy_joins(
     warehouse_table: DataWarehouseTable,
     database: DatabaseTableLookup,
     schemas: Sequence[ExternalDataSchema],
-    override_expression_fields: bool = False,
+    overridable_expression_field_ids: set[int] | None = None,
 ) -> None:
     foreign_keys = _get_foreign_keys_from_schemas(schemas)
 
@@ -60,7 +69,7 @@ def add_postgres_foreign_key_lazy_joins(
             column=foreign_key.column,
             target_table=foreign_key.target_table,
             target_column=foreign_key.target_column,
-            override_expression_fields=override_expression_fields,
+            overridable_expression_field_ids=overridable_expression_field_ids,
         )
 
     if foreign_keys:
@@ -79,7 +88,7 @@ def add_postgres_foreign_key_lazy_joins(
             continue
 
         field_name = column_name[:-3]
-        if _existing_field_blocks_join(hogql_table.fields.get(field_name), override_expression_fields):
+        if _existing_field_blocks_join(hogql_table.fields.get(field_name), overridable_expression_field_ids):
             continue
 
         inferred_foreign_key = _find_inferred_foreign_key(
@@ -100,7 +109,7 @@ def add_postgres_foreign_key_lazy_joins(
             column=inferred_foreign_key.column,
             target_table=inferred_foreign_key.target_table,
             target_column=inferred_foreign_key.target_column,
-            override_expression_fields=override_expression_fields,
+            overridable_expression_field_ids=overridable_expression_field_ids,
         )
 
 
@@ -146,7 +155,7 @@ def _add_foreign_key_lazy_join(
     column: str,
     target_table: str,
     target_column: str,
-    override_expression_fields: bool = False,
+    overridable_expression_field_ids: set[int] | None = None,
 ) -> None:
     if not column or not target_table or not target_column:
         return
@@ -162,7 +171,7 @@ def _add_foreign_key_lazy_join(
         return
 
     field_name = column[:-3] if column.endswith("_id") and len(column) > 3 else column
-    if _existing_field_blocks_join(hogql_table.fields.get(field_name), override_expression_fields):
+    if _existing_field_blocks_join(hogql_table.fields.get(field_name), overridable_expression_field_ids):
         return
 
     resolved_target = _resolve_target_table(
@@ -190,7 +199,7 @@ def _add_foreign_key_lazy_join(
         return
 
     reverse_field_name = _reverse_foreign_key_field_name(source_table_name, target_table_name)
-    if _existing_field_blocks_join(target_hogql_table.fields.get(reverse_field_name), override_expression_fields):
+    if _existing_field_blocks_join(target_hogql_table.fields.get(reverse_field_name), overridable_expression_field_ids):
         return
 
     target_hogql_table.fields[reverse_field_name] = LazyJoin(
