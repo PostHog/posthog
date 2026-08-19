@@ -25,6 +25,7 @@ from products.alerts.backend.evaluation.contract import (
 from products.alerts.backend.evaluation.forecast import (
     _evaluate_future_breach_values,
     _evaluate_target_by_date_values,
+    _index_for_target_date,
     _latest_deviation,
     _required_points,
     _resolve_sensitivity,
@@ -285,3 +286,18 @@ class TestPreviewMatchesEvaluation:
         # The preview used to require one fewer point than evaluation for band_deviation, so an
         # alert at exactly the minimum previewed clean and then errored on its first real check.
         assert _required_points(condition, interval) == expected
+
+
+class TestTargetDateIndex:
+    @parameterized.expand(
+        [
+            # Prophet extends from the last completed bucket, so the run can end on or past the
+            # date. Picking [-1] evaluated the day before the one the user asked about.
+            ("lands exactly", ["2026-03-29", "2026-03-30", "2026-03-31"], "2026-03-31", 2),
+            ("overshoots", ["2026-03-30", "2026-03-31", "2026-04-01"], "2026-03-31", 1),
+            ("iso timestamps", ["2026-03-30T00:00:00", "2026-03-31T00:00:00"], "2026-03-31", 1),
+            ("falls short, takes the last", ["2026-03-28", "2026-03-29"], "2026-03-31", 1),
+        ]
+    )
+    def test_index_for_target_date(self, _name, forecast_dates, target, expected) -> None:
+        assert _index_for_target_date(forecast_dates, target) == expected

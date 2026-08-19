@@ -764,7 +764,28 @@ class TestForecastConfigValidation:
                     "condition": "target_by_date",
                     **extra,
                 },
+                require_future_target_date=True,
             )
+
+    def test_a_finished_target_alert_still_validates(self) -> None:
+        """Once the date passes, the scheduled check and any PATCH revalidate the alert's own saved
+        config. Rejecting the date it was saved with would auto-disable it with an error email and
+        make it uneditable, including turning it off."""
+        validate_alert_config(
+            TRENDS_QUERY,
+            {"type": "absolute_value"},
+            TRENDS_CONFIG,
+            ABS_THRESHOLD,
+            calculation_interval="daily",
+            forecast_config={
+                "type": "ForecastConfig",
+                "engine": "prophet",
+                "condition": "target_by_date",
+                "target": 100,
+                "target_direction": "at_least",
+                "target_date": "2020-01-01",
+            },
+        )
 
     def test_target_by_date_config_is_accepted(self) -> None:
         # Far enough out to be useful, inside the six month cap on a daily insight.

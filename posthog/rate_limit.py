@@ -1359,6 +1359,22 @@ class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
 
 
+class ForecastSimulateThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Cap how often a team can trigger a forecast preview.
+    #
+    # The endpoint runs an uncached ClickHouse scan and a synchronous Prophet fit, and the request
+    # controls the cost: a fine-grained insight at the maximum horizon fits thousands of rows and
+    # allocates hundreds of megabytes in the web worker. band_deviation pays a second fit on top.
+    # Keyed per team, matching AlertTestDeliveryThrottle, so extra API keys do not raise the limit.
+    scope = "forecast_simulate"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
 class UserInterviewInviteThrottle(PersonalApiKeyOrUserRateThrottle):
     # Cap how often a team can fire the user-interview send_invites action.
     #

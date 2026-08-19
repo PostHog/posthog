@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Any, Optional
 
 from posthog.schema import ForecastConfig, InsightsThresholdBounds, InsightThreshold, IntervalType, TrendsQuery
@@ -285,15 +285,19 @@ def _evaluate_target_by_date(
     if target is None or not target_date:
         raise AlertExtractionError("A target alert needs both a target and a target date.")
     try:
-        horizon = horizon_for_target_date(date.fromisoformat(target_date), interval_type, datetime.now(UTC).date())
+        # Count from the last completed bucket, which is where Prophet extends from. Counting from
+        # today lands the final point one interval short of the date the user asked about.
+        horizon = horizon_for_target_date(
+            date.fromisoformat(str(target_date)), interval_type, date.fromisoformat(dates[-1][:10])
+        )
     except ValueError as e:
         raise AlertExtractionError(str(e))
     forecast = engine.forecast(dates, values, horizon, interval_width, interval_type)
-    # The last predicted point is the one that lands on or just past the target date.
+    at = _index_for_target_date(forecast.dates, str(target_date))
     return _evaluate_target_by_date_values(
-        yhat=forecast.yhat[-1],
-        lower=forecast.lower[-1],
-        upper=forecast.upper[-1],
+        yhat=forecast.yhat[at],
+        lower=forecast.lower[at],
+        upper=forecast.upper[at],
         target=float(target),
         direction=forecast_config.get("target_direction") or ForecastTargetDirection.AT_LEAST.value,
         sensitivity=_resolve_sensitivity(forecast_config),
@@ -452,7 +456,9 @@ def simulate_forecast_on_insight(
         target_date = forecast_config.get("target_date")
         if not target_date:
             raise ValueError("A target alert needs a target date.")
-        horizon = horizon_for_target_date(date.fromisoformat(str(target_date)), interval_type, datetime.now(UTC).date())
+        horizon = horizon_for_target_date(
+            date.fromisoformat(str(target_date)), interval_type, date.fromisoformat(dates[-1][:10])
+        )
     else:
         horizon = _resolve_horizon(forecast_config)
     engine = get_forecast_engine(forecast_config)
@@ -478,6 +484,15 @@ def simulate_forecast_on_insight(
     }
 
 
+def _index_for_target_date(forecast_dates: list[str], target_date: str) -> int:
+    """First predicted point that reaches the target date. Prophet extends from the last completed
+    bucket rather than from today, so the last point is not the target date."""
+    for i, d in enumerate(forecast_dates):
+        if d[:10] >= target_date[:10]:
+            return i
+    return len(forecast_dates) - 1
+
+
 def _target_projection(forecast: ForecastResult, forecast_config: dict[str, Any]) -> dict[str, Any] | None:
     """Both crossings for the preview: what the forecast says, and what the favorable edge says.
     Returning both is what makes the choice between the two sensitivities visible rather than
@@ -490,8 +505,9 @@ def _target_projection(forecast: ForecastResult, forecast_config: dict[str, Any]
     at_least = (forecast_config.get("target_direction") or ForecastTargetDirection.AT_LEAST.value) == (
         ForecastTargetDirection.AT_LEAST.value
     )
-    predicted = forecast.yhat[-1]
-    best_case = forecast.upper[-1] if at_least else forecast.lower[-1]
+    at = _index_for_target_date(forecast.dates, str(forecast_config.get("target_date") or ""))
+    predicted = forecast.yhat[at]
+    best_case = forecast.upper[at] if at_least else forecast.lower[at]
     return {
         "predicted": predicted,
         "best_case": best_case,

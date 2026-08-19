@@ -20,6 +20,7 @@ class SkipReason(StrEnum):
     WEEKEND = "weekend"
     QUIET_HOURS = "quiet_hours"
     SNOOZED = "snoozed"
+    TARGET_DATE_PASSED = "target_date_passed"
 
 
 @dataclasses.dataclass(frozen=True)
