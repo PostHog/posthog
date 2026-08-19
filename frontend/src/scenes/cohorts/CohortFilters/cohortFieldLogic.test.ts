@@ -2,11 +2,13 @@ import { MOCK_GROUP_TYPES } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CohortFieldLogicProps, cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { FieldOptionsType } from 'scenes/cohorts/CohortFilters/types'
 
 import { useMocks } from '~/mocks/jest'
+import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 
@@ -77,5 +79,18 @@ describe('cohortFieldLogic', () => {
                 })
             })
         }
+    })
+
+    it('uses the lazy action cache for existing action criteria labels', async () => {
+        await initLogic({
+            cohortFilterLogicKey: '0',
+            fieldKey: 'value',
+            criteria: { event_type: TaxonomicFilterGroupType.Actions, value: 1 },
+            fieldOptionGroupTypes: [FieldOptionsType.EventAggregation],
+        })
+        actionsModel({ skipLoad: true }).mount()
+        actionsModel({ skipLoad: true }).actions.loadActionsSuccess([{ id: 1, name: 'Signed up', steps: [] }] as any)
+
+        expect(logic.values.calculatedValue(TaxonomicFilterGroupType.Actions)).toBe('Signed up')
     })
 })

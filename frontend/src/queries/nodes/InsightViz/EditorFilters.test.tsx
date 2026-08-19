@@ -137,7 +137,7 @@ describe('EditorFilters', () => {
         cleanup()
     })
 
-    it('does not load actions for insight editors before a taxonomy picker opens', async () => {
+    it('loads actions only when an insight editor already contains an action series', async () => {
         setupAndRender(makeTrendsQuery())
         expect(actionRequestCount).toBe(0)
 
@@ -146,7 +146,7 @@ describe('EditorFilters', () => {
             kind: NodeKind.TrendsQuery,
             series: [{ kind: NodeKind.ActionsNode, id: 1, name: 'Signup', math: BaseMathType.TotalCount }],
         })
-        await waitFor(() => expect(actionRequestCount).toBe(0))
+        await waitFor(() => expect(actionRequestCount).toBe(1))
     })
 
     it.each([

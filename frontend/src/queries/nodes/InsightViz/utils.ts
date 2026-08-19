@@ -49,6 +49,9 @@ export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType
     return Array.from(new Set(allEvents.filter((e): e is string => !!e)))
 }
 
+export const hasActionSeries = (query: InsightQueryNode | null): boolean =>
+    !!query && isInsightQueryWithSeries(query) && query.series.some((series) => series.kind === NodeKind.ActionsNode)
+
 export const getCachedResults = (
     cachedInsight: Partial<QueryBasedInsightModel> | undefined | null,
     query: InsightQueryNode
