@@ -5,16 +5,12 @@ import {
   resolveRepoIntegrationId,
 } from "./spaceRepoAssignment";
 
-const ME = "user-uuid-me";
-const TEAMMATE = "user-uuid-teammate";
-
 function channel(overrides: Partial<AssignableChannel>): AssignableChannel {
   return {
     id: "id",
     name: "name",
     channel_type: "public",
     system_role: null,
-    created_by: { uuid: ME },
     ...overrides,
   };
 }
@@ -33,38 +29,27 @@ const general = channel({
 
 describe("spaceRepoAssignment", () => {
   describe("planSpaceRepoAssignments", () => {
-    it("targets the personal space and an own-provisioned empty #general", () => {
-      expect(planSpaceRepoAssignments([personal, general], ME)).toEqual([
+    it("targets the personal space and a just-created empty #general", () => {
+      expect(planSpaceRepoAssignments([personal, general], true)).toEqual([
         "personal-id",
         "general-id",
       ]);
     });
 
-    it("skips #general when the team already configured repositories", () => {
+    it("skips an inherited #general even when its repository list is empty", () => {
+      // A teammate may have emptied it on purpose; empty is not the same
+      // signal as just created.
+      expect(planSpaceRepoAssignments([personal, general], false)).toEqual([
+        "personal-id",
+      ]);
+    });
+
+    it("skips a just-created #general that a teammate already configured", () => {
       const configured = channel({
         ...general,
         repositories: ["example/app"],
       });
-      expect(planSpaceRepoAssignments([personal, configured], ME)).toEqual([
-        "personal-id",
-      ]);
-    });
-
-    it("skips a teammate-created #general even when its repository list is empty", () => {
-      // A teammate may have emptied it on purpose; empty is not the same
-      // signal as never configured.
-      const inherited = channel({
-        ...general,
-        created_by: { uuid: TEAMMATE },
-      });
-      expect(planSpaceRepoAssignments([personal, inherited], ME)).toEqual([
-        "personal-id",
-      ]);
-    });
-
-    it("skips #general when the creator is unknown", () => {
-      const legacy = channel({ ...general, created_by: null });
-      expect(planSpaceRepoAssignments([personal, legacy], ME)).toEqual([
+      expect(planSpaceRepoAssignments([personal, configured], true)).toEqual([
         "personal-id",
       ]);
     });
@@ -73,7 +58,7 @@ describe("spaceRepoAssignment", () => {
       expect(
         planSpaceRepoAssignments(
           [channel({ id: "other", name: "random" })],
-          ME,
+          true,
         ),
       ).toEqual([]);
     });

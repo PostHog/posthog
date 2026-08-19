@@ -7,7 +7,6 @@ import {
 export interface AssignableChannel extends ChannelIdentity {
   id: string;
   repositories?: string[];
-  created_by?: { uuid: string } | null;
 }
 
 export interface AssignableGithubIntegration {
@@ -37,14 +36,15 @@ export function resolveRepoIntegrationId(
 
 /**
  * Which spaces the onboarding repo pick becomes the default for: the personal
- * space always, and the shared #general space only when this user's own
- * onboarding provisioned it (they are its creator) and nobody has configured
- * repositories. A teammate-created #general is team state, even when its
- * repository list is empty: someone may have emptied it on purpose.
+ * space always, and the shared #general space only when this onboarding's
+ * provisioning call just created it (the server's general_created flag). An
+ * inherited #general is team state, even when its repository list is empty:
+ * someone may have emptied it on purpose. The empty check guards the race
+ * where a teammate configures the just-created space first.
  */
 export function planSpaceRepoAssignments(
   channels: AssignableChannel[],
-  currentUserUuid: string | null | undefined,
+  generalJustCreated: boolean,
 ): string[] {
   const targets: string[] = [];
   const personal = channels.find((channel) => isPersonalChannel(channel));
@@ -52,9 +52,8 @@ export function planSpaceRepoAssignments(
   const general = channels.find((channel) => isGeneralChannel(channel));
   if (
     general &&
-    (general.repositories ?? []).length === 0 &&
-    currentUserUuid != null &&
-    general.created_by?.uuid === currentUserUuid
+    generalJustCreated &&
+    (general.repositories ?? []).length === 0
   ) {
     targets.push(general.id);
   }
