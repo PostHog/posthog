@@ -164,6 +164,37 @@ describe('recentItemsModel', () => {
         expect(logic.values.recents).toEqual([recentItem])
     })
 
+    it('drops a prefix-typed delete that matches a concrete subtype recent', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        const hogFunction = {
+            id: 'recent-hf',
+            path: 'Destinations/Webhook',
+            type: 'hog_function/destination',
+            ref: 'abc',
+            last_viewed_at: '2026-04-22T00:00:00Z',
+        } as FileSystemEntry
+        jest.spyOn(api.fileSystem, 'list').mockResolvedValue({
+            count: 2,
+            results: [hogFunction, recentItem],
+            users: [],
+        })
+        jest.spyOn(api.fileSystemLogView, 'list').mockResolvedValue([])
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentsSuccess'])
+            .toMatchValues({ recents: [hogFunction, recentItem] })
+
+        // Delete callers pass the `hog_function/` prefix, but the stored recent is the concrete
+        // `hog_function/destination`. The prefix must match the subtype so the dead link is dropped,
+        // while an unrelated type stays.
+        logic.actions.itemDeleted('hog_function/', 'abc')
+
+        expect(logic.values.recents).toEqual([recentItem])
+    })
+
     it('degrades to empty fallbacks when the loaders hit a fetch failure', async () => {
         jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
         jest.spyOn(api.fileSystem, 'list').mockRejectedValue(new TypeError('Failed to fetch'))
