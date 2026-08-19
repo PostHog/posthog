@@ -1,21 +1,19 @@
 import { ArrowSquareOut } from "@phosphor-icons/react";
-import { getReasoningEffortOptions } from "@posthog/agent/adapters/reasoning-effort";
 import type { TaskRunPreferences } from "@posthog/api-client/posthog-client";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
-import { flattenConfigValues } from "@posthog/core/task-detail/configOptions";
 import { Button } from "@posthog/quill";
 import { type Adapter, formatModelId } from "@posthog/shared";
 import { EFFORT_LEVEL_LABELS } from "@posthog/shared/domain-types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import {
   SettingsCard,
   SettingsCardRow,
 } from "@posthog/ui/features/settings/components/SettingsCard";
-import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { useTaskAgentDefaults } from "@posthog/ui/features/settings/hooks/useTaskAgentDefaults";
 import { usePreviewConfig } from "@posthog/ui/features/task-detail/hooks/usePreviewConfig";
 import { Text } from "@radix-ui/themes";
-import { useMemo } from "react";
+import { useEffect, useRef } from "react";
 
 /** The tasks settings page in PostHog, where the project default is set. */
 const POSTHOG_SETTINGS_PATH = "/settings/environment-task-agents";
@@ -37,96 +35,95 @@ function describe(preferences: TaskRunPreferences, emptyLabel: string): string {
     : model;
 }
 
-interface ModelChoice {
-  model: string;
-  adapter: Adapter;
-}
-
 /**
- * Selects for this user's own default, bound to the stored preference rather than to a
- * live session's config: clearing it has to read as empty here, which a composer picker
- * (which always shows whatever the run would use) can't express.
+ * The composer's own picker, wired to the stored preference instead of a run's config.
+ *
+ * With nothing stored it shows the inherited project default behind a "Default ·"
+ * prefix, so what your runs will use is visible without reading as a pick you made.
  */
 function MyDefaultPicker({
   preferences,
+  inherited,
   disabled,
   onSave,
 }: {
   preferences: TaskRunPreferences;
+  inherited: TaskRunPreferences;
   disabled: boolean;
   onSave: (next: TaskRunPreferences) => void;
 }) {
-  // Both harnesses, so a Codex default is settable here as readily as a Claude one.
-  const claude = usePreviewConfig("claude");
-  const codex = usePreviewConfig("codex");
+  const isInherited = !preferences.model;
+  const shown = isInherited ? inherited : preferences;
+  const adapter: Adapter =
+    shown.runtime_adapter === "codex" ? "codex" : "claude";
+  const { modelOption, thoughtOption, isLoading, setConfigOption } =
+    usePreviewConfig(adapter);
 
-  const choices = useMemo<ModelChoice[]>(() => {
-    const collect = (
-      option: typeof claude.modelOption,
-      adapter: Adapter,
-    ): ModelChoice[] =>
-      option?.type === "select"
-        ? flattenConfigValues(option).map((model) => ({ model, adapter }))
-        : [];
-    return [
-      ...collect(claude.modelOption, "claude"),
-      ...collect(codex.modelOption, "codex"),
-    ];
-  }, [claude.modelOption, codex.modelOption]);
+  // Reflect the stored triple into the fetched options, so the pill names the preference
+  // rather than whatever the last preview session happened to select.
+  const seeded = useRef<string | null>(null);
+  const seedKey = `${adapter}:${shown.model ?? ""}:${shown.reasoning_effort ?? ""}`;
+  useEffect(() => {
+    if (isLoading || seeded.current === seedKey) return;
+    seeded.current = seedKey;
+    if (shown.model && modelOption) {
+      setConfigOption(modelOption.id, shown.model);
+    }
+    if (shown.reasoning_effort && thoughtOption) {
+      setConfigOption(thoughtOption.id, shown.reasoning_effort);
+    }
+  }, [
+    isLoading,
+    seedKey,
+    modelOption,
+    thoughtOption,
+    setConfigOption,
+    shown.model,
+    shown.reasoning_effort,
+  ]);
 
-  const selectedAdapter =
-    choices.find((c) => c.model === preferences.model)?.adapter ??
-    (preferences.runtime_adapter === "codex" ? "codex" : "claude");
+  const handleModelChange = (model: string) => {
+    if (modelOption) setConfigOption(modelOption.id, model);
+    // The effort belongs to the model it was chosen against, so a model switch drops it
+    // rather than storing one the new model may not support.
+    onSave({ runtime_adapter: adapter, model, reasoning_effort: null });
+  };
 
-  const efforts = preferences.model
-    ? (getReasoningEffortOptions(selectedAdapter, preferences.model) ?? [])
-    : [];
+  const handleEffortChange = (effort: string) => {
+    if (thoughtOption) setConfigOption(thoughtOption.id, effort);
+    // An effort alone is not a preference: it needs the model it was judged against.
+    const model = shown.model;
+    if (!model) return;
+    onSave({
+      runtime_adapter: adapter,
+      model,
+      reasoning_effort: effort || null,
+    });
+  };
 
   return (
-    <div className="flex items-center gap-2">
-      <SettingsSelect
-        ariaLabel="My default model"
-        value={preferences.model}
-        placeholder={INHERIT_PROJECT_DEFAULT}
-        triggerClassName="w-56"
-        options={[
-          { value: null, label: INHERIT_PROJECT_DEFAULT },
-          ...choices.map(({ model }) => ({
-            value: model,
-            label: formatModelId(model),
-          })),
-        ]}
-        onChange={(model) => {
-          if (disabled) return;
-          const adapter =
-            choices.find((c) => c.model === model)?.adapter ?? selectedAdapter;
-          // The effort belongs to the model it was chosen against, so a model switch
-          // drops it rather than storing one the new model may not support.
-          onSave({
-            runtime_adapter: model ? adapter : null,
-            model,
-            reasoning_effort: null,
-          });
-        }}
-      />
-      <SettingsSelect
-        ariaLabel="My default reasoning effort"
-        value={preferences.reasoning_effort}
-        placeholder="Default effort"
-        triggerClassName="w-40"
-        options={[
-          { value: null, label: "Default effort" },
-          ...efforts.map((effort) => ({
-            value: effort.value,
-            label: effort.name || effortLabel(effort.value),
-          })),
-        ]}
-        onChange={(reasoning_effort) => {
-          if (disabled || !preferences.model) return;
-          onSave({ ...preferences, reasoning_effort });
-        }}
-      />
-    </div>
+    <ReasoningLevelSelector
+      modelOption={modelOption}
+      thoughtOption={thoughtOption}
+      adapter={adapter}
+      isDefaultSelection={isInherited}
+      onModelChange={handleModelChange}
+      onChange={handleEffortChange}
+      onAdapterChange={(next) => {
+        // Switching harness clears the pair; the next model pick supplies the new one.
+        seeded.current = null;
+        onSave({ runtime_adapter: next, model: null, reasoning_effort: null });
+      }}
+      onConfigOptionChange={(configId, value) => {
+        if (modelOption && configId === modelOption.id) {
+          handleModelChange(value);
+        } else if (thoughtOption && configId === thoughtOption.id) {
+          handleEffortChange(value);
+        }
+      }}
+      disabled={disabled}
+      isLoading={isLoading}
+    />
   );
 }
 
@@ -194,42 +191,50 @@ export function TaskAgentDefaultsSettings() {
           label="My default"
           description="Overrides the project default for your own runs, everywhere in PostHog — not just this app."
         >
+          {/* Deliberately not disabled while saving: the write is debounced and the pick
+              already shows, so toggling the control would just make it blink. */}
           <MyDefaultPicker
             preferences={myPreferences}
-            disabled={isLoading || isSaving}
-            onSave={(next) => void save(next)}
+            inherited={teamPreferences}
+            disabled={isLoading}
+            onSave={save}
           />
         </SettingsCardRow>
 
         <SettingsCardRow
           label="Reset my default"
-          description={
-            myPreferences.model
-              ? "Go back to inheriting the project default."
-              : "You're already inheriting the project default."
-          }
+          // Deliberately one fixed sentence: swapping it for a state-dependent one
+          // resizes the row on every save, which reads as a flicker.
+          description="Clears your own default so the project default applies again."
         >
           <Button
             type="button"
             variant="outline"
             size="sm"
             disabled={!myPreferences.model || isSaving}
-            onClick={() => void reset()}
+            onClick={reset}
           >
             {INHERIT_PROJECT_DEFAULT}
           </Button>
         </SettingsCardRow>
       </SettingsCard>
 
-      <Text className="text-(--gray-11) text-sm">
-        {resolved.model
-          ? `Runs you start without picking a model use ${describe(resolved, "")}, from ${
-              resolved.source === "user"
-                ? "your default"
-                : "the project default"
-            }.`
-          : "No default is set — runs use each surface's built-in model."}
-      </Text>
+      {/* Height is reserved rather than left to the text: this line's length changes on
+          every save, and letting it reflow between one and two lines shifts the card
+          above it each time. */}
+      <div className="min-h-10">
+        <Text className="text-(--gray-11) text-sm">
+          {isLoading
+            ? ""
+            : resolved.model
+              ? `Runs you start without picking a model use ${describe(resolved, "")}, from ${
+                  resolved.source === "user"
+                    ? "your default"
+                    : "the project default"
+                }.`
+              : "No default is set — runs use each surface's built-in model."}
+        </Text>
+      </div>
     </div>
   );
 }

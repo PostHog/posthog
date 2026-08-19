@@ -13,6 +13,17 @@ export interface TaskRunDefaultsResult {
 }
 
 /**
+ * Shared so the settings page can drop this cache when it changes the preference behind
+ * it. The composer holds the answer for `staleTime`, which is right for a value that
+ * rarely moves and wrong for the moment someone just moved it.
+ */
+export function taskRunDefaultsQueryKey(
+  projectId: number | string | null,
+): [string, number | string | null] {
+  return ["task-run-defaults", projectId];
+}
+
+/**
  * The project/user default AI run configuration for the signed-in user, which
  * the composer opens on when nothing has been picked locally.
  *
@@ -24,7 +35,7 @@ export function useTaskRunDefaults(): TaskRunDefaultsResult {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const authFetched = useAuthStateFetched();
   const query = useAuthenticatedQuery(
-    ["task-run-defaults", projectId],
+    taskRunDefaultsQueryKey(projectId),
     async (client) => await client.getTaskRunDefaults(Number(projectId)),
     { enabled: projectId != null, staleTime: 5 * 60 * 1000, retry: false },
   );

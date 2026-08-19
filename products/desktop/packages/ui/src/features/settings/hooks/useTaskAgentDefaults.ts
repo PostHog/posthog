@@ -7,9 +7,11 @@ import {
 } from "@posthog/api-client/posthog-client";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { taskRunDefaultsQueryKey } from "@posthog/ui/features/task-detail/hooks/useTaskRunDefaults";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 export interface TaskAgentDefaultsResult {
   /** The project-wide default, which only project admins can change. */
@@ -21,13 +23,20 @@ export interface TaskAgentDefaultsResult {
   isLoading: boolean;
   isSaving: boolean;
   /** Persist a personal preference; an all-null triple clears it. */
-  save: (preferences: TaskRunPreferences) => Promise<void>;
+  save: (preferences: TaskRunPreferences) => void;
   /** Clear the personal preference so the project default applies again. */
-  reset: () => Promise<void>;
+  reset: () => void;
 }
 
 const MY_CONFIG_KEY = "task-agent-my-config";
 const TEAM_CONFIG_KEY = "task-agent-team-config";
+
+/**
+ * Picking a model and then its effort is two interactions moments apart, and writing on
+ * each one costs two round trips and two re-renders — which is what the settings page
+ * flickers on. Long enough to coalesce a pair, short enough that nobody waits on it.
+ */
+const SAVE_DEBOUNCE_MS = 600;
 
 /**
  * The project and personal task-agent defaults for the current project.
@@ -68,19 +77,59 @@ export function useTaskAgentDefaults(): TaskAgentDefaultsResult {
       // The write returns the row and its resolution, so seed the cache rather than
       // refetching what we already hold.
       queryClient.setQueryData([MY_CONFIG_KEY, projectId], next);
+      // The composer caches the resolved answer for minutes at a time, which would leave
+      // the next task opening on the model this change just replaced. Seed it too, from
+      // the same response, so opening a task shows what was chosen here.
+      queryClient.setQueryData(
+        taskRunDefaultsQueryKey(projectId),
+        next.resolved,
+      );
+      // A stored last-used pick outranks the preference in the composer, so without this
+      // the new default would be shadowed on any device that has ever picked a model —
+      // the setting would look ignored. Choosing a default here is the more deliberate
+      // act of the two, so it clears the stale pick. Same reset the v1 migration does.
+      useSettingsStore.getState().setLastUsedModel(null);
+      useSettingsStore.getState().setLastUsedReasoningEffort(null);
     },
   });
 
+  const pending = useRef<TaskRunPreferences | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mutate = mutation.mutate;
+
+  const flush = useCallback(() => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    const next = pending.current;
+    pending.current = null;
+    if (next) mutate(next);
+  }, [mutate]);
+
   const save = useCallback(
-    async (preferences: TaskRunPreferences) => {
-      await mutation.mutateAsync(preferences);
+    (preferences: TaskRunPreferences) => {
+      pending.current = preferences;
+      // Show the pick straight away; the debounced write only decides when it lands.
+      queryClient.setQueryData(
+        [MY_CONFIG_KEY, projectId],
+        (prev: MyTaskRunConfig | undefined) =>
+          prev ? { ...prev, preferences } : prev,
+      );
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(flush, SAVE_DEBOUNCE_MS);
     },
-    [mutation],
+    [flush, queryClient, projectId],
   );
 
-  const reset = useCallback(async () => {
-    await mutation.mutateAsync(NO_TASK_RUN_PREFERENCES);
-  }, [mutation]);
+  const reset = useCallback(() => {
+    pending.current = NO_TASK_RUN_PREFERENCES;
+    flush();
+  }, [flush]);
+
+  // A pick made and then navigated away from within the debounce window still has to
+  // land — the alternative is silently dropping the change the user just made.
+  useEffect(() => flush, [flush]);
 
   return {
     teamPreferences: teamConfig.data ?? NO_TASK_RUN_PREFERENCES,
