@@ -89,13 +89,24 @@ GITHUB_WEBHOOK_RESOURCE_MAP: dict[str, str] = {
     # path injects no parent column (check run ids are globally unique), so the webhook row already
     # matches the poll row and needs no reshaping.
     "check_runs": "check_run",
+    # The one mapped event with no nesting key at all: the status fields sit at the top level of
+    # the body, wrapped in commit/repository/sender/branches objects the poll row never carries.
+    # The template rebuilds the row from the top-level fields and injects commit_sha from the
+    # event's `sha`, which is the column the poll fan-out copies off the parent commit.
+    "commit_statuses": "status",
+    # The three comment tables all nest the row under `comment`, and GitHub's comment objects are
+    # the same shape its REST list endpoints return, so the template only unwraps them. They keep
+    # an unset initial_lookback_days, which leaves them poll-capable: the poll bootstraps the table
+    # and the webhook takes over once initial_sync_complete is set.
+    "issue_comments": "issue_comment",
+    "pull_request_comments": "pull_request_review_comment",
+    "commit_comments": "commit_comment",
 }
 
 # Everything else stays poll-only. GitHub does emit events for several of the other tables, but the
-# template lands `body[eventType]` as the row and these nest the object under a different key —
-# `alert` for the code-scanning/Dependabot/secret-scanning alerts, `comment` for issue and review
-# comments, `forkee` for forks, `commit` for statuses — so each needs its own reshaping branch
-# before its webhook rows would match what the poll path writes.
+# template lands `body[eventType]` as the row and these nest the object under a different key
+# (`alert` for the code-scanning/Dependabot/secret-scanning alerts, `forkee` for forks), so each
+# needs its own reshaping branch before its webhook rows would match what the poll path writes.
 
 
 @SourceRegistry.register

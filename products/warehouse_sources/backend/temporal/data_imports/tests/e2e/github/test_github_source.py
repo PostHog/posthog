@@ -1467,6 +1467,10 @@ class TestGithubWebhookSource:
             "deployments": "deployment",
             "deployment_statuses": "deployment_status",
             "check_runs": "check_run",
+            "commit_statuses": "status",
+            "issue_comments": "issue_comment",
+            "pull_request_comments": "pull_request_review_comment",
+            "commit_comments": "commit_comment",
         }
 
     def test_webhook_template_identity(self) -> None:
@@ -1485,6 +1489,10 @@ class TestGithubWebhookSource:
             "deployments",
             "deployment_statuses",
             "check_runs",
+            "commit_statuses",
+            "issue_comments",
+            "pull_request_comments",
+            "commit_comments",
         }
 
     def test_workflow_runs_and_jobs_are_webhook_only(self) -> None:
@@ -1674,9 +1682,13 @@ class TestGithubWebhookSource:
         assert url == "https://app.posthog.com/webhook"
         assert sorted(events) == [
             "check_run",
+            "commit_comment",
             "deployment",
             "deployment_status",
+            "issue_comment",
             "pull_request_review",
+            "pull_request_review_comment",
+            "status",
             "workflow_job",
             "workflow_run",
         ]

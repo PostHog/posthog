@@ -97,8 +97,12 @@ tables, and both comment tables.
 
 `issue_comments` and `pull_request_comments` sit here: both set `supports_since_param=True`, so
 steady state is bounded server-side and cheap. **Their only exposure is the first sync**, which has
-no watermark and therefore walks all history. `initial_lookback_days` bounds exactly that, and is a
-one-line change per endpoint. They do not need a webhook to be safe.
+no watermark and therefore walks all history. (Correction found during implementation: this doc
+originally claimed `initial_lookback_days` already bounded that as a config-only change. It did
+not; the field was consumed only by the fan-out parent cutoff and the `== 0` webhook-only
+sentinel. `_build_initial_params` now also applies it as a first-sync `since` floor for
+since-capable repo-wide endpoints, and both comment tables set it.) They do not need a webhook to
+be safe.
 
 ### Class 4 — guarded (5 endpoints)
 
@@ -205,16 +209,20 @@ polling. The Class-2 audit is parked as follow-up.
 2. **`commit_statuses` to webhook-only.** Add it to `GITHUB_WEBHOOK_RESOURCE_MAP` (`status` event)
    with a reshape branch (the payload has no nesting key: build the row from top-level body fields,
    strip the `commit`/`repository`/`sender` envelope, inject `commit_sha := body.sha` to match what
-   the fan-out injects), and set `initial_lookback_days=0`. No `version_keys` — append-only, and its
-   composite `["commit_sha", "id"]` key skips the dedupe transformer. Side effect: fixes the
-   dropped-late-status bug the poll has today.
+   the fan-out injects), and set `initial_lookback_days=0`. No `version_keys` — statuses are
+   append-only, and (correction found during implementation) nothing skips composite keys: the
+   dedupe transformer is built whenever `version_keys` is set and collapses on the FIRST pk column
+   only, so `version_keys` on the composite `["commit_sha", "id"]` key would collapse a commit's
+   statuses to one row. Guarded by `test_no_composite_key_endpoint_declares_version_keys`. Side
+   effect: fixes the dropped-late-status bug the poll has today.
 3. **Webhook-feed the three comment tables.** Add `issue_comments` (`issue_comment`),
    `pull_request_comments` (`pull_request_review_comment`), and `commit_comments`
    (`commit_comment`) to the map; all three payloads nest the row under `comment`, so they need
    reshape branches like `pull_request_review` already has. Poll stays as bootstrap/fallback via the
    existing initial-sync-then-webhook mechanism. `commit_comments` is the biggest win — its poll can
    only ever be full refresh. The other two are `since`-bounded and cheap on the poll, so for them
-   this is freshness and fewer calls, not safety.
+   this is freshness and fewer calls, not safety. Their bootstrap is floored at
+   `initial_lookback_days=14` through the first-sync `since` floor described in Class 3.
 4. **Class-2 audit (parked).** Still the biggest raw exposure: ~25 default-selected endpoints
    re-pull their whole collection every sync. Decide per endpoint later: add incremental where the
    API allows, otherwise flip `should_sync_default=False`. Some (e.g. `stargazers`, `forks`,
