@@ -2,13 +2,17 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { DataWarehouseManagedViewsetCard } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetCard'
 import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
 import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType } from '~/types'
+
+import {
+    generatedManagedViewsets,
+    generatedRevenueAnalyticsJoins,
+} from 'products/data_warehouse/frontend/warehouseRelationsApi'
 
 export function DataWarehouseManagedViewsetConfiguration(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -19,10 +23,8 @@ export function DataWarehouseManagedViewsetConfiguration(): JSX.Element {
 
     const onConfirmDisable = async (): Promise<boolean> => {
         try {
-            // nosemgrep: prefer-codegen-api
-            await api.dataWarehouseManagedViewsets.toggle('revenue_analytics', false)
-            // nosemgrep: prefer-codegen-api
-            await api.revenueAnalyticsJoins.sync(false)
+            await generatedManagedViewsets.toggle('revenue_analytics', false)
+            await generatedRevenueAnalyticsJoins.sync(false)
             lemonToast.success('Revenue analytics disabled successfully')
             loadCurrentTeam()
             return true

@@ -13,7 +13,7 @@ import {
     LemonTag,
 } from '@posthog/lemon-ui'
 
-import api, { ApiConfig } from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -31,6 +31,7 @@ import {
     externalDataSourcesRepairCdcCreate,
     externalDataSourcesResumeCdcCreate,
 } from 'products/warehouse_sources/frontend/generated/api'
+import { generatedExternalDataSources } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import { CDC_SOURCE_TYPES } from '../../../shared/cdc'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
@@ -215,8 +216,7 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
             onConfirm: async () => {
                 setBusy(true)
                 try {
-                    // nosemgrep: prefer-codegen-api
-                    await api.externalDataSources.update_cdc_settings(source.id, {
+                    await generatedExternalDataSources.update_cdc_settings(source.id, {
                         cdc_auto_drop_slot: autoDrop,
                         cdc_lag_warning_threshold_mb: warnMb,
                         cdc_lag_critical_threshold_mb: critMb,
@@ -317,8 +317,7 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
             onConfirm: async () => {
                 setBusy(true)
                 try {
-                    // nosemgrep: prefer-codegen-api
-                    await api.externalDataSources.disable_cdc(source.id)
+                    await generatedExternalDataSources.disable_cdc(source.id)
                     lemonToast.success('CDC disabled')
                     loadSource()
                 } catch (e: any) {
@@ -533,8 +532,7 @@ function DisabledControls({ source }: { source: ExternalDataSource }): JSX.Eleme
         setEnabling(true)
         setModalErrors(null)
         try {
-            // nosemgrep: prefer-codegen-api
-            await api.externalDataSources.enable_cdc(source.id, {
+            await generatedExternalDataSources.enable_cdc(source.id, {
                 cdc_management_mode: mode,
                 cdc_publication_name: mode === 'self_managed' && publicationName ? publicationName : null,
                 cdc_auto_drop_slot: autoDrop,
@@ -563,8 +561,7 @@ function DisabledControls({ source }: { source: ExternalDataSource }): JSX.Eleme
         try {
             // Use the stored-credentials endpoint: this source already exists and its secret
             // fields (password) are stripped from API responses, so we can't resend them.
-            // nosemgrep: prefer-codegen-api
-            const result = await api.externalDataSources.check_cdc_prerequisites_for_source(source.id, {
+            const result = await generatedExternalDataSources.check_cdc_prerequisites_for_source(source.id, {
                 cdc_management_mode: mode,
                 cdc_publication_name: mode === 'self_managed' && publicationName ? publicationName : null,
             })

@@ -2,11 +2,12 @@ import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selec
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
 import { DataModelingNode } from '~/types'
+
+import { generatedDataModelingNodes } from 'products/data_modeling/frontend/dataModelingApi'
 
 import type { DataWarehouseSavedQuery } from '../../types'
 
@@ -87,8 +88,7 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
         nodes: {
             __default: [] as DataModelingNode[],
             loadNodes: async () => {
-                // nosemgrep: prefer-codegen-api
-                const response = await api.dataModelingNodes.list()
+                const response = await generatedDataModelingNodes.list()
                 return response.results
             },
         },
