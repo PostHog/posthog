@@ -21,9 +21,16 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
     const teamId = 42
     const functionId = 'flow-1'
 
-    function fakeClickhouse(rows: unknown[]): ClickHouseClient {
+    function fakeClickhouse(rows: Array<Record<string, unknown>>): ClickHouseClient {
         return {
-            query: jest.fn().mockResolvedValue({ json: () => Promise.resolve(rows) }),
+            // The paginator runs two queries per page: the windowed page fetch and a
+            // cross-partition stale-status check on the page's ids. The stale check
+            // returns the ids that should be SKIPPED, so answer it with an empty set
+            // and these tests keep exercising rehydration rather than the stale skip.
+            query: jest.fn().mockImplementation(({ query }: { query: string }) => {
+                const payload = query.includes('hog_invocation_rerun_stale_status') ? [] : rows
+                return Promise.resolve({ json: () => Promise.resolve(payload) })
+            }),
         } as unknown as ClickHouseClient
     }
 
