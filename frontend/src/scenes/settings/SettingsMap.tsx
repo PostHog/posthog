@@ -298,7 +298,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Define filters to exclude internal users and test accounts from your analytics. Filtered users will not appear in insights by default.',
                 docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
                 component: <ProjectAccountFiltersSetting />,
-                keywords: ['test account', 'internal', 'exclude', 'filter', 'bulk', 'existing'],
+                keywords: ['employees', 'staff', 'contractors', 'qa', 'localhost', 'bulk', 'existing'],
             },
             {
                 id: 'business-model',
