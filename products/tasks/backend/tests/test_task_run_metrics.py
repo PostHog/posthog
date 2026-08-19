@@ -60,10 +60,11 @@ class TestTaskRunMetrics(TestCase):
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
-        self.task.create_run(
-            environment=TaskRun.Environment.CLOUD,
-            extra_state={"run_source": "manual", "runtime_adapter": "codex"},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run(
+                environment=TaskRun.Environment.CLOUD,
+                extra_state={"run_source": "manual", "runtime_adapter": "codex"},
+            )
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
 
@@ -79,11 +80,12 @@ class TestTaskRunMetrics(TestCase):
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
-        self.task.create_run(
-            environment=TaskRun.Environment.CLOUD,
-            mode="custom-mode",
-            extra_state={"run_source": "custom-source", "runtime_adapter": "custom-adapter"},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run(
+                environment=TaskRun.Environment.CLOUD,
+                mode="custom-mode",
+                extra_state={"run_source": "custom-source", "runtime_adapter": "custom-adapter"},
+            )
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
 
@@ -114,7 +116,8 @@ class TestTaskRunMetrics(TestCase):
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
-        self.task.create_run(environment=TaskRun.Environment.CLOUD)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run(environment=TaskRun.Environment.CLOUD)
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
 
@@ -130,11 +133,12 @@ class TestTaskRunMetrics(TestCase):
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
-        self.task.create_run(
-            environment=TaskRun.Environment.CLOUD,
-            mode="interactive",
-            extra_state={"await_user_message": True, "prewarmed": True},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run(
+                environment=TaskRun.Environment.CLOUD,
+                mode="interactive",
+                extra_state={"await_user_message": True, "prewarmed": True},
+            )
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
 

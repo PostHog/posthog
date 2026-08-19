@@ -26,6 +26,7 @@ import type {
     FileSystemShortcutListParams,
     FileSystemShortcutReorderApi,
     GitHubBranchesResponseApi,
+    GitHubInstallRequestListResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     IdentityProviderConfigApi,
@@ -2617,6 +2618,28 @@ export const usersIntegrationsGithubReposRefreshCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getUsersIntegrationsGithubInstallRequestsRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/github/install_requests/`
+}
+
+/**
+ * Return the requesting user's GitHub App install-approval requests, newest first.
+ *
+ * This is the durable server-side "awaiting org owner approval" state (see
+ * ``posthog.models.user_integration.GitHubInstallRequest``), distinct from the in-flight
+ * connect spinner, which never touches this table.
+ * @summary List the user's GitHub install-approval requests
+ */
+export const usersIntegrationsGithubInstallRequestsRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<GitHubInstallRequestListResponseApi> => {
+    return apiMutator<GitHubInstallRequestListResponseApi>(getUsersIntegrationsGithubInstallRequestsRetrieveUrl(uuid), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getUsersIntegrationsGithubPrepareCallbackCreateUrl = (uuid: string) => {

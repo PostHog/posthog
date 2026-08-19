@@ -38,6 +38,7 @@ from posthog.models.oauth import (
     OAuthGrant,
     OAuthRefreshToken,
     revoke_application_sessions,
+    revoke_oauth_session,
 )
 from posthog.models.team.team import Team
 from posthog.scopes import get_oauth_scopes_supported
@@ -1744,6 +1745,58 @@ class TestOAuthAPI(APIBaseTest):
         self.assertFalse(
             OAuthRefreshToken.objects.filter(application=self.confidential_application, revoked__isnull=True).exists()
         )
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_refresh_racing_user_session_revoke_is_rejected(self):
+        # Same race as the app-wide case, on the per-connection revoke behind the connected-apps
+        # UI and RFC 7009. revoke_oauth_session deletes the pair's refresh tokens, so a refresh
+        # that validated before it committed cannot mint a replacement pair. Marking them revoked
+        # was not enough: the 120s grace period keeps a revoked token valid through
+        # validate_refresh_token, and RefreshToken.revoke() then returns silently on the
+        # already-revoked row, so DOT went on to mint a fresh access and refresh token.
+        refresh_token = self._create_refreshable_token_pair("openid")
+
+        with freeze_time("2026-01-01 00:00:05"):
+            revoke_oauth_session(refresh_token=refresh_token)
+
+            response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token.token,
+                    "client_id": self.confidential_application.client_id,
+                    "client_secret": "test_confidential_client_secret",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+        self._assert_no_live_tokens()
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_refresh_whose_token_is_deleted_while_waiting_for_the_lock_is_rejected(self):
+        # The reverse interleaving: the request passes validate_refresh_token in autocommit, then a
+        # revoke commits while it waits for the connection lock. Deleting the row from inside the
+        # lock call stands in for that commit, since the lock is where such a request waits. DOT
+        # re-reads the row with an unguarded .get(), which would surface as a 500.
+        refresh_token = self._create_refreshable_token_pair("openid")
+
+        def delete_the_connection(**kwargs: object) -> None:
+            OAuthRefreshToken.objects.filter(pk=refresh_token.pk).delete()
+
+        with patch("posthog.api.oauth.views.lock_oauth_connection", side_effect=delete_the_connection):
+            response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token.token,
+                    "client_id": self.confidential_application.client_id,
+                    "client_secret": "test_confidential_client_secret",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
 
     @freeze_time("2026-01-01 00:00:00")
     def test_refresh_succeeds_for_token_issued_after_revoke(self):
