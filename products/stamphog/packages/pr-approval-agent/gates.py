@@ -17,11 +17,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from policy import (
-    OwnershipSource,
-    load_policy,
-    repo_root as _resolve_repo_root,
-)
+from policy import OwnershipSource, load_policy
 
 if TYPE_CHECKING:
     from posthog_owners.resolver import OwnersResolver
@@ -33,13 +29,19 @@ if TYPE_CHECKING:
 # before any gate runs — the package is only required once a policy actually declares a
 # hogli-resolver ownership source.
 #
-# Two candidate locations, tried in order. The sibling `owners/` covers both the vendored layout
-# downstream repos copy and the review sandbox, which receives this directory at
-# <checkout>/tools/pr-approval-agent with tools/owners beside it. The repo-root `tools/owners` covers
-# running from this repo, where the engine's own home is under products/stamphog/packages/.
+# Two candidate locations, and only the FIRST one that exists is ever put on the path. The sibling
+# `owners/` covers both the vendored layout downstream repos copy and the review sandbox, which
+# receives this directory at <checkout>/tools/pr-approval-agent with tools/owners beside it, so the
+# sandbox never reaches the second entry. The second covers running from this repo, where the
+# engine's own home is under products/stamphog/packages/.
+#
+# Both are fixed offsets from this file rather than a discovered repo root. `policy.repo_root()`
+# walks up looking for a `.stamphog/` directory, and the PR head is untrusted: a PR that adds
+# `tools/.stamphog/` would move that root and point this at a directory it controls, which then gets
+# imported inside the sandbox that holds the run's LLM credentials.
 _OWNERS_PKG_CANDIDATES = (
     Path(__file__).resolve().parents[1] / "owners",
-    _resolve_repo_root() / "tools" / "owners",
+    Path(__file__).resolve().parents[4] / "tools" / "owners",
 )
 
 # ── Dependency ecosystems ────────────────────────────────────────
@@ -198,8 +200,11 @@ class _HogliResolver:
 
 def _build_hogli_resolver(repo_root: Path, source: OwnershipSource) -> _HogliResolver:
     for candidate in _OWNERS_PKG_CANDIDATES:
-        if candidate.is_dir() and str(candidate) not in sys.path:
+        if not candidate.is_dir():
+            continue
+        if str(candidate) not in sys.path:
             sys.path.insert(0, str(candidate))
+        break
     try:
         # Deferred (PLC0415) because the package is absent in vendored copies and is needed only
         # once a policy declares this ownership format.
