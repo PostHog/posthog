@@ -1,5 +1,5 @@
-// sync with ee/hogai/tools/read_billing_tool/tool.py
-// Values are sent to the `billing` repo as `usage_types`; keep in sync with accepted types in `billing/types/usage.py`.
+// Labels mirror ee/billing/billing_types.py::USAGE_TYPE_OPTIONS.
+// Values are sent to the `billing` repo as `usage_types`; keep in sync with `billing/billing/types/usage.py::SupportedUsageType`.
 export const SPEND_TYPES = [
     { label: 'Events', value: 'event_count_in_period' },
     { label: 'Identified events', value: 'enhanced_persons_event_count_in_period' },

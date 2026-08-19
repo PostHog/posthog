@@ -23,6 +23,7 @@ class PosthogJwtAudience(Enum):
     WORKFLOWS_CANCEL_INVOCATIONS = "posthog:workflows:cancel_invocations"
     WORKFLOWS_CANCEL_BATCH = "posthog:workflows:cancel_batch"
     INTEGRATION_SERVICE = "posthog:integration_service"
+    TASKS_CREATE = "posthog:tasks:create"
 
 
 def signing_key_fingerprint(key: str) -> str:

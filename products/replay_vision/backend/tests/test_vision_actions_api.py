@@ -739,6 +739,7 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
         from products.replay_vision.backend.temporal.constants import (
             PROCESS_VISION_ACTION_WORKFLOW_NAME,
             build_process_vision_action_workflow_id,
+            on_demand_priority,
         )
 
         mock_sync_connect.return_value = MagicMock()
@@ -756,6 +757,7 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
 
         args, kwargs = start_workflow.call_args
         self.assertEqual(args[0], PROCESS_VISION_ACTION_WORKFLOW_NAME)
+        self.assertEqual(kwargs["priority"], on_demand_priority(self.team.id))
         inputs = args[1]
         self.assertEqual(inputs.vision_action_id, action.id)
         self.assertEqual(inputs.mode, "group_summary")

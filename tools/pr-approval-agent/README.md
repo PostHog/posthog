@@ -145,6 +145,36 @@ An approval is posted once, as the Stamphog app (`stamphog[bot]`), carrying the 
 This identity was confirmed to satisfy branch protection, so the earlier bodyless `github-actions[bot]` fallback approval has been dropped and every stamphog action now runs under the app token.
 Every other verdict (REFUSED, ESCALATE, WAIT, ERROR) goes into a single sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried (failure notes append without bumping it) — repeated refusals don't stack up as separate review comments on the PR.
 
+## Stacked PRs (Graphite / git stacks)
+
+A stacked PR targets its parent branch, not the repo's default branch, and depends on code the parent introduces but hasn't merged yet.
+`PRData.stacked` (`base_ref != default_branch`, so repos whose trunk is `main` work too) drives the handling; the reviewer prompt tells the agent it is looking at a stacked PR.
+Two parts make stamphog correct on these:
+
+- **Exploration sees the post-stack tree.**
+  The LLM reviewer's `Read`/`Grep`/`Glob` must run over a tree that already contains the parent PRs' code, so symbols from a not-yet-merged parent resolve and aren't flagged as broken imports.
+  The diff itself is still computed `base_sha...head_sha`, so the review is scoped to exactly this PR's changes.
+  How the head tree is materialized differs per runtime:
+  - **Action:** the workflow checks out master (hardcoded, so a PR can't swap the review script), so the reviewer explores a detached **worktree at the PR head** created just for stacked PRs.
+    If the worktree cannot be created, stamphog returns `ERROR` and retains the label rather than reviewing against the wrong source tree.
+    Symbolic links the PR adds or repoints (relative to the default branch's tree, which already carries trusted ones like `CLAUDE.md`) fail closed, so a PR path cannot resolve outside the worktree.
+  - **Hosted:** the sandbox clones and checks out the PR head for every review, so nothing extra is needed — `review_local.py` runs the pipeline with `head_checkout=True` and no worktree is created.
+  - **Security (both runtimes):** the explored tree is PR-authored content.
+    The reviewer runs the Agent SDK with `setting_sources=[]` (isolation mode) plus `strict_mcp_config`, so it does **not** load `.claude/settings.json` hooks (command execution), `CLAUDE.md` (injected instructions), or `.mcp.json` from the tree.
+    Those files are still readable as untrusted _content_ under the anti-injection notice — never as configuration.
+    The diff scratch file is created with `mkstemp` under an unpredictable name, so a tracked symlink in the tree cannot redirect the write.
+
+- **Base retarget dismisses the stale approval.**
+  When a stack's parent merges, the child PR is retargeted from the parent branch onto master, changing its effective diff **without a push** — so no `synchronize` fires and the normal push-dismiss path is skipped.
+  Under the master ruleset (`dismiss_stale_reviews_on_push=false`), a prior bot approval would silently carry onto the new base.
+  The Action listens for the `edited` event and, when the base changed, dismisses the bot approval and re-reviews against the new base (if the label is still present); the approval step also rechecks the live base and head SHAs right before posting.
+  The hosted runtime does the same from the webhook (`_retract_approvals_on_base_retarget`, then a fresh run) and `post_verdict` rechecks the live base ref and SHA against the reviewed ones.
+
+The base commit of a stacked PR is its parent branch tip, which the Action's master checkout doesn't fetch by default — `github.ensure_commits` and the `decide-delta` job both fetch the base branch so `git diff base_sha...head_sha` and the dismiss-time merge classification resolve it.
+The hosted sandbox fetches the base SHA explicitly during the clone.
+
+Known limitation (both runtimes): a parent branch force-push or rebase without restacking the child emits no child PR event, so the child's approval is only revalidated once the child is restacked or pushed.
+
 ## Tiers
 
 ### T0 — deterministic
