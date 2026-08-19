@@ -4,7 +4,6 @@ import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 import { Input } from '@posthog/quill-primitives'
 
-import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
@@ -111,17 +110,20 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
         <div className="flex flex-col h-full min-h-0">
             <div className="flex items-center justify-between gap-1 py-2 pr-2 pl-1 shrink-0">
                 <span className="text-sm font-semibold pl-1">Tasks</span>
-                <Link
-                    to={composerAlreadyOpen ? undefined : urls.taskNew()}
+                {/* Keyed remount: LemonButton swaps its root element (<a> ↔ <button>) when disabled
+                    toggles, stranding the tooltip's hover binding on the removed node. */}
+                <LemonButton
+                    key={composerAlreadyOpen ? 'composer-open' : 'task-selected'}
+                    type="secondary"
+                    size="small"
+                    icon={<IconPlusSmall />}
+                    to={urls.taskNew()}
                     data-attr="tasks-new"
-                    buttonProps={{ iconOnly: true, variant: 'outline' }}
-                    tooltip="New task"
+                    tooltip={composerAlreadyOpen ? undefined : 'New task'}
                     disabledReason={
                         composerAlreadyOpen ? "You're already on a new task. Enter a prompt to start it." : undefined
                     }
-                >
-                    <IconPlusSmall className="size-4" />
-                </Link>
+                />
             </div>
             <div className="px-1 pb-4 shrink-0">{searchInput}</div>
             <LemonDivider className="m-0 shrink-0" />
