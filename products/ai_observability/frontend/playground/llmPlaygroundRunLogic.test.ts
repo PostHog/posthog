@@ -10,7 +10,13 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
-import { appendToolCallChunk, describeError, llmPlaygroundRunLogic, mergeUsage } from './llmPlaygroundRunLogic'
+import {
+    appendToolCallChunk,
+    describeError,
+    escapeMarkdownInline,
+    llmPlaygroundRunLogic,
+    mergeUsage,
+} from './llmPlaygroundRunLogic'
 
 function setPlaygroundAccessLevel(level: AccessControlLevel): void {
     window.POSTHOG_APP_CONTEXT = {
@@ -228,6 +234,39 @@ describe('llmPlaygroundRunLogic', () => {
         captureExceptionSpy.mockRestore()
     })
 
+    it('names the model when it is not one of the available models', async () => {
+        // The model can arrive without passing through the picker — from a trace, or a saved
+        // prompt written when the key set still offered it.
+        const streamSpy = jest.spyOn(api, 'stream')
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('claude-3-sonnet-20240229')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        const items = llmPlaygroundRunLogic.values.comparisonItems
+        expect(items).toHaveLength(1)
+        expect(items[0].error).toBe(true)
+        // The toast is plain text; the card is markdown, so the model id reaches it escaped.
+        expect(toastSpy).toHaveBeenCalledWith(
+            "Model 'claude-3-sonnet-20240229' is not one of your available models. Pick a different model and try again."
+        )
+        expect(items[0].response).toContain(
+            "**Error:** Model 'claude\\-3\\-sonnet\\-20240229' is not one of your available models."
+        )
+        expect(streamSpy).not.toHaveBeenCalled()
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        toastSpy.mockRestore()
+    })
+
     describe('describeError', () => {
         it('prefers structured backend error string over detail and message', () => {
             const err = new ApiError('fallback', 400, undefined, { error: 'backend says no' })
@@ -248,6 +287,20 @@ describe('llmPlaygroundRunLogic', () => {
 
         it('returns the fallback for non-Error values', () => {
             expect(describeError('nope', 'fallback')).toEqual({ message: 'fallback' })
+        })
+    })
+
+    describe('escapeMarkdownInline', () => {
+        // A model id can reach the result card straight from an ingested `$ai_model` property,
+        // and that card renders markdown with images enabled.
+        it('defuses image syntax so an ingested model id cannot issue a request', () => {
+            expect(escapeMarkdownInline('![x](https://example.com/pixel)')).toBe(
+                '\\!\\[x\\]\\(https\\:\\/\\/example\\.com\\/pixel\\)'
+            )
+        })
+
+        it('leaves an ordinary model id alone apart from its punctuation', () => {
+            expect(escapeMarkdownInline('gpt-4-turbo')).toBe('gpt\\-4\\-turbo')
         })
     })
 })
