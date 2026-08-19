@@ -154,6 +154,7 @@ def _reference_resource(
             "base_url": PROFOUND_BASE_URL,
             "headers": _headers(),
             "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-Key", "location": "header"},
+            "request_timeout": REQUEST_TIMEOUT_SECONDS,
         },
         "resource_defaults": {},
         "resources": [{"name": config.name, "endpoint": _reference_endpoint(config)}],
@@ -200,6 +201,7 @@ def _report_pages(
                 "base_url": PROFOUND_BASE_URL,
                 "headers": _headers(),
                 "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-Key", "location": "header"},
+                "request_timeout": REQUEST_TIMEOUT_SECONDS,
             },
             "resource_defaults": {},
             "resources": [
