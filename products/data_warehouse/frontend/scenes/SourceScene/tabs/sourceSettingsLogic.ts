@@ -1490,6 +1490,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 // imperative dialog's Enable button, which can't reactively disable) would
                 // otherwise fire the PATCH twice and prepare duplicate schedule side effects.
                 if (cache.bulkEnableInFlight) {
+                    lemonToast.info('Still enabling the previous tables. Try again in a moment')
                     return
                 }
                 cache.bulkEnableInFlight = true

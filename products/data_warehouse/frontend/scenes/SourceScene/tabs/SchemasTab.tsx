@@ -359,7 +359,7 @@ function ManagedSchemaTable({
     inSchemaGroup = false,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
-    const { inProgressRowsBySchema } = useValues(sourceSettingsLogic)
+    const { inProgressRowsBySchema, bulkEnableLoading } = useValues(sourceSettingsLogic)
     const { setSelectedSchemas, bulkEnable } = useActions(sourceSettingsLogic)
     const [initialLoad, setInitialLoad] = useState(true)
 
@@ -548,6 +548,13 @@ function ManagedSchemaTable({
                             <SchemaEditorAction schema={schema}>
                                 <LemonSwitch
                                     checked={schema.should_sync}
+                                    // A bulk enable holds one in-flight guard, so block the
+                                    // defaults path here until it clears rather than dropping it.
+                                    disabledReason={
+                                        bulkEnableLoading && !schema.should_sync && !schema.sync_type
+                                            ? 'Enabling tables, one moment'
+                                            : undefined
+                                    }
                                     onChange={(active) => {
                                         if (active && !schema.sync_type) {
                                             // No sync method saved yet — apply the default settings
