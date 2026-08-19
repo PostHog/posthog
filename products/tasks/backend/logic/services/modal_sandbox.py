@@ -1776,11 +1776,18 @@ class ModalSandbox(SandboxBase):
             )
 
     def read_cpu_usage_usec(self) -> int | None:
-        cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
-        for line in cpu_stat.splitlines():
-            key, _, value = line.partition(" ")
-            if key == "usage_usec":
-                return int(value)
+        try:
+            cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+        except Exception:
+            cpu_stat = None
+        if cpu_stat is not None:
+            for line in cpu_stat.splitlines():
+                key, _, value = line.partition(" ")
+                if key == "usage_usec":
+                    return int(value)
+        cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
+        if cpuacct_usage.strip():
+            return int(cpuacct_usage) // 1000
         return None
 
     def start_cpu_billing_sampler(self) -> bool:

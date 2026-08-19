@@ -1072,6 +1072,15 @@ class TestModalSandboxResourceUsage:
 
         sandbox._sandbox.filesystem.read_text.assert_called_once_with("/sys/fs/cgroup/cpu.stat")
 
+    def test_reads_cgroup_v1_cpu_usage(self):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.side_effect = [FileNotFoundError, "12345678000\n"]
+
+        assert sandbox.read_cpu_usage_usec() == 12_345_678
+
     def test_reads_current_billed_cpu_usage(self, monkeypatch):
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-usage"
