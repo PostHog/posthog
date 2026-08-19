@@ -67,7 +67,7 @@ impl Drop for TrackedConnection {
 ///
 /// # Arguments
 /// * `client` - The database client (reader or writer pool)
-/// * `pool_name` - Name of the pool for metrics (e.g., "persons_reader", "non_persons_writer")
+/// * `pool_name` - Name of the pool for metrics; pass a `pool_names` constant, never a literal
 /// * `operation` - Name of the operation for metrics (e.g., "fetch_flags", "write_hash_key")
 ///
 /// # Returns
@@ -77,7 +77,7 @@ impl Drop for TrackedConnection {
 /// ```ignore
 /// let mut conn = get_connection_with_metrics(
 ///     &reader,
-///     "persons_reader",
+///     pool_names::PERSONS_READER,
 ///     "fetch_person_properties"
 /// ).await?;
 /// // Use conn like a normal connection via Deref/DerefMut

@@ -6,6 +6,7 @@ use crate::cohorts::cohort_operations::{
     apply_cohort_membership_logic, evaluate_dynamic_cohorts, record_stamp_policy_divergence,
 };
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
+use crate::database::pool_names::{PERSONS_READER, PERSONS_WRITER};
 use crate::database::PostgresRouter;
 use crate::flags::flag_group_type_mapping::{
     GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
@@ -718,9 +719,9 @@ impl FeatureFlagMatcher {
         // This is because we need to make sure the write is successful before we read it back
         // to avoid read-after-write consistency issues with database replication lag
         let (database_for_reading, pool_name) = if writing_hash_key_override {
-            (self.router.get_persons_writer().clone(), "persons_writer")
+            (self.router.get_persons_writer().clone(), PERSONS_WRITER)
         } else {
-            (self.router.get_persons_reader().clone(), "persons_reader")
+            (self.router.get_persons_reader().clone(), PERSONS_READER)
         };
 
         match get_feature_flag_hash_key_overrides(
@@ -2386,7 +2387,7 @@ impl FeatureFlagMatcher {
                     None => {
                         match get_feature_flag_hash_key_overrides(
                             self.router.get_persons_writer().clone(),
-                            "persons_writer",
+                            PERSONS_WRITER,
                             self.team_id,
                             vec![self.distinct_id.clone()],
                         )

@@ -1,3 +1,4 @@
+use crate::database::pool_names::{NON_PERSONS_READER, PERSONS_READER, PERSONS_WRITER};
 use std::{
     collections::{HashMap, HashSet},
     time::{Duration, Instant},
@@ -201,7 +202,7 @@ async fn fetch_person_and_cohorts(
 ) -> Result<PersonCohortResult, FlagError> {
     let conn_acquisition_start = Instant::now();
     let conn_result =
-        get_connection_with_metrics(reader, "persons_reader", "fetch_person_properties").await;
+        get_connection_with_metrics(reader, PERSONS_READER, "fetch_person_properties").await;
     let conn_acquisition_duration = conn_acquisition_start.elapsed();
 
     let mut conn = match conn_result {
@@ -238,7 +239,7 @@ async fn fetch_person_and_cohorts(
     };
 
     let query_labels = [
-        ("pool".to_string(), "persons_reader".to_string()),
+        ("pool".to_string(), PERSONS_READER.to_string()),
         ("team_id".to_string(), team_id.to_string()),
     ];
 
@@ -372,7 +373,7 @@ async fn fetch_group_properties(
 ) -> Result<GroupResult, FlagError> {
     let conn_acquisition_start = Instant::now();
     let conn_result =
-        get_connection_with_metrics(reader, "persons_reader", "fetch_group_properties").await;
+        get_connection_with_metrics(reader, PERSONS_READER, "fetch_group_properties").await;
     let conn_acquisition_duration = conn_acquisition_start.elapsed();
 
     let mut conn = match conn_result {
@@ -409,7 +410,7 @@ async fn fetch_group_properties(
     };
 
     let query_labels = [
-        ("pool".to_string(), "persons_reader".to_string()),
+        ("pool".to_string(), PERSONS_READER.to_string()),
         ("team_id".to_string(), team_id.to_string()),
     ];
 
@@ -1010,7 +1011,7 @@ async fn try_set_feature_flag_hash_key_overrides(
     // Get connection from persons writer for the transaction
     let mut persons_conn = get_writer_connection_with_metrics(
         router.get_persons_writer(),
-        "persons_writer",
+        PERSONS_WRITER,
         "set_feature_flag_hash_key_overrides",
     )
     .await?;
@@ -1061,7 +1062,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
-            ("pool".to_string(), "persons_writer".to_string()),
+            ("pool".to_string(), PERSONS_WRITER.to_string()),
             ("team_id".to_string(), team_id.to_string()),
         ];
         let person_query_start = Instant::now();
@@ -1117,7 +1118,7 @@ async fn try_set_feature_flag_hash_key_overrides(
         // Get separate connection for non-persons query
         let mut non_persons_conn = get_connection_with_metrics(
             router.get_non_persons_reader(),
-            "non_persons_reader",
+            NON_PERSONS_READER,
             "set_hash_key_overrides",
         )
         .await
@@ -1136,7 +1137,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
-            ("pool".to_string(), "non_persons_reader".to_string()),
+            ("pool".to_string(), NON_PERSONS_READER.to_string()),
             ("team_id".to_string(), team_id.to_string()),
         ];
         let flags_query_start = Instant::now();
@@ -1201,7 +1202,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
-            ("pool".to_string(), "persons_writer".to_string()),
+            ("pool".to_string(), PERSONS_WRITER.to_string()),
             ("team_id".to_string(), team_id.to_string()),
         ];
         let insert_start = Instant::now();
@@ -1379,7 +1380,7 @@ async fn try_should_write_hash_key_override(
         let persons_conn_start = Instant::now();
         let mut persons_conn = get_connection_with_metrics(
             router.get_persons_reader(),
-            "persons_reader",
+            PERSONS_READER,
             "should_write_check",
         )
         .await
@@ -1389,7 +1390,7 @@ async fn try_should_write_hash_key_override(
         if persons_conn_acquisition_time > Duration::from_millis(100) {
             warn!(
                 team_id = %team_id,
-                pool = "persons_reader",
+                pool = PERSONS_READER,
                 acquisition_ms = persons_conn_acquisition_time.as_millis(),
                 "Slow connection acquisition from persons_reader pool"
             );
@@ -1401,7 +1402,7 @@ async fn try_should_write_hash_key_override(
                 "person_data_with_overrides".to_string(),
             ),
             ("operation".to_string(), "should_write_check".to_string()),
-            ("pool".to_string(), "persons_reader".to_string()),
+            ("pool".to_string(), PERSONS_READER.to_string()),
             ("team_id".to_string(), team_id.to_string()),
         ];
         let person_query_timer =
@@ -1422,7 +1423,7 @@ async fn try_should_write_hash_key_override(
                         &[
                             ("error_type".to_string(), "timeout".to_string()),
                             ("timeout_type".to_string(), timeout_type.to_string()),
-                            ("pool".to_string(), "persons_reader".to_string()),
+                            ("pool".to_string(), PERSONS_READER.to_string()),
                             (
                                 "operation".to_string(),
                                 "should_write_hash_key_override".to_string(),
@@ -1433,7 +1434,7 @@ async fn try_should_write_hash_key_override(
 
                     warn!(
                         team_id = %team_id,
-                        pool = "persons_reader",
+                        pool = PERSONS_READER,
                         timeout_type = timeout_type,
                         error = ?e,
                         "Query timed out on persons_reader pool"
@@ -1462,7 +1463,7 @@ async fn try_should_write_hash_key_override(
         let non_persons_conn_start = Instant::now();
         let mut non_persons_conn = get_connection_with_metrics(
             router.get_non_persons_reader(),
-            "non_persons_reader",
+            NON_PERSONS_READER,
             "should_write_check",
         )
         .await
@@ -1472,7 +1473,7 @@ async fn try_should_write_hash_key_override(
         if non_persons_conn_acquisition_time > Duration::from_millis(100) {
             warn!(
                 team_id = %team_id,
-                pool = "non_persons_reader",
+                pool = NON_PERSONS_READER,
                 acquisition_ms = non_persons_conn_acquisition_time.as_millis(),
                 "Slow connection acquisition from non_persons_reader pool"
             );
@@ -1484,7 +1485,7 @@ async fn try_should_write_hash_key_override(
                 "active_flags_with_continuity".to_string(),
             ),
             ("operation".to_string(), "should_write_check".to_string()),
-            ("pool".to_string(), "non_persons_reader".to_string()),
+            ("pool".to_string(), NON_PERSONS_READER.to_string()),
             ("team_id".to_string(), team_id.to_string()),
         ];
         let flags_query_timer =
@@ -1504,7 +1505,7 @@ async fn try_should_write_hash_key_override(
                         &[
                             ("error_type".to_string(), "timeout".to_string()),
                             ("timeout_type".to_string(), timeout_type.to_string()),
-                            ("pool".to_string(), "non_persons_reader".to_string()),
+                            ("pool".to_string(), NON_PERSONS_READER.to_string()),
                             (
                                 "operation".to_string(),
                                 "should_write_hash_key_override".to_string(),
@@ -1515,7 +1516,7 @@ async fn try_should_write_hash_key_override(
 
                     warn!(
                         team_id = %team_id,
-                        pool = "non_persons_reader",
+                        pool = NON_PERSONS_READER,
                         timeout_type = timeout_type,
                         error = ?e,
                         "Query timed out on non_persons_reader pool"
