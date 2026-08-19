@@ -104,9 +104,12 @@ export function initKea({
             history: routerHistory,
             location: routerLocation,
             urlPatternOptions: {
-                // :TRICKY: What chars to allow in named segment values i.e. ":key"
-                // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
-                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|:",
+                // Chars allowed in named segment values, i.e. ":key" in "/url/:key". Segment values
+                // carry customer-provided ids like group keys and match against decodeURI(pathname),
+                // so an allowlist silently 404s any key with an unlisted character (umlauts, brackets).
+                // url-pattern splices this string into a regex character class, so "^/" means
+                // anything except the segment separator.
+                segmentValueCharset: '^/',
             },
             pathFromRoutesToWindow: (path) => {
                 return addProjectIdIfMissing(path)

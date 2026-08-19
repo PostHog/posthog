@@ -30,6 +30,7 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: testLogi
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
     [Scene.DataManagement]: sceneImport,
+    [Scene.Group]: sceneImport,
     [Scene.Settings]: sceneImport,
 }
 
@@ -69,6 +70,15 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.Settings,
         })
+    })
+
+    it.each([
+        ['an umlaut', 'Ümlaut Äpfel GmbH'],
+        ['brackets', '[dev]-abc123'],
+    ])('opens the group scene for a group key containing %s', async (_, groupKey) => {
+        router.actions.push(urls.group('0', groupKey))
+        await expectLogic(logic).delay(1)
+        expect(logic.values.sceneId).toEqual(Scene.Group)
     })
 
     it('redirects the hyphenated /feature-flags path to the underscore scene route', async () => {
