@@ -25,6 +25,8 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 from products.tasks.backend.logic.services.compute_quota import is_billable_compute
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase, SandboxConfig
 from products.tasks.backend.logic.services.sandbox_pricing import (
@@ -40,6 +42,13 @@ logger = structlog.get_logger(__name__)
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+
+@frozen
+class SandboxCpuAttribution:
+    cpu_usage_usec: int
+    billed_cpu_usage_usec: int | None
+    measured_at: datetime
 
 
 def measure_sandbox_cpu_usage(sandbox: SandboxBase) -> tuple[int | None, datetime | None]:
@@ -75,14 +84,14 @@ def _best_effort(fn: Callable[P, R]) -> Callable[P, R | None]:
 
 
 @_best_effort
-def measure_task_run_cpu_attribution(run_id: str | UUID, team_id: int) -> dict[str, tuple[int, int | None, datetime]]:
+def measure_task_run_cpu_attribution(run_id: str | UUID, team_id: int) -> dict[str, SandboxCpuAttribution]:
     run_uuid = run_id if isinstance(run_id, UUID) else UUID(run_id)
     sessions = SandboxSession.objects.for_team(team_id).filter(
         task_run_id=run_uuid,
         ended_at__isnull=True,
         user_attributed_at__isnull=True,
     )
-    measurements: dict[str, tuple[int, int | None, datetime]] = {}
+    measurements: dict[str, SandboxCpuAttribution] = {}
     for session in sessions:
         try:
             sandbox = Sandbox.get_by_id(session.sandbox_id)
@@ -91,7 +100,11 @@ def measure_task_run_cpu_attribution(run_id: str | UUID, team_id: int) -> dict[s
             continue
         value, measured_at = measure_sandbox_cpu_usage(sandbox)
         if value is not None and measured_at is not None:
-            measurements[session.sandbox_id] = (value, measure_sandbox_billed_cpu_usage(sandbox), measured_at)
+            measurements[session.sandbox_id] = SandboxCpuAttribution(
+                cpu_usage_usec=value,
+                billed_cpu_usage_usec=measure_sandbox_billed_cpu_usage(sandbox),
+                measured_at=measured_at,
+            )
     return measurements
 
 
@@ -219,7 +232,7 @@ def close_sandbox_session(
 def record_task_run_user_activity(
     run_id: str | UUID,
     team_id: int,
-    cpu_attribution: dict[str, tuple[int, int | None, datetime]] | None = None,
+    cpu_attribution: dict[str, SandboxCpuAttribution] | None = None,
 ) -> None:
     """Stamp a user message against the run's open sandbox sessions.
 
@@ -238,7 +251,7 @@ def record_task_run_user_activity(
     unattributed_sessions = list(open_sessions.filter(user_attributed_at__isnull=True))
     for session in unattributed_sessions:
         measurement = (cpu_attribution or {}).get(session.sandbox_id)
-        attribution_time = measurement[2] if measurement else now
+        attribution_time = measurement.measured_at if measurement else now
         updates: dict[str, object] = {
             "user_attributed_at": attribution_time,
             "client_provenance": Case(
@@ -247,9 +260,9 @@ def record_task_run_user_activity(
             ),
         }
         if measurement:
-            updates["provider_cpu_usage_attribution_usec"] = measurement[0]
-            updates["provider_billed_cpu_usage_attribution_usec"] = measurement[1]
-            updates["provider_cpu_usage_attribution_measured_at"] = measurement[2]
+            updates["provider_cpu_usage_attribution_usec"] = measurement.cpu_usage_usec
+            updates["provider_billed_cpu_usage_attribution_usec"] = measurement.billed_cpu_usage_usec
+            updates["provider_cpu_usage_attribution_measured_at"] = measurement.measured_at
         open_sessions.filter(id=session.id, user_attributed_at__isnull=True).update(**updates)
 
     open_sessions.filter(user_attributed_at__isnull=True).update(
