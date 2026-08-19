@@ -989,6 +989,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
             },
             simulateAlertSuccess: ({ simulationResult }) => {
                 // simulateAlert returns null early for threshold alerts (no API call),
+                // so null here means nothing actually ran — skip the event.
                 if (simulationResult) {
                     const detectorConfig = values.alertForm.detector_config
                     const isBreakdown = Boolean(
