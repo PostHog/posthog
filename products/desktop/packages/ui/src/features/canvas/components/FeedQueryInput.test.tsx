@@ -102,7 +102,7 @@ describe("FeedQueryInput", () => {
       <Theme>
         <FeedQueryInput
           aria-label="Query"
-          value="請求"
+          value="billing"
           onChange={vi.fn()}
           onSubmit={onSubmit}
         />
