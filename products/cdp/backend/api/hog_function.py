@@ -42,7 +42,6 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.event_usage import AGENT_EVENT_SOURCES, get_event_source
-from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
@@ -493,11 +492,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if data["template_id"]:
             template = HogFunctionTemplate.get_template(data["template_id"])
             if not template:
-                properties = {"team_id": team.id, "template_id": data.get("template_id")}
-                if instance and instance.id:
-                    properties["hog_function_id"] = instance.id
-                capture_exception(
-                    Exception(f"No template found for id '{data['template_id']}'"), additional_properties=properties
+                # The template id comes from the client, so an unknown value is a bad request,
+                # not a server error. Log a warning and return the 400 without opening an
+                # error tracking issue.
+                logger.warning(
+                    "hog_function_template_not_found",
+                    team_id=team.id,
+                    template_id=data.get("template_id"),
+                    hog_function_id=instance.id if instance and instance.id else None,
                 )
 
                 raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
