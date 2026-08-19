@@ -15,6 +15,11 @@ FORECAST_LOOKBACK_POINTS = 90
 DEFAULT_HORIZON = 7
 DEFAULT_INTERVAL_WIDTH = 0.95
 
+# In band half-widths past the edge. A 0.95 band is about two standard deviations wide, so a
+# threshold of 2 sits near six of them and stops firing on anything. The ceiling leaves room to
+# express "only when it is far out" without letting a save pass that can never fire.
+MAX_SCORE_THRESHOLD = 3.0
+
 # A duration rather than a count of intervals. 30 intervals means 30 days on a daily insight and
 # 30 months on a monthly one, so the same number expresses very different confidence.
 MAX_FORECAST_REACH_DAYS = 183

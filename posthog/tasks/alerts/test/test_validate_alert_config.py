@@ -812,7 +812,7 @@ class TestForecastConfigValidation:
             ("relative out of range", {"error_mode": "relative", "error_threshold_pct": 20}, "between 0 and 1000"),
             ("absolute with no amount", {"error_mode": "absolute"}, "needs an amount"),
             ("absolute not positive", {"error_mode": "absolute", "error_threshold_abs": 0}, "more than 0"),
-            ("score out of range", {"score_threshold": 5}, "between 0 and 1"),
+            ("score out of range", {"score_threshold": 5}, "between 0 and 3"),
         ]
     )
     def test_band_deviation_modes_are_rejected(self, _name: str, extra: dict, message: str) -> None:
@@ -837,6 +837,8 @@ class TestForecastConfigValidation:
             ("percentage mode", {"error_mode": "relative", "error_threshold_pct": 0.2}),
             ("fixed amount mode", {"error_mode": "absolute", "error_threshold_abs": 50}),
             ("interval mode with a score", {"score_threshold": 0.5}),
+            # Above a full half-width is the quiet end of the range, and the cap used to reject it.
+            ("interval mode with a quiet score", {"score_threshold": 2.5}),
             ("direction only", {"direction": "above"}),
         ]
     )
