@@ -10,6 +10,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.common import Priority
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.tagged_item import set_tags_on_object
@@ -47,6 +48,7 @@ from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraf
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
+    ON_DEMAND_PRIORITY_KEY,
     build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.tests.helpers import (
@@ -2104,6 +2106,7 @@ class TestObserveAction(_VisionAPITestCase):
         self.assertEqual(args[0], APPLY_SCANNER_WORKFLOW_NAME)
         self.assertEqual(kwargs["id"], expected_workflow_id)
         self.assertEqual(kwargs["execution_timeout"], APPLY_SCANNER_EXECUTION_TIMEOUT)
+        self.assertEqual(kwargs["priority"], Priority(priority_key=ON_DEMAND_PRIORITY_KEY))
         inputs = args[1]
         self.assertEqual(inputs.scanner_id, self.scanner.id)
         self.assertEqual(inputs.session_id, "sess-42")

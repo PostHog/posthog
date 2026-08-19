@@ -138,7 +138,12 @@ class SweepScannerWorkflow(PostHogWorkflow):
                 retry_policy=common.RetryPolicy(maximum_attempts=1),
             )
             team_in_flight = 0
-        headroom = in_flight_headroom(scanner_in_flight, team_in_flight)
+        # Patched: a changed headroom can flip a replayed tick between dispatching and returning early,
+        # so pre-deploy sweeps must replay against the un-reserved caps they were recorded with.
+        if wf.patched("replay-vision-on-demand-reserved-headroom"):
+            headroom = in_flight_headroom(scanner_in_flight, team_in_flight)
+        else:
+            headroom = in_flight_headroom(scanner_in_flight, team_in_flight, reserve_for_on_demand=False)
         if headroom <= 0:
             # At a cap — drain before fetching more. Don't advance the watermark; resume next tick.
             wf.logger.info(

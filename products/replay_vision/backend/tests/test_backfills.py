@@ -61,6 +61,8 @@ from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_BACKFILL,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    ON_DEMAND_RESERVED_SCANNER_SLOTS,
+    ON_DEMAND_RESERVED_TEAM_SLOTS,
     backfill_dispatch_budget,
     build_apply_scanner_workflow_id,
 )
@@ -108,11 +110,12 @@ def _make_backfill(scanner: ReplayScanner, **overrides) -> ReplayScannerBackfill
 @pytest.mark.parametrize(
     "scanner_in_flight,team_in_flight,backfill_in_flight,expected",
     [
-        # One case per cap that can win, plus the fully-saturated floor.
+        # One case per cap that can win, plus the fully-saturated floor. Scheduled dispatch caps
+        # exclude the slots reserved for on-demand admission.
         (0, 0, 0, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL),
         (0, 0, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL, 0),
-        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 10, 0, 0, 10),
-        (0, MAX_IN_FLIGHT_APPLIES_PER_TEAM - 5, 0, 5),
+        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - 10, 0, 0, 10),
+        (0, MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS - 5, 0, 5),
     ],
 )
 def test_backfill_dispatch_budget_takes_the_tightest_cap(
