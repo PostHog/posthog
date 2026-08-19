@@ -192,9 +192,9 @@ class TestBloomerangSourceTransport:
         assert auth.location == "header"
 
     @mock.patch(BLOOMERANG_SESSION_PATCH)
-    def test_does_not_follow_redirects(self, MockSession) -> None:
-        # X-Api-Key isn't the standard Authorization header, which `requests` strips on a
-        # cross-origin redirect; a hostile redirect must not be followed with the key attached.
+    def test_production_sync_does_not_follow_redirects(self, MockSession) -> None:
+        # `X-Api-Key` isn't the standard Authorization header, so `requests` won't strip it on a
+        # cross-origin redirect — pin `allow_redirects=False` the same way the credential probe does.
         session = MockSession.return_value
         _wire(session, [_response([{"Id": 1}], total_filtered=1)])
 
