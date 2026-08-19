@@ -33,8 +33,10 @@ once the data is syncing.
 
 | Tool | Purpose |
 | --- | --- |
-| `read-data-schema` | Discover the warehouse table and its columns and types |
-| `external-data-schemas-list` | Find the schema id for a synced table (the `external_data_schema` binding) |
+| `external-data-schemas-list` | Find a synced table and its schema id (the `external_data_schema` binding); columns are omitted here |
+| `external-data-schemas-retrieve` | Read one synced table's columns and types by schema id |
+| `view-list` | Find a materialized view and its column schema (the `saved_query` binding) |
+| `view-get` | Read one materialized view's columns and types by id |
 | `custom-property-definitions-list` | See what warehouse properties already exist for the team |
 | `custom-property-definitions-create` | Create the definition the source attaches to (`target_type: person` or `group`) |
 | `custom-property-sources-create` | Bind the definition to the table, carrying the whole `column_property_map` |
@@ -49,9 +51,12 @@ Person and group targets need the `warehouse-person-properties` feature. A group
 
 ### 1. Find the table and its columns
 
-Use `read-data-schema` to get the table's columns and types. You need the schema id for the binding, which
-`external-data-schemas-list` gives you. A materialized view binds by `saved_query` instead, and must already be
-materialized — an unmaterialized view has no data to read and the create call rejects it.
+For a synced table, `external-data-schemas-list` gives you the schema id (the `external_data_schema` binding), and
+`external-data-schemas-retrieve` returns that schema's columns and types.
+
+For a materialized view, `view-list` finds the view and its column schema, and `view-get` returns one view's columns
+by id; a view binds by `saved_query` instead, and must already be materialized, since an unmaterialized view has no
+data to read and the create call rejects it.
 
 ### 2. Pick the identifier column, and say why it matters
 
