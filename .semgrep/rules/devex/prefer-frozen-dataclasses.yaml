@@ -31,6 +31,10 @@ rules:
           exclude:
               - '**/migrations/**'
               - '**/.semgrep/**'
+              # Standalone PEP 723 script bundle, vendored into other repos and run from a sandbox
+              # checkout. It cannot import posthog.dataclasses, so the house decorator this rule
+              # points at is unavailable to it.
+              - '**/packages/pr-approval-agent/**'
       patterns:
           - pattern-either:
                 # Bare @dataclass is ambiguous: skip it when pydantic's decorator

@@ -211,17 +211,20 @@ jobs:
                   - name: Run pr-approval-agent (stamphog) tests
                     shell: bash
                     # Two candidate paths: the engine now lives under the stamphog product, but an
-                    # open PR that hasn't rebased still carries it under tools/, and this workflow
-                    # runs against that branch merged with master.
+                    # open PR that hasn't rebased still carries it under tools/, and this workflow runs
+                    # against that branch merged with master. Both trees are tested when both exist,
+                    # because that merge can carry an addition to the old path alongside the new tree.
                     run: |
+                        found=0
                         for dir in products/stamphog/packages/pr-approval-agent tools/pr-approval-agent; do
-                          if [ -d "$dir" ]; then
-                            pytest "$dir" -v --junitxml=junit-pr-approval-agent.xml
-                            exit 0
-                          fi
+                          [ -d "$dir" ] || continue
+                          found=1
+                          pytest "$dir" -v --junitxml="junit-pr-approval-agent-$(echo "$dir" | tr / -).xml"
                         done
-                        echo "::error::pr-approval-agent engine not found at either path"
-                        exit 1
+                        if [ "$found" = "0" ]; then
+                          echo "::error::pr-approval-agent engine not found at either path"
+                          exit 1
+                        fi
 
                   - name: Run dependency detection script tests
                     shell: bash
@@ -237,7 +240,7 @@ jobs:
                       junit-hogli-commands.xml
                       junit-owners.xml
                       junit-query-performance-ai.xml
-                      junit-pr-approval-agent.xml
+                      junit-pr-approval-agent-*.xml
 
             - name: Upload test results for dependency detection
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
