@@ -1,3 +1,4 @@
+import { installDOMTranslationResilience } from 'lib/utils/domTranslationResilience'
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 
 import { initKea } from '../initKea'
@@ -20,6 +21,9 @@ export function bootApp(): void {
         return
     }
     appBooted = true
+
+    // Guard React's DOM commits against page-translation extensions before anything renders.
+    installDOMTranslationResilience()
 
     loadPostHogJS()
     // Kea must initialize before any component mounts
