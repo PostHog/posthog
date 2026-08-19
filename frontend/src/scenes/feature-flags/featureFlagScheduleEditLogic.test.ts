@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
@@ -20,7 +20,7 @@ describe('featureFlagScheduleEditLogic', () => {
         executed_at: null,
         failure_reason: null,
         created_at: null,
-        created_by: null as any,
+        created_by: MOCK_DEFAULT_BASIC_USER,
         is_recurring: false,
         recurrence_interval: null,
         cron_expression: null,
