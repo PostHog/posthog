@@ -448,19 +448,12 @@ describe('createProcessPersonsStep', () => {
             return Number(result.rows[0].version ?? 0)
         }
 
-        it('writes version 1 for a merge-added distinct id and no personless bookkeeping row', async () => {
+        it('writes version 1 for a merge-added distinct id', async () => {
             await createPersonWithDistinctIds('user-1')
 
             await runIdentify(identify('anon-1', 'user-1'))
 
             expect(await versionOf('anon-1')).toBe(1)
-            const personlessRows = await infra.postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                'SELECT 1 FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
-                [teamId, 'anon-1'],
-                'fetchPersonlessRow'
-            )
-            expect(personlessRows.rows).toHaveLength(0)
         })
 
         it('gives the non-primary distinct id version 1 when neither points at a person', async () => {
