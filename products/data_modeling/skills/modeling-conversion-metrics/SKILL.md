@@ -69,6 +69,11 @@ aggregate the max step reached into conversion rates. Recipes:
 **dbt:** stage the step events, compute per-unit step completion with window logic, aggregate to
 `fct_conversion`. Recipes: [`references/dbt/`](references/dbt/).
 
+Then register the model (foundations [`references/governance.md`](../modeling-warehouse-foundations/references/governance.md)):
+annotate columns, and if the conversion rate is a headline number, propose it to the semantic layer with
+`data-catalog-metric-create` so other models reuse the definition instead of re-deriving it. The proposal
+lands `proposed` for a human to approve — never present your own proposal as canonical.
+
 ## File map
 
 | File                                                                                         | Read when                                                                       |

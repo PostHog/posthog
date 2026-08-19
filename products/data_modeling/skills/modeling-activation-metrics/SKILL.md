@@ -67,6 +67,11 @@ rollup at a daily `sync_frequency`.
 **dbt:** `dim_activation_criteria` (the definition as data) + `fct_user_activation` (per-user flag +
 activated_at) + tests. Recipes: [`references/dbt/`](references/dbt/).
 
+Then register the model (foundations [`references/governance.md`](../modeling-warehouse-foundations/references/governance.md)):
+annotate columns, and if the activation rate is a headline number, propose it to the semantic layer with
+`data-catalog-metric-create` so other models reuse the definition instead of re-deriving it. The proposal
+lands `proposed` for a human to approve — never present your own proposal as canonical.
+
 ## File map
 
 | File                                                                 | Read when                                                      |
