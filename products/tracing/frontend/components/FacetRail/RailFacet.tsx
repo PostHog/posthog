@@ -5,7 +5,7 @@ import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from 'products/tracing/f
 
 import { Facet } from './Facet'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetConfig, FacetOption, facetSelection, mergeSelectedIntoOptions } from './facets'
+import { FacetConfig, FacetOption, facetSelection, facetValueGroup, mergeSelectedIntoOptions } from './facets'
 import { facetValuesLogic } from './facetValuesLogic'
 
 export interface RailFacetProps {
@@ -50,7 +50,7 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
         const countByValue = new Map(fetched.map((option) => [option.value, option.count]))
         const options: FacetOption[] = (facet.fixedOptions ?? []).map((option) => ({
             ...option,
-            count: countByValue.get(option.value) ?? 0,
+            count: facetValueGroup(source, option.value).reduce((sum, v) => sum + (countByValue.get(v) ?? 0), 0),
         }))
         return (
             <Facet
