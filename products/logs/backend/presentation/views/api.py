@@ -1280,10 +1280,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         except QueryError as e:
             # A bad custom-column expression is re-raised by the runner as QueryError; keep it a clean 400.
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except CH_TRANSIENT_ERRORS as e:
-            # ClickHouse is busy or briefly unavailable. Return a retryable 503 instead of a bare 500,
-            # so the client can tell "try again" apart from an application bug.
-            return Response({"error": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except CH_TRANSIENT_ERRORS:
+            # ClickHouse is busy or briefly unavailable. Return a retryable 503 instead of a bare 500.
+            # Some of these errors carry raw ClickHouse text (S3 paths, replica identity), so send a
+            # fixed message rather than str(e), which would leak infrastructure internals.
+            return Response(
+                {"error": "Couldn't run your logs query because the query service is busy. Try again in a moment."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except ExposedCHQueryError as e:
             # A user-safe ClickHouse error, such as a scan that reads too much data. Keep it a clean 400.
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
