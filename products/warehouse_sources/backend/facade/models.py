@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import (
     MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
     MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
+    MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     ExternalDataSource,
     get_direct_external_data_source_for_connection,
@@ -70,6 +71,7 @@ __all__ = [
     "ExternalDataSource",
     "MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS",
     "MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND",
+    "MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND",
     "MANAGED_WAREHOUSE_SOURCE_PREFIX",
     "PendingSourceCredential",
     "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",

@@ -192,6 +192,7 @@ class AccountTableField(str, Enum):
     CREATED_AT = "created_at"
     UPDATED_AT = "updated_at"
     CHURNED_AT = "churned_at"
+    IGNORED_AT = "ignored_at"
     STRIPE_CUSTOMER_ID = "stripe_customer_id"
     HUBSPOT_DEAL_ID = "hubspot_deal_id"
     BILLING_ID = "billing_id"
@@ -378,6 +379,7 @@ class AccountContextData:
     external_id: str | None
     created_at: datetime | None
     churned_at: datetime | None
+    ignored_at: datetime | None
     properties: AccountProperties
     tags: list[str] = field(default_factory=list)
     notes: list[AccountNote] = field(default_factory=list)
@@ -391,7 +393,7 @@ class ExternalAccount:
     ``properties`` is carried as a plain dict set to exactly
     ``account.properties.model_dump(mode="json")`` — a validated pydantic
     pass-through, not a re-typed projection. ``id`` is the stringified UUID,
-    and ``churned_at`` carries the account lifecycle timestamp.
+    while ``churned_at`` and ``ignored_at`` carry lifecycle timestamps.
 
     ``custom_properties`` contains every team-defined custom property definition
     keyed by definition name, with the account's current scalar value (or ``None``
@@ -403,6 +405,7 @@ class ExternalAccount:
     external_id: str | None
     name: str
     churned_at: datetime | None
+    ignored_at: datetime | None
     properties: dict
     tags: list[str] = field(default_factory=list)
     relationships: dict[str, list[dict]] = field(default_factory=dict)
@@ -431,6 +434,7 @@ class ExternalAccountListItem:
     external_id: str
     name: str
     churned_at: datetime | None
+    ignored_at: datetime | None
     relationships: dict[str, list[ExternalAccountAssignment]] = field(default_factory=dict)
 
 
@@ -528,6 +532,7 @@ class AccountView:
     notebooks: list[str] = field(default_factory=list)
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
@@ -719,14 +724,15 @@ class CustomPropertyDefinitionView:
 
 @stdlib_dataclass(frozen=True)
 class CustomPropertySourceView:
-    """A custom-property source: binds a materialized view's column to a definition, feeding its
-    values on each materialization.
+    """A custom-property source: binds warehouse columns to a definition, feeding its values on every
+    warehouse run of what it reads.
 
-    ``definition`` / ``saved_query`` are ids (the definition this feeds, and the data-warehouse
-    saved query read from). ``last_sync_error`` is null when the last run succeeded or hasn't run.
-    Account-target sources set ``saved_query`` + ``source_column``; person-target sources set
-    ``external_data_schema`` + ``column_property_map`` instead. Defaults exist so the wrapping
-    serializer can parse partial request bodies (see :class:`AccountView`).
+    ``definition`` / ``saved_query`` / ``external_data_schema`` are ids (the definition this feeds, and
+    the warehouse object read from). ``last_sync_error`` is null when the last run succeeded or hasn't
+    run. Account-target sources set ``saved_query`` + ``source_column``; person- and group-target
+    sources set ``column_property_map`` plus exactly one of ``external_data_schema`` (an imported
+    table) and ``saved_query`` (a materialized view). Defaults exist so the wrapping serializer can
+    parse partial request bodies (see :class:`AccountView`).
     """
 
     id: UUID | None = None
@@ -744,17 +750,20 @@ class CustomPropertySourceView:
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
-    # Person-target schedule visibility (None for account sources). ``sync_frequency_interval`` is
-    # in seconds; ``next_sync_at`` is approximate (last synced + interval), it drifts if the
-    # underlying schedule was paused. ``latest_run`` is the most recent sync/backfill run.
+    # Person/group-target schedule visibility (None for account sources). ``sync_frequency_interval``
+    # is in seconds; ``next_sync_at`` is approximate (last run + interval), it drifts if the underlying
+    # schedule was paused, and is null for a view whose frequency lives on its DAG node.
+    # ``latest_run`` is the most recent sync/backfill run.
     sync_frequency_interval_seconds: float | None = None
     next_sync_at: datetime | None = None
     latest_run: "CustomPropertySyncRunView | None" = None
-    # Person-target warehouse binding, for naming and linking to the table this source reads.
-    # ``external_data_source`` is the warehouse source owning the schema; ``table_name`` is the
-    # table as it is named in HogQL. Both None for account sources.
+    # Person/group-target warehouse binding, for naming and linking to what this source reads.
+    # ``table_name`` is the imported table as named in HogQL, or the view's name. ``external_data_source``
+    # is the warehouse source owning the schema, set only for a table binding; ``saved_query_name`` is
+    # set only for a view binding. All None for account sources.
     external_data_source: UUID | None = None
     table_name: str | None = None
+    saved_query_name: str | None = None
 
 
 @stdlib_dataclass(frozen=True)

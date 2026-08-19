@@ -20,7 +20,7 @@ export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
 export const LOOPS_FLAG = "loops";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";
-export const GLM53_MODEL_FLAG = "tasks-glm-baseten-inference";
+export const GLM53_MODEL_FLAG = "posthog-code-glm-53-model";
 /** PostHog Desktop: show DeepSeek V4 Flash in the model picker. Off = hidden. */
 export const DEEPSEEK_MODEL_FLAG = "posthog-code-deepseek-model";
 export const KIMI_MODEL_FLAG = "tasks-kimi-k3";
@@ -38,6 +38,11 @@ export const LOCAL_MCP_IMPORT_FLAG = "posthog-code-local-mcp-import";
 export const MCP_GATEWAY_FLAG = "mcp-gateway";
 /** Per-task estimated cost readout in the context usage indicator. */
 export const TASK_COST_FLAG = "posthog-code-task-cost";
+/**
+ * Shows the task cost as text beside the context ring rather than only inside
+ * the popover. Requires TASK_COST_FLAG, which is what fetches the figure.
+ */
+export const TASK_COST_VISIBLE_FLAG = "posthog-code-task-cost-visible";
 /**
  * Remote in-app announcements. The flag's JSON payload carries the
  * announcements (schema: `announcements.ts`); rollout % arms the system.

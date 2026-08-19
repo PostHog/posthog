@@ -82,9 +82,10 @@ export type InboxReportActionType =
 /**
  * Whether a task-kickoff action (`discuss` / `create_pr`) actually produced a task. The press itself
  * is already an {@link captureInboxReportAction} event; without the outcome the two are
- * indistinguishable, so an attempted PR counts the same as a created one.
+ * indistinguishable, so an attempted PR counts the same as a created one. `limited` is a server
+ * limit (the per-report task cap or the per-user creation throttle) refusing an issued request.
  */
-export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked'
+export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limited'
 
 /** Panels that replace the report list and so never fire `Inbox viewed`. */
 export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings'
@@ -106,8 +107,10 @@ export type ScoutActionType =
     | 'open_skill_in_posthog'
     | 'open_helper_skill'
     | 'open_findings'
-    | 'toggle_hide_disabled'
     | 'filter_tags'
+    | 'leave_note'
+    | 'delete_note'
+    | 'run_now'
     | 'expand_run'
     | 'collapse_run'
     | 'filter_runs'
@@ -223,10 +226,19 @@ export function captureInboxWelcomeCommandCopied(params: {
     })
 }
 
+/**
+ * The report list settled for the first time in a tab mount. `report_count` / `total_count` describe
+ * the active tab's list only (and `report_count` is capped at the loaded page), so the headline
+ * "how many reports does this user have" numbers are `pulls_tab_count` / `reports_tab_count`: the tab badge
+ * counts, sent on every view regardless of which tab is open (same shape as the desktop event).
+ * A badge count is null only if its request failed.
+ */
 export function captureInboxViewed(params: {
     tab: string
     reports: SignalReport[]
     totalCount: number
+    pullsTabCount: number | null
+    reportsTabCount: number | null
     hasActiveFilters: boolean
     sourceProductFilter: string[]
     priorityFilter: string[]
@@ -236,6 +248,8 @@ export function captureInboxViewed(params: {
         tab: params.tab,
         report_count: params.reports.length,
         total_count: params.totalCount,
+        pulls_tab_count: params.pullsTabCount,
+        reports_tab_count: params.reportsTabCount,
         is_empty: params.totalCount === 0,
         has_active_filters: params.hasActiveFilters,
         source_product_filter: params.sourceProductFilter,
@@ -458,7 +472,8 @@ export function captureSignalSourceSteeringChanged(params: {
 /**
  * Outcome of a task-kickoff action, fired once the request settles. Pairs with the press event on
  * `report_id` + `action_type`. `blocked` means we never issued the request (no AI consent), which is
- * a product problem rather than a failure — hence its own bucket.
+ * a product problem rather than a failure — hence its own bucket. `limited` means the server
+ * refused the request with a limit 429; `limit_code` says which limit.
  */
 export function captureInboxReportActionCompleted(params: {
     report: SignalReport
@@ -466,12 +481,15 @@ export function captureInboxReportActionCompleted(params: {
     outcome: InboxReportActionOutcome
     /** Only set for `blocked`, and only ever our own consent copy — never a server error body. */
     blockedReason?: string | null
+    /** Only set for `limited`: the server's error code (`signal_report_task_cap` or `throttled`). */
+    limitCode?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_ACTION_COMPLETED, {
         ...baseReportProperties(params.report),
         action_type: params.actionType,
         outcome: params.outcome,
         ...(params.blockedReason ? { blocked_reason: params.blockedReason } : {}),
+        ...(params.limitCode ? { limit_code: params.limitCode } : {}),
     })
 }
 
