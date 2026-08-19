@@ -4,6 +4,7 @@ import datetime as dt
 from dataclasses import dataclass
 
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 
@@ -15,6 +16,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
@@ -264,6 +266,54 @@ class TestErrorHandling:
         run = await self._run_workflow(inputs, expect_workflow_failure=True)
         assert run.status == "FailedRetryable"
         assert run.latest_error == "DummyRetryableError: This is an unexpected internal error"
+
+    # A real per-query memory-limit failure, in the form the ClickHouse client raises it
+    _QUERY_MEMORY_ERROR = ClickHouseMemoryLimitExceededError(
+        "Code: 241. DB::Exception: Query memory limit exceeded: would use 30.01 GiB "
+        "(attempt to allocate chunk of 4.00 MiB), maximum: 30.00 GiB. (MEMORY_LIMIT_EXCEEDED)"
+    )
+
+    async def test_hogql_queries_fail_terminally_if_per_query_resource_limit_reached(self, batch_export):
+        """A user-supplied HogQL query that hits a per-query ClickHouse resource limit should be
+        fail as a non-retryable error (re-running it would not produce a different result).
+        """
+        inputs = DummyExportInputs(
+            team_id=batch_export.team_id,
+            batch_export_id=str(batch_export.id),
+            interval="hour",
+            data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
+            batch_export_model=BatchExportModel(
+                name="hogql", schema=None, hogql_query="SELECT event AS event FROM events"
+            ),
+        )
+        with patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage._write_batch_export_record_batches_to_internal_stage",
+            new=AsyncMock(side_effect=self._QUERY_MEMORY_ERROR),
+        ):
+            run = await self._run_workflow(inputs, expect_workflow_failure=True)
+
+        assert run.status == "Failed"
+        assert run.latest_error is not None
+        assert "The batch export query needed too much memory to run" in run.latest_error
+
+    async def test_per_query_resource_limit_only_applies_to_hogql(self, batch_export):
+        """The identical ClickHouse error under a fixed model stays retryable, unchanged."""
+        inputs = DummyExportInputs(
+            team_id=batch_export.team_id,
+            batch_export_id=str(batch_export.id),
+            interval="hour",
+            data_interval_end=dt.datetime(2025, 7, 21, 13, 0, 0, tzinfo=dt.UTC).isoformat(),
+            batch_export_model=BatchExportModel(name="events", schema=None),
+        )
+        with patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage._write_batch_export_record_batches_to_internal_stage",
+            new=AsyncMock(side_effect=self._QUERY_MEMORY_ERROR),
+        ):
+            run = await self._run_workflow(inputs, expect_workflow_failure=True)
+
+        # In reality, we would never set the status to FailedRetryable as the activity has no retry
+        # limit; our tests run with RetryPolicy(maximum_attempts=1) however.
+        assert run.status == "FailedRetryable"
 
     async def test_successful_run(self, batch_export_by_interval, interval):
         inputs = DummyExportInputs(
