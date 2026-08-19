@@ -276,37 +276,53 @@ def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) 
     return blocks, fallback
 
 
-def build_scout_report_note_slack_message(
-    report: SignalReport, run: SignalScoutRun, note: str
+def build_scout_report_update_slack_message(
+    report: SignalReport, run: SignalScoutRun, *, note: str | None
 ) -> tuple[list[dict], str]:
-    """Render a note-only report edit as the note itself, framed as an update.
+    """Render a report edit as an update, distinct from a first-time report.
 
-    A note-only edit leaves the title and summary the report message shows unchanged, so re-sending
-    `build_scout_report_slack_message` would post a message identical to the one already in the
-    channel. The note is what's new, so that's what gets delivered."""
+    An edit drops the `header` block a new report leads with and opens with an update line instead,
+    so a threaded reply does not read as fresh work. A note-only edit shows the note (the only thing
+    that changed); any other edit shows the report's current summary."""
     scout_name = _prettify_scout_name(run.skill_name)
     header = _report_header(report)
-    blocks: list[dict] = [
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": f"*Scout · {escape_slack_mrkdwn(scout_name)}* added a note to an existing report",
-                }
-            ],
-        },
-        {"type": "header", "text": {"type": "plain_text", "text": header}},
-    ]
+    action = "added a note to" if note is not None else "updated"
+    lead = f"*Scout · {escape_slack_mrkdwn(scout_name)}* {action} *{escape_slack_mrkdwn(header)}*"
+    blocks: list[dict] = [{"type": "context", "elements": [{"type": "mrkdwn", "text": lead}]}]
 
-    note_text = strip_chart_references(note.strip())
-    rendered_note = truncate_slack_section(markdown_to_slack_mrkdwn(note_text))
-    if rendered_note:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_note}})
+    body = note if note is not None else (report.summary or "")
+    rendered_body = truncate_slack_section(markdown_to_slack_mrkdwn(strip_chart_references(body.strip())))
+    if rendered_body:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_body}})
 
     blocks.append(_report_link_block(report))
-    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)} added a note to: {escape_slack_mrkdwn(header[:200])}"
+    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)} {action}: {escape_slack_mrkdwn(header[:200])}"
     return blocks, fallback
+
+
+def _report_slack_thread_ts(report: SignalReport, *, integration_id: int, channel: str) -> str | None:
+    """Return the original message `ts` to reply under, or None to post a top-level message.
+
+    Only threads when the stored destination matches the current one: a report re-pointed at a
+    different channel or integration has no parent message there, so its edit posts top-level."""
+    ref = report.slack_message
+    if not isinstance(ref, dict):
+        return None
+    if ref.get("integration_id") != integration_id or ref.get("channel") != channel:
+        return None
+    ts = ref.get("ts")
+    return ts if isinstance(ts, str) and ts else None
+
+
+def _persist_report_slack_thread_ts(report: SignalReport, *, integration_id: int, channel: str, ts: object) -> None:
+    """Record the first-delivery message so later edits can thread under it. First write wins: a
+    conditional update skips reports that already carry a reference, so a retried delivery never
+    re-points the thread at a duplicate message."""
+    if not isinstance(ts, str) or not ts:
+        return
+    SignalReport.objects.filter(id=report.id, team_id=report.team_id, slack_message__isnull=True).update(
+        slack_message={"integration_id": integration_id, "channel": channel, "ts": ts}
+    )
 
 
 def post_scout_report_to_slack(
@@ -316,6 +332,7 @@ def post_scout_report_to_slack(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    is_edit: bool = False,
     edit_note: str | None = None,
 ) -> None:
     if report.team_id != run.team_id:
@@ -330,10 +347,15 @@ def post_scout_report_to_slack(
     )
     channel_id = _slack_channel_id(channel)
     blocks, fallback = (
-        build_scout_report_note_slack_message(report, run, edit_note)
-        if edit_note is not None
+        build_scout_report_update_slack_message(report, run, note=edit_note)
+        if is_edit
         else build_scout_report_slack_message(report, run)
     )
+    # Reply under the original message for an edit; a first delivery posts top-level and is recorded
+    # below so later edits can find its thread. `thread_ts` rides only when set, so a first delivery
+    # keeps the exact top-level payload shape.
+    thread_ts = _report_slack_thread_ts(report, integration_id=integration_id, channel=channel) if is_edit else None
+    thread_kwargs = {"thread_ts": thread_ts} if thread_ts else {}
     client = SlackIntegration(integration).client
     try:
         response = client.chat_postMessage(
@@ -343,6 +365,7 @@ def post_scout_report_to_slack(
             client_msg_id=delivery_id,
             unfurl_links=False,
             unfurl_media=False,
+            **thread_kwargs,
         )
     except SlackApiError as exc:
         error_code = slack_api_error_code(exc)
@@ -352,6 +375,9 @@ def post_scout_report_to_slack(
                 error_code=error_code,
             ) from exc
         raise
+
+    if not is_edit:
+        _persist_report_slack_thread_ts(report, integration_id=integration_id, channel=channel, ts=response.get("ts"))
 
     _post_scout_slack_reply(
         client,
