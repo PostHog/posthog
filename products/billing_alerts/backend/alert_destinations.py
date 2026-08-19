@@ -2,11 +2,8 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
-from django.db.models import Q
-
 from products.alerts.backend.destination_configs import DestinationType, EventKindSpec
-from products.alerts.backend.facade.api import DESTINATION_TEMPLATE_IDS
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.alerts.backend.facade.api import DESTINATION_TEMPLATE_IDS, owned_alert_destinations_qs
 
 EventKind = Literal["firing", "resolved", "errored", "broken"]
 
@@ -123,26 +120,15 @@ def destination_groups_for_alerts(
 ) -> dict[str, dict[str, dict[str, str]]]:
     """Map alert id -> destination type value -> event id -> HogFunction id for enabled,
     billing-owned destinations.
-
-    Billing allows one destination per type, so the type alone identifies a group here, and
-    `destinations_for_alerts` drops any group that does not cover every event kind. Deletes group
-    differently: products.alerts.backend.destinations keys on template plus config, because logs
-    alerts allow several destinations of one type.
     """
     if not team_ids or not alert_ids:
         return {}
 
-    ownership_filter = Q(pk__in=[])
-    for alert_id in alert_ids:
-        ownership_filter |= Q(filters__properties__contains=[{"key": "alert_id", "value": alert_id}])
-
-    rows = HogFunction.objects.filter(
-        ownership_filter,
-        team_id__in=team_ids,
-        enabled=True,
-        deleted=False,
-        template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
-    ).values_list("id", "template_id", "filters")
+    rows = (
+        owned_alert_destinations_qs(team_ids=team_ids, alert_ids=alert_ids, allowed_event_ids=BILLING_ALERT_EVENT_IDS)
+        .filter(enabled=True, template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID))
+        .values_list("id", "template_id", "filters")
+    )
 
     groups: dict[str, dict[str, dict[str, str]]] = {}
     for hog_function_id, template_id, filters in rows:

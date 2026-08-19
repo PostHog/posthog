@@ -30,7 +30,6 @@ from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.facade.api import (
-    ALERT_DESTINATION_DELETE_MAX_IDS,
     DESTINATION_TEMPLATE_IDS,
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -38,13 +37,12 @@ from products.alerts.backend.facade.api import (
     DestinationType,
     build_alert_destination_config,
     create_alert_destination_hog_functions,
-    raise_if_alert_destination_exists,
+    owned_alert_destinations_qs,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_and_normalize_schedule_restriction,
     validate_destination_data,
 )
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
@@ -84,6 +82,7 @@ UNCAPPED_ALERT_TEAM_IDS: frozenset[int] = frozenset(
 )
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
+MAX_DESTINATION_IDS_PER_DELETE_REQUEST = 100
 
 
 class LogsAlertListQuerySerializer(serializers.Serializer):
@@ -380,15 +379,11 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES)))
     def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
         # N+1 is acceptable: max 20 alerts per team, each query is a fast indexed lookup.
-        team_id = obj.team_id
         configured_template_ids = set(
-            HogFunction.objects.filter(
-                team_id=team_id,
-                deleted=False,
-                template_id__in=(
-                    DESTINATION_TEMPLATE_IDS[destination_type] for destination_type in LOGS_DESTINATION_TYPES
-                ),
-                filters__properties__contains=[{"key": "alert_id", "value": str(obj.id)}],
+            owned_alert_destinations_qs(
+                team_ids=[obj.team_id],
+                alert_ids=[str(obj.id)],
+                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             )
             .values_list("template_id", flat=True)
             .distinct()
@@ -756,9 +751,7 @@ class LogsAlertDeleteDestinationSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,
-        # Not len(LOGS_ALERT_EVENT_IDS): an alert with duplicate destinations holds them in one
-        # delete group, and a group comes out only when every row of it is named.
-        max_length=ALERT_DESTINATION_DELETE_MAX_IDS,
+        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
         help_text="HogFunction IDs to delete as one atomic destination group.",
     )
 
@@ -974,16 +967,12 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
                 for kind in EVENT_KINDS
             ]
-            # Every event kind carries the same destination config, so the first one identifies
-            # the destination being created.
-            raise_if_alert_destination_exists(
-                team_id=self.team_id,
+            hog_functions = create_alert_destination_hog_functions(
+                configs,
+                request=self.request,
                 alert_id=str(alert.id),
                 allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-                template_id=configs[0].payload["template_id"],
-                inputs=configs[0].payload["inputs"],
             )
-            hog_functions = create_alert_destination_hog_functions(configs, request=self.request)
 
         report_user_action(
             request.user,

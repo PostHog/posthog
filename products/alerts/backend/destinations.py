@@ -6,7 +6,7 @@ import re
 from collections.abc import Collection, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -47,11 +47,6 @@ ALERT_DESTINATION_UNREADABLE_CONFIGS = Counter(
     labelnames=["template_id"],
 )
 
-# Not one destination's worth of rows: an alert that already has duplicate destinations holds them
-# in a single delete group, which comes out only when every row of it is named.
-# soft_delete_alert_destinations enforces the real rule, so this is a request-size bound only.
-ALERT_DESTINATION_DELETE_MAX_IDS = 100
-
 
 @dataclass(frozen=True, kw_only=True)
 class AlertDelivery:
@@ -82,61 +77,72 @@ _TEMPLATE_ID_TO_DESTINATION_TYPE = {
 }
 
 
-AlertDestinationGroupKey = tuple[str, tuple[tuple[str, Any], ...]]
+class AlertDestinationGroupKey(NamedTuple):
+    template_id: str
+    config: tuple[tuple[str, Any], ...] | None
+
+    @property
+    def is_config_readable(self) -> bool:
+        return self.config is not None
 
 
-# Config half of the group key for rows whose config could not be read. No readable config
-# produces this pair, so it never collides with a real destination.
-UNREADABLE_DESTINATION_CONFIG: tuple[tuple[str, Any], ...] = (("config", "unreadable"),)
+class AlertDestinationRow(NamedTuple):
+    hog_function_id: UUID
+    template_id: str | None
+    inputs: dict[str, Any] | None
 
 
-def alert_destination_config_key(
-    *, template_id: str | None, inputs: dict[str, Any] | None
-) -> AlertDestinationGroupKey | None:
-    """Identify the destination one HogFunction belongs to, or None if its config cannot be read.
-
-    Creating a destination fans out into one HogFunction per event kind, so the rows of a single
-    destination are the ones sharing a template and the config written into their inputs (the
-    Slack channel, the webhook URL). Two Slack channels on one alert are therefore two groups.
-    """
-    if not template_id:
-        return None
+def alert_destination_group_key(*, template_id: str, inputs: dict[str, Any] | None) -> AlertDestinationGroupKey:
     destination_type_value = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id)
     if destination_type_value is None:
-        return None
+        return AlertDestinationGroupKey(template_id, None)
     data = read_alert_destination_data(destination_type=DestinationType(destination_type_value), inputs=inputs or {})
     config = {key: value for key, value in data.items() if key != "type"}
-    if not config:
-        return None
-    return (template_id, tuple(sorted(config.items())))
+    return AlertDestinationGroupKey(template_id, tuple(sorted(config.items())) if config else None)
 
 
-def _owned_alert_destinations_qs(
-    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+def group_alert_destination_rows(rows: Collection[AlertDestinationRow]) -> dict[AlertDestinationGroupKey, set[UUID]]:
+    keys_by_row = [
+        (row.hog_function_id, alert_destination_group_key(template_id=row.template_id or "", inputs=row.inputs))
+        for row in rows
+    ]
+    templates_with_an_unreadable_row = {key.template_id for _, key in keys_by_row if not key.is_config_readable}
+
+    ids_by_group: dict[AlertDestinationGroupKey, set[UUID]] = {}
+    for hog_function_id, key in keys_by_row:
+        widened_key = (
+            AlertDestinationGroupKey(key.template_id, None)
+            if key.template_id in templates_with_an_unreadable_row
+            else key
+        )
+        ids_by_group.setdefault(widened_key, set()).add(hog_function_id)
+    return ids_by_group
+
+
+def owned_alert_destinations_qs(
+    *, team_ids: Collection[int], alert_ids: Collection[str], allowed_event_ids: Collection[str]
 ) -> QuerySet[HogFunction]:
-    """Every not-yet-deleted destination row this alert owns, disabled ones included.
-
-    Deletes and the duplicate check both work on this set. A disabled row still belongs to its
-    destination group, so leaving it out would let a delete split the group.
-    """
+    alert_id_filter = Q(pk__in=[])
+    for alert_id in alert_ids:
+        alert_id_filter |= Q(filters__properties__contains=[{"key": "alert_id", "value": alert_id}])
     return HogFunction.objects.filter(
+        alert_id_filter,
         _allowed_event_filter(allowed_event_ids),
-        team_id=team_id,
+        team_id__in=team_ids,
         deleted=False,
         template_id__in=DESTINATION_TEMPLATE_IDS.values(),
-        filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
     )
 
 
 def _active_alert_destinations_qs(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> QuerySet[HogFunction]:
-    return _owned_alert_destinations_qs(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids).filter(
-        enabled=True
-    )
+    return owned_alert_destinations_qs(
+        team_ids=[team_id], alert_ids=[alert_id], allowed_event_ids=allowed_event_ids
+    ).filter(enabled=True)
 
 
-def raise_if_alert_destination_exists(
+def _raise_if_alert_destination_exists(
     *,
     team_id: int,
     alert_id: str,
@@ -149,23 +155,37 @@ def raise_if_alert_destination_exists(
     A duplicate sends every notification twice, and its rows join the original's delete group, so
     afterwards the two can only be removed together.
     """
-    config_key = alert_destination_config_key(template_id=template_id, inputs=inputs)
-    if config_key is None:
+    config_key = alert_destination_group_key(template_id=template_id, inputs=inputs)
+    if not config_key.is_config_readable:
         return
-    existing_keys = {
-        alert_destination_config_key(template_id=row_template_id, inputs=row_inputs)
-        for row_template_id, row_inputs in _owned_alert_destinations_qs(
-            team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
-        ).values_list("template_id", "inputs")
-    }
-    if config_key in existing_keys:
+    same_template_inputs = (
+        owned_alert_destinations_qs(team_ids=[team_id], alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
+        .filter(template_id=template_id)
+        .values_list("inputs", flat=True)
+    )
+    if any(
+        alert_destination_group_key(template_id=template_id, inputs=row_inputs) == config_key
+        for row_inputs in same_template_inputs
+    ):
         raise ValidationError("This destination is already configured for this alert.")
 
 
-def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig], *, request: Any) -> list[HogFunction]:
+def create_alert_destination_hog_functions(
+    configs: list[AlertDestinationConfig], *, request: Any, alert_id: str, allowed_event_ids: Collection[str]
+) -> list[HogFunction]:
+    if not configs:
+        return []
     created: list[HogFunction] = []
     hog_function_ids_by_team: dict[int, list[UUID]] = {}
     with transaction.atomic():
+        any_event_kind_config = configs[0]
+        _raise_if_alert_destination_exists(
+            team_id=any_event_kind_config.team.id,
+            alert_id=alert_id,
+            allowed_event_ids=allowed_event_ids,
+            template_id=any_event_kind_config.payload["template_id"],
+            inputs=any_event_kind_config.payload["inputs"],
+        )
         for config in configs:
             team = config.team
             serializer = HogFunctionSerializer(
@@ -187,17 +207,12 @@ def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig]
 
 
 def _report_unreadable_destination_configs(
-    *, team_id: int, alert_id: str, keyed_rows: list[tuple[UUID, str, AlertDestinationGroupKey | None]]
-) -> set[str]:
-    """Record which templates have a row whose config could not be read, and return them.
-
-    An unreadable config makes deletes coarser for its whole template without anything showing up
-    in the response, so it needs a signal of its own. It happens when a template starts marking a
-    config input secret, which moves that input out of `inputs`.
-    """
+    *, team_id: int, alert_id: str, rows: Collection[AlertDestinationRow]
+) -> None:
     row_counts_by_template: dict[str, int] = {}
-    for _, template_id, config_key in keyed_rows:
-        if config_key is None:
+    for row in rows:
+        template_id = row.template_id or ""
+        if not alert_destination_group_key(template_id=template_id, inputs=row.inputs).is_config_readable:
             row_counts_by_template[template_id] = row_counts_by_template.get(template_id, 0) + 1
     for template_id, count in row_counts_by_template.items():
         ALERT_DESTINATION_UNREADABLE_CONFIGS.labels(template_id=template_id).inc(count)
@@ -209,7 +224,6 @@ def _report_unreadable_destination_configs(
             row_counts_by_template=row_counts_by_template,
             team_id=team_id,
         )
-    return set(row_counts_by_template)
 
 
 def soft_delete_alert_destinations(
@@ -221,12 +235,15 @@ def soft_delete_alert_destinations(
 ) -> None:
     unique_ids = set(hog_function_ids)
     with transaction.atomic():
-        owned_rows = list(
-            _owned_alert_destinations_qs(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
+        owned_rows = [
+            AlertDestinationRow(*row)
+            for row in owned_alert_destinations_qs(
+                team_ids=[team_id], alert_ids=[alert_id], allowed_event_ids=allowed_event_ids
+            )
             .select_for_update()
             .values_list("id", "template_id", "inputs")
-        )
-        owned_ids = {hog_function_id for hog_function_id, _, _ in owned_rows}
+        ]
+        owned_ids = {row.hog_function_id for row in owned_rows}
         invalid_ids = unique_ids - owned_ids
         if invalid_ids:
             formatted_ids = ", ".join(str(hog_function_id) for hog_function_id in sorted(invalid_ids, key=str))
@@ -238,35 +255,17 @@ def soft_delete_alert_destinations(
                 }
             )
 
-        keyed_rows = [
-            (hog_function_id, template_id or "", alert_destination_config_key(template_id=template_id, inputs=inputs))
-            for hog_function_id, template_id, inputs in owned_rows
-        ]
-        unreadable_templates = _report_unreadable_destination_configs(
-            team_id=team_id, alert_id=alert_id, keyed_rows=keyed_rows
-        )
-
-        ids_by_group: dict[AlertDestinationGroupKey, set[UUID]] = {}
-        for hog_function_id, template_id, config_key in keyed_rows:
-            # A row whose config cannot be read cannot be told apart from the other rows of its
-            # template, so the whole template becomes one group. Grouping it alone instead would
-            # let a caller delete part of a real destination and leave the rest sending.
-            key = (
-                (template_id, UNREADABLE_DESTINATION_CONFIG)
-                if config_key is None or template_id in unreadable_templates
-                else config_key
-            )
-            ids_by_group.setdefault(key, set()).add(hog_function_id)
+        _report_unreadable_destination_configs(team_id=team_id, alert_id=alert_id, rows=owned_rows)
 
         # A destination is deleted whole or not at all, so every live row of a group the request
         # touches has to be named. Whether the group covers all of allowed_event_ids is not
         # checked: a destination missing an event kind still has to be removable.
-        for (_, config), group_ids in ids_by_group.items():
+        for group_key, group_ids in group_alert_destination_rows(owned_rows).items():
             if group_ids & unique_ids and not group_ids <= unique_ids:
                 message = (
-                    "Some destinations of this type can no longer be read, so every destination of this type has to be deleted together."
-                    if config == UNREADABLE_DESTINATION_CONFIG
-                    else "Delete every HogFunction in the destination group together."
+                    "Delete every HogFunction in the destination group together."
+                    if group_key.is_config_readable
+                    else "Some destinations of this type can no longer be read, so every destination of this type has to be deleted together."
                 )
                 raise ValidationError({"hog_function_ids": [message]})
 
@@ -275,40 +274,19 @@ def soft_delete_alert_destinations(
 
 
 def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> int:
-    with transaction.atomic():
-        owned_ids = set(
-            _owned_alert_destinations_qs(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
-            .select_for_update()
-            .values_list("id", flat=True)
-        )
-        deleted_count = HogFunction.objects.filter(team_id=team_id, id__in=owned_ids).update(
-            deleted=True, enabled=False
-        )
-        _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=owned_ids)
-        return deleted_count
+    return soft_delete_alert_destinations_for_alerts(
+        team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids
+    )
 
 
 def soft_delete_alert_destinations_for_alerts(
     *, team_id: int, alert_ids: Collection[str], allowed_event_ids: Collection[str]
 ) -> int:
-    """Soft-delete alert-owned destinations in bulk when their execution team is removed."""
-    event_filter = _allowed_event_filter(allowed_event_ids)
-    if not alert_ids:
-        return 0
-    destination_ids: set[UUID] = set()
+    """Soft-delete alert-owned destinations in bulk."""
     with transaction.atomic():
-        alert_id_filter = Q(pk__in=[])
-        for alert_id in alert_ids:
-            alert_id_filter |= Q(filters__properties__contains=[{"key": "alert_id", "value": alert_id}])
         destination_ids = set(
-            HogFunction.objects.select_for_update()
-            .filter(
-                alert_id_filter,
-                event_filter,
-                team_id=team_id,
-                deleted=False,
-                template_id__in=DESTINATION_TEMPLATE_IDS.values(),
-            )
+            owned_alert_destinations_qs(team_ids=[team_id], alert_ids=alert_ids, allowed_event_ids=allowed_event_ids)
+            .select_for_update()
             .values_list("id", flat=True)
         )
         deleted_count = HogFunction.objects.filter(team_id=team_id, id__in=destination_ids).update(

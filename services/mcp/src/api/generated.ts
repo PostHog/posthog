@@ -13294,8 +13294,8 @@ export namespace Schemas {
 
     export interface BillingAlertDestinationChanges {
       /**
-         * @items.minItems 4
-         * @items.maxItems 4
+         * @items.minItems 1
+         * @items.maxItems 100
          */
       delete?: string[][];
       create?: BillingAlertDestinationCreateData[];
@@ -13428,8 +13428,8 @@ export namespace Schemas {
     export interface BillingAlertDeleteDestination {
       /**
          * HogFunction IDs to delete as one atomic destination group.
-         * @minItems 4
-         * @maxItems 4
+         * @minItems 1
+         * @maxItems 100
          */
       hog_function_ids: string[];
     }

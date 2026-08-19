@@ -25,9 +25,8 @@ from products.alerts.backend.destination_configs import (
     validate_destination_data,
 )
 from products.alerts.backend.destinations import (
-    ALERT_DESTINATION_DELETE_MAX_IDS,
     create_alert_destination_hog_functions,
-    raise_if_alert_destination_exists,
+    owned_alert_destinations_qs,
     soft_delete_alert_destinations,
     soft_delete_alert_destinations_for_alerts,
     soft_delete_all_alert_destinations,
@@ -160,7 +159,6 @@ def snooze_alert_from_slack(
 
 
 __all__ = [
-    "ALERT_DESTINATION_DELETE_MAX_IDS",
     "DESTINATION_TEMPLATE_IDS",
     "AlertDestinationData",
     "AlertDestinationValidationError",
@@ -172,7 +170,7 @@ __all__ = [
     "create_alert_destination_hog_functions",
     "get_alert_team_id",
     "insight_ids_with_alerts",
-    "raise_if_alert_destination_exists",
+    "owned_alert_destinations_qs",
     "snooze_alert_from_slack",
     "soft_delete_alert_destinations",
     "soft_delete_alert_destinations_for_alerts",

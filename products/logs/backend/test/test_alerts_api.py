@@ -24,10 +24,11 @@ from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCou
 from products.logs.backend.alert_utils import compute_shard_offset_seconds
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.presentation.views.alerts_api import (
-    ALERT_DESTINATION_DELETE_MAX_IDS,
     ALLOWED_WINDOW_MINUTES,
     LOGS_ALERT_EVENT_IDS,
     MAX_ALERTS_PER_TEAM,
+    MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+    LogsAlertViewSet,
 )
 
 
@@ -1027,7 +1028,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
         response = self.client.post(
             self._destinations_delete_url(created["id"]),
-            {"hog_function_ids": [str(uuid4()) for _ in range(ALERT_DESTINATION_DELETE_MAX_IDS + 1)]},
+            {"hog_function_ids": [str(uuid4()) for _ in range(MAX_DESTINATION_IDS_PER_DELETE_REQUEST + 1)]},
             format="json",
         )
 
@@ -1117,6 +1118,25 @@ class TestLogsAlertAPI(APIBaseTest):
         assert HogFunction.objects.filter(id__in=ids, deleted=False, enabled=True).count() == len(ids)
         assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(LOGS_ALERT_EVENT_IDS)
 
+    def test_create_destination_locks_the_alert_row_before_the_duplicate_check(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+
+        with patch.object(
+            LogsAlertViewSet,
+            "_get_locked_alert",
+            autospec=True,
+            side_effect=LogsAlertViewSet._get_locked_alert,
+        ) as get_locked_alert:
+            response = self.client.post(
+                self._destinations_url(created["id"]),
+                {"type": "webhook", "webhook_url": "https://example.com/hook"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        get_locked_alert.assert_called_once()
+
     def _clone_hog_function(self, hog_function: HogFunction) -> HogFunction:
         # A duplicate can no longer be created through the API, so an alert that already had one
         # is reproduced by copying its rows.
@@ -1164,6 +1184,33 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert HogFunction.objects.filter(id__in=[*first_ids, *second_ids], deleted=False).count() == 0
+
+    def test_destination_types_ignores_a_row_carrying_another_products_event(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        self._create_destination(
+            created["id"],
+            {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C111", "slack_channel_name": "eng"},
+        )
+        HogFunction.objects.create(
+            team=self.team,
+            name="Billing alert destination",
+            type="destination",
+            template_id="template-webhook",
+            enabled=True,
+            inputs_schema=[{"key": "url", "type": "string"}],
+            inputs={"url": {"value": "https://example.com/hook"}},
+            hog="return event",
+            filters={
+                "events": [{"id": "$billing_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": created["id"]}],
+            },
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["destination_types"] == ["slack"]
 
     # --- Reset ---
 

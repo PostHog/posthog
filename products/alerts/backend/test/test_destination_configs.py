@@ -1,4 +1,20 @@
-from products.alerts.backend.destination_configs import AlertDestinationAction, EventKindSpec, slack_blocks, teams_text
+from typing import Any
+
+import pytest
+
+from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
+
+from products.alerts.backend.destination_configs import (
+    DESTINATION_TEMPLATE_IDS,
+    AlertDestinationAction,
+    AlertDestinationData,
+    DestinationType,
+    EventKindSpec,
+    build_alert_destination_config,
+    read_alert_destination_data,
+    slack_blocks,
+    teams_text,
+)
 
 DEFAULT_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",
@@ -54,3 +70,48 @@ class TestSpecVocabularyRendering:
         assert teams_text(DEFAULT_SPEC) == (
             "**Insight alert firing**\n\n**Threshold:** 30\n\n[View insight](https://example.com/insight)"
         )
+
+
+_TEMPLATES_BY_ID = {template.id: template for template in HOG_FUNCTION_TEMPLATES}
+
+_TEMPLATE_IDS_DEFINED_IN_NODEJS = {"template-webhook"}
+
+_DESTINATION_DATA: dict[DestinationType, AlertDestinationData] = {
+    DestinationType.SLACK: {
+        "type": DestinationType.SLACK,
+        "slack_workspace_id": 42,
+        "slack_channel_id": "C123",
+    },
+    DestinationType.DISCORD: {"type": DestinationType.DISCORD, "webhook_url": "https://discord.example.com/hook"},
+    DestinationType.TEAMS: {"type": DestinationType.TEAMS, "webhook_url": "https://teams.example.com/hook"},
+}
+
+
+def _inputs_a_hog_function_would_keep(template: Any, inputs: dict[str, Any]) -> dict[str, Any]:
+    return {entry["key"]: inputs.get(entry["key"]) for entry in template.inputs_schema or [] if not entry.get("secret")}
+
+
+class TestDestinationTemplateContract:
+    def test_only_the_webhook_template_is_defined_outside_python(self) -> None:
+        unreachable = set(DESTINATION_TEMPLATE_IDS.values()) - set(_TEMPLATES_BY_ID)
+
+        assert unreachable == _TEMPLATE_IDS_DEFINED_IN_NODEJS
+
+    @pytest.mark.parametrize("destination_type", list(_DESTINATION_DATA))
+    def test_a_config_read_back_from_the_inputs_a_template_keeps_equals_the_config_built(
+        self, destination_type: DestinationType
+    ) -> None:
+        template = _TEMPLATES_BY_ID[DESTINATION_TEMPLATE_IDS[destination_type]]
+        data = _DESTINATION_DATA[destination_type]
+        config = build_alert_destination_config(
+            team=None,
+            spec=DEFAULT_SPEC,
+            alert_id="alert-1",
+            alert_name="Signups",
+            data=data,
+            slack_context_elements=(),
+        )
+
+        stored_inputs = _inputs_a_hog_function_would_keep(template, config.payload["inputs"])
+
+        assert read_alert_destination_data(destination_type=destination_type, inputs=stored_inputs) == data
