@@ -64,9 +64,10 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     const { count: reportsTabCount, countLoading: reportsTabCountLoading } = useValues(
         reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports })
     )
-    // A badge count is settled once loaded, or once its request failed (count stays null, not loading).
-    const badgeCountsSettled =
-        (pullsTabCount !== null || !pullsTabCountLoading) && (reportsTabCount !== null || !reportsTabCountLoading)
+    // A badge count is settled once its request is no longer in flight: loaded, refreshed, or failed
+    // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
+    // filter refresh in progress doesn't fire the event with the previous query's counts.
+    const badgeCountsSettled = !pullsTabCountLoading && !reportsTabCountLoading
 
     // Fire `Inbox viewed` once per tab mount, the first time its list and the badge counts settle
     // while visible.
