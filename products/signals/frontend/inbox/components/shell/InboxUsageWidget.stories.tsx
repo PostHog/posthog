@@ -16,6 +16,8 @@ interface InboxState {
     freePrs: number
     usedPrs: number
     limitPrs: number | null
+    dailyLimit?: number | null
+    reportsToday?: number
 }
 
 function inboxProduct({ subscribed, freePrs, usedPrs, limitPrs }: InboxState): BillingProductV2Type {
@@ -46,9 +48,21 @@ function billingFor(state: InboxState): BillingType {
 }
 
 function StateMocks({ state }: { state: InboxState }): JSX.Element {
+    const dailyLimit = state.dailyLimit ?? null
+    const reportsToday = state.reportsToday ?? 0
     useStorybookMocks({
         get: {
             '/api/billing/': billingFor(state),
+            // The widget's daily-report row reads the signals team config singleton.
+            '/api/projects/:team_id/signals/config/': {
+                id: 'cfg-1',
+                autostart_enabled: true,
+                default_autostart_priority: 'P4',
+                autostart_base_branches: {},
+                max_reports_per_day: dailyLimit,
+                reports_generated_today: reportsToday,
+                daily_report_limit_reached: dailyLimit != null && reportsToday >= dailyLimit,
+            },
         },
     })
     // Mimic the agents rail's narrow column so the widget lays out as it does in the scene.
@@ -90,4 +104,20 @@ export const ApproachingLimit: Story = {
 
 export const AtLimit: Story = {
     render: () => <StateMocks state={{ subscribed: true, freePrs: 3, usedPrs: 50, limitPrs: 50 }} />,
+}
+
+export const DailyReportLimitSet: Story = {
+    render: () => (
+        <StateMocks
+            state={{ subscribed: true, freePrs: 3, usedPrs: 12, limitPrs: 50, dailyLimit: 10, reportsToday: 3 }}
+        />
+    ),
+}
+
+export const DailyReportLimitReached: Story = {
+    render: () => (
+        <StateMocks
+            state={{ subscribed: true, freePrs: 3, usedPrs: 12, limitPrs: 50, dailyLimit: 10, reportsToday: 10 }}
+        />
+    ),
 }

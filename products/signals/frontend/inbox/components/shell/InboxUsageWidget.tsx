@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
@@ -12,6 +13,7 @@ import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { BillingProductV2Type } from '~/types'
 
 import { InboxUsageStatus, inboxUsageLogic } from '../../logics/inboxUsageLogic'
+import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 
 // Usage-bar fill colour by status. Main-app semantic Tailwind classes (not quill `--*` tokens —
 // those only resolve inside `[data-quill]` subtrees).
@@ -130,12 +132,57 @@ function EditLimitModal(): JSX.Element {
     )
 }
 
+function DailyLimitModal(): JSX.Element {
+    const { isDailyLimitModalOpen, draftMaxReportsPerDay, saveMaxReportsPerDayDisabledReason, teamConfigUpdating } =
+        useValues(signalTeamConfigLogic)
+    const { closeDailyLimitModal, setDraftMaxReportsPerDay, saveDraftMaxReportsPerDay } =
+        useActions(signalTeamConfigLogic)
+
+    return (
+        <LemonModal
+            isOpen={isDailyLimitModalOpen}
+            onClose={closeDailyLimitModal}
+            title="Daily report limit"
+            description="Pause new report generation after this many reports in a day. Leave empty for no limit."
+            width={460}
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={closeDailyLimitModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={saveDraftMaxReportsPerDay}
+                        loading={teamConfigUpdating}
+                        disabledReason={saveMaxReportsPerDayDisabledReason ?? undefined}
+                    >
+                        Save
+                    </LemonButton>
+                </>
+            }
+        >
+            <LemonInput
+                type="number"
+                min={1}
+                step={1}
+                placeholder="No limit"
+                value={draftMaxReportsPerDay ?? undefined}
+                onChange={(value) => setDraftMaxReportsPerDay(value ?? null)}
+                onPressEnter={saveDraftMaxReportsPerDay}
+                autoFocus
+                fullWidth
+            />
+        </LemonModal>
+    )
+}
+
 /**
- * Compact PR-usage meter for the inbox agents rail: a status-coloured usage bar with USD spent so far
- * alongside it, then `X / Y PRs created` on the left and `Resets <date>` on the right. On a paid plan
- * the limit is editable (and the edit affordance escalates to "Increase limit" at the cap); on the
- * free plan it shows an in-place upgrade instead. Renders nothing until billing has loaded and the
- * inbox product is present.
+ * Compact usage meter for the inbox agents rail: a status-coloured usage bar with USD spent so far
+ * alongside it, then `X / Y PRs created` on the left and `Resets <date>` on the right, and under a
+ * divider the team's daily report cap (`X / Y reports today`, or `No daily report limit`) with a
+ * gear opening its edit modal. On a paid plan the PR limit is editable (and the edit affordance
+ * escalates to "Increase limit" at the cap); on the free plan it shows an in-place upgrade instead.
+ * Renders nothing until billing has loaded and the inbox product is present.
  */
 export function InboxUsageWidget(): JSX.Element | null {
     const {
@@ -153,6 +200,8 @@ export function InboxUsageWidget(): JSX.Element | null {
         percentage,
     } = useValues(inboxUsageLogic)
     const { openModal } = useActions(inboxUsageLogic)
+    const { maxReportsPerDay, reportsGeneratedToday, dailyReportLimitReached } = useValues(signalTeamConfigLogic)
+    const { openDailyLimitModal } = useActions(signalTeamConfigLogic)
 
     // The server-truth pause (quotaLimited) can lead the widget's own usage math (billing data
     // lags), so the raise-the-limit affordances escalate on either signal.
@@ -233,8 +282,39 @@ export function InboxUsageWidget(): JSX.Element | null {
                         </span>
                     )
                 )}
+                {/* Below the plan rows and their CTA: the daily report cap is a team setting, not a plan matter. */}
+                <div className="flex items-center justify-between gap-2 border-t border-primary pt-2 text-xs">
+                    <Tooltip title="Reports that surfaced in the inbox today. At the limit, new report generation pauses until midnight in your project's timezone.">
+                        {/* tabIndex so keyboard users can focus the count and get the scope, like the PR count above */}
+                        <span className="text-secondary tabular-nums" tabIndex={0}>
+                            {maxReportsPerDay != null ? (
+                                <>
+                                    <span className="font-medium text-default">
+                                        {Math.min(reportsGeneratedToday, maxReportsPerDay)}
+                                    </span>
+                                    {` / ${maxReportsPerDay} reports today`}
+                                </>
+                            ) : (
+                                'No daily report limit'
+                            )}
+                        </span>
+                    </Tooltip>
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconGear />}
+                        onClick={openDailyLimitModal}
+                        tooltip="Set daily report limit"
+                        data-attr="signals-daily-report-limit-edit"
+                    />
+                </div>
+                {dailyReportLimitReached && (
+                    <span className="text-xs font-medium text-danger">
+                        Daily report limit reached. New reports resume at midnight in your project's timezone.
+                    </span>
+                )}
             </div>
             {canAccessBilling && <EditLimitModal />}
+            <DailyLimitModal />
         </>
     )
 }
