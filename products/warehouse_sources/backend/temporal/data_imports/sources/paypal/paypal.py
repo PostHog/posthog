@@ -86,13 +86,23 @@ def _format_dispute_datetime(value: datetime) -> str:
     return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
-def _mint_token(session: requests.Session, base_url: str, client_id: str, client_secret: str) -> str:
-    """Exchange the app credentials for a bearer token (client_credentials grant)."""
+def _mint_token(
+    session: requests.Session,
+    base_url: str,
+    client_id: str,
+    client_secret: str,
+    timeout: float = REQUEST_TIMEOUT_SECONDS,
+) -> str:
+    """Exchange the app credentials for a bearer token (client_credentials grant).
+
+    Defaults to the long sync timeout; interactive callers pass the short validation timeout so a
+    slow token request cannot spend the whole request's gateway budget on the mint alone.
+    """
     response = session.post(
         f"{base_url}{TOKEN_PATH}",
         data={"grant_type": "client_credentials"},
         auth=(client_id, client_secret),
-        timeout=REQUEST_TIMEOUT_SECONDS,
+        timeout=timeout,
     )
     response.raise_for_status()
     return str(response.json()["access_token"])
@@ -237,7 +247,8 @@ def check_endpoint_permissions(
 
     session = _get_session(client_secret)
     try:
-        token = _mint_token(session, base_url, client_id, client_secret)
+        # Interactive path bound by the gateway budget, so mint with the short validation timeout.
+        token = _mint_token(session, base_url, client_id, client_secret, timeout=VALIDATE_TIMEOUT_SECONDS)
     except Exception:
         return dict.fromkeys(endpoints)
 

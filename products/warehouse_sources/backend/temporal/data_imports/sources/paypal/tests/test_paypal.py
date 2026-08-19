@@ -7,6 +7,7 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.paypal.paypal import (
+    VALIDATE_TIMEOUT_SECONDS,
     PayPalResumeConfig,
     PayPalRetryableError,
     _base_url,
@@ -289,6 +290,16 @@ class TestEndpointPermissions:
         result = check_endpoint_permissions("live", "cid", "secret", ["transactions", "disputes"])
 
         assert result == {"transactions": None, "disputes": None}
+
+    def test_the_token_is_minted_with_the_short_interactive_timeout(self, mock_session: mock.MagicMock) -> None:
+        # This runs inside a synchronous request bound by the gateway budget, so the mint must use
+        # the short validation timeout rather than the long sync timeout.
+        mock_session.return_value.post.return_value = _token_response()
+        mock_session.return_value.get.return_value = _response({"items": []}, status=200)
+
+        check_endpoint_permissions("live", "cid", "secret", ["disputes"])
+
+        assert mock_session.return_value.post.call_args.kwargs["timeout"] == VALIDATE_TIMEOUT_SECONDS
 
 
 @mock.patch(f"{_MODULE}._now", return_value=_NOW)
