@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { ApiConfig } from 'lib/api'
 import type { PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -25,8 +24,10 @@ import { eventDefinitionsList } from 'products/event_definitions/frontend/genera
 import { visionScannersList, visionScannersPartialUpdate } from 'products/replay_vision/frontend/generated/api'
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
+import { externalDataSchemasApi, externalDataSourcesApi } from 'products/warehouse_sources/frontend/warehouseSourcesApi'
 
 import type { SignalSourceTypeApi } from '../generated/api.schemas'
+import { signalSourceConfigsApi } from '../signalsApi'
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
 import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
 import { SignalSourceConfig, ToggleSignalSourceParams } from './types'
@@ -525,7 +526,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             null as SignalSourceConfig[] | null,
             {
                 loadSourceConfigs: async () => {
-                    const response = await api.signalSourceConfigs.list()
+                    const response = await signalSourceConfigsApi.list()
                     return response.results
                 },
             },
@@ -986,7 +987,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 return values.dataWarehouseSources.results
             }
             try {
-                return (await api.externalDataSources.list()).results
+                return (await externalDataSourcesApi.list()).results
             } catch {
                 return []
             }
@@ -1007,7 +1008,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 .filter((schema: ExternalDataSourceSchema) => matchesTable(schema) && !schema.should_sync)
             await Promise.all(
                 schemas.map((schema: ExternalDataSourceSchema) =>
-                    api.externalDataSchemas.update(schema.id, { should_sync: true })
+                    externalDataSchemasApi.update(schema.id, { should_sync: true })
                 )
             )
         }
@@ -1092,9 +1093,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         if (config !== undefined) {
                             updateData.config = config
                         }
-                        await api.signalSourceConfigs.update(existing.id, updateData)
+                        await signalSourceConfigsApi.update(existing.id, updateData)
                     } else if (enabled) {
-                        await api.signalSourceConfigs.create({
+                        await signalSourceConfigsApi.create({
                             source_product: sourceProduct,
                             source_type: sourceType,
                             enabled,
@@ -1151,9 +1152,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                                 c.source_product === SignalSourceProduct.ErrorTracking && c.source_type === sourceType
                         )
                         if (existing && !existing.id.startsWith('new_')) {
-                            await api.signalSourceConfigs.update(existing.id, { enabled: desiredEnabled })
+                            await signalSourceConfigsApi.update(existing.id, { enabled: desiredEnabled })
                         } else if (desiredEnabled) {
-                            await api.signalSourceConfigs.create({
+                            await signalSourceConfigsApi.create({
                                 source_product: SignalSourceProduct.ErrorTracking,
                                 source_type: sourceType,
                                 enabled: true,
@@ -1193,9 +1194,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const desiredEnabled = !(existing?.enabled ?? false)
                 try {
                     if (existing && !existing.id.startsWith('new_')) {
-                        await api.signalSourceConfigs.update(existing.id, { enabled: desiredEnabled })
+                        await signalSourceConfigsApi.update(existing.id, { enabled: desiredEnabled })
                     } else if (desiredEnabled) {
-                        await api.signalSourceConfigs.create({
+                        await signalSourceConfigsApi.create({
                             source_product: SignalSourceProduct.ErrorTracking,
                             source_type: sourceType,
                             enabled: true,

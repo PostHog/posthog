@@ -1,7 +1,9 @@
 import { MakeLogicType, afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
+
+import { hogFlowsRetrieve } from 'products/workflows/frontend/workflowApiCompat'
 
 import type { HogFlow } from './hogflows/types'
 
@@ -61,7 +63,7 @@ export const workflowNameLogic = kea<workflowNameLogicType>([
             {
                 loadWorkflow: async () => {
                     try {
-                        return await api.hogFlows.getHogFlow(props.id)
+                        return await hogFlowsRetrieve(String(ApiConfig.getCurrentProjectId()), props.id)
                     } catch {
                         // Deleted, or not visible to this user. Callers fall back to a generic label.
                         return null

@@ -2,8 +2,7 @@ import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } fro
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-
+import { signalReportsApi } from '../../signalReportApi'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import type { DismissalReasonValue } from '../utils/dismissalReasons'
 
@@ -157,7 +156,7 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
             })
             const results = await Promise.allSettled(
                 reportIds.map((id) =>
-                    api.signalReports.setState(id, {
+                    signalReportsApi.setState(id, {
                         state: 'suppressed',
                         dismissal_reason: reason,
                         ...(trimmedNote ? { dismissal_note: trimmedNote } : {}),

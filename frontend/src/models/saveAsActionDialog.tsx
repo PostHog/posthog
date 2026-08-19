@@ -1,6 +1,5 @@
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -21,6 +20,8 @@ import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { ActionStepType, EventType, RecordingEventType } from '~/types'
+
+import { actionCreateApi } from 'products/actions/frontend/actionsApi'
 
 type AutocaptureEvent = (EventType | RecordingEventType) & { event: '$autocapture' }
 
@@ -118,7 +119,7 @@ export function openSaveAsActionDialog({ suggestedName, step, createInFolder }: 
         ),
         onSubmit: async ({ actionName }) => {
             try {
-                const action = await api.actions.create({
+                const action = await actionCreateApi({
                     name: actionName,
                     steps: [step],
                     ...(createInFolder ? { _create_in_folder: createInFolder } : {}),

@@ -1,7 +1,12 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
+
+import {
+    messagingCategoriesList,
+    messagingCategoriesPartialUpdate,
+} from 'products/messaging/frontend/messagingApiCompat'
 
 export type MessageCategory = {
     id: string
@@ -69,7 +74,9 @@ export const optOutCategoriesLogic = kea<optOutCategoriesLogicType>([
         categories: {
             __default: [] as MessageCategory[],
             loadCategories: async (): Promise<MessageCategory[]> => {
-                const response = await api.messaging.getCategories({ category_type: 'marketing' })
+                const response = await messagingCategoriesList(String(ApiConfig.getCurrentProjectId()), {
+                    category_type: 'marketing',
+                })
                 return response.results || []
             },
         },
@@ -94,7 +101,7 @@ export const optOutCategoriesLogic = kea<optOutCategoriesLogicType>([
     listeners(({ actions }) => ({
         deleteCategory: async ({ id }: { id: string }) => {
             try {
-                await api.messaging.updateCategory(id, { deleted: true })
+                await messagingCategoriesPartialUpdate(String(ApiConfig.getCurrentProjectId()), id, { deleted: true })
                 actions.loadCategories()
             } catch (error) {
                 console.error('Failed to delete category:', error)

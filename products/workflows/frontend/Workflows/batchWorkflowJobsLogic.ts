@@ -4,10 +4,10 @@ import { urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiConfig } from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { hogFlowsBatchJobsCancelCreate } from 'products/workflows/frontend/generated/api'
+import { hogFlowsBatchJobsCancelCreate, hogFlowsBatchJobsList } from 'products/workflows/frontend/generated/api'
 
 import { HogFlowBatchJob } from './hogflows/types'
 
@@ -93,7 +93,10 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
                         return null
                     }
 
-                    return api.hogFlows.getHogFlowBatchJobs(props.id)
+                    return (await hogFlowsBatchJobsList(
+                        String(ApiConfig.getCurrentProjectId()),
+                        props.id
+                    )) as unknown as HogFlowBatchJob[]
                 },
             },
         ],

@@ -2,10 +2,10 @@ import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, sel
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
 import { isUUIDLike } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
+import { signalReportsApi } from '../../signalReportApi'
 import { INBOX_PRIORITY_OPTIONS, INBOX_SORT_OPTIONS, INBOX_SOURCE_OPTIONS } from '../filterOptions'
 import { captureInboxQueryChanged, InboxQueryChange } from '../inboxAnalytics'
 import { INBOX_SCOPE_FOR_YOU, INBOX_TAB_KEYS, InboxScope, SignalReportPriority } from '../types'
@@ -321,7 +321,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             {
                 loadAvailableReviewers: async ({ query }: { query?: string } = {}) => {
                     // The api wrapper already returns the typed `{ user_uuid, name, email }[]` array.
-                    return await api.signalReports.availableReviewers(query)
+                    return await signalReportsApi.availableReviewers(query)
                 },
             },
         ],

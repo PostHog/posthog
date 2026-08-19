@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
@@ -13,6 +13,8 @@ import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEv
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { CyclotronJobInvocationGlobals, FilterLogicalOperator, PersonType, PropertyFilterType } from '~/types'
+
+import { hogFlowsInvocationsCreate } from 'products/workflows/frontend/generated/api'
 
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
@@ -364,21 +366,25 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                         }
                     }
 
-                    const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
-                        configuration: values.workflowSanitized,
-                        globals: {
-                            ...parsedGlobals,
-                            variables: values.workflow.variables?.reduce(
-                                (acc, variable) => {
-                                    acc[variable.key] = variable.default
-                                    return acc
-                                },
-                                {} as Record<string, any>
-                            ),
-                        },
-                        mock_async_functions: testInvocation.mock_async_functions,
-                        current_action_id: values.selectedNodeId ?? undefined,
-                    })
+                    const apiResponse = (await hogFlowsInvocationsCreate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        values.workflow.id,
+                        {
+                            configuration: values.workflowSanitized,
+                            globals: {
+                                ...parsedGlobals,
+                                variables: values.workflow.variables?.reduce(
+                                    (acc, variable) => {
+                                        acc[variable.key] = variable.default
+                                        return acc
+                                    },
+                                    {} as Record<string, any>
+                                ),
+                            },
+                            mock_async_functions: testInvocation.mock_async_functions,
+                            current_action_id: values.selectedNodeId ?? undefined,
+                        } as unknown as Parameters<typeof hogFlowsInvocationsCreate>[2]
+                    )) as unknown as HogflowTestResult
 
                     const result: HogflowTestResult = {
                         ...apiResponse,

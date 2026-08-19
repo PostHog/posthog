@@ -2,8 +2,13 @@ import { MakeLogicType, actions, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import {
+    messagingCategoriesCreate,
+    messagingCategoriesPartialUpdate,
+} from 'products/messaging/frontend/messagingApiCompat'
 
 import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
 
@@ -136,11 +141,15 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
             submit: async (formValues: CategoryForm) => {
                 if (props.category) {
                     // Update existing category
-                    await api.messaging.updateCategory(props.category.id, formValues)
+                    await messagingCategoriesPartialUpdate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        props.category.id,
+                        formValues
+                    )
                     lemonToast.success('Category updated successfully')
                 } else {
                     // Create new category
-                    await api.messaging.createCategory(formValues)
+                    await messagingCategoriesCreate(String(ApiConfig.getCurrentProjectId()), formValues)
                     lemonToast.success('Category created successfully')
                 }
                 // Reload categories in the parent logic

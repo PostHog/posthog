@@ -64,7 +64,7 @@ describe('subscriptionsLogic', () => {
                     return [200, { results: res }]
                 },
 
-                '/api/environments/:team_id/subscriptions': ({ request }) => {
+                '/api/projects/:team_id/subscriptions/': ({ request }) => {
                     const url = new URL(request.url)
                     const insightIds = url.searchParams.get('insights')?.split(',') ?? []
                     const dashboardTiles = url.searchParams.get('dashboard_tiles')

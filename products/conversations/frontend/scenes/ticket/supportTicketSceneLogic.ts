@@ -49,8 +49,12 @@ import {
     businessKnowledgeGapSuggestionsList,
 } from 'products/business_knowledge/frontend/generated/api'
 import {
+    conversationsTicketsAiFeedbackCreate,
+    conversationsTicketsList,
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
+    conversationsTicketsPartialUpdate,
+    conversationsTicketsRetrieve,
 } from 'products/conversations/frontend/generated/api'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
@@ -707,11 +711,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
 
                     try {
-                        const response = await api.conversationsTickets.list({
+                        const response = await conversationsTicketsList(String(getCurrentTeamId()), {
                             distinct_ids: person.distinct_ids.join(','),
                             ...(emails.size > 0 ? { emails: Array.from(emails).join(',') } : {}),
                         })
-                        const allTickets = response.results || []
+                        const allTickets = response.results as unknown as Ticket[]
 
                         // Exclude current ticket
                         const uniqueTickets = allTickets.filter(
@@ -1148,7 +1152,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return
             }
             try {
-                const ticket = await api.conversationsTickets.get(props.id.toString())
+                const ticket = (await conversationsTicketsRetrieve(
+                    String(getCurrentTeamId()),
+                    props.id.toString()
+                )) as unknown as Ticket
 
                 // If accessed via UUID, redirect to ticket_number URL for cleaner URLs
                 const isUuid = props.id.toString().includes('-')
@@ -1232,7 +1239,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             data.tags = values.tags
             data.snoozed_until = values.snoozedUntil
 
-            const request = api.conversationsTickets.update(props.id.toString(), data)
+            const request = conversationsTicketsPartialUpdate(
+                String(getCurrentTeamId()),
+                props.id.toString(),
+                data as Parameters<typeof conversationsTicketsPartialUpdate>[2]
+            ) as Promise<unknown> as Promise<Ticket>
             cache.ticketUpdateRequest = request
             try {
                 const ticket = await request
@@ -1541,7 +1552,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     if (rating !== 'bad') {
                         return
                     }
-                    await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                    await conversationsTicketsAiFeedbackCreate(String(getCurrentTeamId()), ticket.id, {
                         message_id: messageId,
                         rating,
                         feedback_text: feedbackText,
@@ -1551,7 +1562,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (values.feedbackByMessageId[messageId]) {
                     return
                 }
-                await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                await conversationsTicketsAiFeedbackCreate(String(getCurrentTeamId()), ticket.id, {
                     message_id: messageId,
                     rating,
                 })

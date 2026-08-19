@@ -2,9 +2,10 @@ import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
+import { signalReportsApi } from '../../signalReportApi'
+import { signalScoutRunsApi } from '../../signalsApi'
 import {
     LinkedSignalReport,
     SignalReport,
@@ -335,7 +336,7 @@ export const findingsLogic = kea<findingsLogicType>([
                     // One batched request for the whole window: the backend flattens every run's
                     // findings newest-first (each row carries its run_id). A throw surfaces as the
                     // page's error/retry state — far cheaper than the old per-run fan-out.
-                    return await api.signalScout.runs.emissionsBatch(runs.map((run) => run.run_id))
+                    return await signalScoutRunsApi.emissionsBatch(runs.map((run) => run.run_id))
                 },
             },
         ],
@@ -357,7 +358,7 @@ export const findingsLogic = kea<findingsLogicType>([
                     // but not `task:read` 403s this endpoint on every poll). The `emissions` loader keeps
                     // throwing: that one is the page's actual content and should surface an error/retry state.
                     try {
-                        return await api.signalScout.runs.emissionReportsBatch(runs.map((run) => run.run_id))
+                        return await signalScoutRunsApi.emissionReportsBatch(runs.map((run) => run.run_id))
                     } catch {
                         return values.emissionReports
                     }
@@ -386,7 +387,7 @@ export const findingsLogic = kea<findingsLogicType>([
                     if (fetchIds.length === 0) {
                         return values.scoutReports
                     }
-                    const settled = await Promise.allSettled(fetchIds.map((id) => api.signalReports.get(id)))
+                    const settled = await Promise.allSettled(fetchIds.map((id) => signalReportsApi.get(id)))
                     const byId = new Map<string, SignalReport>()
                     for (const result of settled) {
                         if (result.status === 'fulfilled') {

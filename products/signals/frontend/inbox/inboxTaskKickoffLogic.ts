@@ -3,10 +3,10 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { taskApi } from 'products/posthog_ai/frontend/taskApi'
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     ClaudeRuntimeAdapterEnumApi,
@@ -76,14 +76,14 @@ async function createReportTask(
     runtimeSelection?: ClaudeRuntimeSelection
 ): Promise<void> {
     // `repository` is intentionally omitted: the backend resolves it for signal_report tasks.
-    const task = await api.tasks.create({
+    const task = await taskApi.create({
         title: report.title?.trim() || fallbackTitle,
         description: prompt,
         origin_product: OriginProduct.SIGNAL_REPORT,
         // Linkage fields accepted by the tasks backend for the signal_report origin.
         signal_report: report.id,
         signal_report_task_relationship: relationship,
-    } as Parameters<typeof api.tasks.create>[0])
+    } as Parameters<typeof taskApi.create>[0])
 
     // Kick off a cloud run so the task actually executes — creating it alone lands the user on a
     // "This task hasn't been run yet" screen. `run_source` ties the run to the report and makes any
@@ -100,7 +100,7 @@ async function createReportTask(
         // ACP runtime, so without this the sandbox boots with no first turn and the run just idles.
         pending_user_message: prompt,
     }
-    await api.tasks.run(task.id, runtimeSelection ? { ...runOptions, ...runtimeSelection } : runOptions)
+    await taskApi.run(task.id, runtimeSelection ? { ...runOptions, ...runtimeSelection } : runOptions)
 
     router.actions.push(urls.taskDetail(task.id))
 }

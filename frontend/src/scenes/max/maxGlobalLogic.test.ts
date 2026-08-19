@@ -1,7 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -9,6 +8,8 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { conversationsApi } from 'products/conversations/frontend/conversationsApi'
 
 import { TOOL_DEFINITIONS, ToolDefinition } from './max-constants'
 import { STATIC_TOOLS, maxGlobalLogic } from './maxGlobalLogic'
@@ -58,7 +59,7 @@ describe('maxGlobalLogic', () => {
         it.each(['/insights/abc123', '/surveys/xyz789'])(
             'opens the conversation in the side panel without replacing the main content on %s',
             async (page) => {
-                useMocks({ get: { '/api/environments/:team_id/conversations/:id': MOCK_CONVERSATION } })
+                useMocks({ get: { '/api/projects/:team_id/conversations/:id': MOCK_CONVERSATION } })
                 router.actions.push(page)
 
                 await expectLogic(logic, () => {
@@ -84,7 +85,7 @@ describe('maxGlobalLogic', () => {
             // Let the mount-time loadConversationHistory settle so it can't overwrite the seeded history
             await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
             logic.actions.prependOrReplaceConversation(MOCK_CONVERSATION)
-            jest.spyOn(api.conversations, 'get').mockResolvedValue(null as any)
+            jest.spyOn(conversationsApi, 'get').mockResolvedValue(null as any)
 
             await expectLogic(logic, () => {
                 logic.actions.loadConversation(conversationId)

@@ -3,11 +3,12 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import { CountedPaginatedResponse } from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
+import { signalReportsApi } from '../../signalReportApi'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import {
     ACTIONABLE_ACTIONABILITY_VALUES,
@@ -334,7 +335,7 @@ export const reportListLogic = kea<reportListLogicType>([
             null as number | null,
             {
                 loadCount: async () => {
-                    const response = await api.signalReports.list({ ...values.listApiParams, limit: 1 })
+                    const response = await signalReportsApi.list({ ...values.listApiParams, limit: 1 })
                     return response.count
                 },
             },
@@ -348,14 +349,14 @@ export const reportListLogic = kea<reportListLogicType>([
                 loadReports: async (): Promise<ReportListResponse> => {
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
-                    const response = await api.signalReports.list({ ...params, offset: 0, limit: PAGE_SIZE })
+                    const response = await signalReportsApi.list({ ...params, offset: 0, limit: PAGE_SIZE })
                     return { ...response, requestParams: params, requestContext }
                 },
                 loadMoreReports: async (): Promise<ReportListResponse> => {
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
                     const current = values.reportsResponse?.results ?? []
-                    const response = await api.signalReports.list({
+                    const response = await signalReportsApi.list({
                         ...params,
                         offset: current.length,
                         limit: PAGE_SIZE,
@@ -519,7 +520,7 @@ export const reportListLogic = kea<reportListLogicType>([
         archiveReport: async ({ reportId, reason, note }) => {
             actions.removeReport(reportId)
             try {
-                await api.signalReports.setState(reportId, {
+                await signalReportsApi.setState(reportId, {
                     state: 'suppressed',
                     dismissal_reason: reason,
                     ...(note ? { dismissal_note: note } : {}),
@@ -535,7 +536,7 @@ export const reportListLogic = kea<reportListLogicType>([
             const report = values.reports.find((r) => r.id === reportId)
             actions.removeReport(reportId)
             try {
-                await api.signalReports.setState(reportId, { state: 'potential' })
+                await signalReportsApi.setState(reportId, { state: 'potential' })
                 // Fire only after the restore persists, matching ReportDetailActions' fallback path.
                 captureInboxReportAction({ report, actionType: 'restore', surface: 'list_row' })
                 lemonToast.success('Report restored to inbox')

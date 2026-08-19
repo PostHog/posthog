@@ -2,9 +2,10 @@ import { MakeLogicType, connect, kea, key, listeners, path, props, reducers, sel
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
+import { signalReportsApi } from '../../signalReportApi'
+import { signalScoutRunsApi } from '../../signalsApi'
 import {
     LinkedSignalReport,
     SignalReport,
@@ -198,7 +199,7 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     // allSettled, not all: one failed run's fetch (transient 500, deleted run)
                     // shouldn't discard every other run's findings — surface the partial set.
                     const settled = await Promise.allSettled(
-                        runs.map((run) => api.signalScout.runs.emissions(run.run_id))
+                        runs.map((run) => signalScoutRunsApi.emissions(run.run_id))
                     )
                     const fulfilled = settled.filter(
                         (result): result is PromiseFulfilledResult<SignalScoutEmission[]> =>
@@ -233,7 +234,7 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     // ones prefixed with its run_id.
                     const previous = values.emissionReports
                     const settled = await Promise.allSettled(
-                        runs.map((run) => api.signalScout.runs.emissionReports(run.run_id))
+                        runs.map((run) => signalScoutRunsApi.emissionReports(run.run_id))
                     )
                     return runs.flatMap((run, index) => {
                         const result = settled[index]
@@ -258,7 +259,7 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     if (touched.length === 0) {
                         return []
                     }
-                    const settled = await Promise.allSettled(touched.map(({ id }) => api.signalReports.get(id)))
+                    const settled = await Promise.allSettled(touched.map(({ id }) => signalReportsApi.get(id)))
                     return settled
                         .filter(
                             (result): result is PromiseFulfilledResult<SignalReport> => result.status === 'fulfilled'

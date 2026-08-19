@@ -5,10 +5,13 @@ import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@p
 
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils/arrays'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
 import { InsightShortId, SubscriptionType, WeekdayType } from '~/types'
+
+import { getSubscriptionsCreateUrl } from 'products/subscriptions/frontend/generated/api'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
@@ -18,6 +21,11 @@ export interface SubscriptionBaseProps {
 }
 
 export type SubscriptionsLogicProps = SubscriptionBaseProps
+
+export const subscriptionDeleteEndpoint = (): string =>
+    getSubscriptionsCreateUrl(String(getCurrentTeamId()))
+        .replace(/^\/api\//, '')
+        .replace(/\/$/, '')
 
 export const urlForSubscriptions = ({ dashboardId, insightShortId }: SubscriptionBaseProps): string => {
     if (insightShortId) {

@@ -5,8 +5,9 @@ import { type MouseEvent, useState } from 'react'
 import { IconArchive, IconPullRequest, IconReceipt, IconUndo } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { urls } from 'scenes/urls'
+
+import { signalReportsApi } from 'products/signals/frontend/signalReportApi'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
@@ -133,7 +134,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         // Fallback for a deep-linked detail with no mounted Archived list (e.g. cold load).
         setIsRestoring(true)
         try {
-            await api.signalReports.setState(report.id, { state: 'potential' })
+            await signalReportsApi.setState(report.id, { state: 'potential' })
             captureInboxReportAction({ report, actionType: 'restore', surface: 'detail_pane' })
             lemonToast.success('Report restored to inbox')
             router.actions.push(urls.inbox(activeTab))
