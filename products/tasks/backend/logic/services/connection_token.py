@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
@@ -44,7 +44,7 @@ class SandboxEventIngestTokenPayload:
 @dataclass(frozen=True)
 class _SandboxJwtKey:
     kid: str
-    private_key_pem: str
+    private_key_pem: str = field(repr=False)
     public_key_pem: str
 
 
