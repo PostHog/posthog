@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
-import { HogFunctionTemplateType, HogFunctionType } from '~/types'
+import { CyclotronJobFiltersType, HogFunctionTemplateType, HogFunctionType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 
@@ -238,11 +238,15 @@ describe('hogFunctionConfigurationLogic', () => {
     })
 
     describe('resetting to template', () => {
-        const USER_FILTERS = {
+        const USER_FILTERS: CyclotronJobFiltersType = {
             events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
             filter_test_accounts: false,
         }
-        const TEMPLATE_DEFAULT_FILTERS = { events: [], actions: [], filter_test_accounts: true }
+        const TEMPLATE_DEFAULT_FILTERS: CyclotronJobFiltersType = {
+            events: [],
+            actions: [],
+            filter_test_accounts: true,
+        }
         const TEMPLATE_WITH_DEFAULT_FILTERS: HogFunctionTemplateType = {
             ...HOG_TEMPLATE,
             code: `${HOG_TEMPLATE.code}\n// updated`,
