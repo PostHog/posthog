@@ -16,9 +16,22 @@ on:
     push:
         branches:
             - master
+        # The 6-hourly cron catches a bad upstream MaxMind release. On push, only
+        # run when the canary machinery itself changes, so master-push bursts do
+        # not launch a run each.
+        paths:
+            - 'bin/download-mmdb'
+            - 'nodejs/src/common/utils/geoip*'
+            - '.github/workflows/ci-geoip-canary.yml'
     schedule:
         - cron: '23 */6 * * *' # every 6 hours
     workflow_dispatch:
+
+# A master-push burst from the merge queue creates many runs that all check the
+# same daily database. Collapse each burst to one run.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 env:
     SLACK_CHANNEL: 'C0185UNBSJZ'
@@ -35,6 +48,21 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  # Check out only what the canary needs: bin/download-mmdb, the
+                  # nodejs test, and the pnpm workspace closure of @posthog/nodejs
+                  # (patches plus every workspace:* dependency) so the frozen
+                  # install still resolves. Add a directory here if that closure
+                  # grows.
+                  sparse-checkout: |
+                      bin
+                      nodejs
+                      .github
+                      patches
+                      common/hogvm/typescript
+                      common/replay-headless
+                      common/replay-shared
+                      rust/common/hogvm/node
+                      rust/replay-anonymizer-node
 
             - name: Download MaxMind database
               run: ./bin/download-mmdb
