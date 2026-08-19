@@ -995,14 +995,13 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         return queryset
 
     def safely_get_object(self, queryset: QuerySet[Evaluation]) -> Evaluation:
-        evaluation_id = self.kwargs[self.lookup_url_kwarg or self.lookup_field]
+        evaluation_id = self.kwargs["pk"]
         try:
             # Matches what DRF's own get_object() does, including coercing an unparseable pk to a
             # 404, so only the message differs.
             return get_object_or_404(queryset, pk=evaluation_id)
         except Http404:
-            # DRF's bare "Not found." leaves a caller unable to tell a deleted evaluation from an id
-            # belonging to another project, and points it at nothing it can act on. A name passed where
+            # DRF's bare "Not found." points a caller at nothing it can act on. A name passed where
             # the id belongs lands here too, since it can't parse as a UUID.
             raise NotFound(
                 f"No evaluation '{evaluation_id}' in this project. "

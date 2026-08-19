@@ -228,9 +228,8 @@ posthog:llma-evaluation-judge-models      // {} → every provider and its model
 Confirm the provider and model with `llma-evaluation-judge-models`.
 Call it with no arguments to see the whole catalog at once.
 Providers PostHog funds no models for come back empty unless you pass `key_id` for one of the team's keys; the response's `providers` list flags which ones those are.
-Prefer pinning the chosen key so a later
-team-wide active-key change does not change how the evaluation runs. Leave `provider_key_id` as `null` only
-after `llma-evaluation-config-get` confirms the active key is usable and its provider matches.
+Prefer pinning the chosen key so a later team-wide active-key change does not change how the evaluation runs.
+Leave `provider_key_id` as `null` only after `llma-evaluation-config-get` confirms the active key is usable and its provider matches.
 
 If there is no usable key, you may still create a disabled draft for the user to review. Do not spot-run or
 enable it. Ask the user to add or validate a key in the UI before continuing.
