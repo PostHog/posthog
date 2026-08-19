@@ -96,6 +96,12 @@ REPLAY_VISION_SCANNER_LIMIT_REACHED = Counter(
     ["surface"],
 )
 
+REPLAY_VISION_DEEP_SWEEP_FAILURES = Counter(
+    "replay_vision_deep_sweep_failures_total",
+    "Deep catch-up passes that failed inside an otherwise successful sweep tick; separate from sweep "
+    "outcomes so a tick still counts exactly once there",
+)
+
 REPLAY_VISION_SWEEP_CANDIDATES = Counter(
     "replay_vision_sweep_candidates_total",
     "Candidate sessions returned to sweeps for dispatch",
@@ -208,6 +214,11 @@ def record_sweep_outcome(outcome: str, candidates: int = 0) -> None:
     if candidates > 0:
         REPLAY_VISION_SWEEP_CANDIDATES.inc(candidates)
         _otel.record_counter_twin(REPLAY_VISION_SWEEP_CANDIDATES, candidates, {})
+
+
+def record_deep_sweep_failure() -> None:
+    REPLAY_VISION_DEEP_SWEEP_FAILURES.inc()
+    _otel.record_counter_twin(REPLAY_VISION_DEEP_SWEEP_FAILURES, 1, {})
 
 
 def record_backfill_tick_outcome(outcome: str) -> None:
