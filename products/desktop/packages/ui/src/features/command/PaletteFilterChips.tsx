@@ -1,20 +1,15 @@
 import { cn } from "@posthog/quill";
 import type { FeedQueryKeyChip } from "@posthog/ui/features/command/useFeedQueryCommands";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export function PaletteFilterChips({
   chips,
   collapsedCount,
-  filtering,
 }: {
   chips: FeedQueryKeyChip[];
   collapsedCount: number;
-  filtering: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  useEffect(() => {
-    if (filtering) setExpanded(false);
-  }, [filtering]);
 
   const overflow = Math.max(0, chips.length - collapsedCount);
   const open = expanded || overflow === 0;

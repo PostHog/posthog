@@ -868,9 +868,9 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             </div>
             {keyChips.length > 0 && (
               <PaletteFilterChips
+                key={mode}
                 chips={keyChips}
                 collapsedCount={COLLAPSED_CHIP_COUNT}
-                filtering={mode === "completingKey"}
               />
             )}
             {showMatchSummary ? (
