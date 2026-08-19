@@ -637,21 +637,17 @@ class TestPromptBuilder(BaseTest):
         assert "Cache the lookup outcome" not in listed
         assert _SUPERSEDES_CACHED_ENTRIES in listed
         assert "governed catalog consulted: no listed metric matched" in listed
-        # A reusable no-match measure has to route into the catalog, not dead-end in the scratchpad.
-        assert "data-catalog-metric-create" in listed
 
         empty = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=[])
         assert "no approved metrics" in empty
         assert "Cache the lookup outcome" not in empty
         assert _SUPERSEDES_CACHED_ENTRIES in empty
         assert "governed catalog consulted: empty, no metric matches" in empty
-        assert "data-catalog-metric-create" in empty
 
         fallback = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=None)
         assert "Cache the lookup outcome" in fallback
         assert _SUPERSEDES_CACHED_ENTRIES not in fallback
         assert "governed catalog consulted: no listed metric matched" in fallback
-        assert "data-catalog-metric-create" in fallback
 
         # The cap is what keeps this injection to a handful of tokens in every catalog-enabled run,
         # and past it the listing stops being the whole catalog, so it has to say a lookup is still
@@ -665,7 +661,6 @@ class TestPromptBuilder(BaseTest):
         flag_off = build_run_prompt(loaded, **kwargs, governed_metric_names=names)
         assert "scout_run_fail_pct" not in flag_off
         assert "data-catalog-metric-run" not in flag_off
-        assert "data-catalog-metric-create" not in flag_off
 
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(

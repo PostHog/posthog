@@ -119,15 +119,8 @@ SCOUT_REPORT_SCOPES: list[str] = [
 # notebooks in its own project. Accepted as low-risk for now — the token is scoped to a
 # single team, destroy is a recoverable soft-delete, and emits are rare — and monitored in
 # practice; tool-level (create-only) restriction isn't cheap in the current sandbox wiring.
-# `data_catalog:write` lets a scout propose a metric for a reusable measure it derives (the
-# `data-catalog-metric-create` tool, gated by the `product-data-catalog` flag). Every write it
-# unlocks is a proposal a human settles: a metric always lands `proposed`, and certification and
-# relationship proposals also wait for approval. The approval scope (`data_catalog_approval:write`)
-# is deliberately withheld, so a scout can suggest but never bless a definition. This closes the
-# governance gap where a scout derived an ungoverned measure with no path into the catalog.
 SCOUT_USER_WRITE_SCOPES: list[str] = [
     "notebook:write",
-    "data_catalog:write",
 ]
 
 
