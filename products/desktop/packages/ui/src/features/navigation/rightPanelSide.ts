@@ -26,8 +26,10 @@ export function openRightPanelSide(
 export function currentRightPanelSide(taskId: string): RightPanelSide | null {
   const reviewMode =
     useReviewNavigationStore.getState().reviewModes[taskId] ?? "closed";
+  const { sideByKey, closedByDefault } = useRightPanelStore.getState();
   return resolveRightPanelSide({
-    stored: useRightPanelStore.getState().sideByKey[taskId],
+    stored: sideByKey[taskId],
+    closedByDefault,
     isReviewOpen: reviewMode !== "closed",
   });
 }
@@ -52,12 +54,16 @@ export function useRightPanelOpen(taskId: string | undefined): boolean {
   const stored = useRightPanelStore((s) =>
     taskId ? s.sideByKey[taskId] : undefined,
   );
+  const closedByDefault = useRightPanelStore((s) => s.closedByDefault);
   const reviewMode = useReviewNavigationStore((s) =>
     taskId ? (s.reviewModes[taskId] ?? "closed") : "closed",
   );
   if (!taskId) return false;
   return (
-    resolveRightPanelSide({ stored, isReviewOpen: reviewMode !== "closed" }) !=
-    null
+    resolveRightPanelSide({
+      stored,
+      closedByDefault,
+      isReviewOpen: reviewMode !== "closed",
+    }) != null
   );
 }
