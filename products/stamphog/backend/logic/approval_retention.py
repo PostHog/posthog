@@ -57,6 +57,13 @@ def diff_fingerprint(files: Sequence[dict], *, max_files: int) -> dict[str, str]
         sha = changed.get("sha")
         if not isinstance(filename, str) or not isinstance(sha, str) or not filename or not sha:
             return None
+        # A blob sha covers a file's contents and not its tree mode, and the compare payload carries
+        # no mode at all. An entry that moved no lines is exactly what a mode flip looks like, so
+        # flipping the executable bit on a file already in the diff would otherwise leave every sha
+        # equal. Refuse rather than answer: the same shape covers a binary or over-sized entry, whose
+        # content this comparison cannot see either.
+        if not int(changed.get("additions") or 0) and not int(changed.get("deletions") or 0):
+            return None
         fingerprint[filename] = sha
     return fingerprint
 

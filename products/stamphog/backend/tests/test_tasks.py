@@ -1264,7 +1264,7 @@ def test_inbox_receiver_leg_refuses_non_self_driving_prs(team, repo_config, pr_k
     mock_execute.assert_not_called()
 
 
-_APPROVED = [{"filename": "posthog/api/thing.py", "sha": "aaa"}]
+_APPROVED = [{"filename": "posthog/api/thing.py", "sha": "aaa", "additions": 3, "deletions": 1}]
 
 
 def _approved_run(team_id: int) -> None:
@@ -1298,7 +1298,10 @@ def test_push_retains_the_approval_only_when_the_diff_is_identical(team, repo_co
             _pr_payload(action="synchronize", head_sha="sha-2"),
             f"delivery-retention-push-{current_sha}",
             team.id,
-            compare_results=[_APPROVED, [{"filename": "posthog/api/thing.py", "sha": current_sha}]],
+            compare_results=[
+                _APPROVED,
+                [{"filename": "posthog/api/thing.py", "sha": current_sha, "additions": 3, "deletions": 1}],
+            ],
         )
 
     with team_scope(team.id):

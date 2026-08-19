@@ -54,7 +54,8 @@ Both sides are read with `compare_commits`, from the base and head shas the run 
 That is load-bearing rather than incidental: `get_pr_files` answers for whichever head is live when the request runs, so a contributor could push the approved content, let the comparison run, and push the unreviewed head back.
 Retention must never consult that endpoint.
 
-Everything ambiguous falls through to the normal path, which dismisses first: no standing approval, an approval already at this head, a run with no recorded base sha, a compare at `MAX_COMPARE_FILES` and therefore a prefix rather than the diff, or any GitHub error.
+Everything ambiguous falls through to the normal path, which dismisses first: no standing approval, an approval already at this head, a run with no recorded base sha, a compare at `MAX_COMPARE_FILES` and therefore a prefix rather than the diff, an entry that moved no lines, or any GitHub error.
+The line-movement rule is not cosmetic: a blob sha covers a file's contents and not its tree mode, and the compare payload carries no mode, so flipping the executable bit on a file already in the diff would otherwise leave every sha equal.
 Retention also re-checks GitHub that the stored approval is still active, because a maintainer dismissing it by hand updates nothing in the product DB, and skipping the review over a dismissed approval would leave the PR with neither.
 A retained head is recorded on the approving run (`retained_head_shas`), because `_record_merged_pull_request` matches an approving run on `head_sha` alone and would otherwise treat every retained merge as unapproved and drop it from the digest for good.
 Self-driving inbox runs are excluded so the carve-out's head pinning stays untouched.

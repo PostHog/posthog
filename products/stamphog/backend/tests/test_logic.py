@@ -517,8 +517,8 @@ class OwnedFileCountTests(SimpleTestCase):
         assert owned.owned_file_count == 200
 
 
-def _file(filename: str, sha: str) -> dict:
-    return {"filename": filename, "sha": sha}
+def _file(filename: str, sha: str, *, additions: int = 3, deletions: int = 1) -> dict:
+    return {"filename": filename, "sha": sha, "additions": additions, "deletions": deletions}
 
 
 class ApprovalRetentionTests(SimpleTestCase):
@@ -555,6 +555,15 @@ class ApprovalRetentionTests(SimpleTestCase):
         # checked, so an unreadable payload has to mean "cannot answer".
         approved = [{"filename": "posthog/api/thing.py"}]
         current = [{"filename": "posthog/api/thing.py"}]
+
+        assert approved_diff_unchanged(approved, current, max_files=100) is False
+
+    def test_entry_with_no_line_movement_fails_closed(self) -> None:
+        # A blob sha covers contents and not tree mode, and the compare payload carries no mode. An
+        # entry that moved no lines is what a mode flip looks like, so flipping the executable bit on
+        # a file already in the diff would otherwise leave every sha equal.
+        approved = [_file("bin/thing.sh", "aaa")]
+        current = [_file("bin/thing.sh", "aaa", additions=0, deletions=0)]
 
         assert approved_diff_unchanged(approved, current, max_files=100) is False
 
