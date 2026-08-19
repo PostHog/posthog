@@ -16,7 +16,7 @@ pytestmark = pytest.mark.django_db
 
 
 class TestSyncHogFunctionTemplates:
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_sync_python_templates(self, mock_get_hog_function_templates):
         """Test that Python templates are synced to the database."""
         # Mock the Node.js API to avoid external dependencies
@@ -78,7 +78,7 @@ class TestSyncHogFunctionTemplates:
             assert node_template.type == "transformation"
             assert node_template.name == f"Test {template_id}"
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_sync_handles_invalid_template(self, mock_get_hog_function_templates):
         """Test that the command handles invalid templates gracefully."""
         # Create an invalid Node.js template (missing required fields)
@@ -102,27 +102,56 @@ class TestSyncHogFunctionTemplates:
         assert all(tid in db_template_ids for tid in TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
         assert "invalid_template" not in db_template_ids
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_sync_handles_api_error(self, mock_get_hog_function_templates):
-        """Test that the command handles API errors gracefully."""
+        """Test that a failed Node.js fetch exits non-zero after writing the Python templates."""
         from io import StringIO
+
+        from django.core.management.base import CommandError
 
         # Mock an API error
         mock_get_hog_function_templates.side_effect = Exception("API Error")
 
-        # Run the command, should not raise an exception
+        # A failed Node.js fetch must raise so the Celery task retries the partial sync
         stdout = StringIO()
-        call_command("sync_hog_function_templates", stdout=stdout)
+        with pytest.raises(CommandError):
+            call_command("sync_hog_function_templates", stdout=stdout)
         output = stdout.getvalue()
 
-        # Verify that Python test templates were still created
+        # The Python test templates are still written before the command exits
         db_template_ids = set(HogFunctionTemplate.objects.values_list("template_id", flat=True))
         assert all(tid in db_template_ids for tid in TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
 
-        # A failed Node.js fetch must count as an error so the summary stops reporting success
+        # The failure is counted in the summary printed before the non-zero exit
         assert "Errors: 1" in output
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
+    def test_fetch_failure_keeps_coming_soon_templates(self, mock_get_hog_function_templates):
+        """A failed Node.js fetch must not delete coming-soon rows the registry still provides."""
+        from django.core.management.base import CommandError
+
+        HogFunctionTemplate.objects.create(
+            template_id="coming-soon-node-template",
+            name="Coming soon",
+            description="Provided by the Node.js registry",
+            type="destination",
+            code="return event",
+            inputs_schema=[],
+            status="coming_soon",
+            free=True,
+            category=["Custom"],
+            code_language="hog",
+        )
+
+        mock_get_hog_function_templates.side_effect = Exception("API Error")
+
+        with pytest.raises(CommandError):
+            call_command("sync_hog_function_templates")
+
+        # The coming-soon row survives: the fetch failure leaves current_template_ids without its id
+        assert HogFunctionTemplate.objects.filter(template_id="coming-soon-node-template").exists()
+
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_sync_metrics(self, mock_get_hog_function_templates):
         """Test that the command reports the correct metrics."""
         # Mock the Node.js API to avoid external dependencies
@@ -155,7 +184,7 @@ class TestSyncHogFunctionTemplates:
         # Just check that the command ran successfully
         assert "Hog function template sync complete" in output
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_template_contents(self, mock_get_hog_function_templates):
         """Test that template contents are properly stored in the database."""
         # Mock the Node.js API to avoid external dependencies
@@ -188,7 +217,7 @@ class TestSyncHogFunctionTemplates:
         assert db_template.name == slack_template.name
         assert db_template.code == slack_template.code
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_template_version_behavior(self, mock_get_hog_function_templates):
         """Test that template versioning behaves correctly"""
         # Mock the Node.js API to avoid external dependencies
@@ -200,7 +229,7 @@ class TestSyncHogFunctionTemplates:
         # Clear any existing templates
         HogFunctionTemplate.objects.all().delete()
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_delete_deleted_coming_soon_templates(self, mock_get_hog_function_templates):
         """Test that coming-soon templates are properly deleted when they're no longer in in the codebase."""
 
@@ -243,7 +272,7 @@ class TestSyncHogFunctionTemplates:
         # Verify the old template was deleted
         assert not HogFunctionTemplate.objects.filter(template_id="coming-soon-old-template").exists()
 
-    @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
+    @patch("posthog.management.commands.sync_hog_function_templates.get_hog_function_templates")
     def test_does_not_delete_deleted_templates(self, mock_get_hog_function_templates):
         """Test that non coming-soon templates are not deleted when they're no longer in in the codebase."""
 
