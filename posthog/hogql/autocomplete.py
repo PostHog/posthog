@@ -803,13 +803,10 @@ def get_hogql_autocomplete(
                                             type=property_type,
                                         )
 
-                                    # One row past the limit tells us the list was truncated, which a
-                                    # count() would otherwise have to answer. An empty match_term makes
-                                    # the filter `LIKE '%%'`, so that count walked every property
-                                    # definition in the project on the first `.` keystroke.
-                                    # Order by name because posthog_propdef_proj_uniq is keyed on
-                                    # (project, name, ...), so Postgres reads it in order and stops at
-                                    # the limit. Ordering by anything else adds a sort over every match.
+# Fetch one row past the limit so we can set `incomplete_list` without an unbounded COUNT(*).
+# When match_term is empty, `name__contains=""` becomes `LIKE '%%'`, so COUNT(*) scanned the whole project.
+# Order by `name` so Postgres can satisfy `ORDER BY name LIMIT ...` via the `posthog_propdef_proj_uniq` index
+# on (coalesce(project_id, team_id), name, type, coalesce(group_type_index, -1)) without a separate sort.
                                     with timings.measure("property_get_values"):
                                         properties = list(
                                             property_query.order_by("name")[: PROPERTY_DEFINITION_LIMIT + 1].values(
