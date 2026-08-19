@@ -37,15 +37,29 @@ export function useFeedQueryPlan(query: string | undefined): {
   );
   const needsSpaces = parsed.tokens.some((t) => t.key === "space");
 
+  const needsCurrentUser = parsed.tokens.some(
+    (token) =>
+      (token.key === "created-by" ||
+        token.key === "commented-by" ||
+        token.key === "mentions" ||
+        token.key === "involves") &&
+      (token.value.toLowerCase() === "@me" ||
+        token.value.toLowerCase() === "me"),
+  );
+
   const client = useOptionalAuthenticatedClient();
-  const { data: me } = useCurrentUser({ client });
+  const { data: me, isLoading: currentUserLoading } = useCurrentUser({
+    client,
+  });
   const { members, isLoading: membersLoading } = useOrgMembers({
     enabled: needsMembers,
   });
   const { channels, isLoading: channelsLoading } = useChannels();
 
   const waiting =
-    (needsMembers && membersLoading) || (needsSpaces && channelsLoading);
+    (needsMembers && membersLoading) ||
+    (needsCurrentUser && currentUserLoading) ||
+    (needsSpaces && channelsLoading);
 
   const plan = useMemo(() => {
     if (normalized === "" || waiting) return undefined;
