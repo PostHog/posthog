@@ -9,7 +9,10 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 100
 
 
-@dataclass(frozen=True)
+# frozen=False: VendrEndpointConfig is passed as `endpoint_configs: Mapping[str, FanoutEndpointLike]`,
+# and mypy treats a frozen dataclass's fields as read-only, which is incompatible with that
+# Protocol's plain (read-write) attributes.
+@dataclass(frozen=False)
 class VendrEndpointConfig:
     name: str
     path: str
