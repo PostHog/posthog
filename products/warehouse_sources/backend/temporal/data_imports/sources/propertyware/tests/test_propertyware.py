@@ -6,6 +6,7 @@ import pytest
 from unittest import mock
 
 from requests import PreparedRequest, Response
+from requests.structures import CaseInsensitiveDict
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.propertyware.propertyware import (
     PAGE_SIZE,
@@ -78,7 +79,7 @@ class TestPropertywareAuth:
     def test_sets_all_three_headers(self) -> None:
         auth = PropertywareAuth(client_id="cid", client_secret="csecret", system_id="org-1")
         request = PreparedRequest()
-        request.headers = {}
+        request.headers = CaseInsensitiveDict()
         auth(request)
         assert request.headers["x-propertyware-client-id"] == "cid"
         assert request.headers["x-propertyware-client-secret"] == "csecret"
