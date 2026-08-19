@@ -17,9 +17,10 @@ So bound the bytes instead, measured as rows arrive:
   rows at a time rather than `chunk_size` at a time.
 
 The residual exposure is one fetch: a region can only be measured once some of it has been
-read, so an abrupt jump in row size is paid for at whatever page size preceded it —
-`MAX_FETCH_PAGE_ROWS` is what keeps that page small enough to survive. A single row larger
-than the budget is yielded on its own, the same way `_split_table` yields a lone oversized row.
+read, so an abrupt jump in row size is paid for at whatever page size preceded it. What keeps
+that page small enough to survive is `max_page_rows` — either a driver's own measurement of its
+widest row, or `MAX_FETCH_PAGE_ROWS` when it has none. A single row larger than the budget is
+yielded on its own, the same way `_split_table` yields a lone oversized row.
 
 `byte_bounded` carries the rollout gate. With it off nothing is measured and both bounds come
 off `max_rows` alone, which is the fetch-a-chunk-and-yield-it loop every driver ran before.
@@ -39,11 +40,12 @@ RowT = TypeVar("RowT")
 # was derived from, so a table of evenly sized rows keeps batching exactly as it did before.
 EXTRACT_BATCH_MAX_BYTES = DEFAULT_TABLE_SIZE_BYTES
 
-# Rows a single transport fetch may ask for, whatever the byte estimate allows. A fetch is the
-# window in which row sizes are still unmeasured, so this is what caps a heavy region nothing has
-# warned us about — the estimate below can only react to it one fetch late. It is a real trade:
-# a driver that costs a round trip per fetch (a Postgres server cursor `FETCH`, unlike MySQL's
-# unbuffered read) pays proportionally more of them, which is felt on a high-latency link.
+# Default rows per fetch for a driver that passes no `max_page_rows` of its own. A fetch is the
+# window in which row sizes are still unmeasured, so it caps a heavy region nothing warned us
+# about — the estimate below can only react one fetch late. Low because it is free to be: these
+# drivers read from a result stream the server is already pushing, so a smaller fetch costs no
+# round trip. A driver that pays per fetch should measure its widest row and pass a cap instead
+# (Postgres does), rather than take this one.
 MAX_FETCH_PAGE_ROWS = 1_000
 
 # Stand-in for anything whose payload isn't its length: ints, dates, decimals, UUIDs. Wrong in

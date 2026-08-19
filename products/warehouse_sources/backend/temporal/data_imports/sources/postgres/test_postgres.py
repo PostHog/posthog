@@ -65,6 +65,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _SSH_HANDSHAKE_EOF_ERROR,
     FORCE_UTF8_CLIENT_ENCODING,
     METADATA_STATEMENT_TIMEOUT_MS,
+    MIN_SIZE_SAMPLE_PERCENT,
+    SIZE_SAMPLE_MAX_ROWS,
+    SIZE_SAMPLE_TARGET_ROWS,
     SSL_REQUIRED_AFTER_DATE,
     XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
@@ -85,6 +88,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _connect_to_postgres,
     _connect_with_dropped_retry,
     _connect_with_options_fallback,
+    _fetch_rows_for,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
     _get_partition_settings_for_partitioned_table,
@@ -114,7 +118,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _safe_close_connection,
     _schema_discovery_timeout_error,
     _schemas_from_conn,
+    _size_sample_percent,
     _statement_timeout_as_non_retryable,
+    _TableChunking,
     _tunnel_with_handshake_translation,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
@@ -1707,7 +1713,7 @@ class TestSetupStatementTimeoutUnsupported:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
             patch(f"{module}._get_rows_to_sync", return_value=0),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -2697,7 +2703,7 @@ class TestServerCursorStatementTimeout:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -2820,7 +2826,7 @@ class TestServerCursorCloseStatementTimeout:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -2935,7 +2941,7 @@ class TestGetRowsSkipsServerCursorForDuckDB:
             patch(f"{module}._is_duckdb_connection", return_value=True),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -3077,7 +3083,7 @@ class TestOffsetChunkingConnectRecoveryConflict:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=1000, fetch_rows=1000)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -3146,7 +3152,7 @@ class TestOffsetChunkingConnectTimeout:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=1000, fetch_rows=1000)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -3260,7 +3266,7 @@ class TestOffsetChunkingRecoveryConflictTimeout:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=1000, fetch_rows=1000)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -5278,11 +5284,29 @@ class TestGetTableChunkSize:
         with autocommit_pg_connection.cursor() as cursor:
             inner_query = sql.SQL("SELECT * FROM does_not_exist_chunk_probe").format()
 
-            chunk_size = _get_table_chunk_size(cast(Any, cursor), inner_query, logger)
+            chunk_size = _get_table_chunk_size(cast(Any, cursor), inner_query, logger).batch_rows
             assert chunk_size == DEFAULT_CHUNK_SIZE
 
             cursor.execute("SELECT 1")
             assert cursor.fetchone()[0] == 1
+
+    @pytest.mark.django_db
+    def test_widest_row_shrinks_the_fetch_without_shrinking_the_batch(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TEMP TABLE skewed_rows (id int, payload text)")
+            dj_cursor.execute("INSERT INTO skewed_rows SELECT g, 'x' FROM generate_series(1, 200) g")
+            dj_cursor.execute("INSERT INTO skewed_rows VALUES (201, repeat('x', 1024 * 1024))")
+
+            chunking = _get_table_chunk_size(
+                cast(Any, dj_cursor), sql.SQL("SELECT * FROM skewed_rows").format(), logger
+            )
+
+        # The p95 sees only narrow rows, so the batch stays large; the one megabyte row is what
+        # a single FETCH has to survive.
+        assert chunking.batch_rows > 100_000
+        assert chunking.fetch_rows < 200
 
     @pytest.mark.django_db
     def test_statement_timeout_falls_back_without_poisoning_transaction(self):
@@ -5297,12 +5321,73 @@ class TestGetTableChunkSize:
             dj_cursor.execute("SET LOCAL statement_timeout = '100ms'")
             inner_query = sql.SQL("SELECT pg_sleep(3) AS c").format()
 
-            chunk_size = _get_table_chunk_size(cast(Any, dj_cursor), inner_query, logger)
+            chunk_size = _get_table_chunk_size(cast(Any, dj_cursor), inner_query, logger).batch_rows
             assert chunk_size == DEFAULT_CHUNK_SIZE
 
             # Savepoint rollback leaves the connection usable for the rest of setup.
             dj_cursor.execute("SELECT 1")
             assert dj_cursor.fetchone()[0] == 1
+
+
+class TestSizeSamplePercent:
+    @parameterized.expand(
+        [
+            ("no_estimate", None, None),
+            ("zero_estimate", 0, None),
+            ("smaller_than_the_target", 400, 100.0),
+            ("large_table", 2_000_000, 0.05),
+            ("beyond_the_floor", 10_000_000_000, MIN_SIZE_SAMPLE_PERCENT),
+        ]
+    )
+    def test_scales_the_sample_to_the_table(self, _name, row_estimate, expected):
+        assert _size_sample_percent(row_estimate) == expected
+
+
+class TestFetchRowsFor:
+    @parameterized.expand(
+        [
+            # Nothing measured has to leave the whole-batch FETCH alone, or every table pays
+            # round trips for a risk only some of them carry.
+            ("unmeasured", None, 100_000, 100_000),
+            ("zero", 0, 100_000, 100_000),
+            # A uniform table's widest row is close to its p95, so the FETCH barely moves.
+            ("uniform_rows", 2 * 1024, 100_000, 76_800),
+            # Multi-megabyte values are what the cap exists for.
+            ("blob_rows", 3 * 1024 * 1024, 100_000, 50),
+            ("row_over_the_budget", 400 * 1024 * 1024, 100_000, 1),
+        ]
+    )
+    def test_derives_the_fetch_from_the_widest_row(self, _name, largest_row_bytes, batch_rows, expected):
+        assert _fetch_rows_for(batch_rows, largest_row_bytes) == expected
+
+
+class TestSamplingQuery:
+    def _sampling_query(self, sample_percent):
+        return _build_query(
+            "public",
+            "events",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            add_sampling=True,
+            sample_percent=sample_percent,
+        ).as_string()
+
+    def test_a_sized_sample_is_not_truncated_to_the_head_of_the_table(self):
+        # A sample scan reads blocks in physical order, so a target-sized LIMIT over a fixed 1%
+        # only ever measures the front of the table — blind to a region that widens later.
+        query = self._sampling_query(0.05)
+
+        assert "TABLESAMPLE SYSTEM (0.05)" in query
+        assert f"LIMIT {SIZE_SAMPLE_MAX_ROWS}" in query
+
+    def test_falls_back_to_the_fixed_sample_without_an_estimate(self):
+        query = self._sampling_query(None)
+
+        assert "TABLESAMPLE SYSTEM (1)" in query
+        assert f"LIMIT {SIZE_SAMPLE_TARGET_ROWS}" in query
 
 
 class TestGetRowsToSync:
@@ -7725,7 +7810,7 @@ class TestGetRowsInitialReadDropRetry:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -7873,7 +7958,7 @@ class TestGetRowsInitialReadLockTimeoutRetry:
             patch(f"{module}._is_duckdb_connection", return_value=False),
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),
@@ -8037,7 +8122,7 @@ class TestPartitionIterationConnectRetry:
             patch(f"{module}._is_partitioned_table", return_value=True),
             patch(f"{module}.list_child_partitions", return_value=[child]),
             patch(f"{module}.get_partition_strategy", return_value=partition_strategy),
-            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=1000, fetch_rows=1000)),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
             patch(f"{module}._get_partition_settings", return_value=None),

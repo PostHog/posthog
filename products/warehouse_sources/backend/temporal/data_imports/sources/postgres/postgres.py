@@ -32,6 +32,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
 
@@ -64,7 +65,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     compute_projected_columns,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
+    EXTRACT_BATCH_MAX_BYTES,
+    fetch_row_batches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SQLSourceImplementation,
 )
@@ -104,6 +108,17 @@ SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
 METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
+
+# Rows the row-size probe aims to measure. Enough for a stable p95 and a meaningful widest row,
+# few enough that `octet_length(t::text)` — which de-toasts every value — stays cheap on a table
+# whose values are megabytes each.
+SIZE_SAMPLE_TARGET_ROWS = 1000
+# Ceiling on rows measured when the catalog estimate is stale enough to over-sample. Reaching it
+# reintroduces the head bias `_size_sample_percent` exists to remove, so keep it well clear of
+# the target rather than close to it.
+SIZE_SAMPLE_MAX_ROWS = 5000
+# A sample can ask for arbitrarily few of a huge table's pages, but not for none of them.
+MIN_SIZE_SAMPLE_PERCENT = 0.0001
 
 # Alias for the projected `xmin` system column on xmin syncs. `SELECT *` never returns system
 # columns, so it must be projected explicitly; the alias also names the ORDER BY / WHERE cursor.
@@ -1944,6 +1959,7 @@ def _build_query(
     db_incremental_field_last_value: Optional[Any],
     add_sampling: Optional[bool] = False,
     *,
+    sample_percent: Optional[float] = None,
     upper_bound_inclusive: Optional[Any] = None,
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
@@ -1970,10 +1986,19 @@ def _build_query(
                     cols=select_clause, table=sql.Identifier(schema, table_name)
                 )
             else:
-                query = sql.SQL("SELECT {cols} FROM {table} TABLESAMPLE SYSTEM (1)").format(
-                    cols=select_clause, table=sql.Identifier(schema, table_name)
+                # A percentage sized to the table returns roughly the target row count from pages
+                # spread across all of it. The fixed 1% below needs `LIMIT` to stay affordable, and
+                # a sample scan reads blocks in physical order, so that pairing only ever measures
+                # the front of the table — blind to a region that widens later, which is exactly
+                # the shape that makes a row-count batch unsafe.
+                query = sql.SQL("SELECT {cols} FROM {table} TABLESAMPLE SYSTEM ({percent})").format(
+                    cols=select_clause,
+                    table=sql.Identifier(schema, table_name),
+                    percent=sql.Literal(sample_percent if sample_percent is not None else 1),
                 )
-            return query + sql.SQL(" LIMIT 1000")
+                if sample_percent is not None:
+                    return query + sql.SQL(" LIMIT {limit}").format(limit=sql.Literal(SIZE_SAMPLE_MAX_ROWS))
+            return query + sql.SQL(" LIMIT {limit}").format(limit=sql.Literal(SIZE_SAMPLE_TARGET_ROWS))
 
         query = sql.SQL("SELECT {cols} FROM {table}").format(
             cols=select_clause, table=sql.Identifier(schema, table_name)
@@ -2301,7 +2326,77 @@ def _has_duplicate_primary_keys(
         return False
 
 
-def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
+@frozen
+class _TableChunking:
+    """How much of a table one read pulls at a time.
+
+    Two row counts with two different jobs. `batch_rows` sizes what the pipeline receives, from
+    the sample's p95. `fetch_rows` sizes a single `FETCH`, from the sample's widest row — the
+    p95 says nothing about what a heavy region weighs, and a `FETCH` is materialised whole.
+    """
+
+    batch_rows: int
+    fetch_rows: int
+
+
+def _fetch_rows_for(batch_rows: int, largest_row_bytes: int | None) -> int:
+    """Rows per `FETCH` that the widest sampled row says fit in one batch budget.
+
+    No usable measurement keeps the whole-batch `FETCH` this driver has always issued, leaving
+    the shrink to the reader's own running high-water mark. That is the pre-existing exposure,
+    never a new one.
+    """
+    if not largest_row_bytes or largest_row_bytes <= 0:
+        return batch_rows
+    return max(1, min(batch_rows, EXTRACT_BATCH_MAX_BYTES // largest_row_bytes))
+
+
+def _estimated_row_count(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> int | None:
+    """Catalog row estimate for one table, or None when neither source has run yet.
+
+    `reltuples` is -1 on a table ANALYZE has never touched, and the stats collector's
+    `n_live_tup` is 0 on a fresh standby, so both are checked before giving up.
+    """
+    try:
+        cursor.execute(
+            sql.SQL("""
+                SELECT c.reltuples, s.n_live_tup
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+                WHERE n.nspname = {schema} AND c.relname = {table}
+            """).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        reltuples, n_live_tup = row
+        for estimate in (reltuples, n_live_tup):
+            if estimate is not None and estimate > 0:
+                return int(estimate)
+        return None
+    except Exception as e:
+        logger.debug(f"_estimated_row_count: Error: {e}", exc_info=e)
+        return None
+
+
+def _size_sample_percent(row_estimate: int | None) -> float | None:
+    """Percentage of pages to sample so about `SIZE_SAMPLE_TARGET_ROWS` rows come back.
+
+    None when the catalog cannot say how big the table is; the caller keeps the fixed 1% sample.
+    """
+    if not row_estimate or row_estimate <= 0:
+        return None
+    if row_estimate <= SIZE_SAMPLE_TARGET_ROWS:
+        return 100.0
+    return max(MIN_SIZE_SAMPLE_PERCENT, 100.0 * SIZE_SAMPLE_TARGET_ROWS / row_estimate)
+
+
+def _get_table_chunk_size(
+    cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger
+) -> _TableChunking:
     # Under autocommit each statement is its own transaction — a failure can't poison
     # subsequent commands, so no SAVEPOINT is needed. When called inside a shared
     # transaction (e.g. tests or future callers), wrap in a SAVEPOINT so that a
@@ -2313,8 +2408,13 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
             cursor.execute("SAVEPOINT _chunk_size_probe")
             savepoint_active = True
 
+        # `max` rides along on rows the p95 already materialised, so the widest row costs nothing
+        # extra to learn — and it, not the p95, is what a single `FETCH` has to survive.
         query = sql.SQL("""
-            SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
+            SELECT
+                percentile_cont(0.95) within group (order by subquery.row_size),
+                max(subquery.row_size)
+            FROM (
                 SELECT octet_length(t::text) as row_size FROM ({}) as t
             ) as subquery
         """).format(inner_query)
@@ -2331,15 +2431,18 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
 
         if row is None:
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
-            chunk_size = DEFAULT_CHUNK_SIZE
-        else:
-            row_size_bytes = row[0] or 1
-            chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
-            logger.debug(
-                f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
-            )
+            return _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
 
-        return chunk_size
+        row_size_bytes = row[0] or 1
+        largest_row_bytes = int(row[1]) if row[1] else None
+        batch_rows = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
+        chunking = _TableChunking(batch_rows=batch_rows, fetch_rows=_fetch_rows_for(batch_rows, largest_row_bytes))
+        logger.debug(
+            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. largest_row_bytes={largest_row_bytes}. "
+            f"DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. "
+            f"Using CHUNK_SIZE={chunking.batch_rows}, FETCH_ROWS={chunking.fetch_rows}"
+        )
+        return chunking
     except Exception as e:
         # Best-effort: any failure (including a statement_timeout / QueryCanceled) falls back to
         # DEFAULT_CHUNK_SIZE. The estimation query wraps the sample in `octet_length(t::text)`,
@@ -2358,7 +2461,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
                 logger.debug(f"_get_table_chunk_size: Failed to rollback savepoint: {rollback_error}")
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
-        return DEFAULT_CHUNK_SIZE
+        return _TableChunking(batch_rows=DEFAULT_CHUNK_SIZE, fetch_rows=DEFAULT_CHUNK_SIZE)
 
 
 def _role_subject_to_rls(cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger) -> bool:
@@ -3098,6 +3201,9 @@ def postgres_source(
                                 incremental_field_type,
                                 db_incremental_field_last_value,
                                 add_sampling=True,
+                                sample_percent=_size_sample_percent(
+                                    _estimated_row_count(cursor, schema, table_name, logger)
+                                ),
                                 enabled_columns=enabled_columns,
                                 primary_keys=primary_keys,
                                 xmin_bounds=xmin_bounds,
@@ -3135,10 +3241,13 @@ def postgres_source(
                                 )
                             logger.debug("Getting table chunk size...")
                             if chunk_size_override is not None:
-                                chunk_size = chunk_size_override
+                                chunking = _TableChunking(
+                                    batch_rows=chunk_size_override, fetch_rows=chunk_size_override
+                                )
                                 logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                             else:
-                                chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                                chunking = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                            chunk_size = chunking.batch_rows
 
                             logger.debug("Getting rows to sync...")
                             # For partitioned tables without an incremental cursor (initial
@@ -3585,6 +3694,7 @@ def postgres_source(
                     child_partitions=child_partitions,
                     chunk_size=chunk_size,
                     byte_bounded=byte_bounded_extraction,
+                    fetch_rows=chunking.fetch_rows,
                     arrow_schema=arrow_schema,
                     logger=logger,
                     incremental_field=incremental_field,
@@ -3621,6 +3731,7 @@ def postgres_source(
                     child_partitions=child_partitions,
                     chunk_size=chunk_size,
                     byte_bounded=byte_bounded_extraction,
+                    fetch_rows=chunking.fetch_rows,
                     arrow_schema=arrow_schema,
                     logger=logger,
                     using_read_replica=using_read_replica,
@@ -3663,7 +3774,10 @@ def postgres_source(
                             read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
                             for rows in fetch_row_batches(
-                                cursor.fetchmany, max_rows=chunk_size, byte_bounded=byte_bounded_extraction
+                                cursor.fetchmany,
+                                max_rows=chunk_size,
+                                byte_bounded=byte_bounded_extraction,
+                                max_page_rows=chunking.fetch_rows,
                             ):
                                 dicts = [dict(zip(column_names, row)) for row in rows]
                                 # The batcher still holds this list, so only clearing it in place
