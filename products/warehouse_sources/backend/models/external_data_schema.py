@@ -975,6 +975,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.deleted = True
         self.deleted_at = timezone.now()
         self.save()
+        if self.table is not None and not self.table.deleted:
+            self.table.soft_delete()
+
 
     def delete_table(self):
         # s3fs/boto3 at module scope would load at app population — only this method needs them

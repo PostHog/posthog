@@ -3860,6 +3860,32 @@ class TestExternalDataSchemaApiVersionOverride(APIBaseTest):
             "default_version": StripeSource.default_version,
         }
 
+    def test_schema_soft_delete_also_soft_deletes_linked_warehouse_table(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="test_ghost_table",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/data/*",
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="test_ghost_table",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+
+        assert not schema.deleted
+        assert not table.deleted
+
+        schema.soft_delete()
+
+        schema.refresh_from_db()
+        table.refresh_from_db()
+
+        assert schema.deleted
+        assert table.deleted
+
 
 class TestFanoutParentSelection(APIBaseTest):
     """Fan-out parents and children are selected independently.
