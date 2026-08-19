@@ -1,7 +1,9 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { createElement } from 'react'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'lib/posthog-typed'
@@ -34,7 +36,7 @@ import {
     DASHBOARD_VIEW_LOG_WINDOW_MS,
     MAX_TRACKED_DASHBOARDS,
 } from './dashboardSubscribeNudgeStoreLogic'
-import { DashboardSubscribeNudgeToast, onDashboardSubscribeNudgeToastCta } from './DashboardSubscribeNudgeToast'
+import { DashboardSubscribeNudgeToast } from './DashboardSubscribeNudgeToast'
 
 jest.mock('lib/posthog-typed', () => ({
     __esModule: true,
@@ -316,7 +318,15 @@ describe('dashboardSubscribeNudgeLogic', () => {
         })
 
         it('the toast CTA dismisses the toast and routes to the prefilled new-subscription form', () => {
-            onDashboardSubscribeNudgeToastCta(DASHBOARD_ID)
+            render(
+                createElement(DashboardSubscribeNudgeToast, {
+                    dashboardId: DASHBOARD_ID,
+                    dashboardName: 'Test dashboard',
+                    viewCount7d: DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD,
+                })
+            )
+            fireEvent.click(screen.getByText('Set up subscription'))
+            cleanup()
 
             expect(lemonToast.dismiss).toHaveBeenCalledWith(`dashboard-subscribe-nudge-${DASHBOARD_ID}`)
             expect(router.values.location.pathname).toMatch(new RegExp(`/dashboard/${DASHBOARD_ID}/subscriptions/new$`))

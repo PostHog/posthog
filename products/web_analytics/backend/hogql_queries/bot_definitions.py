@@ -617,6 +617,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Internet Archive", "search_crawler", "Bot", "Internet Archive", documentation_url="https://archive.org/"
     ),
     "jobcrawler": BotDefinition("jobcrawler", "search_crawler", "Bot", "Unknown"),
+    "url-crawler": BotDefinition("url-crawler", "search_crawler", "Bot", "Unknown"),
     "FlamingoBot": BotDefinition("FlamingoBot", "search_crawler", "Bot", "hackernews.pink"),
     # Archival / research crawlers
     "heritrix": BotDefinition(
@@ -673,6 +674,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "AffsignalCrawler": BotDefinition("Affsignal", "seo_crawler", "Bot", "Affsignal"),
     "RankyDockyBot": BotDefinition("RankyDocky", "seo_crawler", "Bot", "RankyDocky"),
     "pricingbrief-bot": BotDefinition("PricingBrief", "seo_crawler", "Bot", "PricingBrief"),
+    "SolvedEarthPriceBot": BotDefinition(
+        "SolvedEarth Price Bot", "seo_crawler", "Bot", "SolvedEarth", documentation_url="https://solved.earth"
+    ),
     "SiteavailObservatory": BotDefinition("Siteavail", "seo_crawler", "Bot", "Siteavail"),
     "appzbot": BotDefinition("appzbot", "seo_crawler", "Bot", "Unknown"),
     "Optimize Pilot Research Bot": BotDefinition("Optimize Pilot", "seo_crawler", "Bot", "Optimize Pilot"),
