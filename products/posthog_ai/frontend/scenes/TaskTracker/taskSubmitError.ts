@@ -26,46 +26,40 @@ const BILLING_LIMIT_CODES = new Set([
 ])
 const CODE_ACCESS_REQUIRED_CODE = 'code_access_required'
 
-function backendMessage(error: ApiError): string | null {
-    // fromResponse sets `message` to the backend `error`/`detail`/`message` string; `data.error` is the raw body.
-    const fromData = typeof error.data?.error === 'string' ? error.data.error : null
-    return fromData || error.detail || error.message || null
+function stepPrefix(step: TaskSubmitStep): string {
+    return step === 'create' ? 'Could not create the task' : 'Could not start the run'
 }
 
-function fallbackMessage(step: TaskSubmitStep): string {
-    return step === 'create'
-        ? 'Could not create the task. Please try again.'
-        : 'Could not start the run. Please try again.'
+// Only body-derived fields count as a real server reason. `ApiError.message` falls back to a
+// synthetic "API request failed with status: X" (empty-body 5xx / gateway errors), which is not
+// something to show a user, so we ignore it and let the step message take over.
+function serverReason(error: ApiError): string | null {
+    const fromData = typeof error.data?.error === 'string' ? error.data.error : null
+    return fromData || error.detail || null
 }
 
 /** Turn a submit failure into a message and, where possible, a next step the user can act on. */
 export function describeTaskSubmitError(error: unknown, step: TaskSubmitStep): TaskSubmitErrorInfo {
     if (!(error instanceof ApiError)) {
-        return { message: error instanceof Error && error.message ? error.message : fallbackMessage(step) }
+        return { message: `${stepPrefix(step)}. Please try again.` }
     }
 
-    const code = error.code
-    const message = backendMessage(error) ?? fallbackMessage(step)
+    const reason = serverReason(error)
 
-    if (code && BILLING_LIMIT_CODES.has(code)) {
+    if (error.code && BILLING_LIMIT_CODES.has(error.code)) {
         return {
-            message,
-            button: {
-                label: 'Manage billing',
-                action: () => router.actions.push(urls.organizationBilling()),
-            },
+            message: reason ?? `${stepPrefix(step)}. Please try again.`,
+            button: { label: 'Manage billing', action: () => router.actions.push(urls.organizationBilling()) },
         }
     }
 
-    if (code === CODE_ACCESS_REQUIRED_CODE) {
+    if (error.code === CODE_ACCESS_REQUIRED_CODE) {
         return {
-            message,
-            button: {
-                label: 'Learn more',
-                action: () => window.open('https://posthog.com/desktop', '_blank'),
-            },
+            message: reason ?? `${stepPrefix(step)}. Please try again.`,
+            button: { label: 'Learn more', action: () => window.open('https://posthog.com/desktop', '_blank') },
         }
     }
 
-    return { message }
+    // Generic failure: always name the step, and add the server reason when there is a usable one.
+    return { message: reason ? `${stepPrefix(step)}: ${reason}` : `${stepPrefix(step)}. Please try again.` }
 }

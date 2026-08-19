@@ -3,6 +3,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
@@ -581,9 +582,18 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     )
                 )
             } catch (error) {
-                // The task row exists but never got a run, so a retry would create a second one. Delete it
-                // (best effort) so refused submissions don't leave orphan tasks behind.
-                void tasksDestroy(projectId, newTask.id).catch(() => undefined)
+                // A 4xx refusal (billing, access, validation) is rejected before the run row is created, so
+                // the task is a true orphan — delete it (best effort) so retries don't stack up empty tasks.
+                // On an ambiguous 5xx or network failure the server may have started the run already, so
+                // leave the task in place rather than orphaning a live run the user can no longer reach.
+                if (
+                    error instanceof ApiError &&
+                    error.status !== undefined &&
+                    error.status >= 400 &&
+                    error.status < 500
+                ) {
+                    void tasksDestroy(projectId, newTask.id).catch(() => undefined)
+                }
                 failSubmit(error, 'run')
                 return
             }
