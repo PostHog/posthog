@@ -337,7 +337,7 @@ const loadMetrics = async ({
     onSetErrors,
 }: MetricLoadingConfig): Promise<MetricLoadingSummary> => {
     const results: CachedNewExperimentQueryResponse[] = []
-    const currentErrors = new Array(metrics.length).fill(null)
+    const currentErrors = Array.from({ length: metrics.length }).fill(null)
 
     let successfulCount = 0
     let erroredCount = 0
@@ -468,6 +468,7 @@ const sharedMetricsToExperimentMetrics = (
             breakdownFilter: {
                 ...query?.breakdownFilter,
                 breakdowns: metadata?.breakdowns || [],
+                ...(metadata?.breakdown_limit !== undefined && { breakdown_limit: metadata.breakdown_limit }),
             },
         }))
 
@@ -482,6 +483,7 @@ export type ExperimentSavedMetric = {
     metadata: {
         type: 'primary' | 'secondary'
         breakdowns?: Breakdown[]
+        breakdown_limit?: number
     }
     created_at: string
     query: ExperimentMetric
@@ -2078,6 +2080,40 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
                 updateMetricBreakdownLimit: (state, { uuid, breakdownLimit }) => {
                     /**
+                     * if the uuid is a shared metric, update saved_metrics metadata of the many to many
+                     * relationship, so the breakdown limit is exclusive to this experiment
+                     */
+                    const savedMetrics: ExperimentSavedMetric[] = [...(state?.saved_metrics || [])]
+                    const savedMetricIndex = savedMetrics.findIndex(
+                        ({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid
+                    )
+
+                    /**
+                     * if saved metric found...
+                     */
+                    if (savedMetricIndex !== -1) {
+                        /**
+                         * rebuild the saved metrics with the updated breakdown limit
+                         */
+                        const savedMetric = savedMetrics[savedMetricIndex]
+                        savedMetrics[savedMetricIndex] = {
+                            ...savedMetric,
+                            metadata: {
+                                ...savedMetric.metadata,
+                                breakdown_limit: breakdownLimit,
+                            },
+                        }
+
+                        /**
+                         * return the experiment state with the updated saved metrics.
+                         */
+                        return {
+                            ...state,
+                            saved_metrics: savedMetrics,
+                        }
+                    }
+
+                    /**
                      * figure out if it's a primary or secondary metric
                      */
                     const metricsKey =
@@ -3641,10 +3677,15 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateMetricBreakdownLimit: async ({ uuid }) => {
+            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+            const sharedMetric = savedMetrics.find(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+
             /**
              * find if the updated metris is primary
              */
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+            const isPrimary = sharedMetric
+                ? sharedMetric.metadata.type === 'primary'
+                : values.experiment.metrics.some((m) => m.uuid === uuid)
 
             /**
              * build the update payload with all experiment metrics
@@ -3653,6 +3694,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
                 update_feature_flag_params: false,
+            }
+
+            /**
+             * for shared metrics, we save the breakdown limit on the many to many relationship metadata
+             */
+            if (sharedMetric) {
+                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
+                    id: saved_metric,
+                    metadata,
+                }))
             }
 
             /**

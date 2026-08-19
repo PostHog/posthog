@@ -1202,6 +1202,9 @@ export function getOrderedMetricsWithResults(
             breakdownFilter: {
                 ...sharedMetric.query?.breakdownFilter,
                 breakdowns: sharedMetric.metadata?.breakdowns || [],
+                ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
+                    breakdown_limit: sharedMetric.metadata.breakdown_limit,
+                }),
             },
         })) as ExperimentMetric[]
 
@@ -1408,6 +1411,9 @@ export const metricResults =
                 breakdownFilter: {
                     ...sharedMetric.query?.breakdownFilter,
                     breakdowns: sharedMetric.metadata?.breakdowns || [],
+                    ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
+                        breakdown_limit: sharedMetric.metadata.breakdown_limit,
+                    }),
                 },
             })) as ExperimentMetric[]
 
