@@ -81,8 +81,9 @@
 #   strips artifact uploads (above), so it keeps floating restores; no depot bump needed
 #   for changes confined to that pinning.
 # - master (push) runs only check-migrations to prime the shared schema cache; the
-#   test matrices are skipped on master (canonical runs them). PRs and dispatches
-#   run the full graph — that is where the apples-to-apples comparison happens
+#   test matrices are skipped on master (canonical runs them). Sampled source PRs and
+#   dispatches run the full graph — that is where the apples-to-apples comparison happens.
+#   Trunk merge-queue PRs are excluded because they would repeat a source PR's trial run.
 
 # This workflow runs all of our backend django tests.
 #
@@ -92,11 +93,12 @@ name: '[optional, does not block merge] Backend CI'
 # OPTIONAL, non-blocking shadow of canonical Backend CI — its statuses must never gate
 # merging (hence the "[optional, does not block merge]" name prefix). The
 # CI_DEPOT_SHADOW_PERCENT Depot CI variable (0-100; 0 or unset = fully off) is both the
-# master switch and the pull_request sample rate: when >0, pull_request runs are sampled at
-# that percent; master (push) runs only check-migrations to prime the schema cache (test
-# matrices are skipped there); workflow_dispatch always runs. The `sample` job rolls a deterministic
-# per-run dice; `changes` (root of the needs graph) only runs when sampled in, so the
-# whole workflow cascades off on a miss. This is a Depot variable, NOT a GitHub one —
+# master switch and the eligible pull_request sample rate: when >0, source PR runs are sampled
+# at that percent. Trunk merge-queue PRs and draft PRs labeled `no-ci` are excluded before a
+# runner is allocated. Master (push) runs only check-migrations to prime the schema cache (test
+# matrices are skipped there); workflow_dispatch always runs. The `sample` job rolls deterministic
+# per-run dice; `changes` (root of the needs graph) only runs when sampled in, so the whole
+# workflow cascades off on a miss. This is a Depot variable, NOT a GitHub one —
 # Depot CI reads its own `vars` store. Set it with:
 #   depot ci vars add CI_DEPOT_SHADOW_PERCENT=<n> --repo PostHog/posthog    (n=0 disables)
 # The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
@@ -112,12 +114,13 @@ on:
                 type: string
     pull_request:
         # Draft PRs run the snob-selected Django subset (≤3 shards); turbo-tests
-        # still skip drafts. Ready PRs run the full matrices — the merge gate —
-        # and ready_for_review re-triggers them when a PR leaves draft. Add the
+        # still skip drafts. Ready source PRs run the full matrices, and
+        # ready_for_review re-triggers them when a PR leaves draft. Add the
         # `run-ci-backend` label to force the full matrices on a draft; the
         # `no-ci` label silences the workflow on a draft entirely. No
         # labeled/unlabeled triggers, so a label takes effect from the next push
-        # or from ready_for_review. Mirrors canonical.
+        # or from ready_for_review. Trunk merge-queue PRs are filtered by the
+        # sampling gate because their source PR already supplied a trial run.
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
@@ -173,9 +176,17 @@ permissions:
     pull-requests: read
 jobs:
     # Manual dispatch bypasses sampling so an explicit full run cannot silently no-op.
-    # Automatic runs still require a nonzero sampling percentage.
+    # Automatic runs still require a nonzero sampling percentage. Exclude automatic
+    # runs that only duplicate work before allocating even this small runner.
     sample:
-        if: github.event_name == 'workflow_dispatch' || (vars.CI_DEPOT_SHADOW_PERCENT != '' && vars.CI_DEPOT_SHADOW_PERCENT != '0')
+        if: >-
+            github.event_name == 'workflow_dispatch'
+            || (vars.CI_DEPOT_SHADOW_PERCENT != ''
+                && vars.CI_DEPOT_SHADOW_PERCENT != '0'
+                && (github.event_name != 'pull_request'
+                    || (!startsWith(github.head_ref, 'trunk-merge/')
+                        && (github.event.pull_request.draft != true
+                            || !contains(github.event.pull_request.labels.*.name, 'no-ci')))))
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: '[optional, does not block merge] Sample run'
@@ -210,16 +221,10 @@ jobs:
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        # Root of the `needs` graph: skipped when `sample` says skip (or is itself skipped
-        # at percent 0/unset), which cascades the whole workflow off. Also skipped on
-        # draft PRs labeled `no-ci`, mirroring canonical.
+        # Root of the `needs` graph: skipped when `sample` says skip (or is itself skipped),
+        # which cascades the whole workflow off.
         needs: sample
-        if: >-
-            needs.sample.outputs.sampled == 'true'
-            && (github.event_name != 'pull_request'
-                || github.event.pull_request.draft != true
-                || startsWith(github.head_ref, 'trunk-merge/')
-                || !contains(github.event.pull_request.labels.*.name, 'no-ci'))
+        if: needs.sample.outputs.sampled == 'true'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
