@@ -231,6 +231,7 @@ the row lists both.
 | drip                             | HTTP                        | requests                                                        | ✅                          |
 | dub                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | dynamics365                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| dynamics_365_business_central    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | dynamodb                         | HTTP                        | requests                                                        | ✅                          |
 | dynatrace                        | HTTP                        | requests                                                        | ✅                          |
 | e2b                              | HTTP                        | requests                                                        | ✅                          |
@@ -955,7 +956,6 @@ doesn't conflict with concurrent PRs.
 - dubsado
 - ducklake
 - dwolla
-- dynamics_365_business_central
 - e2b
 - easybill
 - ebay
