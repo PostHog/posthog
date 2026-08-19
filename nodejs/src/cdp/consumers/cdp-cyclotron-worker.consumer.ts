@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -14,6 +16,11 @@ import {
 import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '../utils'
 import { dualWrite } from '../utils/dual-store'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
+
+const counterInvocationsSkippedDisabled = new Counter({
+    name: 'cdp_cyclotron_worker_invocations_skipped_disabled',
+    help: 'Invocations dropped because their hog function was disabled or deleted',
+})
 
 /**
  * CDP worker that consumes and processes hog function / hogflow jobs.
@@ -79,6 +86,14 @@ export class CdpCyclotronWorker<
                 if (!hogFunction.enabled || hogFunction.deleted) {
                     logger.info('⚠️', 'Skipping invocation due to hog function being deleted or disabled', {
                         id: item.functionId,
+                    })
+
+                    // Write a terminal lifecycle row so the run resolves to a real end state
+                    // instead of staying stranded at `running` (which the UI can never rerun).
+                    counterInvocationsSkippedDisabled.inc()
+                    this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(item, 'failed', {
+                        error: 'Skipped because the destination is disabled or deleted',
+                        errorKind: 'function_disabled',
                     })
 
                     failedInvocations.push(item)

@@ -630,6 +630,42 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.skipped).toBe(1)
             expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
         })
+
+        it('skips rows whose hog function is disabled so re-enqueue never strands the run', async () => {
+            const disabledFn = await _insertHogFunction(hub.postgres, team.id, {
+                type: 'destination',
+                hog: 'print("disabled")',
+                bytecode: [],
+                enabled: false,
+            })
+            const prevFn = hogFunction
+            hogFunction = disabledFn
+            await seedRows([{ invocation_id: 'inv-disabled', status: 'failed', error: new Error('5xx') }])
+            hogFunction = prevFn
+            // Real manager resolves the disabled function — the backstop must reject it on `enabled`.
+            hogFunctionManager['onHogFunctionsReloaded'](team.id, [disabledFn.id])
+
+            const state: RerunJobState = {
+                function_kind: 'hog_function',
+                function_id: disabledFn.id,
+                request: {
+                    filter: {
+                        window_start: '2026-01-01T00:00:00Z',
+                        window_end: '2027-01-01T00:00:00Z',
+                        invocation_ids: ['inv-disabled'],
+                    },
+                },
+                progress: { queued: 0, skipped: 0, done: false },
+            }
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+            expect(next.progress.queued).toBe(0)
+            expect(next.progress.skipped).toBe(1)
+            expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
+        })
     })
 
     describe('error handling', () => {

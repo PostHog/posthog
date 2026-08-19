@@ -275,7 +275,7 @@ describe('CdpCyclotronWorker', () => {
             }
         )
 
-        it('should skip a loaded function if it is disabled', async () => {
+        it('should skip a loaded function if it is disabled and write a terminal row', async () => {
             const fn2 = await insertHogFunction(
                 hub.postgres,
                 team.id,
@@ -286,9 +286,21 @@ describe('CdpCyclotronWorker', () => {
                     enabled: false,
                 })
             )
+            const lifecycleRowSpy = jest.spyOn(
+                processor['invocationResultsService'].invocationResultsRowsService,
+                'queueLifecycleRow'
+            )
 
-            const results = await processor['loadHogFunctions']([createExampleInvocation(fn2, globals)])
+            const skipped = createExampleInvocation(fn2, globals)
+            const results = await processor['loadHogFunctions']([skipped])
+
             expect(results).toEqual([])
+            // Without a terminal row the run stays stranded at `running` and can never be rerun.
+            expect(lifecycleRowSpy).toHaveBeenCalledWith(
+                skipped,
+                'failed',
+                expect.objectContaining({ errorKind: 'function_disabled' })
+            )
         })
 
         describe('e2e lag metrics tracking', () => {

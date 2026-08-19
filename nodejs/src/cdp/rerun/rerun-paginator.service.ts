@@ -618,6 +618,19 @@ export class RerunPaginatorService {
                 return null
             }
 
+            // A disabled or deleted destination is dropped by the worker with no terminal
+            // lifecycle row, which strands the run at `running` forever. The API rejects
+            // these up front; this is the backstop for any rerun job that reaches the worker
+            // anyway.
+            if (!hogFunction.enabled || hogFunction.deleted) {
+                logger.warn('⚠️', 'Skipping rerun of invocation with disabled or deleted function', {
+                    functionId,
+                    teamId,
+                    invocation_id: row.invocation_id,
+                })
+                return null
+            }
+
             // Only re-enqueue types a cyclotron worker executes. Others (source webhooks,
             // transformations, site_*) run elsewhere and would never drain from the hog
             // queue, so a re-enqueued invocation wedges the partition. The API rejects these

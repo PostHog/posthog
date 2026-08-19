@@ -1935,8 +1935,26 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             # The whole point: a non-rerunnable type must never reach the enqueue path.
             mock_rerun.assert_not_called()
 
+    def test_rerun_rejected_for_disabled_destination(self):
+        fn = HogFunction.objects.create(team=self.team, type="destination", hog="return event", enabled=False)
+
+        with patch("products.cdp.backend.api.hog_function.rerun_hog_invocations") as mock_rerun:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{fn.id}/rerun/",
+                data={
+                    "filter": {
+                        "window_start": "2026-07-01T00:00:00Z",
+                        "window_end": "2026-07-02T00:00:00Z",
+                    }
+                },
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            # The worker drops these with no terminal row, stranding the run — never enqueue.
+            mock_rerun.assert_not_called()
+
     def test_rerun_allowed_for_destination(self):
-        fn = HogFunction.objects.create(team=self.team, type="destination", hog="return event")
+        fn = HogFunction.objects.create(team=self.team, type="destination", hog="return event", enabled=True)
 
         with patch("products.cdp.backend.api.hog_function.rerun_hog_invocations") as mock_rerun:
             mock_rerun.return_value = MagicMock(status_code=200, json=lambda: {"rerun_job_id": "job-1"})
