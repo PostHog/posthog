@@ -1,10 +1,12 @@
 import type { GridPlacement } from "@posthog/core/canvas/gridLayoutSchemas";
-import { Button, Input, Spinner, Text } from "@posthog/quill";
+import { Button, Spinner, Text } from "@posthog/quill";
 import { isTerminalStatus } from "@posthog/shared/domain-types";
+import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
+import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { useSessionStore } from "@posthog/ui/features/sessions/sessionStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ComponentFrame } from "./ComponentFrame";
 
 // Poll cadence for the fill task's run status while a tile is generating —
@@ -170,7 +172,7 @@ function GeneratingTile({
         {viewTask}
         {interactive ? (
           <Button
-            variant="default"
+            variant="destructive"
             size="sm"
             disabled={patching}
             onClick={() => actions.remove(placement)}
@@ -196,8 +198,19 @@ function DescribeTile({
   patching: boolean;
   actions: PlacementTileActions;
 }) {
-  const [prompt, setPrompt] = useState(placement.prompt ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const editorRef = useRef<EditorHandle>(null);
+  // A failed fill keeps what was asked for, so the retry starts from it rather
+  // than from an empty box. Only on mount: the draft the user is typing owns
+  // the editor from then on.
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (prefilled.current || !placement.prompt) return;
+    prefilled.current = true;
+    if (editorRef.current?.isEmpty()) {
+      editorRef.current.setContent(placement.prompt);
+    }
+  }, [placement.prompt]);
 
   if (!interactive) {
     return (
@@ -208,51 +221,47 @@ function DescribeTile({
       </div>
     );
   }
-  const submit = async () => {
-    if (!prompt.trim() || isSubmitting) return;
+  const submit = async (text: string) => {
+    const instruction = text.trim();
+    if (!instruction || isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await actions.describe(placement, prompt.trim());
+      await actions.describe(placement, instruction);
     } finally {
       setIsSubmitting(false);
     }
   };
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
+    <div className="flex h-full w-full flex-col justify-center gap-2 p-3">
       {failed ? (
         <Text size="sm">This widget failed to build. Describe it again:</Text>
       ) : null}
-      <form
-        className="flex w-full items-center gap-1"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <Input
-          autoFocus
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          placeholder="What should go here?"
-          disabled={isSubmitting}
-        />
-        <Button
-          type="submit"
-          size="sm"
-          loading={isSubmitting}
-          disabled={!prompt.trim() || isSubmitting}
-        >
-          {failed ? "Retry" : "Create"}
-        </Button>
-      </form>
-      <Button
-        variant="default"
-        size="sm"
-        disabled={patching}
-        onClick={() => actions.remove(placement)}
-      >
-        Remove
-      </Button>
+      {/* The task composer's editor, as the freeform canvas uses it: markdown
+          as you type, shift+enter for a new line, @ for files and / for
+          skills. Its own toolbar stays hidden — the only control this box
+          needs beside send is the one that takes the box away. */}
+      <PromptInput
+        ref={editorRef}
+        sessionId={`grid-placement-${placement.id}`}
+        placeholder="What should go here?"
+        autoFocus
+        disabled={isSubmitting}
+        isLoading={isSubmitting}
+        enableCommands
+        enableBashMode={false}
+        hideDefaultToolbar
+        onSubmit={(text) => void submit(text)}
+        toolbarEndSlot={
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={patching}
+            onClick={() => actions.remove(placement)}
+          >
+            Remove
+          </Button>
+        }
+      />
     </div>
   );
 }
