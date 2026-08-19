@@ -160,6 +160,12 @@ impl SourceMapFile {
         self.inner.content.debug_id.clone()
     }
 
+    /// The id this map's symbol set uploads under: our stamped chunk id when present, else a
+    /// bundler-emitted debug id. Hermes maps built with Expo's tooling carry only the latter.
+    pub fn get_upload_chunk_id(&self) -> Option<String> {
+        self.get_chunk_id().or_else(|| self.get_debug_id())
+    }
+
     pub fn get_release_id(&self) -> Option<String> {
         self.inner.content.release_id.clone()
     }
@@ -546,11 +552,8 @@ impl TryInto<SymbolSetUpload> for SourceMapFile {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<SymbolSetUpload> {
-        // Hermes maps built with other tooling may carry only a debug id; accept it as the
-        // chunk id so those uploads keep working.
         let chunk_id = self
-            .get_chunk_id()
-            .or_else(|| self.get_debug_id())
+            .get_upload_chunk_id()
             .ok_or_else(|| anyhow!("Chunk ID not found"))?;
 
         let release_id = self.get_release_id();
