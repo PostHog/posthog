@@ -1310,11 +1310,20 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(passed_params["teams_map"], {})
         mock_get_teams_map.assert_called_once()
 
-    @parameterized.expand([("usage", "get_usage_data"), ("spend", "get_spend_data")])
-    def test_timeseries_relays_billing_service_error_detail_and_code(self, endpoint, manager_method):
+    @parameterized.expand(
+        [
+            ("usage_error_message", "usage", "get_usage_data", "error_message"),
+            ("usage_detail", "usage", "get_usage_data", "detail"),
+            ("spend_error_message", "spend", "get_spend_data", "error_message"),
+            ("spend_detail", "spend", "get_spend_data", "detail"),
+        ]
+    )
+    def test_timeseries_relays_billing_service_error_detail_and_code(
+        self, _name, endpoint, manager_method, message_key
+    ):
         error = BillingServiceError(
             400,
-            {"error_message": "You have reached your project breakdown limit.", "code": "breakdown_limit_reached"},
+            {message_key: "You have reached your project breakdown limit.", "code": "breakdown_limit_reached"},
         )
         with patch(f"ee.billing.billing_manager.BillingManager.{manager_method}", side_effect=error):
             response = self.client.get(f"/api/billing/{endpoint}/?start_date=2025-01-01")
@@ -1334,13 +1343,16 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.json()["detail"], "Something went wrong upstream.")
 
     @parameterized.expand([("usage", "get_usage_data"), ("spend", "get_spend_data")])
-    def test_timeseries_handles_non_dict_error_body(self, endpoint, manager_method):
-        error = BillingServiceError(502, "Bad Gateway")
-        with patch(f"ee.billing.billing_manager.BillingManager.{manager_method}", side_effect=error):
-            response = self.client.get(f"/api/billing/{endpoint}/?start_date=2025-01-01")
+    def test_timeseries_does_not_forward_non_string_detail(self, endpoint, manager_method):
+        # A dict body without a string reason, or a plain-text body, must not reach the client
+        # as `detail` - the toast cannot render a dict, and raw text can carry gateway noise.
+        for body in ({"code": "over_limit", "meta": {"nested": "object"}}, "Bad Gateway"):
+            error = BillingServiceError(502, body)
+            with patch(f"ee.billing.billing_manager.BillingManager.{manager_method}", side_effect=error):
+                response = self.client.get(f"/api/billing/{endpoint}/?start_date=2025-01-01")
 
-        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
-        self.assertEqual(response.json()["detail"], "Bad Gateway")
+            self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+            self.assertIsNone(response.json()["detail"])
 
 
 class TestBillingPeriodAPI(APILicensedTest):

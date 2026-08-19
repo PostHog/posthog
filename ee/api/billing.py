@@ -33,22 +33,23 @@ logger = structlog.get_logger(__name__)
 def _billing_service_error_response(e: BillingServiceError) -> Response:
     """Relay a billing-service failure to the client with the real status and reason.
 
-    Keeps the upstream status code (so a 500 stays a 500) and passes through whatever
-    detail the billing service returned, whether the body is a structured dict or plain text.
+    Keeps the upstream status code (so a 500 stays a 500). Forwards only the string reason
+    the billing service put in `error_message` or `detail`; never a raw dict or the raw text
+    body, which could carry gateway noise and cannot render in the client toast. The full
+    body is already logged in `handle_billing_service_error`.
     """
     body = e.response
     upstream_status = e.status_code if e.status_code >= 400 else status.HTTP_400_BAD_REQUEST
+
+    detail: Optional[str] = None
+    code: Optional[str] = None
     if isinstance(body, dict):
-        return Response(
-            {
-                "statusText": e.args[0],
-                "detail": body.get("error_message", body),
-                "code": body.get("code"),
-            },
-            status=upstream_status,
-        )
+        message = body.get("error_message") or body.get("detail")
+        detail = message if isinstance(message, str) else None
+        code = body.get("code")
+
     return Response(
-        {"statusText": e.args[0], "detail": body},
+        {"statusText": e.args[0], "detail": detail, "code": code},
         status=upstream_status,
     )
 
