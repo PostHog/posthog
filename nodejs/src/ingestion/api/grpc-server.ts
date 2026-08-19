@@ -41,18 +41,35 @@ const grpcProtocolErrors = new Counter({
     labelNames: ['kind'],
 })
 
-/** A batch the pipeline finished, with all side effects settled (the ack barrier). */
+const grpcFeedSlotWaiters = new Gauge({
+    name: 'ingestion_api_grpc_feed_slot_waiters',
+    help: 'Streams waiting for a pipeline batch slot (FIFO admission queue depth)',
+})
+
+const grpcCapacityRetries = new Counter({
+    name: 'ingestion_api_grpc_capacity_retries_total',
+    help: 'Feeds rejected at_capacity despite holding an admission slot (capacity accounting drift)',
+})
+
+/** A batch the pipeline finished processing. */
 export interface CompletedSubBatch {
     streamId: number
     seq: number
     accepted: number
+    /**
+     * Resolves when the batch's side effects are durably done — the ack
+     * barrier. Kept as a promise (not awaited inside `next()`) so the pump
+     * can settle many completed batches concurrently: one batch's slow side
+     * effects must not head-of-line block every other stream's acks.
+     */
+    settled: Promise<void>
 }
 
 /**
  * Pipeline mechanics behind the stream protocol. The server owns ordering,
- * acks, and stream lifecycle; the driver owns how a sub-batch enters the
- * shared pipeline and when its processing (side effects included) is durably
- * done — `next()` must resolve only once the completed batch is safe to ack.
+ * acks, capacity admission, and stream lifecycle; the driver owns how a
+ * sub-batch enters the shared pipeline and when its processing is durably
+ * done (`settled`).
  */
 export interface StreamIngestDriver {
     feed(streamId: number, seq: number, messages: SerializedKafkaMessage[]): Promise<FeedResult>
@@ -61,10 +78,54 @@ export interface StreamIngestDriver {
 
 export interface WorkerIngestServerOptions {
     port: number
-    /** Delay between feed retries while the pipeline is at concurrent batch capacity. */
+    /**
+     * Pipeline batch capacity, mirrored by the server's FIFO admission queue:
+     * feeds are granted in arrival order across all streams, so a busy stream
+     * cannot starve another (a retry race here wedged whole consumers).
+     * Must match the gRPC pipeline's `concurrentBatches`.
+     */
+    maxConcurrentBatches: number
+    /** Fallback delay if the pipeline still reports at_capacity despite an admission slot. */
     capacityRetryMs?: number
     /** Delay before re-pumping when the pipeline reports drained but sub-batches are still in flight. */
     pumpIdleMs?: number
+}
+
+/**
+ * FIFO slot queue: capacity grants go to waiters in arrival order. A freed
+ * slot passes directly to the oldest waiter instead of returning to a pool a
+ * newer arrival could win.
+ */
+class FifoSlots {
+    private available: number
+    private waiters: (() => void)[] = []
+
+    constructor(capacity: number) {
+        this.available = capacity
+    }
+
+    acquire(): Promise<void> {
+        if (this.available > 0) {
+            this.available--
+            return Promise.resolve()
+        }
+        grpcFeedSlotWaiters.inc()
+        return new Promise<void>((resolve) =>
+            this.waiters.push(() => {
+                grpcFeedSlotWaiters.dec()
+                resolve()
+            })
+        )
+    }
+
+    release(): void {
+        const next = this.waiters.shift()
+        if (next) {
+            next()
+            return
+        }
+        this.available++
+    }
 }
 
 interface WorkerIngestServerDeps {
@@ -189,6 +250,7 @@ export class WorkerIngestServer {
     private wakePump: (() => void) | null = null
     private readonly capacityRetryMs: number
     private readonly pumpIdleMs: number
+    private readonly slots: FifoSlots
 
     constructor(
         private options: WorkerIngestServerOptions,
@@ -196,6 +258,7 @@ export class WorkerIngestServer {
     ) {
         this.capacityRetryMs = options.capacityRetryMs ?? 20
         this.pumpIdleMs = options.pumpIdleMs ?? 20
+        this.slots = new FifoSlots(options.maxConcurrentBatches)
     }
 
     async start(): Promise<void> {
@@ -276,12 +339,31 @@ export class WorkerIngestServer {
                     await sleep(this.pumpIdleMs)
                     continue
                 }
-                this.ackCompleted(completed)
+                // Settle concurrently: the pump goes straight back to the
+                // pipeline while this batch's side effects finish, so one slow
+                // batch cannot head-of-line block other streams' acks.
+                this.settleAndAck(completed)
             } catch (error) {
                 this.fatal(error instanceof Error ? error : new Error(String(error)))
                 return
             }
         }
+    }
+
+    private settleAndAck(completed: CompletedSubBatch): void {
+        void (async () => {
+            try {
+                await completed.settled
+            } catch (error) {
+                this.slots.release()
+                this.fatal(error instanceof Error ? error : new Error(String(error)))
+                return
+            }
+            // The batch's admission slot frees only once its side effects are
+            // durably done, matching the HTTP path's response barrier.
+            this.slots.release()
+            this.ackCompleted(completed)
+        })()
     }
 
     private ackCompleted(completed: CompletedSubBatch): void {
@@ -416,25 +498,44 @@ export class WorkerIngestServer {
                 // pipeline is at capacity the read loop stalls, and HTTP/2
                 // flow control backpressures the consumer.
                 stream.inFlight.add(seq)
-                while (true) {
-                    const result = await this.feedGuarded(stream, seq, serialized)
-                    if (result.ok) {
-                        break
+                // FIFO admission: block here (stalling this stream's reads —
+                // that's the backpressure) until a batch slot is granted in
+                // arrival order. A retry race here instead of a queue let busy
+                // streams starve quiet ones, wedging whole consumers.
+                await this.slots.acquire()
+                let feedAccepted = false
+                try {
+                    while (true) {
+                        const result = await this.feedGuarded(stream, seq, serialized)
+                        if (result.ok) {
+                            feedAccepted = true
+                            break
+                        }
+                        if (result.kind === 'at_capacity') {
+                            // The admission queue mirrors pipeline capacity, so
+                            // this means the two drifted — count it and retry.
+                            grpcCapacityRetries.inc()
+                            await sleep(this.capacityRetryMs)
+                            continue
+                        }
+                        stream.inFlight.delete(seq)
+                        stream.acks.push(
+                            create(IngestStreamResponseSchema, {
+                                seq: BigInt(seq),
+                                status: SubBatchStatus.FAILED,
+                                error: result.reason,
+                            })
+                        )
+                        grpcSubBatches.inc({ status: 'failed' })
+                        throw new ConnectError(`sub-batch ${seq} rejected: ${result.reason}`, Code.Internal)
                     }
-                    if (result.kind === 'at_capacity') {
-                        await sleep(this.capacityRetryMs)
-                        continue
+                } finally {
+                    // An accepted feed hands its slot to the pump, which
+                    // releases it after the batch settles; every other exit
+                    // must give the slot back here.
+                    if (!feedAccepted) {
+                        this.slots.release()
                     }
-                    stream.inFlight.delete(seq)
-                    stream.acks.push(
-                        create(IngestStreamResponseSchema, {
-                            seq: BigInt(seq),
-                            status: SubBatchStatus.FAILED,
-                            error: result.reason,
-                        })
-                    )
-                    grpcSubBatches.inc({ status: 'failed' })
-                    throw new ConnectError(`sub-batch ${seq} rejected: ${result.reason}`, Code.Internal)
                 }
                 this.wake()
             }

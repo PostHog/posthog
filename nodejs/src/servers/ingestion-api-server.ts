@@ -531,7 +531,10 @@ export class IngestionApiServer implements NodeServer {
                 JoinedIngestionPipelineContext & { grpcStreamId: number; grpcSeq: number }
             >(joinedPipelineConfig, joinedPipelineDeps)
             this.grpcServer = new WorkerIngestServer(
-                { port: this.config.INGESTION_API_GRPC_PORT },
+                {
+                    port: this.config.INGESTION_API_GRPC_PORT,
+                    maxConcurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
+                },
                 {
                     driver: this.createStreamIngestDriver(),
                     feedOrderSentinel: this.feedOrderSentinel,
@@ -670,9 +673,10 @@ export class IngestionApiServer implements NodeServer {
     }
 
     /**
-     * Pipeline mechanics for the gRPC stream server. `next()` resolving is
-     * the ack barrier: it mirrors the HTTP handler's contract by settling the
-     * batch's side effects and the promise scheduler before the ack goes out.
+     * Pipeline mechanics for the gRPC stream server. The `settled` promise on
+     * each completed batch is the ack barrier: it mirrors the HTTP handler's
+     * contract (side effects plus the promise scheduler) but stays a promise
+     * so the server can settle many batches concurrently.
      */
     private createStreamIngestDriver(): StreamIngestDriver {
         const pipeline = this.grpcPipeline!
@@ -697,16 +701,21 @@ export class IngestionApiServer implements NodeServer {
                 if (result === null) {
                     return null
                 }
-                await Promise.all(result.sideEffects ?? [])
-                await this.promiseScheduler.waitForAll()
                 const context = result.elements[0]?.context as { grpcStreamId?: number; grpcSeq?: number } | undefined
                 if (typeof context?.grpcStreamId !== 'number' || typeof context?.grpcSeq !== 'number') {
                     throw new Error('completed batch lost its gRPC stream context')
                 }
+                // waitForAll snapshots the currently scheduled promises, so
+                // this settles even under sustained load from other batches.
+                const settled = (async (): Promise<void> => {
+                    await Promise.all(result.sideEffects ?? [])
+                    await this.promiseScheduler.waitForAll()
+                })()
                 return {
                     streamId: context.grpcStreamId,
                     seq: context.grpcSeq,
                     accepted: result.elements.length,
+                    settled,
                 }
             },
         }

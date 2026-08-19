@@ -88,13 +88,14 @@ class FakeDriver implements StreamIngestDriver {
         return waiter.promise
     }
 
-    complete(batch: CompletedSubBatch): void {
+    complete(batch: Omit<CompletedSubBatch, 'settled'>, settled: Promise<void> = Promise.resolve()): void {
+        const completed: CompletedSubBatch = { ...batch, settled }
         const waiter = this.nextWaiters.shift()
         if (waiter) {
-            waiter.resolve(batch)
+            waiter.resolve(completed)
             return
         }
-        this.completions.push(batch)
+        this.completions.push(completed)
     }
 
     failNext(error: Error): void {
@@ -167,9 +168,9 @@ function collect(server: WorkerIngestServer, source: FrameSource): Collected {
     return collected
 }
 
-async function until(condition: () => boolean): Promise<void> {
+async function until(condition: () => boolean | Promise<boolean>): Promise<void> {
     const deadline = Date.now() + 5_000
-    while (!condition()) {
+    while (!(await condition())) {
         if (Date.now() > deadline) {
             throw new Error('condition not met within 5s')
         }
@@ -179,6 +180,12 @@ async function until(condition: () => boolean): Promise<void> {
 
 async function outOfOrderCount(): Promise<number> {
     const metric = register.getSingleMetric('ingestion_api_out_of_order_messages_total')
+    const value = (await metric!.get()).values[0]?.value
+    return value ?? 0
+}
+
+async function slotWaiters(): Promise<number> {
+    const metric = register.getSingleMetric('ingestion_api_grpc_feed_slot_waiters')
     const value = (await metric!.get()).values[0]?.value
     return value ?? 0
 }
@@ -194,7 +201,7 @@ describe('WorkerIngestServer', () => {
         onFatal = jest.fn()
         sentinel = new FeedOrderSentinel()
         server = new WorkerIngestServer(
-            { port: 0, capacityRetryMs: 1, pumpIdleMs: 1 },
+            { port: 0, maxConcurrentBatches: 4, capacityRetryMs: 1, pumpIdleMs: 1 },
             { driver, feedOrderSentinel: sentinel, onFatal }
         )
         await server.start()
@@ -310,6 +317,65 @@ describe('WorkerIngestServer', () => {
         expect(collected.acks.map((ack) => [Number(ack.seq), ack.status])).toEqual([[1, SubBatchStatus.FAILED]])
         expect(collected.acks[0].error).toBe('hook failed')
         expect(collected.error!.code).toBe(Code.Internal)
+    })
+
+    it('grants feed slots in arrival order across streams instead of racing', async () => {
+        // Regression: capacity was granted by a retry race, so a busy stream
+        // could starve a quiet one indefinitely — in prod, consumers wedged
+        // with zero completed batches while their sub-batches sat unfed.
+        const fairDriver = new FakeDriver()
+        const fairServer = new WorkerIngestServer(
+            { port: 0, maxConcurrentBatches: 1, capacityRetryMs: 1, pumpIdleMs: 1 },
+            { driver: fairDriver, onFatal: jest.fn() }
+        )
+        await fairServer.start()
+        try {
+            const sourceA = new FrameSource()
+            const sourceB = new FrameSource()
+            collect(fairServer, sourceA)
+            collect(fairServer, sourceB)
+            sourceA.push(hello({ consumerId: 'consumer-a' }))
+            sourceB.push(hello({ consumerId: 'consumer-b' }))
+
+            // A1 takes the only slot; A2 then queues for it.
+            sourceA.push(subBatch(1, [1]))
+            await until(() => fairDriver.feeds.length === 1)
+            const streamA = fairDriver.feeds[0].streamId
+            sourceA.push(subBatch(2, [2]))
+            await until(async () => (await slotWaiters()) === 1)
+            // B1 arrives third, A3 fourth.
+            sourceB.push(subBatch(1, [3]))
+            await until(async () => (await slotWaiters()) === 2)
+            sourceA.push(subBatch(3, [4]))
+
+            fairDriver.complete({ streamId: streamA, seq: 1, accepted: 1 })
+            await until(() => fairDriver.feeds.length === 2)
+            fairDriver.complete({ streamId: streamA, seq: 2, accepted: 1 })
+            // B1 must get the freed slot before A3 — arrival order, not race.
+            await until(() => fairDriver.feeds.length === 3)
+            expect(fairDriver.feeds[2].streamId).not.toBe(streamA)
+        } finally {
+            await fairServer.stop()
+        }
+    })
+
+    it('a slow batch settlement does not block another sub-batch ack', async () => {
+        // Regression: the pump awaited each completed batch's side effects
+        // before pulling the next completion, head-of-line blocking every
+        // stream's acks behind the slowest batch.
+        const source = new FrameSource()
+        const collected = collect(server, source)
+
+        source.push(hello())
+        source.push(subBatch(1, [10]))
+        source.push(subBatch(2, [11]))
+        await until(() => driver.feeds.length === 2)
+        const streamId = driver.feeds[0].streamId
+
+        driver.complete({ streamId, seq: 1, accepted: 1 }, new Promise<void>(() => {}))
+        driver.complete({ streamId, seq: 2, accepted: 1 })
+        await until(() => collected.acks.length === 1)
+        expect(Number(collected.acks[0].seq)).toBe(2)
     })
 
     it('rebaselines the feed-order sentinel on a new assignment epoch instead of counting a violation', async () => {
