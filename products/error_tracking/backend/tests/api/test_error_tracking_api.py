@@ -707,7 +707,7 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(response.json()["results"], [])
 
         # an empty raw_ids list also returns nothing, rather than every frame for the team
-        data = {"raw_ids": []}
+        data: dict = {"raw_ids": []}
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data, format="json"
         )
