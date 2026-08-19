@@ -189,7 +189,7 @@ describe('maxGlobalLogic without a current team', () => {
     it('skips the mount-time conversation fetch', async () => {
         useMocks(maxMocks)
         initKeaTests()
-        ApiConfig.setCurrentTeamId(null)
+        ApiConfig.setCurrentTeamId(null as unknown as number)
         const listSpy = jest.spyOn(api.conversations, 'list')
 
         const logic = maxGlobalLogic()
