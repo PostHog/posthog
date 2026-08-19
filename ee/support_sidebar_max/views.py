@@ -12,7 +12,9 @@ from typing import Any, Optional
 from django.conf import settings
 
 import anthropic
+import posthoganalytics
 from asgiref.sync import sync_to_async
+from posthoganalytics.ai.anthropic import Anthropic
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -65,12 +67,14 @@ class MaxChatViewSet(viewsets.ViewSet):
         """Retrieve endpoint - not used but required by DRF"""
         return Response({"detail": "Retrieve operation not supported"}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    async def async_send_message(self, client: anthropic.Anthropic, tools, system_prompt, messages):
+    async def async_send_message(
+        self, client: Anthropic, tools, system_prompt, messages, distinct_id: str, team_id: int | None
+    ):
         """Async wrapper for send_message"""
 
         @sync_to_async(thread_sensitive=False)
         def _send_message():
-            return self.send_message(client, tools, system_prompt, messages)
+            return self.send_message(client, tools, system_prompt, messages, distinct_id, team_id)
 
         return await _send_message()
 
@@ -83,7 +87,13 @@ class MaxChatViewSet(viewsets.ViewSet):
                 return self._handle_rate_limit(retry_after, limit_type)
 
             # Initialize Anthropic client (non-blocking)
-            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=self.ANTHROPIC_TIMEOUT_SECONDS)
+            client = Anthropic(
+                api_key=settings.ANTHROPIC_API_KEY,
+                posthog_client=posthoganalytics.default_client,
+                timeout=self.ANTHROPIC_TIMEOUT_SECONDS,
+            )
+            distinct_id = request.user.distinct_id
+            team_id = request.user.current_team_id
 
             data = request.data
             if not data or "message" not in data:
@@ -102,7 +112,7 @@ class MaxChatViewSet(viewsets.ViewSet):
             if not user_input.strip():
                 history.add_turn_user("Hello!")
                 result = await self.async_send_message(
-                    client, [max_search_tool_tool], system_prompt, history.get_turns()
+                    client, [max_search_tool_tool], system_prompt, history.get_turns(), distinct_id, team_id
                 )
                 if isinstance(result, Response):  # Error response
                     return result
@@ -115,7 +125,9 @@ class MaxChatViewSet(viewsets.ViewSet):
             messages = history.get_turns()
             full_response = ""
 
-            result = await self.async_send_message(client, [max_search_tool_tool], system_prompt, messages)
+            result = await self.async_send_message(
+                client, [max_search_tool_tool], system_prompt, messages, distinct_id, team_id
+            )
             if isinstance(result, Response):  # Error response
                 return result
 
@@ -126,7 +138,7 @@ class MaxChatViewSet(viewsets.ViewSet):
                     messages.append(tool_result)
 
                     result = await self.async_send_message(
-                        client, [max_search_tool_tool], system_prompt, history.get_turns()
+                        client, [max_search_tool_tool], system_prompt, history.get_turns(), distinct_id, team_id
                     )
                     if isinstance(result, Response):  # Error response
                         return result
@@ -231,7 +243,7 @@ class MaxChatViewSet(viewsets.ViewSet):
         # Return the formatted results and current response
         return full_response, self._format_tool_result(tool_use_block["id"], formatted_results)
 
-    def send_message(self, client: anthropic.Anthropic, tools, system_prompt, messages):
+    def send_message(self, client: Anthropic, tools, system_prompt, messages, distinct_id: str, team_id: int | None):
         """Send message to Anthropic API with proper error handling"""
         try:
             django_logger.info("✨🦔 Preparing to send message to Anthropic API")
@@ -265,6 +277,12 @@ class MaxChatViewSet(viewsets.ViewSet):
                 system=system_prompt,
                 messages=messages,
                 extra_headers=headers,
+                posthog_distinct_id=distinct_id,
+                posthog_properties={
+                    "ai_product": "support_sidebar_max",
+                    "ai_feature": "chat",
+                    "team_id": team_id,
+                },
             )
 
             # Get the actual message response

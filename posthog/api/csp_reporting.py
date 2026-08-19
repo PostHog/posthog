@@ -1,4 +1,5 @@
-import openai
+import posthoganalytics
+from posthoganalytics.ai.openai import OpenAI
 from rest_framework import request, response, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -48,11 +49,17 @@ class CSPReportingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not properties:
             return response.Response({"error": "properties is required"}, status=400)
 
-        llm_response = openai.chat.completions.create(
+        llm_response = OpenAI(posthog_client=posthoganalytics.default_client).chat.completions.create(
             model="gpt-4.1-2025-04-14",
             temperature=0.1,  # Using 0.1 to reduce hallucinations, but >0 to allow for some creativity
             messages=[{"role": "system", "content": prompt}, {"role": "user", "content": properties}],
             user="ph/csp/explain",
+            posthog_distinct_id=request.user.distinct_id,
+            posthog_properties={
+                "ai_product": "csp_reporting",
+                "ai_feature": "explain-violation",
+                "team_id": self.team_id,
+            },
             stream=False,
         )
 
