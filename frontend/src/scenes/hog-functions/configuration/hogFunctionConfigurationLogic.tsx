@@ -2069,7 +2069,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 actions.setConfigurationValues({
                     ...config,
                     enabled: values.configuration.enabled,
-                    filters: config.filters ?? values.configuration.filters,
+                    filters: values.configuration.filters ?? config.filters,
                     // NOTE: Technically mapping should also be sanitized against the template mappings but this is a bit of a pain
                     mappings: values.configuration.mappings?.length ? values.configuration.mappings : config.mappings,
                     // Keep some existing things when manually resetting the template

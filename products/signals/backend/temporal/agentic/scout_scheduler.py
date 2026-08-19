@@ -19,6 +19,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.scout_harness.limits import WORKFLOW_HARD_CEILING_S
 from products.signals.backend.temporal import metrics
@@ -54,11 +55,6 @@ class RunSignalsScoutOutput:
     skip_reason: str | None = None
 
 
-def _is_team_over_signals_quota(team_id: int) -> bool:
-    api_token = Team.objects.only("api_token").get(pk=team_id).api_token
-    return is_team_signals_quota_limited(api_token)
-
-
 def _to_output(result: RunResult) -> RunSignalsScoutOutput:
     return RunSignalsScoutOutput(
         run_id=result.run_id,
@@ -88,8 +84,17 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
     which run outside the run-row try/except — so a transient drop is reported as a failed
     run rather than escaping the activity and breaching the "never raises" contract.
     """
-    # Skip the run when the team is over its Signals credits quota, before any LLM work.
-    if await database_sync_to_async(_is_team_over_signals_quota, thread_sensitive=False)(input.team_id):
+    # Skip the run when the team is over its Signals credits quota or its daily report limit,
+    # before any LLM work: a scout run exists to feed signals into the pipeline, and ingestion
+    # drops them while either limit binds.
+    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+    quota_limited = await database_sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(team.api_token)
+    daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
+    # Captured whenever the daily gate binds — even when the quota skip below wins the
+    # single-status run counter — so the daily-limit event stream stays complete on co-bound days.
+    if daily_gate.limited:
+        capture_signal_report_daily_limit_paused(team, report_id=None, stage="scout_run", gate=daily_gate)
+    if quota_limited:
         logger.info(
             "signals_scout: skipping run, team over signals_credits quota",
             team_id=input.team_id,
@@ -104,6 +109,22 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
             skill_name=input.skill_name,
             skill_version=input.skill_version or 0,
             skip_reason="quota_limited",
+        )
+    if daily_gate.limited:
+        logger.info(
+            "signals_scout: skipping run, team over daily report limit",
+            team_id=input.team_id,
+            skill_name=input.skill_name,
+        )
+        metrics.increment_scout_run("daily_report_limit")
+        return RunSignalsScoutOutput(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            runtime_s=0.0,
+            skill_name=input.skill_name,
+            skill_version=input.skill_version or 0,
+            skip_reason="daily_report_limit",
         )
 
     # Deferred to break the runner <-> temporal import cycle (see the TYPE_CHECKING note

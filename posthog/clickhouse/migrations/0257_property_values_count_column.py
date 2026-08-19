@@ -11,10 +11,8 @@ from posthog.clickhouse.property_values import (
 # Kafka engine tables don't support ALTER ADD COLUMN, so we drop and recreate
 # the MV + Kafka engine table together.
 
-if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
+if settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV"):
     _ROLES = [NodeRole.AUX]
-elif settings.CLOUD_DEPLOYMENT == "DEV":
-    _ROLES = [NodeRole.DATA]
 else:
     _ROLES = []
 

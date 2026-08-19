@@ -125,6 +125,11 @@ def classify_task_needs_repo(
         r"\bserializer\b",
         r"\bviewset\b",
         r"\bmigration\b",
+        # A failing test is code work, but it is named after the feature it covers, so the
+        # product terms above would answer no-repo first. Keep these narrow: they match the
+        # whole thread, and a bare "ci" would also catch confidence intervals.
+        r"\bflak(?:y|e|es|iness)\b",
+        r"\bmerge queue\b",
     )
 
     if any(term in normalized for term in product_debug_terms) and not any(
@@ -150,7 +155,12 @@ def classify_task_needs_repo(
         "the team's code → no_repo. Important exception: 'wrong data', 'missing events', or "
         "'numbers look off' in PostHog usually means the team's tracking code is broken (wrong "
         "event names, identification logic, SDK setup) — that's a code fix in their repo → "
-        "needs_repo. When in doubt, lean needs_repo=false — code-focused tasks usually carry "
+        "needs_repo.\n\n"
+        "A failing, broken, or flaky CI run, test suite, or build is work in the team's own "
+        "repository → needs_repo, including when the test is named after a PostHog feature "
+        "('the experiment insight test is flaky'): the subject is their test, not our "
+        "product.\n\n"
+        "When in doubt, lean needs_repo=false — code-focused tasks usually carry "
         "explicit signals (file extensions, 'PR', 'commit', framework names, function or class "
         "names). Analytics, data, and configuration asks are the common case and should not send "
         "us hunting for a repository on a guess.\n\n"
