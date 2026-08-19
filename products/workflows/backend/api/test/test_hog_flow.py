@@ -2305,6 +2305,82 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("person-updates", {}),
+            ("group-updates", {"group_type_index": 0}),
+        ]
+    )
+    def test_hog_flow_person_and_group_update_triggers_compile_filters_with_their_own_source(
+        self, trigger_type, extra_config
+    ):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": trigger_type,
+                # Event matchers can never match a source that carries no event, so they're dropped
+                "filters": {"properties": [], "events": [{"id": "$pageview", "type": "events"}]},
+                **extra_config,
+            },
+        }
+
+        hog_flow = {"name": "Test Flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        trigger = response.json()["trigger"]
+        assert trigger["type"] == trigger_type
+        assert trigger["filters"]["source"] == trigger_type
+        assert "events" not in trigger["filters"]
+        assert "bytecode" in trigger["filters"]
+
+    def test_hog_flow_group_updates_trigger_without_group_type(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "group-updates", "filters": {"properties": []}},
+        }
+
+        hog_flow = {"name": "Test Group Flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "actions__0__group_type_index"
+
+    def test_hog_flow_group_updates_trigger_is_person_less(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "group-updates", "group_type_index": 0, "filters": {"properties": []}},
+        }
+        person_dependent_action = {
+            "id": "person_step",
+            "name": "person_step",
+            "type": "random_cohort_branch",
+            "config": {"cohorts": [{"percentage": 50}]},
+        }
+
+        hog_flow = {
+            "name": "Test Group Flow",
+            "status": "active",
+            "exit_condition": "exit_on_conversion",
+            "actions": [trigger_action, person_dependent_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "actions"
+        assert "random_cohort_branch" in response.json()["detail"]
+
+        del hog_flow["actions"][1]
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["exit_condition"] == "exit_only_at_end"
+
+    @parameterized.expand(
+        [
             ("events", {"events": [{"id": "$pageview", "type": "events"}]}),
             ("actions", {"actions": [{"id": "5", "type": "actions"}]}),
         ]

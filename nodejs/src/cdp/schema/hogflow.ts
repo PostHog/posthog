@@ -42,6 +42,26 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         }),
     }),
     z.object({
+        type: z.literal('person-updates'),
+        filters: z.object({
+            // Person-property filters only - the trigger carries no event of its own
+            properties: z.array(z.any()).optional(),
+        }),
+        // Person deletions reach the same topic as updates. Off by default so a workflow doesn't
+        // message someone whose person was just deleted.
+        include_deleted: z.boolean().optional(),
+    }),
+    z.object({
+        type: z.literal('group-updates'),
+        // Absent on a draft that hasn't picked a group type yet. The consumer matches on the index, so
+        // an absent one never fires.
+        group_type_index: z.number().optional(),
+        filters: z.object({
+            // Group-property filters only - group-triggered workflows are person-less
+            properties: z.array(z.any()).optional(),
+        }),
+    }),
+    z.object({
         type: z.literal('webhook'),
         template_uuid: z.string().optional(), // May be used later to specify a specific template version
         template_id: z.string(),

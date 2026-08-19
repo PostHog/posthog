@@ -84,6 +84,9 @@ export function createHogFlowInvocation(
             event: globals.event,
             actionStepCount: 0,
             variables: mergedVariables,
+            // Anchors re-resolution on every dequeue. A person-updates trigger has no distinct_id to
+            // resolve by, and for the other sources this just saves the distinct_id lookup a step later.
+            personId: globals.person?.id,
             // Seeded at run start and persisted with the state, because the flow itself isn't: the
             // job is re-loaded by functionId on every resume, so by the time a conversion lands the
             // manager may be serving a newer version. A message step re-pins this to the version
@@ -177,7 +180,7 @@ export class HogFlowExecutorService {
             const trigger = hogFlow.trigger
 
             // Defensive: only the trigger types that carry `filters` make it through eligibility.
-            if (trigger.type !== 'event' && trigger.type !== 'data-warehouse-table') {
+            if (!('filters' in trigger)) {
                 continue
             }
 

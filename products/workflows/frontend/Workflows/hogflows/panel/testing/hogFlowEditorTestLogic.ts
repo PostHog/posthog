@@ -379,6 +379,20 @@ export interface hogFlowEditorTestLogicMeta {
                                 filters: {
                                     properties?: any[] | undefined
                                 }
+                                group_type_index?: number | undefined
+                                type: 'group-updates'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                include_deleted?: boolean | undefined
+                                type: 'person-updates'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
                                 key_property?: string | undefined
                                 table_name: string
                                 type: 'data-warehouse-table'
@@ -490,6 +504,20 @@ export interface hogFlowEditorTestLogicMeta {
                                     properties?: any[] | undefined
                                 }
                                 type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                group_type_index?: number | undefined
+                                type: 'group-updates'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                include_deleted?: boolean | undefined
+                                type: 'person-updates'
                             }
                           | {
                                 filters: {

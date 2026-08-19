@@ -108,9 +108,13 @@ export const NEW_WORKFLOW: HogFlow = {
     updated_at: '',
 }
 
-// Step types that depend on person data and so cannot run for person-less (row-scoped)
-// data-warehouse-table triggers. Module-scoped to avoid reallocating on every selector recompute.
+// Step types that depend on person data and so cannot run for person-less (row-scoped) triggers.
+// Module-scoped to avoid reallocating on every selector recompute.
 export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
+
+// Triggers whose unit of work is a warehouse row or a group, so no person ever resolves.
+// Keep in sync with PERSON_LESS_TRIGGER_TYPES in the backend model.
+export const PERSON_LESS_TRIGGER_TYPES = new Set(['data-warehouse-table', 'group-updates'])
 
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
@@ -731,6 +735,20 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      group_type_index?: number | undefined
+                                      type: 'group-updates'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      include_deleted?: boolean | undefined
+                                      type: 'person-updates'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
@@ -978,6 +996,20 @@ export interface workflowLogicActions {
                                 properties?: any[] | undefined
                             }
                             type: 'event'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            group_type_index?: number | undefined
+                            type: 'group-updates'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            include_deleted?: boolean | undefined
+                            type: 'person-updates'
                         }
                       | {
                             filters: {
@@ -1525,6 +1557,20 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      group_type_index?: number | undefined
+                                      type: 'group-updates'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      include_deleted?: boolean | undefined
+                                      type: 'person-updates'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
@@ -1777,6 +1823,20 @@ export interface workflowLogicActions {
                             filters: {
                                 properties?: any[] | undefined
                             }
+                            group_type_index?: number | undefined
+                            type: 'group-updates'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            include_deleted?: boolean | undefined
+                            type: 'person-updates'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
@@ -1966,6 +2026,20 @@ export interface workflowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  group_type_index?: number | undefined
+                  type: 'group-updates'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  include_deleted?: boolean | undefined
+                  type: 'person-updates'
               }
             | {
                   inputs: Record<
@@ -2314,6 +2388,20 @@ export interface workflowLogicActions {
                   max_wait_duration: string
               }
             | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  group_type_index?: number | undefined
+                  type: 'group-updates'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  include_deleted?: boolean | undefined
+                  type: 'person-updates'
+              }
+            | {
                   inputs: Record<
                       string,
                       {
@@ -2644,6 +2732,20 @@ export interface workflowLogicMeta {
                                     properties?: any[] | undefined
                                 }
                                 type: 'event'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                group_type_index?: number | undefined
+                                type: 'group-updates'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                include_deleted?: boolean | undefined
+                                type: 'person-updates'
                             }
                           | {
                                 filters: {
@@ -3237,7 +3339,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 // step types make no sense without a person, so we block them at save time.
                 const triggerAction = workflow.actions.find((a) => a.type === 'trigger')
                 const isRowScopedTrigger =
-                    triggerAction?.type === 'trigger' && triggerAction.config?.type === 'data-warehouse-table'
+                    triggerAction?.type === 'trigger' && PERSON_LESS_TRIGGER_TYPES.has(triggerAction.config?.type)
 
                 return workflow.actions.reduce(
                     (acc, action) => {
@@ -3251,8 +3353,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         if (isRowScopedTrigger && PERSON_DEPENDENT_ACTION_TYPES.has(action.type)) {
                             result.valid = false
                             result.errors = {
-                                _action:
-                                    'This step relies on person data, which is not available for data warehouse table triggers',
+                                _action: 'This step relies on person data, which this trigger type does not have',
                             }
                             acc[action.id] = result
                             return acc
@@ -3421,12 +3522,13 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
-        // Warehouse-triggered workflows are person-less ("row-scoped"): no person data is available,
-        // so person-dependent steps and person-aware exit conditions are blocked (see the serializer
-        // for the authoritative enforcement).
+        // Warehouse-row and group-triggered workflows are person-less ("row-scoped"): no person data is
+        // available, so person-dependent steps and person-aware exit conditions are blocked (see the
+        // serializer for the authoritative enforcement).
         isRowScopedTrigger: [
             (s) => [s.triggerAction],
-            (triggerAction: TriggerAction | null): boolean => triggerAction?.config?.type === 'data-warehouse-table',
+            (triggerAction: TriggerAction | null): boolean =>
+                PERSON_LESS_TRIGGER_TYPES.has(triggerAction?.config?.type ?? ''),
         ],
 
         workflowSanitized: [

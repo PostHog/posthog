@@ -42,7 +42,23 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
 # Callers confuse the two (a stored workflow had an action of type "webhook", which is a trigger
 # kind), so the rejection message can say which mistake was made. Mirrors HogFlowTriggerSchema in
 # nodejs/src/cdp/schema/hogflow.ts.
-TRIGGER_TYPES: Final[frozenset[str]] = frozenset({"event", "schedule", "manual", "batch", "tracking_pixel", "webhook"})
+TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        "event",
+        "schedule",
+        "manual",
+        "batch",
+        "tracking_pixel",
+        "webhook",
+        "data-warehouse-table",
+        "person-updates",
+        "group-updates",
+    }
+)
+
+# Triggers that run without a person: the unit of work is a warehouse row or a group, so person data
+# never resolves. These force exit_only_at_end and reject PERSON_DEPENDENT_ACTION_TYPES.
+PERSON_LESS_TRIGGER_TYPES: Final[frozenset[str]] = frozenset({"data-warehouse-table", "group-updates"})
 
 # Billable action types that are subject to rate limiting and quota tracking
 # These action types incur costs and are counted against customer quotas

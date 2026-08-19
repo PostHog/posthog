@@ -109,6 +109,7 @@ from products.workflows.backend.api.publish_impact import build_publish_impact
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
+    PERSON_LESS_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
     TRIGGER_TYPES,
     HogFlow,
@@ -999,6 +1000,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
             "type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} "
             "to reference a cohort. "
+            "person-updates and group-updates triggers take property filters only ({filters: {properties}}); "
+            "group-updates also requires group_type_index: <int>, and person-updates may set "
+            "include_deleted: <bool> to also run when a person is deleted. "
             "batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts "
             "audience fans out one run per customer analytics account and takes account filters instead: "
             "properties entries of type 'account_custom_property' (key = definition id), plus "
@@ -1185,6 +1189,28 @@ class HogFlowActionSerializer(serializers.Serializer):
                     filters = data.get("config", {}).get("filters", {})
                     if isinstance(filters, dict):
                         self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
+            elif data.get("config", {}).get("type") in ("person-updates", "group-updates"):
+                # Neither trigger carries an event, so only property filters apply. Forcing the source
+                # here compiles the bytecode against the globals the consumer actually builds, and drops
+                # event/action matchers that could never match.
+                config = data.get("config", {})
+                source = config["type"]
+                if source == "group-updates" and not is_draft and not isinstance(config.get("group_type_index"), int):
+                    raise serializers.ValidationError(
+                        {"group_type_index": "A group type is required for this trigger."}
+                    )
+
+                filters = config.get("filters", {}) or {}
+                if not isinstance(filters, dict):
+                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                filters["source"] = source
+                serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                if is_draft:
+                    if serializer.is_valid():
+                        data["config"]["filters"] = serializer.validated_data
+                else:
+                    serializer.is_valid(raise_exception=True)
+                    data["config"]["filters"] = serializer.validated_data
             elif data.get("config", {}).get("type") == "data-warehouse-table":
                 # Warehouse-triggered workflows are person-less ("row-scoped"): one workflow run
                 # per synced row, filtering only against the row payload. The dot-notated table_name
@@ -2089,7 +2115,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # assume person data, so we block them here — the serializer is the source of truth, so the API,
         # MCP, and frontend can't bypass it. We force exit_only_at_end since the other exit conditions
         # re-evaluate trigger/conversion filters that may reference person properties.
-        if data["trigger"].get("type") == "data-warehouse-table":
+        if data["trigger"].get("type") in PERSON_LESS_TRIGGER_TYPES:
             data["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
             if not is_draft:
                 offending_types = sorted(
@@ -2103,8 +2129,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                     raise serializers.ValidationError(
                         {
                             "actions": (
-                                "These step types rely on person data, which is unavailable for data warehouse "
-                                f"table triggers: {', '.join(offending_types)}"
+                                "These step types rely on person data, which is unavailable for "
+                                f"{data['trigger']['type']} triggers: {', '.join(offending_types)}"
                             )
                         }
                     )

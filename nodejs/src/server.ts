@@ -202,7 +202,10 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpPersonUpdates) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpPersonUpdatesConsumer(this.config, cdpDeps!, kafkaQueue)
+                const consumer = new CdpPersonUpdatesConsumer(this.config, cdpDeps!, {
+                    hogQueue: kafkaQueue,
+                    hogflowQueue: postgresV2Queue,
+                })
                 await consumer.start()
                 return consumer.service
             })
@@ -210,7 +213,10 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpGroupUpdates) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpGroupUpdatesConsumer(this.config, cdpDeps!, kafkaQueue)
+                const consumer = new CdpGroupUpdatesConsumer(this.config, cdpDeps!, {
+                    hogQueue: kafkaQueue,
+                    hogflowQueue: postgresV2Queue,
+                })
                 await consumer.start()
                 return consumer.service
             })

@@ -139,6 +139,21 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         filters: EventTriggerFiltersSchema,
     }),
     z.object({
+        type: z.literal('person-updates'),
+        filters: z.object({
+            properties: z.array(z.any()).optional(),
+        }),
+        include_deleted: z.boolean().optional(),
+    }),
+    z.object({
+        type: z.literal('group-updates'),
+        // Absent on a draft that hasn't picked a group type yet
+        group_type_index: z.number().optional(),
+        filters: z.object({
+            properties: z.array(z.any()).optional(),
+        }),
+    }),
+    z.object({
         type: z.literal('webhook'),
         template_uuid: z.string().optional(), // May be used later to specify a specific template version
         template_id: z.string(),

@@ -1,4 +1,6 @@
 import './conversations'
 import './customer_analytics'
 import './data_warehouse_table'
+import './group_updates'
+import './person_updates'
 import './surveys'

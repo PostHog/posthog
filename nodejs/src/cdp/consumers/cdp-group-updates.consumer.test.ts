@@ -8,8 +8,10 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } from '../../../tests/helpers/sql'
 import { ClickhouseGroup, Hub, Team } from '../../types'
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { insertHogFunction as _insertHogFunction, createHogFunction, createKafkaMessage } from '../_tests/fixtures'
+import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogFunctionType } from '../types'
 import { CdpGroupUpdatesConsumer } from './cdp-group-updates.consumer'
@@ -47,8 +49,10 @@ describe('CDP Group Updates Consumer', () => {
         ])
         hub.teamManager['lazyLoader'].clear()
 
-        const mockJobQueue = createMockJobQueue()
-        processor = new CdpGroupUpdatesConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
+        processor = new CdpGroupUpdatesConsumer(hub, createCdpConsumerDeps(hub), {
+            hogQueue: createMockJobQueue(),
+            hogflowQueue: createMockJobQueue(),
+        })
         await processor.start()
 
         const mockGroupRepository: GroupReadRepository = {
@@ -107,7 +111,11 @@ describe('CDP Group Updates Consumer', () => {
                     "distinct_id": "acme-inc",
                     "elements_chain": "",
                     "event": "$group_updated",
-                    "properties": {},
+                    "properties": {
+                      "$groups": {
+                        "organization": "acme-inc",
+                      },
+                    },
                     "timestamp": "2025-01-01T01:01:01.000Z",
                     "url": "http://localhost:8000/project/2/groups/0/acme-inc",
                     "uuid": "<REPLACED-UUID-0>",
@@ -130,6 +138,32 @@ describe('CDP Group Updates Consumer', () => {
                   },
                 }
             `)
+        })
+    })
+
+    describe('workflows', () => {
+        const buildGroupUpdatesHogFlow = (groupTypeIndex: number) =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withSimpleWorkflow({
+                    trigger: {
+                        type: 'group-updates',
+                        group_type_index: groupTypeIndex,
+                        filters: { properties: [], bytecode: ['_h', 29] } as any,
+                    },
+                })
+                .build()
+
+        it.each([
+            ['matching the updated group type', 0, 1],
+            ['subscribed to a different group type', 1, 0],
+        ])('builds %s workflow invocations for a group type index of %s', async (_name, groupTypeIndex, expected) => {
+            await _insertHogFlow(hub.postgres, buildGroupUpdatesHogFlow(groupTypeIndex))
+
+            const events = await processor._parseKafkaBatch([createKafkaMessage(createClickhouseGroup(team.id))])
+            const { invocations } = await processor.processBatch(events)
+
+            expect(invocations.filter((invocation: any) => invocation.hogFlow)).toHaveLength(expected)
         })
     })
 

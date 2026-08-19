@@ -119,7 +119,12 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // and person-dependent steps no-op for these flows. Explicitly skip the person lookup
                 // rather than relying on event.distinct_id being empty so future changes to the
                 // synthetic event shape don't accidentally re-enable the lookup.
-                const isWarehouseRow = hogFlow.trigger?.type === 'data-warehouse-table'
+                // Group updates are person-less for the same reason: the group is the unit of work.
+                const isPersonLess =
+                    hogFlow.trigger?.type === 'data-warehouse-table' || hogFlow.trigger?.type === 'group-updates'
+                // A person-updates trigger carries the person's UUID in event.distinct_id, so it has to
+                // resolve by person_id — a distinct_id lookup on that UUID finds nobody.
+                const isPersonUpdate = hogFlow.trigger?.type === 'person-updates'
                 // Account-audience batch invocations carry the account's group key as
                 // event.distinct_id; resolving it as a person distinct_id would attach an
                 // unrelated person to the run. Accounts have no person — skip the lookup.
@@ -141,14 +146,15 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 if (resolveByRepointedPerson) {
                     delete hogFlowInvocationState.personIdRepointed
                 }
+                const resolveByPersonId = resolveByRepointedPerson || isPersonUpdate
                 const personIdOrDistinctId =
-                    isWarehouseRow || isAccountAudience
+                    isPersonLess || isAccountAudience
                         ? undefined
-                        : resolveByRepointedPerson
+                        : resolveByPersonId
                           ? hogFlowInvocationState.personId
                           : hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
                 const kind =
-                    resolveByRepointedPerson || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
+                    resolveByPersonId || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
 
                 const [person, groups] = await Promise.all([
                     personIdOrDistinctId
@@ -172,8 +178,10 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // Batch-triggered invocations arrive with an empty event.distinct_id because the
                 // blast-radius query returns UUIDs only. The person lookup above resolves one
                 // distinct_id for us (when the person has any), so backfill it here so templates
-                // defaulting to `{event.distinct_id}` resolve at hog runtime.
-                if (!hogFlowInvocationState.event.distinct_id && person?.distinct_id) {
+                // defaulting to `{event.distinct_id}` resolve at hog runtime. A person-updates trigger
+                // starts with the person UUID in that field, so overwrite it too - a step that captures
+                // an event or sends a push with the UUID would address a person who doesn't exist.
+                if ((!hogFlowInvocationState.event.distinct_id || isPersonUpdate) && person?.distinct_id) {
                     hogFlowInvocationState.event.distinct_id = person.distinct_id
                 }
 

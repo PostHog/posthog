@@ -131,6 +131,20 @@ export interface stepDelayLogicActions {
                   max_wait_duration: string
               }
             | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  group_type_index?: number | undefined
+                  type: 'group-updates'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  include_deleted?: boolean | undefined
+                  type: 'person-updates'
+              }
+            | {
                   inputs: Record<
                       string,
                       {
@@ -392,6 +406,20 @@ export interface stepDelayLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  group_type_index?: number | undefined
+                  type: 'group-updates'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  include_deleted?: boolean | undefined
+                  type: 'person-updates'
               }
             | {
                   filters: {
