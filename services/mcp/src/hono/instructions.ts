@@ -65,6 +65,7 @@ export class InstructionsBuilder {
                 }),
             renderUiEnabled: state.renderUiEnabled,
             metadata: state.metadata,
+            metadataCompact: state.metadataCompact,
             groupTypes: state.groupTypes,
             dataCatalogEnabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
         }

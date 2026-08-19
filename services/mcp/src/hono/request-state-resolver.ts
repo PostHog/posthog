@@ -60,6 +60,12 @@ export interface ResolvedState {
     // the model like Codex, or ignore it like Claude web/desktop) the exec command
     // reference. Resolved once here so every render path reads the same source.
     metadata: string | undefined
+    // Variant of `metadata` without the product/integration context lines, for the
+    // claude.ai exec command reference: that surface counts against the ~16 KiB
+    // connector-registry cap on the serialized inputSchema, which already sits
+    // within tens of characters of the worst-case env context. Every uncapped
+    // surface renders the full `metadata`.
+    metadataCompact: string | undefined
     groupTypes: GroupType[] | undefined
 }
 
@@ -225,11 +231,12 @@ export class RequestStateResolver {
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
 
-        const [groupTypes, metadata] = await Promise.all([
+        const [groupTypes, metadata, metadataCompact] = await Promise.all([
             cachedProjectId && hasScope(apiKeyScopes, 'group:read')
                 ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
                 : undefined,
             context.stateManager.getEnvironmentPrompt(),
+            context.stateManager.getEnvironmentPrompt({ includeProductContext: false }),
         ])
 
         return {
@@ -248,6 +255,7 @@ export class RequestStateResolver {
             distinctId,
             renderUiEnabled,
             metadata,
+            metadataCompact,
             groupTypes,
         }
     }
