@@ -5299,3 +5299,174 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self.assertFalse(Insight.objects_including_soft_deleted.get(id=insight.id).deleted)
         # The insight comes back, but its tile on a dashboard the user can only view stays hidden.
         self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
+
+
+class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The action is project-admin only, so the caller in the rest of these tests has to be one.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _create_query_insight(self, *, name: str = "Trend", filter_test_accounts: bool | None = None) -> Insight:
+        source: dict[str, Any] = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
+        if filter_test_accounts is not None:
+            source["filterTestAccounts"] = filter_test_accounts
+        return Insight.objects.create(
+            team=self.team,
+            name=name,
+            saved=True,
+            created_by=self.user,
+            query={"kind": "InsightVizNode", "source": source},
+        )
+
+    def _reloaded_source(self, insight: Insight) -> dict[str, Any]:
+        insight.refresh_from_db()
+        assert insight.query is not None
+        return insight.query["source"]
+
+    def _bulk_set(self, enabled: bool) -> Any:
+        return self.client.post(
+            f"/api/environments/{self.team.id}/insights/bulk_set_test_account_filter/",
+            {"enabled": enabled},
+            format="json",
+        )
+
+    @parameterized.expand([("turn on", True), ("turn off", False)])
+    def test_sets_the_filter_on_every_query_insight(self, _name: str, enabled: bool) -> None:
+        needs_change = self._create_query_insight(filter_test_accounts=not enabled)
+        already_set = self._create_query_insight(name="Already set", filter_test_accounts=enabled)
+
+        response = self._bulk_set(enabled)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), {"updated": 1, "unchanged": 1, "unsupported": 0, "skipped": 0, "legacy": 0})
+        self.assertEqual(self._reloaded_source(needs_change)["filterTestAccounts"], enabled)
+        self.assertEqual(self._reloaded_source(already_set)["filterTestAccounts"], enabled)
+
+    @patch("products.product_analytics.backend.api.insight.INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE", 2)
+    def test_covers_every_insight_across_several_batches(self) -> None:
+        insights = [self._create_query_insight(name=f"Trend {n}", filter_test_accounts=False) for n in range(5)]
+
+        response = self._bulk_set(True)
+
+        # A cursor that doesn't advance reprocesses rows, one that advances too far leaves the tail untouched.
+        # Both are invisible while every insight fits in a single batch, which is every other case here.
+        self.assertEqual(response.json(), {"updated": 5, "unchanged": 0, "unsupported": 0, "skipped": 0, "legacy": 0})
+        for insight in insights:
+            self.assertTrue(self._reloaded_source(insight)["filterTestAccounts"])
+
+    def test_treats_a_missing_filter_as_off(self) -> None:
+        insight = self._create_query_insight()
+
+        self.assertEqual(self._bulk_set(False).json()["unchanged"], 1)
+        self.assertEqual(self._bulk_set(True).json()["updated"], 1)
+
+        self.assertTrue(self._reloaded_source(insight)["filterTestAccounts"])
+
+    def test_leaves_sql_insights_alone(self) -> None:
+        sql_insight = Insight.objects.create(
+            team=self.team,
+            name="SQL",
+            saved=True,
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
+        )
+
+        response = self._bulk_set(True)
+
+        self.assertEqual(response.json(), {"updated": 0, "unchanged": 0, "unsupported": 1, "skipped": 0, "legacy": 0})
+        self.assertNotIn("filterTestAccounts", self._reloaded_source(sql_insight))
+
+    def test_reports_insights_that_only_have_legacy_filters_rather_than_changing_them(self) -> None:
+        mine = self._create_query_insight(filter_test_accounts=False)
+        legacy = Insight.objects.create(
+            team=self.team, name="Legacy", saved=True, filters={"insight": "TRENDS", "events": [{"id": "$pageview"}]}
+        )
+
+        response = self._bulk_set(True)
+
+        # `legacy: 1` rather than `unsupported: 1`: these carry the toggle and have their own remedy, so the
+        # caller has to be able to tell them apart from a SQL insight that can never have one.
+        self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 0, "legacy": 1})
+        self.assertTrue(self._reloaded_source(mine)["filterTestAccounts"])
+        legacy.refresh_from_db()
+        self.assertNotIn("filter_test_accounts", legacy.filters)
+
+    def test_leaves_insights_in_other_projects_alone(self) -> None:
+        mine = self._create_query_insight(filter_test_accounts=False)
+        _, other_team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
+        theirs = Insight.objects.create(
+            team=other_team,
+            name="Theirs",
+            saved=True,
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "filterTestAccounts": False,
+                },
+            },
+        )
+
+        response = self._bulk_set(True)
+
+        self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 0, "legacy": 0})
+        self.assertTrue(self._reloaded_source(mine)["filterTestAccounts"])
+        self.assertFalse(self._reloaded_source(theirs)["filterTestAccounts"])
+
+    def test_refuses_a_member_who_could_otherwise_edit_every_insight(self) -> None:
+        insight = self._create_query_insight(filter_test_accounts=False)
+        member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        self.client.force_login(member)
+        response = self._bulk_set(True)
+
+        # The per-insight check would let this through: insights default to editor access, which is how the
+        # settings UI hiding the button from non-admins ended up being the only thing stopping them.
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(self._reloaded_source(insight)["filterTestAccounts"])
+
+    def test_records_the_change_in_the_activity_log(self) -> None:
+        insight = self._create_query_insight()
+
+        self._bulk_set(True)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/insights/{insight.id}/activity/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        activities = response.json()["results"]
+        self.assertEqual(activities[0]["activity"], "updated")
+        self.assertEqual([change["field"] for change in activities[0]["detail"]["changes"]], ["query"])
+
+    @parameterized.expand(
+        [
+            ("a run that flips insights", False, {"insights_updated": 1, "insights_unchanged": 0}),
+            ("a run that flips nothing", True, {"insights_updated": 0, "insights_unchanged": 1}),
+        ]
+    )
+    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    def test_reports_the_run_for_analytics(
+        self,
+        _name: str,
+        already_enabled: bool,
+        expected_counts: dict[str, int],
+        mock_report_user_action: mock.Mock,
+    ) -> None:
+        self._create_query_insight(filter_test_accounts=already_enabled)
+
+        self._bulk_set(True)
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "insights bulk test account filter set",
+            {
+                "enabled": True,
+                "insights_considered": 1,
+                "insights_unsupported": 0,
+                "insights_skipped": 0,
+                "insights_legacy": 0,
+                **expected_counts,
+            },
+            team=ANY,
+            request=ANY,
+        )

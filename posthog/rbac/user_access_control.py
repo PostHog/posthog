@@ -961,6 +961,13 @@ class UserAccessControl:
             # If there is no team, then there can't be any access controls on this resource
             return False
 
+        # A resource that carries no resource-level controls has no such rules to find, whatever
+        # rows exist. Answering True for one sends the object walk to `access_level_for_resource`,
+        # which returns the built-in default for these resources — that would override the rules
+        # written about the object itself, e.g. a project's own default.
+        if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
+            return False
+
         # Inheriting children (e.g. warehouse_view -> warehouse_objects) intentionally
         # bypass their own resource-level rows: only the parent (umbrella) is consulted.
         # This keeps the AC picker simple — admins configure one umbrella scope instead

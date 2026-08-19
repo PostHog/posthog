@@ -49,9 +49,8 @@ A newer relevant delivery supersedes older non-terminal runs. Rules that keep th
 - Terminal states (`TERMINAL_STATUSES` in `facade/enums.py`) are never rewritten — `mark_review_failed`
   must not clobber a delivered outcome, and terminal saves are conditional
   (`.exclude(status=SUPERSEDED).update(...)`), never plain `save()`.
-- `post_verdict` guards before ANY GitHub write: superseded status, current head vs run head, and
-  a last fresh status read. Losing the final conditional update means dismiss-your-own-approval,
-  not "log and return".
+- `post_verdict` guards before ANY GitHub write: superseded status, current head vs run head, current base (ref and SHA) vs the reviewed one (a retarget, or a parent branch moving under a stacked PR, rewrites the diff with the head unchanged, and the retarget delivery can trail the activity), and a last fresh status read.
+  Losing the final conditional update means dismiss-your-own-approval, not "log and return".
 - Out-of-order webhook deliveries are dropped by the `payload_updated_at` clock — checked before
   the transaction AND re-checked under the row lock, and the descriptive-field refresh is gated on
   the same clock inside the UPDATE's WHERE clause.
@@ -76,6 +75,8 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   `STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS`, not code edits.
 - Everything posted to GitHub goes through `_scrub_credentials` AND `_neutralize_active_markdown`
   (GitHub's camo proxy auto-fetches images — a markdown image URL is an exfiltration channel).
+- The sandbox checkout is the PR head, so the engine's Agent SDK session runs with `setting_sources=[]` + `strict_mcp_config` (reviewer.py): a PR-shipped `.claude/settings.json` hook, `CLAUDE.md`, or `.mcp.json` is readable as untrusted content, never loaded as configuration.
+  Don't reintroduce filesystem settings discovery there.
 
 ## The self-driving inbox carve-out (the one exception to the bot-author refusal)
 
