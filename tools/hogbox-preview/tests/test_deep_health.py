@@ -23,7 +23,7 @@ from __future__ import annotations
 from contextlib import ExitStack
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 try:
     from hogbox_preview.backend import ExecResult
@@ -198,6 +198,44 @@ class OverrideTemporalParityTest(unittest.TestCase):
         PostHogPreviewStack(backend).reset_database()
         script = backend.long_runs[-1]
         self.assertIn("rm -f db clickhouse web temporal temporal-django-worker", script)
+
+
+@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
+class ImagePullTest(unittest.TestCase):
+    def test_retries_each_image_independently(self):
+        backend = MagicMock()
+        backend.run_long.side_effect = [RuntimeError("app TLS timeout"), None, RuntimeError("CDP TLS timeout"), None]
+        image = "ghcr.io/posthog/posthog:test"
+        stack = PostHogPreviewStack(backend, image=image)
+
+        stack.pull_image(attempts=3)
+
+        backend.run_long.assert_has_calls(
+            [
+                call(f"docker pull {image}", name="pull", timeout=1800),
+                call(f"docker pull {image}", name="pull", timeout=1800),
+                call(f"docker pull {stack.CDP_IMAGE}", name="pull", timeout=1800),
+                call(f"docker pull {stack.CDP_IMAGE}", name="pull", timeout=1800),
+            ]
+        )
+        self.assertEqual(backend.run_long.call_count, 4)
+
+    def test_stops_before_cdp_image_when_app_image_exhausts_retries(self):
+        backend = MagicMock()
+        backend.run_long.side_effect = RuntimeError("TLS timeout")
+        image = "ghcr.io/posthog/posthog:test"
+        stack = PostHogPreviewStack(backend, image=image)
+
+        with self.assertRaisesRegex(RuntimeError, f"docker pull {image} failed after 2 attempts: TLS timeout"):
+            stack.pull_image(attempts=2)
+
+        self.assertEqual(
+            backend.run_long.call_args_list,
+            [
+                call(f"docker pull {image}", name="pull", timeout=1800),
+                call(f"docker pull {image}", name="pull", timeout=1800),
+            ],
+        )
 
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
