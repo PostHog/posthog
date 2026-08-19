@@ -68,8 +68,8 @@ class TestDreamingLane(BaseTest):
         config.save()
         prepared = dreaming._prepare_dispatch(str(config.organization_id))
         assert prepared is not None
-        assert prepared[1] == self.team.id
-        assert prepared[2] == self.user.id
+        assert prepared.team_id == self.team.id
+        assert prepared.user_id == self.user.id
 
     def test_dream_prompt_carries_both_skills_without_frontmatter(self) -> None:
         prompt = dreaming._build_dream_prompt()
