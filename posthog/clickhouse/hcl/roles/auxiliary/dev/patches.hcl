@@ -1,6 +1,5 @@
 # dev deltas to shared aux objects: identical pipeline, property_values Kafka
-# consumer downsized for dev volume (prod runs 8; migration 0268 encodes the same
-# split via CLOUD_DEPLOYMENT).
+# consumer downsized for dev volume (the canonical definition runs 8).
 database "posthog" {
   patch_table "kafka_property_values" {
     engine "kafka" {
