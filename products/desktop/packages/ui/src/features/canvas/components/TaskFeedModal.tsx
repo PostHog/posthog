@@ -17,7 +17,7 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { FeedQueryInput } from "@posthog/ui/features/canvas/components/FeedQueryInput";
-import { unfinishedFilterKeys } from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
+import { unfinishedFilterKeys } from "@posthog/ui/features/canvas/components/feedQuerySuggestionUtils";
 import {
   useFeedQueryPlan,
   useTaskFeedResults,
@@ -28,7 +28,7 @@ import {
 } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import { track } from "@posthog/ui/shell/analytics";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const MAX_FEED_NAME_LENGTH = 80;
 const PREVIEW_DEBOUNCE_MS = 400;
@@ -59,19 +59,19 @@ export function TaskFeedModal({
     feed?.name ?? (seedQuery ? suggestFeedName(seedQuery) : ""),
   );
   const [query, setQuery] = useState(seedQuery);
-  const [nameEdited, setNameEdited] = useState(!!feed);
+  const nameEdited = useRef(!!feed);
 
   useEffect(() => {
     if (!open) return;
     const nextQuery = feed?.query ?? initialQuery ?? "";
     setName(feed?.name ?? (nextQuery ? suggestFeedName(nextQuery) : ""));
     setQuery(nextQuery);
-    setNameEdited(!!feed);
+    nameEdited.current = !!feed;
   }, [open, feed, initialQuery]);
 
   const setQueryAndSuggestName = (next: string) => {
     setQuery(next);
-    if (!nameEdited) setName(suggestFeedName(next));
+    if (!nameEdited.current) setName(suggestFeedName(next));
   };
 
   const trimmedName = name.trim();
@@ -206,7 +206,7 @@ export function TaskFeedModal({
               maxLength={MAX_FEED_NAME_LENGTH}
               onChange={(event) => {
                 setName(event.target.value);
-                setNameEdited(event.target.value.trim() !== "");
+                nameEdited.current = event.target.value.trim() !== "";
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {

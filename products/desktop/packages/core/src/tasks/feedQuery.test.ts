@@ -124,11 +124,14 @@ describe("feedQuery", () => {
       '  space:"desktop app"  trailing ',
       "https://example.com/x pr:not:merged",
     ])("reproduces %j exactly from its segments", (query) => {
-      expect(
-        lexFeedQuery(query)
-          .map((s) => s.raw)
-          .join(""),
-      ).toBe(query);
+      const segments = lexFeedQuery(query);
+      expect(segments.map((segment) => segment.raw).join("")).toBe(query);
+
+      let start = 0;
+      for (const segment of segments) {
+        expect(segment.start).toBe(start);
+        start += segment.raw.length;
+      }
     });
 
     it("classifies tokens, text, and mid-typing fragments", () => {

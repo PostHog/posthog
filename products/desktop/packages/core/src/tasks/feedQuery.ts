@@ -226,6 +226,7 @@ function validateToken(token: FeedQueryToken, issues: FeedQueryIssue[]): void {
 }
 
 export interface FeedQuerySegment {
+  start: number;
   raw: string;
   kind: "whitespace" | "text" | "token";
   token?: {
@@ -243,7 +244,11 @@ export function lexFeedQuery(query: string): FeedQuerySegment[] {
   for (const match of query.matchAll(CHUNK_RE)) {
     const start = match.index;
     if (start > cursor) {
-      segments.push({ raw: query.slice(cursor, start), kind: "whitespace" });
+      segments.push({
+        start: cursor,
+        raw: query.slice(cursor, start),
+        kind: "whitespace",
+      });
     }
     const raw = match[0];
     cursor = start + raw.length;
@@ -253,7 +258,7 @@ export function lexFeedQuery(query: string): FeedQuerySegment[] {
       ? KEY_ALIASES[tokenMatch[2].toLowerCase()]
       : undefined;
     if (!tokenMatch || !key || tokenMatch[3] === "") {
-      segments.push({ raw, kind: "text" });
+      segments.push({ start, raw, kind: "text" });
       continue;
     }
     let negated = tokenMatch[1] === "-";
@@ -265,6 +270,7 @@ export function lexFeedQuery(query: string): FeedQuerySegment[] {
     const issues: FeedQueryIssue[] = [];
     validateToken({ raw, key, value, negated }, issues);
     segments.push({
+      start,
       raw,
       kind: "token",
       token: {
@@ -277,7 +283,11 @@ export function lexFeedQuery(query: string): FeedQuerySegment[] {
     });
   }
   if (cursor < query.length) {
-    segments.push({ raw: query.slice(cursor), kind: "whitespace" });
+    segments.push({
+      start: cursor,
+      raw: query.slice(cursor),
+      kind: "whitespace",
+    });
   }
   return segments;
 }

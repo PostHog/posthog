@@ -19,6 +19,10 @@ import {
 } from "@phosphor-icons/react";
 import { TASK_RUN_STATUSES } from "@posthog/core/tasks/feedQuery";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
+import type {
+  FeedQueryEditContext,
+  FeedQuerySuggestion,
+} from "@posthog/ui/features/canvas/components/feedQuerySuggestionUtils";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
@@ -26,25 +30,9 @@ import { getOriginProductMeta } from "@posthog/ui/features/sidebar/components/it
 import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { type ReactNode, useMemo } from "react";
 
-export interface FeedQuerySuggestion {
-  insert: string;
-  label: string;
-  hint?: string;
-  icon?: ReactNode;
-}
-
-export interface FeedQuerySuggestionGroup {
+interface FeedQuerySuggestionGroup {
   heading: string;
   items: FeedQuerySuggestion[];
-}
-
-export interface FeedQueryEditContext {
-  chunk: { start: number; end: number; text: string };
-  activeKey: string | null;
-  typed: string;
-  // The value carries a `not:` prefix, stripped from `typed` so completion can
-  // match, so the replacement has to restore it or the filter flips.
-  valueNegated: boolean;
 }
 
 function keyIcon(icon: ReactNode): ReactNode {
@@ -138,22 +126,6 @@ const PALETTE_KEY_SUGGESTIONS: FeedQuerySuggestion[] = [
     icon: keyIcon(<MagnifyingGlassIcon size={14} />),
   },
 ];
-
-export function unfinishedFilterKeys(
-  text: string,
-): { word: string; keys: string[] }[] {
-  const keys = [...KEY_SUGGESTIONS, ...PALETTE_KEY_SUGGESTIONS];
-  return text
-    .split(/\s+/)
-    .filter((word) => word !== "")
-    .map((word) => ({
-      word,
-      keys: keys
-        .filter((key) => key.label.startsWith(word.toLowerCase()))
-        .map((key) => key.label),
-    }))
-    .filter((candidate) => candidate.keys.length > 0);
-}
 
 const TYPE_VALUES: FeedQuerySuggestion[] = [
   { insert: "task", label: "task", hint: "only tasks" },
@@ -266,10 +238,6 @@ function chunkAt(
   return { start, end, text: value.slice(start, end) };
 }
 
-function quoteIfNeeded(value: string): string {
-  return /\s/.test(value) ? `"${value}"` : value;
-}
-
 export function FeedQueryMatchedLabel({
   label,
   typed,
@@ -288,28 +256,6 @@ export function FeedQueryMatchedLabel({
       <span className="font-medium">{label.slice(typed.length)}</span>
     </span>
   );
-}
-
-export function applyFeedQuerySuggestion(
-  value: string,
-  context: FeedQueryEditContext,
-  suggestion: FeedQuerySuggestion,
-): { next: string; caret: number; completedKey: boolean } {
-  const negation = context.chunk.text.startsWith("-") ? "-" : "";
-  const isKey = context.activeKey === null;
-  const valuePrefix = context.valueNegated ? "not:" : "";
-  const replacement = isKey
-    ? `${negation}${suggestion.insert}`
-    : `${negation}${context.activeKey}:${valuePrefix}${quoteIfNeeded(suggestion.insert)} `;
-  const next =
-    value.slice(0, context.chunk.start) +
-    replacement +
-    value.slice(context.chunk.end);
-  return {
-    next,
-    caret: context.chunk.start + replacement.length,
-    completedKey: isKey,
-  };
 }
 
 export function useFeedQuerySuggestions(
@@ -444,15 +390,18 @@ export function useFeedQuerySuggestions(
             }),
         };
       }
-      case "status":
-        return {
-          heading: "Run status",
-          items: TASK_RUN_STATUSES.filter(startsWith).map((status) => ({
+      case "status": {
+        const items: FeedQuerySuggestion[] = [];
+        for (const status of TASK_RUN_STATUSES) {
+          if (!startsWith(status)) continue;
+          items.push({
             insert: status,
             label: status,
             icon: statusDot(status),
-          })),
-        };
+          });
+        }
+        return { heading: "Run status", items };
+      }
       case "is":
         return {
           heading: "Task state",

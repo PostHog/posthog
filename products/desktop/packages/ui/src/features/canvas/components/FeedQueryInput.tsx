@@ -4,10 +4,10 @@ import {
 } from "@posthog/core/tasks/feedQuery";
 import { cn, Kbd } from "@posthog/quill";
 import {
-  applyFeedQuerySuggestion,
   FeedQueryMatchedLabel,
   useFeedQuerySuggestions,
 } from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
+import { applyFeedQuerySuggestion } from "@posthog/ui/features/canvas/components/feedQuerySuggestionUtils";
 import {
   Fragment,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -33,9 +33,8 @@ export function FeedQueryHighlight({
   const segments = useMemo(() => lexFeedQuery(query), [query]);
   return (
     <span className={cn(EDITOR_TEXT_CLASS, className)}>
-      {segments.map((segment, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional slices of the string
-        <Fragment key={index}>{renderSegment(segment)}</Fragment>
+      {segments.map((segment) => (
+        <Fragment key={segment.start}>{renderSegment(segment)}</Fragment>
       ))}
     </span>
   );

@@ -33,13 +33,8 @@ vi.mock("@posthog/ui/features/browser-tabs/TaskTabIcon", () => ({
   TaskTabIcon: () => <span />,
 }));
 
-import {
-  ChannelFeedView,
-  ExpandablePrompt,
-  mergeFeedEntries,
-  stripContextBlocks,
-  TaskCard,
-} from "./ChannelFeedView";
+import { ChannelFeedView, ExpandablePrompt, TaskCard } from "./ChannelFeedView";
+import { mergeFeedEntries, stripContextBlocks } from "./channelFeedDisplay";
 
 const task = {
   id: "task-1",

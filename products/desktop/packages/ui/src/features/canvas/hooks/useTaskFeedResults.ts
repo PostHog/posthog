@@ -1,6 +1,7 @@
 import {
   type FeedQueryIssue,
   type FeedQueryPlan,
+  type FeedQueryToken,
   parseFeedQuery,
   planFeedQuery,
 } from "@posthog/core/tasks/feedQuery";
@@ -19,6 +20,20 @@ import {
 const TASK_FEED_POLL_INTERVAL_MS = 15_000;
 const TASK_FEED_MAX_PAGES = 5;
 
+function isPersonToken(token: FeedQueryToken): boolean {
+  return (
+    token.key === "created-by" ||
+    token.key === "commented-by" ||
+    token.key === "mentions" ||
+    token.key === "involves"
+  );
+}
+
+function isCurrentUserToken(token: FeedQueryToken): boolean {
+  const value = token.value.toLowerCase();
+  return value === "@me" || value === "me";
+}
+
 export function taskFeedResultsQueryKey(query: string) {
   return ["task-feed-results", query] as const;
 }
@@ -33,13 +48,6 @@ export function useFeedQueryPlan(query: string | undefined): {
 } {
   const normalized = query?.trim() ?? "";
   const parsed = useMemo(() => parseFeedQuery(normalized), [normalized]);
-  const isPersonToken = (token: (typeof parsed.tokens)[number]) =>
-    token.key === "created-by" ||
-    token.key === "commented-by" ||
-    token.key === "mentions" ||
-    token.key === "involves";
-  const isCurrentUserToken = (token: (typeof parsed.tokens)[number]) =>
-    token.value.toLowerCase() === "@me" || token.value.toLowerCase() === "me";
   const needsMembers = parsed.tokens.some(
     (token) => isPersonToken(token) && !isCurrentUserToken(token),
   );
@@ -143,9 +151,12 @@ export function useTaskFeedResults(query: string | undefined): {
           }),
         ),
       );
-      const byId = new Map(
-        pages.flatMap((page) => page.tasks).map((task) => [task.id, task]),
-      );
+      const byId = new Map<string, Task>();
+      for (const page of pages) {
+        for (const task of page.tasks) {
+          byId.set(task.id, task);
+        }
+      }
       return {
         tasks: [...byId.values()].sort((a, b) =>
           b.created_at.localeCompare(a.created_at),
