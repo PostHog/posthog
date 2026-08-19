@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PersonhogPropertiesSizeError } from '~/common/personhog/persons'
+import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
 
@@ -359,6 +360,94 @@ describe('PersonhogPersonsStore', () => {
             })
         })
 
+        const mergeRequest = () => ({
+            teamId: 1,
+            targetDistinctId: 'd1',
+            sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
+            eventOps: ops({ $set: { plan: 'pro' } }, '$identify'),
+            opId: 'event-uuid',
+            allowIdentifiedSources: false,
+            mergeMode: createDefaultSyncMergeMode(),
+            createdAtMs: 3_600_000,
+        })
+
+        it('a FAILED_PRECONDITION refusal salts the retry op id with the payload fingerprint', async () => {
+            // A recorded op refuses a drifted redelivery forever under one
+            // op id (payloads legitimately drift — GeoIP refreshes,
+            // transformation stamps), so the retry must run as a fresh op,
+            // which settles as a no-op when the recorded merge committed.
+            const opIds: string[] = []
+            repository.mergePersons = jest.fn().mockImplementation((call: { opId: string }) => {
+                opIds.push(call.opId)
+                if (opIds.length === 1) {
+                    return Promise.reject(
+                        new ConnectError('op_id was already used for a different request', Code.FailedPrecondition)
+                    )
+                }
+                return Promise.resolve({
+                    survivor: survivor(),
+                    results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
+                })
+            })
+            const bound = store.forBatch(0)
+
+            const result = await bound.mergePersons(mergeRequest())
+
+            expect(result.survivor?.version).toBe(5)
+            expect(opIds).toHaveLength(2)
+            expect(opIds[1]).not.toBe(opIds[0])
+
+            // The salt is the payload fingerprint, not an attempt counter:
+            // a counter restarts every delivery, so a few payload-drifting
+            // redeliveries exhaust its reachable op ids and the merge
+            // wedges behind recorded mismatches forever. The fingerprint is
+            // stable, so a repeat delivery with the same payload derives
+            // the same salted op and attaches to what it recorded.
+            const firstDelivery = [...opIds]
+            opIds.length = 0
+            await bound.mergePersons(mergeRequest())
+            expect(opIds).toEqual(firstDelivery)
+        })
+
+        it('a conflict gets the full salted retry budget before surfacing as the claim error', async () => {
+            repository.mergePersons = jest.fn().mockResolvedValue({
+                survivor: null,
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' }],
+            })
+            const bound = store.forBatch(0)
+
+            await expect(bound.mergePersons(mergeRequest())).rejects.toBeInstanceOf(PersonClaimedByLifecycleOpError)
+
+            // A saga-aborted conflict is recorded terminally and replays
+            // under its op id even after the holding operation cleared, so
+            // every retry presents a fresh salted identity for a real
+            // second look. Safe: a conflict verdict proves nothing was
+            // destroyed, so a fresh op cannot double-merge.
+            const opIds = (repository.mergePersons as jest.Mock).mock.calls.map(([call]) => call.opId)
+            expect(opIds).toHaveLength(3)
+            expect(new Set(opIds).size).toBe(3)
+        })
+
+        it('a conflict that clears on a salted retry merges normally', async () => {
+            repository.mergePersons = jest
+                .fn()
+                .mockResolvedValueOnce({
+                    survivor: null,
+                    results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' }],
+                })
+                .mockResolvedValueOnce({
+                    survivor: survivor(),
+                    results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
+                })
+            const bound = store.forBatch(0)
+
+            const result = await bound.mergePersons(mergeRequest())
+
+            expect(result.survivor?.version).toBe(5)
+            const [first, second] = (repository.mergePersons as jest.Mock).mock.calls.map(([call]) => call.opId)
+            expect(second).not.toBe(first)
+        })
+
         it('later fetches of the touched ids read the survivor without re-resolving', async () => {
             const bound = store.forBatch(0)
             const result = await bound.mergePersons({
@@ -455,7 +544,7 @@ describe('PersonhogPersonsStore', () => {
             await bound.fetchForUpdate(1, 'anon-1')
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: survivor(),
-                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' }],
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_already_identified' }],
             })
 
             await bound.mergePersons({
