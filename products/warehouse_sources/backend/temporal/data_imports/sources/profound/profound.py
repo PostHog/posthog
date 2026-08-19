@@ -1,8 +1,9 @@
 import logging
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -38,7 +39,7 @@ class ProfoundCategoriesError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class ProfoundResumeConfig:
     # Reports walk one category at a time, so resuming needs both which category was in flight and
     # how far through its pages we got.
