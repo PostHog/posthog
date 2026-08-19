@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any, Literal
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -48,7 +50,9 @@ POST_VOTES_FANOUT = DependentEndpointConfig(
 )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+# slots=False: mypy's fine-grained checker has trouble with a slotted dataclass holding an
+# Optional field typed against another dataclass (DependentEndpointConfig) in this module graph.
+@frozen(slots=False)
 class SleekplanEndpointConfig:
     name: str
     path: str
